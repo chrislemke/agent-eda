@@ -1,0 +1,12 @@
+{
+  "enabledPlugins": {
+    "code-review@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "mattpocock-skills@claude-plugins-official": true,
+    "github@anthropic-plugin-directory": true,
+    "commit-commands@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "claude-security@claude-plugins-official": true
+  }
+}

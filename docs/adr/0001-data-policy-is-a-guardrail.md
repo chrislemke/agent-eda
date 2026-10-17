@@ -1,0 +1,3 @@
+# Data policy is a guardrail, not access control
+
+The package runs inside the agent's own Python process, so any agent that can call it can also read the data files directly. In-process checks cannot stop a caller who wants around them. We therefore treat the data policy and dataset roles (such as a sealed holdout) as declared intent: the package checks them to catch honest mistakes, records them in results and reports violations, but makes no access-control claims in code or docs. Real enforcement would need a separate process between the agent and the data, such as an MCP gateway, and is out of scope.

@@ -1,0 +1,3 @@
+# pandas DataFrames in, NumPy inside
+
+Public functions accept pandas DataFrames and array-likes only; callers using polars or another library convert first. The statistical back ends we build on (SciPy, statsmodels, scikit-learn, lifelines) consume NumPy and pandas, and supporting several DataFrame libraries (for example through narwhals) would multiply the test surface across hundreds of functions. Inside a function we convert to NumPy arrays wherever the computation allows, for speed, and keep pandas only where NumPy has no good equivalent, such as grouping, nullable types, categoricals and time zones.

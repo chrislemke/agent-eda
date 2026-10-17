@@ -1,0 +1,65 @@
+[project]
+name = "agent-eda"
+version = "0.1.0"
+description = "Deterministic exploratory data analysis functions for LLM agents."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+# Minimums match AWS AgentCore Code Interpreter's preinstalled versions (ADR 0005).
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "pydantic>=2.7",
+    "scikit-learn>=1.5",
+    "scipy>=1.11.2",
+    "statsmodels>=0.14.1",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.7.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.1",
+    "ty>=0.0.89",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "PT",   # flake8-pytest-style
+    "NPY",  # numpy-specific rules
+    "PD",   # pandas-vet
+    "RUF",  # ruff-specific rules
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = ["tests/*", ".venv/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
