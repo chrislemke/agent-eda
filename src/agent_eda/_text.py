@@ -1,0 +1,204 @@
+"""The fixed plain-text template every result prints with.
+
+A result prints as: a first line with the analysis, status and data size; an
+optional status reason; a few fact lines; the key table (at most 10 rows); the
+findings (at most 5); the limitations (at most 5); and a footer that says where
+the rest is. The text never exceeds 40 lines or 120 characters per line, and
+every section counts what it leaves out.
+"""
+
+import unicodedata
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+MAX_LINES = 40
+MAX_WIDTH = 120
+MAX_TABLE_ROWS = 10
+MAX_FINDINGS = 5
+MAX_LIMITATIONS = 5
+# Claims name at most this many columns or labels and count the rest.
+MAX_NAMED = 5
+
+ELLIPSIS = "..."
+COLUMN_GAP = "  "
+# Text cells never shrink below this width to make a table fit.
+MIN_TEXT_WIDTH = 8
+
+type Cell = str | int | float | bool | None
+
+
+@dataclass(frozen=True)
+class Table:
+    """The key table of a result: every row, of which the text shows 10."""
+
+    title: str
+    # What a row is, in the singular and the plural, such as ("column", "columns").
+    unit: tuple[str, str]
+    headers: Sequence[str]
+    rows: Sequence[Sequence[Cell]]
+
+
+@dataclass(frozen=True)
+class Item:
+    """A finding or limitation line: '- <label>: <text>'."""
+
+    label: str
+    text: str
+
+
+def render(
+    *,
+    heading: str,
+    facts: Sequence[str],
+    table: Table | None,
+    findings: Sequence[Item],
+    limitations: Sequence[Item],
+) -> str:
+    """Render a result with the fixed template, within the line and width caps."""
+    lines = [heading, *facts]
+    if table is not None:
+        lines.extend(_table_lines(table))
+    lines.extend(_item_lines("Findings", findings, MAX_FINDINGS))
+    lines.extend(_item_lines("Limitations", limitations, MAX_LIMITATIONS))
+    lines.append(_footer(table))
+    lines = [_fit(_printable(line)) for line in lines]
+    if len(lines) > MAX_LINES:
+        hidden = len(lines) - MAX_LINES + 1
+        lines = [
+            *lines[: MAX_LINES - 1],
+            f"... {hidden:,} more lines; see res.to_json().",
+        ]
+    return "\n".join(lines)
+
+
+def format_cell(value: Cell) -> str:
+    """Counts get thousands separators, other numbers 4 significant digits."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, int):
+        return f"{value:,}"
+    if isinstance(value, float):
+        return format_number(value)
+    return value
+
+
+def format_number(value: float) -> str:
+    """A number with 4 significant digits, such as 0.1235 or 1.235e+06."""
+    return f"{value:.4g}"
+
+
+def format_bytes(count: int) -> str:
+    """A byte count, with a binary unit at 4 significant digits from 1 KiB up."""
+    if count < 1024:
+        return f"{count:,} bytes"
+    size = float(count)
+    for unit in ("KiB", "MiB", "GiB", "TiB"):
+        size /= 1024
+        if size < 1024 or unit == "TiB":
+            break
+    return f"{format_number(size)} {unit} ({count:,} bytes)"
+
+
+def join_items(items: Sequence[str]) -> str:
+    """Join items as "a, b and c", naming at most MAX_NAMED and counting the rest."""
+    if len(items) > MAX_NAMED:
+        shown = list(items[:MAX_NAMED])
+        return ", ".join(shown) + f" and {len(items) - MAX_NAMED:,} more"
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def plural(count: int, singular: str, plural_form: str) -> str:
+    """Return "1 column" or "3 columns" with thousands separators."""
+    return f"{count:,} {singular if count == 1 else plural_form}"
+
+
+def label_text(label: object) -> str:
+    """Show a column or index label: strings quoted, everything else as str()."""
+    return repr(label) if isinstance(label, str) else str(label)
+
+
+def _table_lines(table: Table) -> list[str]:
+    total = len(table.rows)
+    if total == 0:
+        return [f"{table.title}: none"]
+    shown = table.rows[:MAX_TABLE_ROWS]
+    cells = [[_printable(format_cell(value)) for value in row] for row in shown]
+    numeric = [
+        all(isinstance(row[i], int | float) for row in shown if row[i] is not None)
+        for i in range(len(table.headers))
+    ]
+    widths = _column_widths(table.headers, cells, numeric)
+    lines = [f"{table.title} ({len(shown):,} of {total:,} shown):"]
+    for row in [list(table.headers), *cells]:
+        lines.append(
+            COLUMN_GAP.join(
+                _pad(cell, width, right=is_numeric)
+                for cell, width, is_numeric in zip(row, widths, numeric, strict=True)
+            ).rstrip()
+        )
+    return lines
+
+
+def _column_widths(
+    headers: Sequence[str], cells: list[list[str]], numeric: list[bool]
+) -> list[int]:
+    widths = [
+        max([len(header), *(len(row[i]) for row in cells)])
+        for i, header in enumerate(headers)
+    ]
+    floor = [
+        len(header) if is_numeric else max(min(len(header), widths[i]), MIN_TEXT_WIDTH)
+        for i, (header, is_numeric) in enumerate(zip(headers, numeric, strict=True))
+    ]
+    # Shrink the widest text column until the table fits the line width.
+    while sum(widths) + len(COLUMN_GAP) * (len(widths) - 1) > MAX_WIDTH:
+        candidates = [i for i in range(len(widths)) if widths[i] > floor[i]]
+        if not candidates:
+            break
+        widest = max(candidates, key=lambda i: (widths[i], -i))
+        widths[widest] -= 1
+    return widths
+
+
+def _pad(cell: str, width: int, *, right: bool) -> str:
+    if len(cell) > width:
+        cell = cell[: max(width - len(ELLIPSIS), 0)] + ELLIPSIS
+    return cell.rjust(width) if right else cell.ljust(width)
+
+
+def _item_lines(title: str, items: Sequence[Item], limit: int) -> list[str]:
+    if not items:
+        return [f"{title}: none"]
+    shown = items[:limit]
+    lines = [f"{title} ({len(shown):,} of {len(items):,} shown):"]
+    lines.extend(f"- {item.label}: {item.text}" for item in shown)
+    return lines
+
+
+def _footer(table: Table | None) -> str:
+    rest = "res.findings, res.limitations and res.to_json() have the rest."
+    if table is None:
+        return f"More: {rest}"
+    count = len(table.rows)
+    rows = plural(count, *table.unit)
+    return f"More: res.to_frame() has {'the' if count == 1 else 'all'} {rows}; {rest}"
+
+
+def _printable(text: str) -> str:
+    """Escape characters that would break or hide lines, such as newlines."""
+    return "".join(
+        ch.encode("unicode_escape").decode("ascii")
+        if unicodedata.category(ch) in ("Cc", "Zl", "Zp")
+        else ch
+        for ch in text
+    )
+
+
+def _fit(line: str) -> str:
+    if len(line) <= MAX_WIDTH:
+        return line
+    return line[: MAX_WIDTH - len(ELLIPSIS)] + ELLIPSIS

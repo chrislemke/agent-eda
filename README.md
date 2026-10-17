@@ -2,7 +2,7 @@
 
 Deterministic exploratory data analysis (EDA) functions for LLM agents.
 
-> Status: design phase. The decisions are recorded in this repo, but no analyses exist yet. The code below shows the planned interface.
+> Status: in development. `describe_dataset` and `list_analyses` work; the rest of the code below shows the planned interface.
 
 agent-eda is a Python library for the EDA phase of a data science project: data quality, missing values, duplicates, distributions, associations, leakage checks and more. Each analysis is a plain function. It takes a pandas DataFrame and typed arguments and returns a typed result. The library never calls an LLM or the network, so the same data, arguments and seed always give the same result.
 
@@ -18,11 +18,11 @@ Three kinds of callers matter equally:
 import agent_eda as ae
 
 res = ae.summarize_numeric(df, columns=["age", "income"])
-print(res)        # short text: status, key numbers, findings, limitations
-res.to_frame()    # the full table as a DataFrame
+print(res)  # short text: status, key numbers, findings, limitations
+res.to_frame()  # the full table as a DataFrame
 
-ae.guide()                               # where to start
-ae.search_analyses("compare two groups") # find an analysis by keyword
+ae.guide()  # where to start
+ae.search_analyses("compare two groups")  # find an analysis by keyword
 ```
 
 You don't need any setup to call an analysis. An optional `Project` declares dataset roles (train, test, holdout and so on) and a data policy for the analyses that check them.
@@ -63,8 +63,13 @@ uv run pre-commit install
 | Format | `uv run ruff format .` |
 | Type check | `uv run ty check` |
 | Test | `uv run pytest` |
+| Test on the minimum versions | `uv run --isolated --resolution lowest-direct --python 3.12 pytest` |
 | Test with coverage | `uv run pytest --cov` |
 | Run all hooks | `uv run pre-commit run --all-files` |
+
+The minimum-versions run installs every direct dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1, and the dev tools' lower bounds) into a throwaway environment on Python 3.12, the newest Python with numpy 1.26 wheels. It leaves `uv.lock` and `.venv` unchanged. Keep `--isolated`: without it, uv rewrites `uv.lock` for the new resolution mode.
+
+The packaging tests build the wheel offline with the `uv_build` backend from the dev dependencies, pinned to the range in `[build-system]`, so they need no network and work with any uv version.
 
 On every commit, pre-commit checks the files (whitespace, line endings, YAML/TOML/JSON syntax, merge conflict markers, private keys, files over 1 MB), keeps `uv.lock` in sync, and runs ruff and ty. The tests run on `git push`.
 
