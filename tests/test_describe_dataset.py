@@ -1,3 +1,5 @@
+import inspect
+
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -419,6 +421,15 @@ def test_results_use_only_declared_statuses_and_finding_codes(df):
 
     assert res.status in info.statuses
     assert set(codes(res)) <= set(info.finding_codes)
+
+
+def test_docstring_points_to_the_numeric_summary_for_distributions():
+    doc = inspect.getdoc(ae.describe_dataset) or ""
+    when_to_use = doc.split("When to use:")[1].split("Args:")[0]
+    see_also = doc.split("See Also:")[1]
+
+    assert "`summarize_numeric`" in when_to_use
+    assert "\n    summarize_numeric: " in see_also
 
 
 def codes(res):

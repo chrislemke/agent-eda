@@ -13,6 +13,9 @@ import agent_eda as ae
 ANALYSES = [info.name for info in ae.list_analyses().analyses]
 INFO = {info.name: info for info in ae.list_analyses().analyses}
 SECTIONS = ["When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See Also:"]
+# Parameters that take text other than column names. A new one joins this list
+# only if it takes no column names; otherwise its name ends in column(s).
+NOT_COLUMN_NAMES = {"source", "source_version"}
 ENTRY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?: \([^)]*\))?:(?: |$)")
 REFERENCE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(\))?`")
 SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
@@ -121,6 +124,18 @@ def test_examples_run_and_print_a_result(name):
     ), "the examples must print a result"
 
 
+def test_parameters_that_take_names_end_in_column_or_columns(name):
+    parameters = list(inspect.signature(getattr(ae, name)).parameters.values())[1:]
+
+    textual = [p.name for p in parameters if takes_text(p.annotation)]
+    misnamed = [
+        p
+        for p in textual
+        if not p.endswith(("column", "columns")) and p not in NOT_COLUMN_NAMES
+    ]
+    assert misnamed == []
+
+
 def test_analysis_is_hidden_from_pytest(name):
     assert getattr(ae, name).__test__ is False
 
@@ -177,3 +192,12 @@ def nested_types(annotation):
     yield annotation
     for arg in typing.get_args(annotation):
         yield from nested_types(arg)
+
+
+def takes_text(annotation):
+    """Whether an annotation accepts str, alone or in a container, not a Literal."""
+    if typing.get_origin(annotation) is typing.Literal:
+        return False
+    return annotation is str or any(
+        takes_text(arg) for arg in typing.get_args(annotation)
+    )

@@ -101,14 +101,21 @@ def format_bytes(count: int) -> str:
     return f"{format_number(size)} {unit} ({count:,} bytes)"
 
 
-def join_items(items: Sequence[str]) -> str:
-    """Join items as "a, b and c", naming at most MAX_NAMED and counting the rest."""
-    if len(items) > MAX_NAMED:
-        shown = list(items[:MAX_NAMED])
-        return ", ".join(shown) + f" and {len(items) - MAX_NAMED:,} more"
+def join_items(items: Sequence[str], *, limit: int = MAX_NAMED) -> str:
+    """Join items as "a, b and c", naming at most `limit` and counting the rest."""
+    if len(items) > limit:
+        shown = list(items[:limit])
+        return ", ".join(shown) + f" and {len(items) - limit:,} more"
     if len(items) <= 1:
         return "".join(items)
     return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def join_alternatives(items: Sequence[str]) -> str:
+    """Join items as "a, b or c"."""
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " or " + items[-1]
 
 
 def plural(count: int, singular: str, plural_form: str) -> str:
@@ -119,6 +126,11 @@ def plural(count: int, singular: str, plural_form: str) -> str:
 def label_text(label: object) -> str:
     """Show a column or index label: strings quoted, everything else as str()."""
     return repr(label) if isinstance(label, str) else str(label)
+
+
+def join_labels(labels: Sequence[object]) -> str:
+    """Show labels as "'a', 'b' and 3", naming at most MAX_NAMED of them."""
+    return join_items([label_text(label) for label in labels])
 
 
 def _table_lines(table: Table) -> list[str]:

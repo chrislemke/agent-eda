@@ -5,9 +5,10 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from agent_eda._columns import Labels, first_positions
 from agent_eda._registry import analysis
 from agent_eda._run import data_shape, execution
-from agent_eda._text import join_items, label_text, plural
+from agent_eda._text import plural
 from agent_eda.results import (
     ColumnSupport,
     DescribeDatasetColumn,
@@ -32,6 +33,7 @@ from agent_eda.results import (
         "constant_columns",
     ),
     tags=("overview", "shape", "size", "dtypes", "memory", "index", "provenance"),
+    any_column_labels=True,
 )
 def describe_dataset(
     data: pd.DataFrame,
@@ -48,7 +50,9 @@ def describe_dataset(
         duplicated or colliding column labels, MultiIndex columns, a non-unique
         index, all-missing columns and constant columns. Every other analysis
         raises on bad column labels, so run this one to find them. It never
-        shows a raw data value. `list_analyses` lists the other analyses.
+        shows a raw data value. For how the values of each numeric column are
+        distributed, call `summarize_numeric` next. `list_analyses` lists the
+        other analyses.
 
     Args:
         data (pd.DataFrame): The data to describe. Any column labels are
@@ -121,10 +125,12 @@ def describe_dataset(
         1
 
     See Also:
+        summarize_numeric: Counts, mean, spread, quantiles and shape of every
+            numeric column.
         list_analyses: Every analysis, with the question each one answers.
     """
     row_count = len(data)
-    labels = _Labels(data.columns)
+    labels = Labels(data.columns)
     columns = [
         _describe_column(data.iloc[:, position], position, label, row_count)
         for position, label in enumerate(labels.labels)
@@ -185,33 +191,6 @@ def describe_dataset(
             ],
         ),
     )
-
-
-class _Labels:
-    """The column labels, with a code per label that equal labels share."""
-
-    def __init__(self, columns: pd.Index) -> None:
-        flat = columns.to_flat_index()
-        self.level_count = columns.nlevels
-        # Iterating gives Python scalars, so label types read 'int', not 'int64'.
-        self.labels: list[object] = list(flat)
-        self.texts = [str(label) for label in self.labels]
-        codes, uniques = flat.factorize()
-        # factorize gives every missing label -1, but pandas tells None, NaN,
-        # NaT and NA apart as labels: give each kind of missing label its code.
-        missing_kinds: dict[str, int] = {}
-        self.codes = [
-            int(code)
-            if code >= 0
-            else missing_kinds.setdefault(
-                "nan" if isinstance(label, float) else type(label).__name__,
-                len(uniques) + len(missing_kinds),
-            )
-            for code, label in zip(codes, self.labels, strict=True)
-        ]
-
-    def show(self, positions: list[int]) -> str:
-        return join_items([label_text(self.labels[p]) for p in positions])
 
 
 def _describe_column(
@@ -301,20 +280,16 @@ def _empty_data(row_count: int, column_count: int) -> list[Finding]:
     ]
 
 
-def _duplicated_labels(labels: _Labels) -> list[Finding]:
-    occurrences: dict[int, int] = {}
-    for code in labels.codes:
-        occurrences[code] = occurrences.get(code, 0) + 1
-    positions = [p for p, code in enumerate(labels.codes) if occurrences[code] > 1]
+def _duplicated_labels(labels: Labels) -> list[Finding]:
+    positions = labels.repeated()
     if not positions:
         return []
-    first_positions = list({labels.codes[p]: p for p in reversed(positions)}.values())
-    first_positions.sort()
-    occurs = plural(len(first_positions), "column label occurs", "column labels occur")
+    first = first_positions(labels, positions)
+    occurs = plural(len(first), "column label occurs", "column labels occur")
     return [
         Finding(
             code="duplicated_column_labels",
-            claim=f"{occurs} more than once: {labels.show(first_positions)}.",
+            claim=f"{occurs} more than once: {labels.show(first)}.",
             assessment="suspected",
             columns=[labels.texts[p] for p in positions],
             fields=[f"columns[{p}].column" for p in positions],
@@ -322,19 +297,8 @@ def _duplicated_labels(labels: _Labels) -> list[Finding]:
     ]
 
 
-def _colliding_labels(labels: _Labels) -> list[Finding]:
-    # For each string form, the first position of every different label with it.
-    by_text: dict[str, dict[int, int]] = {}
-    for position, (text, code) in enumerate(
-        zip(labels.texts, labels.codes, strict=True)
-    ):
-        by_text.setdefault(text, {}).setdefault(code, position)
-    positions = sorted(
-        position
-        for first_by_code in by_text.values()
-        if len(first_by_code) > 1
-        for position in first_by_code.values()
-    )
+def _colliding_labels(labels: Labels) -> list[Finding]:
+    positions = labels.colliding()
     if not positions:
         return []
     return [
@@ -390,7 +354,7 @@ def _non_unique_index(index: DescribeDatasetIndex) -> list[Finding]:
 
 
 def _all_missing_columns(
-    columns: list[DescribeDatasetColumn], labels: _Labels, row_count: int
+    columns: list[DescribeDatasetColumn], labels: Labels, row_count: int
 ) -> list[Finding]:
     if row_count == 0:
         return []
@@ -410,7 +374,7 @@ def _all_missing_columns(
 
 
 def _unhashable_values(
-    columns: list[DescribeDatasetColumn], labels: _Labels
+    columns: list[DescribeDatasetColumn], labels: Labels
 ) -> list[Limitation]:
     positions = [c.position for c in columns if c.distinct_count is None]
     if not positions:
@@ -430,7 +394,7 @@ def _unhashable_values(
 
 
 def _constant_columns(
-    columns: list[DescribeDatasetColumn], labels: _Labels
+    columns: list[DescribeDatasetColumn], labels: Labels
 ) -> list[Finding]:
     positions = [
         c.position

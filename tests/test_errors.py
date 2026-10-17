@@ -115,3 +115,78 @@ def test_missing_data_raises_with_the_call_pattern():
     assert str(caught.value) == (
         "describe_dataset needs data, a pandas DataFrame: describe_dataset(df)."
     )
+
+
+NUMBERS = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
+HELP = "See help(ae.summarize_numeric) for every argument."
+
+
+def test_an_unknown_choice_raises_with_the_allowed_values_and_the_closest_one():
+    with pytest.raises(InvalidArgumentError) as caught:
+        ae.summarize_numeric(NUMBERS, quantile_method="Linear")  # ty: ignore[invalid-argument-type]  # the typo is the test
+
+    error = caught.value
+    assert error.code == "invalid_argument"
+    assert str(error) == (
+        "summarize_numeric got 'Linear' for quantile_method, but quantile_method "
+        "must be one of 'inverted_cdf', 'averaged_inverted_cdf', "
+        "'closest_observation', 'interpolated_inverted_cdf', 'hazen', 'weibull', "
+        "'linear', 'median_unbiased', 'normal_unbiased', 'lower', 'higher', "
+        f"'midpoint' or 'nearest'. Did you mean 'linear'? {HELP}"
+    )
+    assert error.__cause__ is None
+    assert error.__suppress_context__
+
+
+@pytest.mark.parametrize(
+    ("levels", "shown"),
+    [([0.5, 1.5], "1.5 at quantiles[1]"), ([float("nan")], "nan at quantiles[0]")],
+    ids=["above-one", "nan"],
+)
+def test_a_quantile_level_outside_0_to_1_raises_with_the_range(levels, shown):
+    with pytest.raises(InvalidArgumentError) as caught:
+        ae.summarize_numeric(NUMBERS, quantiles=levels)
+
+    assert caught.value.code == "invalid_argument"
+    assert str(caught.value) == (
+        f"summarize_numeric got {shown}, but each value in quantiles must be "
+        f"float with 0 <= value <= 1. {HELP}"
+    )
+
+
+@pytest.mark.parametrize("trim_fraction", [0.5, -0.1, 1, float("inf")])
+def test_a_trim_fraction_outside_its_range_raises_with_the_range(trim_fraction):
+    with pytest.raises(InvalidArgumentError) as caught:
+        ae.summarize_numeric(NUMBERS, trim_fraction=trim_fraction)
+
+    assert caught.value.code == "invalid_argument"
+    assert str(caught.value) == (
+        f"summarize_numeric got {trim_fraction!r} for trim_fraction, but "
+        f"trim_fraction must be float with 0 <= trim_fraction < 0.5. {HELP}"
+    )
+
+
+def test_a_trim_fraction_of_the_wrong_type_raises_with_its_type_and_range():
+    with pytest.raises(InvalidArgumentError) as caught:
+        ae.summarize_numeric(NUMBERS, trim_fraction="0.1")  # ty: ignore[invalid-argument-type]  # the wrong type is the test
+
+    assert str(caught.value) == (
+        "summarize_numeric got '0.1' for trim_fraction, but trim_fraction must be "
+        f"float with 0 <= trim_fraction < 0.5. Input should be a valid number. {HELP}"
+    )
+
+
+def test_numpy_scalars_are_accepted_for_numbers():
+    res = ae.summarize_numeric(NUMBERS, trim_fraction=np.float32(0.25))  # ty: ignore[invalid-argument-type]  # NumPy scalars are accepted at runtime
+
+    assert res.parameters["trim_fraction"] == 0.25
+
+
+def test_a_quantile_level_listed_twice_raises():
+    with pytest.raises(InvalidArgumentError) as caught:
+        ae.summarize_numeric(NUMBERS, quantiles=[0.5, 0.25, 0.5])
+
+    assert caught.value.code == "invalid_argument"
+    assert str(caught.value) == (
+        "summarize_numeric got 0.5 more than once in quantiles. List each level once."
+    )

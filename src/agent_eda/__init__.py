@@ -22,8 +22,15 @@ if TYPE_CHECKING:
     from agent_eda.data.provenance import describe_dataset
     from agent_eda.discovery import list_analyses
     from agent_eda.results import AnalysisResult
+    from agent_eda.statistics.descriptive import summarize_numeric
 
-__all__ = ["AnalysisResult", "__version__", "describe_dataset", "list_analyses"]
+__all__ = [
+    "AnalysisResult",
+    "__version__",
+    "describe_dataset",
+    "list_analyses",
+    "summarize_numeric",
+]
 
 # Each top-level export and the module that defines it. Every analysis is listed
 # here; ae.list_analyses() imports these modules to find them.
@@ -32,6 +39,7 @@ _EXPORTS: dict[str, str] = {
     "__version__": "agent_eda._version",
     "describe_dataset": "agent_eda.data.provenance",
     "list_analyses": "agent_eda.discovery",
+    "summarize_numeric": "agent_eda.statistics.descriptive",
 }
 
 # Public submodules, also reachable as attributes such as ae.errors.

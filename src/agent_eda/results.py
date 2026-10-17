@@ -38,6 +38,21 @@ LimitationCode = Literal[
     # Values such as lists or dicts can't be hashed, so distinct values weren't
     # counted and the affected counts are null.
     "unhashable_values",
+    # A statistic needs more values than a column has, such as a standard
+    # deviation of one value, so it is null.
+    "too_few_values",
+    # Every value is equal, so a statistic such as skewness is undefined and null.
+    "zero_variance",
+    # Integers beyond ±2^53 were read as float64, which rounds them.
+    "float_precision",
+    # Booleans were read as numbers: 0 for False and 1 for True.
+    "boolean_as_numeric",
+    # A column stores NaN as a value, which pandas' isna() doesn't count as
+    # missing; a numeric summary counts it as missing all the same.
+    "nan_counted_as_missing",
+    # A computation overflowed float64 or failed numerically (division by zero,
+    # an invalid value, precision loss), so the values it affects are null.
+    "numerical_warning",
 ]
 
 
@@ -80,8 +95,14 @@ def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
     return capped
 
 
-# Nullable integers keep their type in to_frame(); other fields use pandas' default.
-_FRAME_DTYPES: dict[Any, str] = {int: "int64", int | None: "Int64", bool: "bool"}
+# Nullable integers keep their type in to_frame() and null floats become NaN;
+# other fields use pandas' default.
+_FRAME_DTYPES: dict[Any, str] = {
+    int: "int64",
+    int | None: "Int64",
+    float | None: "float64",
+    bool: "bool",
+}
 
 
 def _entries_frame(
@@ -205,6 +226,32 @@ class Execution(ResultModel):
     )
 
 
+def _check_status_reason(status: Status, reason: StatusReason | None) -> None:
+    if (status == "completed") != (reason is None):
+        raise ValueError(
+            "status_reason must be null when status is completed and set otherwise"
+        )
+
+
+class ColumnResult(ResultModel):
+    """One column's entry in the result of an analysis over several columns."""
+
+    column: str = Field(description="The column name: the label's string form.")
+    status: Status = Field(
+        description="How the run ended for this column, in the same terms as the "
+        "result's status."
+    )
+    status_reason: StatusReason | None = Field(
+        description="Why this column didn't complete; null when its status is "
+        "completed."
+    )
+
+    @model_validator(mode="after")
+    def _reason_matches_status(self) -> Self:
+        _check_status_reason(self.status, self.status_reason)
+        return self
+
+
 class AnalysisResult(ResultModel):
     """The record an analysis returns.
 
@@ -242,10 +289,7 @@ class AnalysisResult(ResultModel):
 
     @model_validator(mode="after")
     def _reason_matches_status(self) -> Self:
-        if (self.status == "completed") != (self.status_reason is None):
-            raise ValueError(
-                "status_reason must be null when status is completed and set otherwise"
-            )
+        _check_status_reason(self.status, self.status_reason)
         return self
 
     def __str__(self) -> str:
@@ -479,3 +523,145 @@ class DescribeDatasetResult(AnalysisResult):
                 for c in self.columns
             ],
         )
+
+
+class SummarizeNumericColumn(ColumnResult):
+    """What summarize_numeric found in one column."""
+
+    count: int = Field(
+        description="Values that aren't missing, infinite ones included."
+    )
+    missing_count: int = Field(
+        description="Missing values: None, NaN and pd.NA, including NaN that a "
+        "pyarrow-backed or nullable float column stores as a value, which pandas "
+        "isna() doesn't count."
+    )
+    infinite_count: int = Field(description="Values equal to inf or -inf.")
+    zero_count: int = Field(description="Values equal to 0.")
+    negative_count: int = Field(description="Values below 0, -inf included.")
+    mean: float | None = Field(description="Arithmetic mean of the finite values.")
+    std: float | None = Field(
+        description="Sample standard deviation of the finite values with ddof 1: "
+        "sqrt(sum((x - mean)^2) / (n - 1)), where n counts finite values. Needs "
+        "n >= 2."
+    )
+    min: float | None = Field(description="Smallest finite value.")
+    max: float | None = Field(description="Largest finite value.")
+    quantiles: dict[float, float | None] = Field(
+        description="Quantiles of the finite values, keyed by level in the order "
+        "of parameters.quantiles, as numpy.quantile computes them with "
+        "parameters.quantile_method."
+    )
+    median: float | None = Field(
+        description="Middle finite value, or the mean of the two middle values; "
+        "the same whatever quantile_method is."
+    )
+    trimmed_mean: float | None = Field(
+        description="Mean of the finite values left after cutting "
+        "int(trim_fraction * n) of them from each end, as scipy.stats.trim_mean "
+        "does."
+    )
+    mad: float | None = Field(
+        description="Median absolute deviation of the finite values, unscaled: "
+        "median(|x - median(x)|)."
+    )
+    mad_scaled: float | None = Field(
+        description="mad * 1.4826, which estimates the standard deviation when the "
+        "values are normally distributed."
+    )
+    skewness: float | None = Field(
+        description="Bias-corrected sample skewness G1 = sqrt(n(n - 1)) / (n - 2) "
+        "* m3 / m2^1.5 of the finite values, where m_k = mean((x - mean)^k): "
+        "scipy.stats.skew with bias=False. Needs n >= 3 and two distinct values."
+    )
+    excess_kurtosis: float | None = Field(
+        description="Bias-corrected sample excess kurtosis G2 = (n - 1) / ((n - 2)"
+        "(n - 3)) * ((n + 1) * m4 / m2^2 - 3(n - 1)) of the finite values; 0 for "
+        "a normal distribution: scipy.stats.kurtosis with bias=False. Needs n >= 4 "
+        "and two distinct values."
+    )
+
+
+class SummarizeNumericResult(AnalysisResult):
+    """The result of summarize_numeric."""
+
+    columns: Annotated[dict[str, SummarizeNumericColumn], _ENTRIES] = Field(
+        description="One entry per selected column, keyed by column name, in the "
+        "selected order. The record keeps the first 100 and adds columns_total; "
+        "to_frame() has every column."
+    )
+    left_out_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Columns that columns=None left out because they aren't "
+        "numeric or are boolean, in DataFrame order; empty when columns names the "
+        "columns."
+    )
+    definitions: dict[str, str] = Field(
+        description="How each count and statistic in a column entry is defined, by "
+        "field name."
+    )
+
+    def _text_facts(self) -> list[str]:
+        trim = self.parameters.get("trim_fraction")
+        percent = f"{trim * 100:.4g}%" if isinstance(trim, int | float) else "?"
+        facts = [
+            "Statistics use the finite values. Quantile method "
+            f"{self.parameters.get('quantile_method')}; trimmed_mean cuts {percent} "
+            "from each end."
+        ]
+        if self.left_out_columns:
+            names = _text.join_labels(self.left_out_columns)
+            facts.append(f"Left out, not numeric or boolean: {names}.")
+        facts.append(
+            "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
+            "skewness and excess_kurtosis."
+        )
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        headers = ("column", "count", "missing_count", "mean", "std", "min", "median")
+        return _text.Table(
+            title="Columns",
+            unit=("column", "columns"),
+            headers=(*headers, "max"),
+            rows=[
+                (
+                    e.column,
+                    e.count,
+                    e.missing_count,
+                    e.mean,
+                    e.std,
+                    e.min,
+                    e.median,
+                    e.max,
+                )
+                for e in self.columns.values()
+            ],
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """Every statistic of every column, one row per column in selected order.
+
+        The quantiles become one column per level, named "q" and the level,
+        such as "q0.25"; status_reason holds the reason's code.
+        """
+        recorded = self.parameters.get("quantiles")
+        levels = [
+            float(level)
+            for level in (recorded if isinstance(recorded, list) else [])
+            if isinstance(level, int | float)
+        ]
+        columns: dict[str, pd.Series] = {}
+        for name, field in SummarizeNumericColumn.model_fields.items():
+            values = [getattr(entry, name) for entry in self.columns.values()]
+            if name == "status_reason":
+                codes = [reason.code if reason else None for reason in values]
+                columns[name] = pd.Series(codes, dtype=object)
+            elif name == "quantiles":
+                for level in levels:
+                    columns[f"q{level!r}"] = pd.Series(
+                        [quantiles[level] for quantiles in values], dtype="float64"
+                    )
+            else:
+                dtype = _FRAME_DTYPES.get(field.annotation)
+                columns[name] = pd.Series(values, dtype=dtype)
+        return pd.DataFrame(columns, columns=list(columns))
