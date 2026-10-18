@@ -5,8 +5,10 @@ import inspect
 import re
 import typing
 
+import annotated_types
 import pydantic
 import pytest
+from pydantic.fields import FieldInfo
 
 import agent_eda as ae
 
@@ -108,6 +110,47 @@ def test_every_result_field_has_a_description(name):
     assert undocumented == []
 
 
+def test_describe_analysis_describes_every_parameter_status_and_finding(name):
+    description = ae.describe_analysis(name)
+
+    assert description.name == name
+    assert [p.name for p in description.parameters] == INFO[name].parameters
+    assert [p.name for p in description.parameters if not p.description] == []
+    assert [s.status for s in description.statuses if not s.reason] == []
+    # Returns: defines each finding code in a bullet "- `code`: what it means".
+    assert [f.code for f in description.finding_codes if not f.description] == []
+    assert description.when_to_use
+    assert description.example
+
+
+def test_describe_analysis_shows_every_declared_choice_and_range(name):
+    hints = typing.get_type_hints(getattr(ae, name), include_extras=True)
+    described = {p.name: p for p in ae.describe_analysis(name).parameters}
+
+    missing = []
+    for parameter, annotation in hints.items():
+        if parameter == "return":
+            continue
+        has_choices, has_range = declares(annotation)
+        if has_choices and not described[parameter].allowed_values:
+            missing.append(f"{parameter}: allowed_values")
+        if has_range and not described[parameter].valid_range:
+            missing.append(f"{parameter}: valid_range")
+    assert missing == []
+
+
+def test_describe_analysis_gives_every_result_field_a_description(name):
+    description = ae.describe_analysis(name)
+
+    fields = [*description.result_fields, *description.shared_result_fields]
+    assert description.result_fields
+    assert [path for path, text in field_texts(fields) if not text.strip()] == []
+
+
+def test_searching_for_its_name_finds_it_first(name):
+    assert ae.search_analyses(name).matches[0].name == name
+
+
 def test_examples_run_and_print_a_result(name):
     func = getattr(ae, name)
     runner = doctest.DocTestRunner(optionflags=doctest.ELLIPSIS)
@@ -145,6 +188,44 @@ def test_result_class_is_named_after_the_analysis(name):
 
     assert INFO[name].result_class == f"{camel}Result"
     assert issubclass(getattr(ae.results, INFO[name].result_class), ae.AnalysisResult)
+
+
+RANGES = (
+    annotated_types.Ge,
+    annotated_types.Gt,
+    annotated_types.Le,
+    annotated_types.Lt,
+    annotated_types.Interval,
+)
+
+
+def declares(annotation):
+    """Whether an annotation, anywhere inside it, has fixed choices and a range."""
+    has_choices = has_range = False
+    pending = [annotation]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, typing.TypeAliasType):
+            pending.append(current.__value__)
+        elif typing.get_origin(current) is typing.Literal:
+            has_choices = True
+        elif typing.get_origin(current) is typing.Annotated:
+            inner, *metadata = typing.get_args(current)
+            pending.append(inner)
+            for item in metadata:
+                found = item.metadata if isinstance(item, FieldInfo) else [item]
+                has_range = has_range or any(isinstance(m, RANGES) for m in found)
+        else:
+            pending.extend(typing.get_args(current))
+    return has_choices, has_range
+
+
+def field_texts(fields, prefix=""):
+    """Each described result field's path and description, entries' fields too."""
+    for field in fields:
+        path = f"{prefix}{field.name}"
+        yield path, field.description
+        yield from field_texts(field.fields, f"{path}.")
 
 
 def resolves(reference):

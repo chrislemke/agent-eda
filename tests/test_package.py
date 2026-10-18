@@ -11,8 +11,11 @@ import agent_eda as ae
 REQUIRED_EXPORTS = [
     "AnalysisResult",
     "__version__",
+    "describe_analysis",
     "describe_dataset",
+    "guide",
     "list_analyses",
+    "search_analyses",
 ]
 
 
@@ -75,6 +78,10 @@ def test_type_checkers_see_every_export_and_flag_typos(tmp_path):
         "listing = ae.list_analyses()\n"
         "base: type[ae.AnalysisResult] = type(res)\n"
         "error: type[Exception] = ae.errors.InvalidArgumentError\n"
+        "unknown: type[LookupError] = ae.errors.UnknownAnalysisError\n"
+        "first: str = ae.search_analyses('nulls', limit=3).matches[0].name\n"
+        "signature: str = ae.describe_analysis('describe_dataset').signature\n"
+        "nothing: None = ae.guide()\n"
         "ae.describe_datset\n"
     )
     ty = Path(sys.executable).with_name("ty")
@@ -99,7 +106,7 @@ def test_type_checkers_see_every_export_and_flag_typos(tmp_path):
         line for line in checked.stdout.splitlines() if line.startswith("consumer.py")
     ]
     assert len(diagnostics) == 1, checked.stdout
-    assert diagnostics[0].startswith("consumer.py:10:")
+    assert diagnostics[0].startswith("consumer.py:14:")
     assert "unresolved-attribute" in diagnostics[0]
 
 

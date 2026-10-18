@@ -7,6 +7,7 @@ the rest is. The text never exceeds 40 lines or 120 characters per line, and
 every section counts what it leaves out.
 """
 
+import textwrap
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -116,6 +117,23 @@ def join_alternatives(items: Sequence[str]) -> str:
     if len(items) <= 1:
         return "".join(items)
     return ", ".join(items[:-1]) + " or " + items[-1]
+
+
+def wrap(text: str, *, indent: str = "", first: str | None = None) -> list[str]:
+    """Wrap text into lines of at most MAX_WIDTH characters.
+
+    The first line starts with `first`, by default the indent, and the others
+    with `indent`. Words longer than a line are split.
+    """
+    lead = indent if first is None else first
+    lines = textwrap.wrap(
+        text,
+        width=MAX_WIDTH,
+        initial_indent=lead,
+        subsequent_indent=indent,
+        break_on_hyphens=False,
+    )
+    return lines or [lead.rstrip()]
 
 
 def plural(count: int, singular: str, plural_form: str) -> str:

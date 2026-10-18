@@ -85,6 +85,9 @@ assert located.startswith({str(wheel)!r}), located
 print(ae.__version__)
 print(ae.describe_dataset(pd.DataFrame({{"a": [1, 2]}})))
 print(ae.list_analyses())
+ae.guide()
+print(ae.search_analyses("dataset overview"))
+print(ae.describe_analysis("summarize_numeric"))
 """
 
     out = run_python(code, args=("-I", *STRICT_WARNINGS), cwd=tmp_path)
@@ -93,18 +96,42 @@ print(ae.list_analyses())
     assert lines[0] == ae.__version__
     assert lines[1] == "describe_dataset: completed on 2 rows x 1 column"
     assert "  describe_dataset: What does this dataset contain?" in lines
+    assert "A first look at a new dataset, in this order:" in lines
+    assert any(line.startswith("  describe_dataset: What does") for line in lines)
+    assert "  trim_fraction: float = 0.1; 0 <= trim_fraction < 0.5" in lines
 
 
-def test_import_and_list_analyses_leave_scipy_statsmodels_and_sklearn_unimported():
-    code = """
+# Each discovery function as an agent calls it, its text printed.
+DISCOVERY_CALLS = [
+    "print(ae.list_analyses())",
+    "ae.guide()",
+    "print(ae.search_analyses('nulls per column').to_json())",
+    "[print(ae.describe_analysis(i.name).to_json()) for i in ae.list_analyses().analyses]",
+]
+
+
+@pytest.mark.parametrize(
+    "call", DISCOVERY_CALLS, ids=["list", "guide", "search", "describe"]
+)
+def test_discovery_leaves_scipy_statsmodels_sklearn_and_the_network_alone(call):
+    # An audit hook records every attempt to open a socket or a URL.
+    code = f"""
 import sys
 import agent_eda as ae
-ae.list_analyses()
-heavy = {"scipy", "statsmodels", "sklearn"}
-print(sorted(name for name in sys.modules if name.split(".")[0] in heavy))
+network = []
+def record(event, args):
+    if event.split(".")[0] in ("socket", "urllib", "http"):
+        network.append(event)
+sys.addaudithook(record)
+{call}
+heavy = {{"scipy", "statsmodels", "sklearn"}}
+print("heavy:", sorted(name for name in sys.modules if name.split(".")[0] in heavy))
+print("network:", sorted(set(network)))
 """
 
-    assert run_python(code, args=("-I", *STRICT_WARNINGS)).strip() == "[]"
+    lines = run_python(code, args=("-I", *STRICT_WARNINGS)).splitlines()
+
+    assert lines[-2:] == ["heavy: []", "network: []"]
 
 
 def test_identical_calls_give_identical_json_under_different_hash_seeds():
@@ -118,6 +145,23 @@ df = pd.DataFrame(
 )
 df["tier"] = pd.Categorical(["gold", "silver", "gold", "bronze"])
 print(ae.describe_dataset(df, source="shop.csv").to_json())
+"""
+
+    outputs = {
+        run_python(code, env={**os.environ, "PYTHONHASHSEED": seed})
+        for seed in ("1", "2", "3")
+    }
+
+    assert len(outputs) == 1
+
+
+def test_search_and_descriptions_are_identical_under_different_hash_seeds():
+    code = """
+import agent_eda as ae
+for query in ["nulls per column, dupes and correlation", "label", "missing"]:
+    print(ae.search_analyses(query, limit=100).to_json())
+for info in ae.list_analyses().analyses:
+    print(ae.describe_analysis(info.name).to_json())
 """
 
     outputs = {

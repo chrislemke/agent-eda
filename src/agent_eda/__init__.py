@@ -6,6 +6,8 @@ keyword, then print the result:
     import agent_eda as ae
     print(ae.describe_dataset(df))
 
+ae.guide() prints where to start, ae.search_analyses("your question") finds an
+analysis, ae.describe_analysis("name") shows how to call it and
 ae.list_analyses() lists every analysis. Exceptions live in ae.errors and result
 classes in ae.results. Attributes load on first use, so importing the package
 stays cheap.
@@ -20,15 +22,23 @@ if TYPE_CHECKING:
     from agent_eda import results as results
     from agent_eda._version import __version__
     from agent_eda.data.provenance import describe_dataset
-    from agent_eda.discovery import list_analyses
+    from agent_eda.discovery import (
+        describe_analysis,
+        guide,
+        list_analyses,
+        search_analyses,
+    )
     from agent_eda.results import AnalysisResult
     from agent_eda.statistics.descriptive import summarize_numeric
 
 __all__ = [
     "AnalysisResult",
     "__version__",
+    "describe_analysis",
     "describe_dataset",
+    "guide",
     "list_analyses",
+    "search_analyses",
     "summarize_numeric",
 ]
 
@@ -37,8 +47,11 @@ __all__ = [
 _EXPORTS: dict[str, str] = {
     "AnalysisResult": "agent_eda.results",
     "__version__": "agent_eda._version",
+    "describe_analysis": "agent_eda.discovery",
     "describe_dataset": "agent_eda.data.provenance",
+    "guide": "agent_eda.discovery",
     "list_analyses": "agent_eda.discovery",
+    "search_analyses": "agent_eda.discovery",
     "summarize_numeric": "agent_eda.statistics.descriptive",
 }
 
