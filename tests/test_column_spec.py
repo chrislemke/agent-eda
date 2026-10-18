@@ -164,3 +164,12 @@ def test_a_datetime_format_without_known_directives_raises(datetime_format):
         "is a format for datetime.strptime, with directives such as %Y, %m and %d, "
         "like '%d/%m/%Y'."
     )
+
+
+def test_the_schema_describes_a_column_spec_without_its_python_example():
+    record = ae.describe_analysis("validate_column_types").to_dict()
+    description = record["parameters_schema"]["$defs"]["ColumnSpec"]["description"]
+
+    assert description.startswith("What a column is declared to hold")
+    assert "Examples:" not in description
+    assert ">>>" not in description

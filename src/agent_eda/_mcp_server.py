@@ -31,6 +31,8 @@ from agent_eda._registry import (
 )
 from agent_eda._table_files import RECORD_KEY, RECORD_SCHEMA, TableFile, table_file
 from agent_eda._version import __version__
+from agent_eda._wording import message as worded_message
+from agent_eda._wording import see_every
 from agent_eda.discovery import list_analyses, search_analyses
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
@@ -285,7 +287,7 @@ def _call(
     schema. The server checks what the MCP tool adds to the analysis's own
     arguments (unknown and missing names among the MCP tool's properties, and
     data_path); the analysis checks its options, with the message a Python
-    caller gets. A table_path is checked before the data is read, so an
+    caller gets, its fix worded for an MCP caller. A table_path is checked before the data is read, so an
     existing file or a missing directory stops the call before the analysis
     runs. A project_path replaces the server's project for the call; a
     mask_sensitive goes to the analysis, where it wins over either.
@@ -309,7 +311,7 @@ def _discover(
     and its record.
 
     The server checks the argument names; the function checks the values, with
-    the message a Python caller gets.
+    the message a Python caller gets, its fix worded for an MCP caller.
     """
     _check_names(
         served.tool,
@@ -353,7 +355,7 @@ def _check_arguments(served: _AnalysisTool, arguments: dict[str, Any]) -> None:
             served.spec,
             names,
             fix=f"in the MCP tool's arguments, such as {{{example}}}",
-            see="The MCP tool's input schema describes every argument.",
+            see=see_every(served.spec.name, "argument", "mcp"),
         )
 
     _check_names(served.tool, arguments, missing=missing)
@@ -520,9 +522,10 @@ def _response(
 
 
 def _error_response(error: AgentEDAError) -> types.CallToolResult:
-    """A caller mistake as a tool error: the message as text, and the stable
-    code and the message as structured content."""
-    message = str(error)
+    """A caller mistake as a tool error: the message, with its fix worded for an
+    MCP caller, as text, and the stable code and the message as structured
+    content."""
+    message = worded_message(error, "mcp")
     return types.CallToolResult(
         content=[types.TextContent(text=message)],
         structured_content={"code": error.code, "message": message},

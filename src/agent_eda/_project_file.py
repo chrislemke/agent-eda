@@ -33,7 +33,8 @@ from typing import Any
 
 from agent_eda._columns import closest_names
 from agent_eda._registry import _value_text, python_scalar
-from agent_eda._text import join_items
+from agent_eda._text import Surface, join_items
+from agent_eda._wording import message, worded
 from agent_eda.errors import (
     AgentEDAError,
     InvalidArgumentError,
@@ -49,11 +50,29 @@ MAX_BYTES = 1024 * 1024
 # The first line of every project file, for whoever opens one.
 _HEADER = "# An agent-eda Project. Load it with ae.Project.load(path)."
 
-# How to recover from a file that doesn't parse.
-_REWRITE = (
-    "Fix the file, or write it again with project.save(path, overwrite=True) from a "
-    "project built in code; help(ae.Project.load) shows the format."
-)
+# Sensitive columns as a project file declares them, for messages that show how;
+# an MCP caller declares a data policy only in a project file.
+TOML_EXAMPLE = 'sensitive_columns = ["email"]'
+
+
+def _format_source(surface: Surface, *, start: bool = False) -> str:
+    """Where the caller reads how a project file writes each key."""
+    if surface == "python":
+        return "help(ae.Project.load)"
+    where = "project_path description in the MCP tool's input schema"
+    return f"{'The' if start else 'the'} {where}"
+
+
+def _rewrite(surface: Surface) -> str:
+    """How to recover from a file that doesn't parse."""
+    if surface == "python":
+        return (
+            "Fix the file, or write it again with project.save(path, overwrite=True) "
+            "from a project built in code; help(ae.Project.load) shows the format."
+        )
+    return f"Fix the file; {_format_source(surface)} shows the format."
+
+
 # Why read() requires the whole data policy.
 _WHOLE_POLICY = (
     "A project file states its whole data policy, so that a file cut short can't "
@@ -165,9 +184,14 @@ def invalid(path: str | os.PathLike[str], error: AgentEDAError) -> ProjectFileEr
     `error` is the one building the Project raised, which names the field, the
     value and what the field allows.
     """
-    return ProjectFileError(
-        f"Project.load can't build a project from {os.fspath(path)!r}: {error} "
-        "help(ae.Project.load) shows how a project file writes each key."
+    return worded(
+        ProjectFileError,
+        lambda surface: (
+            f"Project.load can't build a project from "
+            f"{os.fspath(path)!r}: {message(error, surface)} "
+            f"{_format_source(surface, start=True)} shows how a project file writes "
+            "each key."
+        ),
     )
 
 
@@ -262,17 +286,25 @@ def _parse(given: str, data: bytes) -> dict[str, Any]:
         content = data.decode("utf-8")
     except UnicodeDecodeError as error:
         line = data[: error.start].count(b"\n") + 1
-        raise ProjectFileError(
-            f"Project.load found bytes that aren't UTF-8 text in {given!r} at line "
-            f"{line}. A project file is TOML, which is UTF-8 text. {_REWRITE}"
+        raise worded(
+            ProjectFileError,
+            lambda surface: (
+                f"Project.load found bytes that aren't UTF-8 text in "
+                f"{given!r} at line {line}. A project file is TOML, which is UTF-8 text. "
+                f"{_rewrite(surface)}"
+            ),
         ) from None
     try:
         return tomllib.loads(content)
     except tomllib.TOMLDecodeError as error:
-        raise ProjectFileError(_syntax_message(given, content, str(error))) from None
+        reason = str(error)
+        raise worded(
+            ProjectFileError,
+            lambda surface: _syntax_message(given, content, reason, surface),
+        ) from None
 
 
-def _syntax_message(given: str, content: str, error: str) -> str:
+def _syntax_message(given: str, content: str, error: str, surface: Surface) -> str:
     """Say where a file isn't TOML and how to fix it, without quoting the file."""
     hint = ""
     if match := _AT_LINE.fullmatch(error):
@@ -294,7 +326,10 @@ def _syntax_message(given: str, content: str, error: str) -> str:
         )
     else:
         reason, where = error, ""
-    return f"Project.load found invalid TOML in {given!r}{where}: {reason}.{hint} {_REWRITE}"
+    return (
+        f"Project.load found invalid TOML in {given!r}{where}: {reason}.{hint} "
+        f"{_rewrite(surface)}"
+    )
 
 
 def _check_keys(
@@ -368,26 +403,39 @@ def _check_table(
     fields: Mapping[str, Any], given: str, *, table: str, table_keys: Sequence[str]
 ) -> None:
     """Raise unless the file has the table, as a table, with each of its keys."""
-    form = (
-        f"a [{table}] line, with single brackets, followed by "
-        f"{join_items(table_keys)}, as help(ae.Project.load) shows"
-    )
+
+    def form(surface: Surface) -> str:
+        return (
+            f"a [{table}] line, with single brackets, followed by "
+            f"{join_items(table_keys)}, as {_format_source(surface)} shows"
+        )
+
     if table not in fields:
-        raise ProjectFileError(
-            f"Project.load found no [{table}] table in {given!r}. {_WHOLE_POLICY}: "
-            f"add {form}."
+        raise worded(
+            ProjectFileError,
+            lambda surface: (
+                f"Project.load found no [{table}] table in {given!r}. "
+                f"{_WHOLE_POLICY}: add {form(surface)}."
+            ),
         )
     if not isinstance(fields[table], Mapping):
-        raise ProjectFileError(
-            f"Project.load found {_kind(fields[table])} for {table} in {given!r}, but "
-            f"{table} is one table: {form}."
+        raise worded(
+            ProjectFileError,
+            lambda surface: (
+                f"Project.load found {_kind(fields[table])} for {table} "
+                f"in {given!r}, but {table} is one table: {form(surface)}."
+            ),
         )
     missing = [key for key in table_keys if key not in fields[table]]
     if missing:
-        raise ProjectFileError(
-            f"Project.load found no {join_items(missing)} in the [{table}] table of "
-            f"{given!r}. {_WHOLE_POLICY}: add {join_items(missing)} below the "
-            f"[{table}] line, as help(ae.Project.load) shows."
+        raise worded(
+            ProjectFileError,
+            lambda surface: (
+                f"Project.load found no {join_items(missing)} in the "
+                f"[{table}] table of {given!r}. {_WHOLE_POLICY}: add "
+                f"{join_items(missing)} below the [{table}] line, as "
+                f"{_format_source(surface)} shows."
+            ),
         )
 
 

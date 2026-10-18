@@ -18,8 +18,9 @@ from agent_eda._annotations import choices, python_literal, type_text, valid_ran
 from agent_eda._columns import closest_names
 from agent_eda._registry import AnalysisSpec, registered
 from agent_eda._search import rank, terms
-from agent_eda._text import join_alternatives, join_items, plural
+from agent_eda._text import Surface, join_alternatives, join_items, plural
 from agent_eda._version import __version__
+from agent_eda._wording import as_written, worded
 from agent_eda.errors import InvalidArgumentError, UnknownAnalysisError
 from agent_eda.results import (
     AnalysisDescription,
@@ -284,6 +285,15 @@ def describe_analysis(name: str) -> AnalysisDescription:
     )
 
 
+def _search_example(surface: Surface, limit: int | None = None) -> str:
+    """A search for missing values as the caller writes it."""
+    options = {} if limit is None else {"limit": limit}
+    if surface == "mcp":
+        return as_written(surface, query="missing values", **options)
+    more = f", {as_written(surface, **options)}" if options else ""
+    return f"ae.search_analyses('missing values'{more})"
+
+
 def search_analyses(query: str, limit: int = 5) -> SearchListing:
     """Find the analyses that best match a question in your own words.
 
@@ -325,15 +335,21 @@ def search_analyses(query: str, limit: int = 5) -> SearchListing:
         Try other words, or call ae.guide() for every analysis and where to start.
     """
     if not isinstance(query, str):
-        raise InvalidArgumentError(
-            "search_analyses takes the query as a string, such as "
-            "ae.search_analyses('missing values'), but got a value of type "
-            f"{type(query).__name__}."
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                "search_analyses takes the query as a string, such as "
+                f"{_search_example(surface)}, but got a value of type "
+                f"{type(query).__name__}."
+            ),
         )
     if isinstance(limit, bool) or not isinstance(limit, numbers.Integral) or limit < 1:
-        raise InvalidArgumentError(
-            f"search_analyses got {limit!r} for limit, but limit must be an int of "
-            "at least 1, such as ae.search_analyses('missing values', limit=3)."
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"search_analyses got {limit!r} for limit, but limit "
+                f"must be an int of at least 1, such as {_search_example(surface, 3)}."
+            ),
         )
     limit = int(limit)
     searched = terms(query)

@@ -36,6 +36,8 @@ DESCRIBED = ["When to use:", "Returns:", "Statuses:", "See Also:"]
 CALL = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\(")
 # What only a Python caller can call: the result's methods, res and ae.
 PYTHON_ONLY = re.compile(r"\bto_(frame|dict|json)\(|\bres\.|\bae\.")
+# A class built with Python call syntax, such as ColumnSpec(logical_type=...).
+CLASS = re.compile(r"\b[A-Z]\w*\(")
 # "server" without "MCP " before it, which GLOSSARY.md asks to avoid.
 BARE_SERVER = re.compile(r"(?<!MCP )\bserver\b", flags=re.IGNORECASE)
 
@@ -255,6 +257,14 @@ def test_the_printed_result_over_mcp_holds_no_python(tmp_path, name):
     assert CALL.findall(text) == []
     assert "ae." not in text
     assert "res." not in text
+
+
+def test_the_input_schema_holds_no_python_example_or_call(tools, name):
+    descriptions = list(schema_descriptions(tools[name].input_schema))
+
+    assert [d for d in descriptions if ">>>" in d or "Examples:" in d] == []
+    # Formulas such as int(trim_fraction * n) stay; building a class doesn't.
+    assert [d for d in descriptions if PYTHON_ONLY.search(d) or CLASS.search(d)] == []
 
 
 def test_the_output_schema_names_no_python_method_of_the_result(tools, name):

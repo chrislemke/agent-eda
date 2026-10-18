@@ -16,6 +16,7 @@ import pandas as pd
 
 from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
 from agent_eda._values import column_values, hashable_values
+from agent_eda._wording import worded
 from agent_eda.errors import ColumnTypeError
 from agent_eda.results import Limitation
 
@@ -68,11 +69,19 @@ def read_row_ids(analysis: str, data: pd.DataFrame, id_column: str | None) -> Ro
     # Lists and dicts raise TypeError; nested pyarrow types raise
     # ArrowNotImplementedError, a NotImplementedError.
     except (TypeError, NotImplementedError):
-        raise ColumnTypeError(
-            f"{analysis} can't use column {column.name!r} with dtype {column.dtype} "
-            "as id_column: it holds values that can't be hashed, such as lists or "
-            "dicts, and so can't identify rows. Pass a column of IDs such as "
-            "numbers or strings, or leave id_column=None to use the index labels."
+        raise worded(
+            ColumnTypeError,
+            lambda surface: (
+                f"{analysis} can't use column {column.name!r} with dtype "
+                f"{column.dtype} as id_column: it holds values that can't be hashed, "
+                "such as lists or dicts, and so can't identify rows. Pass a column of IDs "
+                "such as numbers or strings, or "
+                + (
+                    "leave id_column=None to use the index labels."
+                    if surface == "python"
+                    else "leave id_column out to use the default row IDs."
+                )
+            ),
         ) from None
     repeated = duplicated_labels(labels, keep=False)
     return RowIds(id_column=column.name, labels=labels, repeated=repeated)

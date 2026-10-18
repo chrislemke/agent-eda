@@ -1,7 +1,8 @@
 """Mistakes and statuses over MCP, tested as an MCP client meets them.
 
 A caller mistake comes back as a tool error, isError true, with the stable code
-and the message a Python caller gets, so the caller can fix the call and retry.
+and the message a Python caller gets, its fix worded for an MCP caller
+(tests/test_mcp_fixes.py), so the caller can fix the call and retry.
 A run that doesn't complete is a normal result with its status and reason. Only
 a bug becomes a JSON-RPC error.
 """
@@ -79,7 +80,9 @@ def test_an_error_record_passes_the_client_in_either_protocol_era(tmp_path, mode
     ],
     ids=["string-for-number", "string-in-list", "outside-literal", "out-of-range"],
 )
-def test_an_argument_against_the_schema_gets_the_python_message(tmp_path, options):
+def test_an_argument_against_the_schema_gets_the_python_message_with_an_mcp_fix(
+    tmp_path, options
+):
     path = shop_csv(tmp_path)
     with pytest.raises(AgentEDAError) as raised:
         ae.summarize_numeric(read(path), **options)
@@ -90,7 +93,10 @@ def test_an_argument_against_the_schema_gets_the_python_message(tmp_path, option
     assert response.is_error
     assert response.structured_content == {
         "code": "invalid_argument",
-        "message": str(raised.value),
+        "message": str(raised.value).replace(
+            "See help(ae.summarize_numeric) for every argument.",
+            "The MCP tool's input schema describes every argument.",
+        ),
     }
     assert f" {name}" in response.structured_content["message"]
 

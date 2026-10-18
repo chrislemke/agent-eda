@@ -27,3 +27,5 @@ Read these sections of `.scratch/mcp-server/spec.md`: Reading data, and test gro
 - The `data_path` description in every input schema now names the six extensions and says that Parquet keeps its dtypes and its stored index.
 - Errors are observed over MCP with `Client(..., raise_exceptions=True)`: the client re-raises the handler's `AgentEDAError` inside nested exception groups, and the test helper `data_error` in `tests/test_mcp_data.py` unwraps it. Once ticket 04 returns an `AgentEDAError` as an `isError` result, that helper has to read the code and message from the result instead.
 - The cache tests rewrite a file to the same size and then put back its modification time with `os.utime(ns=...)`, so they see whether a call re-read the file without touching private modules.
+
+**Spec review follow-up (2026-10-18).** "A pandas index stored in the file is restored ... and row IDs follow it" had no test; `test_row_ids_of_a_parquet_file_follow_the_index_stored_in_it` now covers it.

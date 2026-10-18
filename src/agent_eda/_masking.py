@@ -32,7 +32,9 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._levels import Levels, label_types, ordered
+from agent_eda._project_file import TOML_EXAMPLE
 from agent_eda._text import placeholder
+from agent_eda._wording import as_written, worded
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.project import Project
 from agent_eda.results import Masking
@@ -109,15 +111,34 @@ def resolve_masking(
         decision = MaskingDecision(False, "default", sensitive)
     if decision.applied and not sensitive:
         if project is None:
-            raise InvalidArgumentError(
-                f"{analysis} got mask_sensitive=True without a project, so no "
-                "column is declared sensitive and there would be nothing to mask. "
-                f"Pass a project that names the sensitive columns, such as {_EXAMPLE}."
+            fixes = {
+                "python": "Pass a project that names the sensitive columns, such as "
+                f"{_EXAMPLE}.",
+                "mcp": "Pass a project_path whose [data_policy] table names the "
+                f"sensitive columns, such as {TOML_EXAMPLE}.",
+            }
+            raise worded(
+                InvalidArgumentError,
+                lambda surface: (
+                    f"{analysis} got "
+                    f"{as_written(surface, mask_sensitive=True)} without a project, so "
+                    "no column is declared sensitive and there would be nothing to "
+                    f"mask. {fixes[surface]}"
+                ),
             )
-        raise InvalidArgumentError(
-            f"{analysis} got mask_sensitive=True, but the project declares no "
-            "sensitive columns, so there would be nothing to mask. Name them in its "
-            f"data policy, such as {_EXAMPLE}."
+        fixes = {
+            "python": f"Name them in its data policy, such as {_EXAMPLE}.",
+            "mcp": "Name them in the [data_policy] table of its project file, such "
+            f"as {TOML_EXAMPLE}.",
+        }
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"{analysis} got "
+                f"{as_written(surface, mask_sensitive=True)}, but the project declares "
+                "no sensitive columns, so there would be nothing to mask. "
+                f"{fixes[surface]}"
+            ),
         )
     return decision
 

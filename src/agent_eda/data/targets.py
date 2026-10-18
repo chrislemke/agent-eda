@@ -48,7 +48,8 @@ from agent_eda._registry import analysis
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, check_distinct, data_shape, execution
 from agent_eda._sentinels import Family, SentinelValue, holds, likely_value, literal
-from agent_eda._text import format_number, join_items, placeholder, plural
+from agent_eda._text import Surface, format_number, join_items, placeholder, plural
+from agent_eda._wording import as_written, worded
 from agent_eda.errors import ColumnTypeError, InvalidArgumentError
 from agent_eda.project import Project
 from agent_eda.results import (
@@ -383,19 +384,30 @@ def _check_options(
         ]
         if given:
             them = "it" if len(given) == 1 else "them"
-            raise InvalidArgumentError(
-                f"profile_target got {join_items(given)} for a regression task, "
-                f"which has no class labels to check. Leave {them} out, or pass "
-                "task='binary_classification' or task='multiclass_classification' if "
-                "the target holds class labels."
+            raise worded(
+                InvalidArgumentError,
+                lambda surface: (
+                    f"profile_target got {join_items(given)} for a "
+                    f"regression task, which has no class labels to check. Leave {them} "
+                    f"out, or pass {_classification_tasks(surface)} if the target holds "
+                    "class labels."
+                ),
             )
         return
     if labels is None:
         return
     if not labels:
-        raise InvalidArgumentError(
-            "profile_target got an empty list for expected_labels. List the labels "
-            "the task allows, or pass expected_labels=None to leave the check out."
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                "profile_target got an empty list for expected_labels. "
+                "List the labels the task allows, or "
+                + (
+                    "pass expected_labels=None to leave the check out."
+                    if surface == "python"
+                    else "leave expected_labels out to skip the check."
+                )
+            ),
         )
     check_distinct("profile_target", "expected_labels", labels, "label")
     not_finite = [
@@ -507,6 +519,32 @@ _REGRESSION_FIXES: dict[ColumnKind, str] = {
 }
 
 
+def _classification_tasks(surface: Surface) -> str:
+    """The two classification tasks as the caller passes them."""
+    return " or ".join(
+        as_written(surface, task=task)
+        for task in ("binary_classification", "multiclass_classification")
+    )
+
+
+# How an MCP caller fixes a regression task on a column of each kind that
+# isn't numeric: converting the column is Python, so it picks another task or
+# another column.
+_MCP_CLASSIFY = f"If its values are class labels, pass {_classification_tasks('mcp')}"
+_MCP_REGRESSION_FIXES: dict[ColumnKind, str] = {
+    "text": _MCP_CLASSIFY,
+    "object": _MCP_CLASSIFY,
+    "categorical": _MCP_CLASSIFY,
+    "boolean": (
+        "If its values are class labels, pass "
+        f"{as_written('mcp', task='binary_classification')}"
+    ),
+    "timedelta": "Pass a column of numbers instead",
+    "datetime": "Pass a column of numbers instead",
+    "other": "Pass a column of numbers instead",
+}
+
+
 def _check_target(target: Column, task: Task) -> None:
     """Raise unless the task can take the target column's dtype.
 
@@ -517,18 +555,30 @@ def _check_target(target: Column, task: Task) -> None:
     code = f"df[{target.label!r}]"
     what = f"column {target.name!r} with dtype {target.dtype}"
     if task == "regression" and target.kind != "numeric":
-        fix = _REGRESSION_FIXES[target.kind].format(column=code)
-        raise ColumnTypeError(
-            f"profile_target can't use {what} as a regression target, which must "
-            "hold numbers: integer or float columns, nullable and pyarrow-backed "
-            f"ones included. {fix}."
+        fixes = {
+            "python": _REGRESSION_FIXES[target.kind].format(column=code),
+            "mcp": _MCP_REGRESSION_FIXES[target.kind],
+        }
+        raise worded(
+            ColumnTypeError,
+            lambda surface: (
+                f"profile_target can't use {what} as a regression "
+                "target, which must hold numbers: integer or float columns, nullable "
+                f"and pyarrow-backed ones included. {fixes[surface]}."
+            ),
         )
     if task != "regression" and target.kind not in _LABEL_KINDS:
-        raise ColumnTypeError(
-            f"profile_target can't use {what} as a classification target, whose "
-            "labels must be text, numbers, booleans or categories, nullable and "
-            "pyarrow-backed ones included. Convert its values to labels first, such "
-            f"as {code}.astype(str)."
+        fixes = {
+            "python": f"Convert its values to labels first, such as {code}.astype(str)",
+            "mcp": "Pass a column of labels instead",
+        }
+        raise worded(
+            ColumnTypeError,
+            lambda surface: (
+                f"profile_target can't use {what} as a classification "
+                "target, whose labels must be text, numbers, booleans or categories, "
+                f"nullable and pyarrow-backed ones included. {fixes[surface]}."
+            ),
         )
 
 

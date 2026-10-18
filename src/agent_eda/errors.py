@@ -75,6 +75,9 @@ class AgentEDAError(Exception):
     """
 
     code: str = "agent_eda_error"
+    # The message an MCP caller reads when its fix differs from the Python
+    # one; agent_eda._wording sets it, and the MCP server sends it.
+    _mcp_message: str | None = None
 
     def __init__(self, message: str, *, code: str | None = None) -> None:
         super().__init__(message)

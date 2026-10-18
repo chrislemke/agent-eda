@@ -15,7 +15,14 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._run import check_distinct
-from agent_eda._text import join_alternatives, join_items, join_labels, plural
+from agent_eda._text import (
+    Surface,
+    join_alternatives,
+    join_items,
+    join_labels,
+    plural,
+)
+from agent_eda._wording import left_out, worded
 from agent_eda.errors import ColumnNotFoundError, ColumnTypeError, InvalidArgumentError
 
 # Error messages name at most this many of the data's columns.
@@ -96,11 +103,19 @@ def check_column_labels(analysis: str, columns: pd.Index) -> None:
     """Raise unless every column can be named by the string form of its label."""
     fix_elsewhere = "describe_dataset describes data with any labels."
     if isinstance(columns, pd.MultiIndex):
-        raise InvalidArgumentError(
-            f"{analysis} refers to columns by name, but the column labels form a "
-            f"MultiIndex with {columns.nlevels} levels. Flatten them first, such "
-            "as df.columns = ['_'.join(map(str, c)) for c in df.columns]. "
-            f"{fix_elsewhere}",
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"{analysis} refers to columns by name, but the column "
+                f"labels form a MultiIndex with {columns.nlevels} levels. "
+                + (
+                    "Flatten them first, such as df.columns = ['_'.join(map(str, c)) "
+                    "for c in df.columns]. "
+                    if surface == "python"
+                    else "Flatten them in the data file first. "
+                )
+                + fix_elsewhere
+            ),
             code="ambiguous_column_labels",
         )
     labels = Labels(columns)
@@ -234,9 +249,13 @@ def select_columns(
             left_out=[c.name for c in columns if c.kind not in rule.default],
         )
     if not requested:
-        raise InvalidArgumentError(
-            f"{analysis} got an empty list for {parameter}. Name at least one "
-            f"column, or pass {parameter}=None for {rule.default_text}."
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"{analysis} got an empty list for {parameter}. Name at "
+                f"least one column, or {left_out(parameter, surface)} for "
+                f"{rule.default_text}."
+            ),
         )
     check_distinct(analysis, parameter, requested, "column")
     by_name = {column.name: column for column in columns}
@@ -248,7 +267,10 @@ def select_columns(
     selected = [by_name[name] for name in requested]
     rejected = [column for column in selected if column.kind not in rule.accepted]
     if rejected:
-        raise ColumnTypeError(_wrong_type(analysis, parameter, rejected, rule))
+        raise worded(
+            ColumnTypeError,
+            lambda surface: _wrong_type(analysis, parameter, rejected, rule, surface),
+        )
     return Selection(columns=selected, left_out=[])
 
 
@@ -299,7 +321,11 @@ def _not_found(
 
 
 def _wrong_type(
-    analysis: str, parameter: str, rejected: list[Column], rule: ColumnRule
+    analysis: str,
+    parameter: str,
+    rejected: list[Column],
+    rule: ColumnRule,
+    surface: Surface,
 ) -> str:
     # Each analysis that fits some of the columns, with the columns it fits.
     fitting: dict[str, list[str]] = {}
@@ -307,9 +333,10 @@ def _wrong_type(
         other = rule.alternatives.get(column.kind)
         if other is not None:
             fitting.setdefault(other, []).append(repr(column.name))
-    # Each fix once, shown with the first column it applies to.
+    # Each fix once, shown with the first column it applies to. A fix is
+    # pandas code, which only a Python caller can run.
     fixes: dict[str, str] = {}
-    for column in rejected:
+    for column in rejected if surface == "python" else []:
         template = rule.fixes.get(column.kind)
         if template is not None and template not in fixes:
             fixes[template] = template.format(column=f"df[{column.label!r}]")

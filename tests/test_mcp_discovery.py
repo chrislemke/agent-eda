@@ -272,18 +272,39 @@ def test_describe_analysis_and_guide_are_not_mcp_tools():
     assert names == {*ANALYSES, "search_analyses", "list_analyses"}
 
 
-def test_a_search_limit_below_one_is_the_python_error():
+@pytest.mark.parametrize(
+    ("arguments", "python_fix", "mcp_fix"),
+    [
+        (
+            {"query": 3},
+            "such as ae.search_analyses('missing values'),",
+            'such as {"query": "missing values"},',
+        ),
+        (
+            {"query": "nulls", "limit": 0},
+            "such as ae.search_analyses('missing values', limit=3).",
+            'such as {"query": "missing values", "limit": 3}.',
+        ),
+    ],
+    ids=["query-not-text", "limit-below-one"],
+)
+def test_a_bad_search_value_is_the_python_error_with_an_mcp_fix(
+    arguments, python_fix, mcp_fix
+):
     with pytest.raises(InvalidArgumentError) as raised:
-        ae.search_analyses("nulls", limit=0)
+        ae.search_analyses(**arguments)
 
-    response = anyio.run(call, "search_analyses", {"query": "nulls", "limit": 0})
+    response = anyio.run(call, "search_analyses", arguments)
 
+    assert python_fix in str(raised.value)
     assert response.is_error
     assert response.structured_content == {
         "code": raised.value.code,
-        "message": str(raised.value),
+        "message": str(raised.value).replace(python_fix, mcp_fix),
     }
-    assert [block.text for block in response.content] == [str(raised.value)]
+    assert [block.text for block in response.content] == [
+        response.structured_content["message"]
+    ]
 
 
 @pytest.mark.parametrize(

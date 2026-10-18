@@ -15,7 +15,7 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 - Every registered analysis is an MCP tool with the analysis's name. Its description and JSON Schema come from the analysis's docstring and registry entry, so an MCP caller gets the same documentation a Python caller gets, and nothing is maintained twice.
 - An MCP tool takes a data path to a CSV, TSV or Parquet file in place of the DataFrame. The server reads it, counting only empty CSV fields as missing so that sentinel values reach the analyses.
 - A call returns the printed result as text, worded for an MCP caller, and the full strict-JSON record as structured content. An optional `table_path` writes the result's main table to a file.
-- A caller mistake comes back as a tool error whose message says how to fix the call, the same message a Python caller gets.
+- A caller mistake comes back as a tool error whose message says how to fix the call: the message a Python caller gets, with the fix worded for an MCP caller (user's decision, 2026-10-18).
 - A project file passed per call, or once when the server starts, gives masking to MCP callers.
 - The server's instructions tell an MCP caller where to start, and `search_analyses` and `list_analyses` are MCP tools too.
 
@@ -58,7 +58,7 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 
 ### Mistakes and statuses
 
-24. As an MCP caller who makes a mistake in a call, I want a tool error carrying the stable error code and the same fix-it message a Python caller gets, so that I can correct the call and retry.
+24. As an MCP caller who makes a mistake in a call, I want a tool error carrying the stable error code and the message a Python caller gets, with a fix I can make over MCP, so that I can correct the call and retry.
 25. As an MCP caller, I want a run that doesn't complete, such as `insufficient_data`, to come back as a normal result with its status and reason, not as an error, so that I can tell "my call was wrong" from "the data can't answer this".
 
 ### Masking
@@ -124,14 +124,14 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 
 ### Errors
 
-- An `AgentEDAError` raised by argument checks, file reading or the analysis becomes a tool result with `isError: true`. Its text is the exception's message, and its structured content is `{"code": ..., "message": ...}`.
+- An `AgentEDAError` raised by argument checks, file reading or the analysis becomes a tool result with `isError: true`. Its text is the exception's message as an MCP caller reads it, and its structured content is `{"code": ..., "message": ...}`. That message says what is wrong and what is allowed as the Python one does; where the Python message gives a fix only Python can make, the MCP one gives the MCP fix in its place: a JSON object such as `{"task": "regression"}` for `task='regression'`, leaving an option out for `columns=None`, the MCP tool's input schema for `help(ae.<name>)`, `project_path` and the TOML of a project file for `ae.Project(...)`, and no step at all for pandas code that converts a column. Each raise site an MCP tool can reach builds both messages from one function of the surface (`agent_eda._wording`), and Python messages are unchanged.
 - Validation by the SDK of arguments against the input schema happens before our code runs. Where the SDK lets the server shape that error, it carries code `invalid_argument` and names the property; otherwise the SDK's message stands, and ticket 04 records which.
 - Any other exception is a bug and propagates, which the SDK turns into a JSON-RPC internal error.
 - A non-completed status is not an error: the response is a normal result.
 
 ### Project and masking
 
-- `project_path` is loaded with `Project.load`, so its errors (`ProjectFileError`, `ProjectFileNotFoundError`) and messages are the Python ones. `Project.load` opens only a regular file, reads at most 1 MiB, and turns an operating-system refusal such as a missing read permission into `ProjectFileError`, so a named pipe, `/dev/zero` or an unreadable file gives a tool error instead of hanging the server or becoming an internal error.
+- `project_path` is loaded with `Project.load`, so its errors (`ProjectFileError`, `ProjectFileNotFoundError`) and messages are the Python ones, with the fix worded for an MCP caller as Errors says. `Project.load` opens only a regular file, reads at most 1 MiB, and turns an operating-system refusal such as a missing read permission into `ProjectFileError`, so a named pipe, `/dev/zero` or an unreadable file gives a tool error instead of hanging the server or becoming an internal error.
 - `--project` is loaded once when the server starts. An invalid file stops the server with the same message on stderr and exit status 1.
 - Precedence: per-call `project_path`, then `--project`, then no Project. A per-call `mask_sensitive` wins over the Project's setting, as in Python.
 - An analysis that doesn't take `project` has no `project_path`. `--project` doesn't apply to it.
@@ -141,7 +141,7 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 
 - The server's `instructions` are an MCP version of `ae.guide()`, built from the same parts: what the package does, how to pass data (data path, supported formats, the empty-field rule, relative paths, row IDs), how to read results and statuses, masking with `project_path` and `--project`, and the first-look order from `discovery.FIRST_LOOK` limited to registered analyses. They contain no Python. The guide's 60-line, 120-character limits apply.
 - The `search_analyses` MCP tool takes `query` and `limit` (default 5) and returns the `SearchListing`'s text and record. The `list_analyses` MCP tool takes nothing and returns the `AnalysisListing`'s text and record. Their names are MCP tool names. The records equal Python's. The text is worded for an MCP caller: where Python suggests `ae.search_analyses(...)`, `ae.describe_analysis(...)` or `ae.guide()`, it points to the `limit` argument, the MCP tool's description and input schema, and `list_analyses` (user's decision, 2026-10-18).
-- Nothing an MCP caller reads holds `ae.` or Python call syntax: the instructions, the printed results, the listings, the MCP tool descriptions, and the output schemas' field descriptions, which name the full table as "to_frame, or table_path over MCP".
+- Nothing an MCP caller reads holds `ae.` or Python call syntax: the instructions, the printed results, the listings, the MCP tool descriptions, the input schemas (a model's description in `$defs` leaves out its `Examples:`), the output schemas' field descriptions, which name the full table as "to_frame, or table_path over MCP", and the error messages.
 - `describe_analysis` and `guide` are not MCP tools: each analysis MCP tool's description and schema carry the same docstring content, and the instructions carry the guide.
 
 ### Docs and records

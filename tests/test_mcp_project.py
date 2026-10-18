@@ -153,15 +153,15 @@ def test_a_relative_project_path_resolves_against_the_working_directory(
     assert response.structured_content["masking"]["applied"] is True
 
 
+# A file that isn't TOML or leaves out a key gets an MCP fix in place of the
+# Python one: tests/test_mcp_fixes.py.
 @pytest.mark.parametrize(
     "content",
     [
         None,  # no file
-        "[data_policy\n",  # not TOML
-        '[data_policy]\nsensitive_columns = ["customer"]\n',  # a key left out
         "[data_policy]\nsensitive_columns = []\nmask_sensitve = true\n",  # typo
     ],
-    ids=["missing", "not-toml", "key-left-out", "unknown-key"],
+    ids=["missing", "unknown-key"],
 )
 def test_a_bad_project_file_is_a_tool_error_with_the_python_code_and_message(
     tmp_path, content
@@ -299,23 +299,6 @@ def test_project_path_wins_over_the_server_project_and_mask_sensitive_over_both(
     assert response.structured_content == expected.to_dict()
     masking = response.structured_content["masking"]
     assert (masking["applied"], masking["decided_by"]) == (applied, decided_by)
-
-
-def test_mask_sensitive_without_any_project_is_the_python_error(tmp_path):
-    data_path = write(tmp_path / "shop.csv", CSV)
-    with pytest.raises(AgentEDAError) as raised:
-        ae.summarize_categorical(read(data_path), mask_sensitive=True)
-
-    response = anyio.run(
-        call,
-        "summarize_categorical",
-        {"data_path": str(data_path), "mask_sensitive": True},
-    )
-
-    assert response.structured_content == {
-        "code": raised.value.code,
-        "message": str(raised.value),
-    }
 
 
 # Data whose sensitive columns, email and segment, every masking analysis shows

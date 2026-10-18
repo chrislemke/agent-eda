@@ -122,6 +122,22 @@ def test_row_ids_of_a_csv_are_0_based_data_row_numbers(tmp_path):
     assert [group["row_ids"] for group in groups] == [[0, 2, 3]]
 
 
+def test_row_ids_of_a_parquet_file_follow_the_index_stored_in_it(tmp_path):
+    path = tmp_path / "orders.parquet"
+    data = pd.DataFrame(
+        {"city": ["Oslo", "Lyon", "Oslo", "Oslo"]},
+        index=pd.Index(["A1", "A2", "A3", "A4"], name="order"),
+    )
+    data.to_parquet(path)
+
+    response = anyio.run(
+        call, "find_duplicate_rows", {"data_path": str(path), "columns": ["city"]}
+    )
+
+    groups = response.structured_content["duplicate_groups"]
+    assert [group["row_ids"] for group in groups] == [["A1", "A3", "A4"]]
+
+
 def test_id_column_replaces_the_row_numbers_of_a_csv(tmp_path):
     path = tmp_path / "orders.csv"
     path.write_text("order,city\nA1,Oslo\nA2,Lyon\nA3,Oslo\nA4,Oslo\n")

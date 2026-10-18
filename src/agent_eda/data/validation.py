@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 import numpy as np
 import pandas as pd
 import pydantic
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, GetJsonSchemaHandler, model_validator
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 
 from agent_eda._columns import (
     ColumnKind,
@@ -21,6 +23,7 @@ from agent_eda._columns import (
     select_columns,
 )
 from agent_eda._conversions import Check, check_column
+from agent_eda._docstring import without_examples
 from agent_eda._levels import (
     Levels,
     count_levels,
@@ -48,12 +51,14 @@ from agent_eda._registry import (
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import data_shape, execution, overall_status
 from agent_eda._text import (
+    Surface,
     join_alternatives,
     join_items,
     join_labels,
     placeholder,
     plural,
 )
+from agent_eda._wording import as_written, worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
 from agent_eda.results import (
@@ -86,11 +91,11 @@ class ColumnSpec(BaseModel):
     """What a column is declared to hold: its logical type and more.
 
     A declared schema maps column names to a ColumnSpec or to a logical type
-    alone, which is short for ColumnSpec(logical_type=...). infer_column_semantics
-    compares what it infers with the declared logical type, and never
-    overwrites it. Fields other than logical_type are optional, and None
-    declares nothing, so no check depends on them. An invalid spec raises
-    ae.errors.InvalidArgumentError.
+    alone, which is short for a ColumnSpec with only logical_type.
+    infer_column_semantics compares what it infers with the declared logical
+    type, and never overwrites it. Fields other than logical_type are optional,
+    and None declares nothing, so no check depends on them. An invalid spec
+    raises InvalidArgumentError, code invalid_argument.
 
     Examples:
         >>> import agent_eda as ae
@@ -151,6 +156,19 @@ class ColumnSpec(BaseModel):
                 raise _spec_error(fields, error.errors()) from None
 
     @classmethod
+    def __get_pydantic_json_schema__(
+        cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        """The JSON Schema, described without Examples:, which is Python.
+
+        pydantic 2.7 adds the docstring after json_schema_extra runs, so the
+        description is cut here, where every version has it.
+        """
+        schema = handler(core_schema)
+        without_examples(handler.resolve_ref_schema(schema))
+        return schema
+
+    @classmethod
     def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> Self:
         """Build a ColumnSpec from a dict of its fields, as JSON gives one."""
         if not isinstance(obj, Mapping | ColumnSpec):
@@ -171,11 +189,14 @@ class ColumnSpec(BaseModel):
         if text is None:
             return self
         if self.logical_type != "datetime":
-            raise InvalidArgumentError(
-                f"ColumnSpec got datetime_format {text!r} with logical_type "
-                f"{self.logical_type!r}, but a datetime_format applies only to "
-                "logical_type 'datetime'. Leave datetime_format out, or declare "
-                "logical_type='datetime'."
+            raise worded(
+                InvalidArgumentError,
+                lambda surface: (
+                    f"ColumnSpec got datetime_format {text!r} with "
+                    f"logical_type {self.logical_type!r}, but a datetime_format applies "
+                    "only to logical_type 'datetime'. Leave datetime_format out, or "
+                    f"declare {as_written(surface, logical_type='datetime')}."
+                ),
             )
         directives = _DIRECTIVE.findall(text)
         unknown = [d for d in directives if d not in _KNOWN_DIRECTIVES]
@@ -219,6 +240,12 @@ ColumnSpec.__signature__ = inspect.Signature(
 _SPEC_FIELDS = tuple(ColumnSpec.model_fields)
 
 
+def _spec_example(surface: Surface) -> str:
+    """A ColumnSpec as the caller writes one."""
+    fields = as_written(surface, logical_type="integer", nullable=False)
+    return f"ae.ColumnSpec({fields})" if surface == "python" else fields
+
+
 def _spec_error(fields: dict[str, Any], problems: list[Any]) -> AgentEDAError:
     """The error to raise for a ColumnSpec that pydantic rejected."""
     for problem in problems:
@@ -234,17 +261,23 @@ def _spec_error(fields: dict[str, Any], problems: list[Any]) -> AgentEDAError:
         )
     if first["type"] == "missing":
         allowed = join_alternatives([repr(t) for t in _LOGICAL_TYPES])
-        return InvalidArgumentError(
-            f"ColumnSpec needs logical_type, one of {allowed}, such as "
-            "ae.ColumnSpec(logical_type='integer', nullable=False).",
+        return worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"ColumnSpec needs logical_type, one of {allowed}, such "
+                f"as {_spec_example(surface)}."
+            ),
             code="invalid_call",
         )
     annotations = {
         name: spec_field.annotation
         for name, spec_field in ColumnSpec.model_fields.items()
     }
-    return InvalidArgumentError(
-        invalid_message("ColumnSpec", annotations, fields, problems, noun="field")
+    return worded(
+        InvalidArgumentError,
+        lambda surface: invalid_message(
+            "ColumnSpec", annotations, fields, problems, noun="field", surface=surface
+        ),
     )
 
 
@@ -1441,10 +1474,13 @@ def validate_column_types(
         list_analyses: Every analysis, with the question each one answers.
     """
     if not schema:
-        raise InvalidArgumentError(
-            "validate_column_types got an empty schema, which declares no column to "
-            "check. Declare the logical type of at least one column, such as "
-            "schema={'age': 'integer'}."
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                "validate_column_types got an empty schema, which "
+                "declares no column to check. Declare the logical type of at least one "
+                f"column, such as {as_written(surface, schema={'age': 'integer'})}."
+            ),
         )
     masking = resolve_masking("validate_column_types", project, mask_sensitive)
     row_ids = read_row_ids("validate_column_types", data, id_column)

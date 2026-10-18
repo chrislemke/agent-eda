@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from agent_eda import _project_file
 from agent_eda._registry import invalid_message, python_scalar, unknown_name_message
 from agent_eda._run import check_distinct
+from agent_eda._wording import worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 
 
@@ -268,10 +269,19 @@ class DataPolicy(_Declaration):
     @model_validator(mode="after")
     def _something_to_mask(self) -> Self:
         if self.mask_sensitive and not self.sensitive_columns:
-            raise InvalidArgumentError(
-                "DataPolicy got mask_sensitive=True but no sensitive_columns, so "
-                "there would be nothing to mask. Name the sensitive columns, such "
-                f"as {self._example}."
+            # An MCP caller's data policy comes from a project file, so its
+            # message shows the TOML.
+            texts = {
+                "python": ("mask_sensitive=True", self._example),
+                "mcp": ("mask_sensitive = true", _project_file.TOML_EXAMPLE),
+            }
+            raise worded(
+                InvalidArgumentError,
+                lambda surface: (
+                    f"DataPolicy got {texts[surface][0]} but no "
+                    "sensitive_columns, so there would be nothing to mask. Name the "
+                    f"sensitive columns, such as {texts[surface][1]}."
+                ),
             )
         return self
 

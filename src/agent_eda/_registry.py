@@ -37,7 +37,8 @@ from agent_eda._columns import check_column_labels, closest_names
 from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
 from agent_eda._run import watch_all_warnings
-from agent_eda._text import join_alternatives, join_items, plural
+from agent_eda._text import Surface, join_alternatives, join_items, plural
+from agent_eda._wording import message, see_every, worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.results import AnalysisResult, Limitation, Status
 
@@ -321,7 +322,7 @@ def _missing_message(spec: AnalysisSpec, missing: list[str]) -> str:
         spec,
         missing,
         fix=f"by keyword, such as ae.{spec.name}(df, {example})",
-        see=f"See help(ae.{spec.name}) for every argument.",
+        see=see_every(spec.name, "argument", "python"),
     )
 
 
@@ -400,8 +401,11 @@ def _validate(spec: AnalysisSpec, options: dict[str, Any]) -> dict[str, Any]:
             own = _own_error(problem)
             if own is not None and len(problem["loc"]) == 1:
                 raise own from None
-        raise InvalidArgumentError(
-            invalid_message(spec.name, spec.annotations, options, problems)
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: invalid_message(
+                spec.name, spec.annotations, options, problems, surface=surface
+            ),
         ) from None
     return {name: getattr(validated, name) for name in spec.parameters[1:]}
 
@@ -422,6 +426,7 @@ def invalid_message(
     problems: Sequence[Any],
     *,
     noun: str = "argument",
+    surface: Surface = "python",
 ) -> str:
     """Say what is wrong with an option, what it allows and how to fix it.
 
@@ -437,8 +442,11 @@ def invalid_message(
     own = _own_error(problem)
     if own is not None:
         # The package's own check, such as ColumnSpec's, says it best.
+        own_message = message(own, surface)
         return (
-            f"{owner} got an invalid value at {name}{path}: {own}" if path else str(own)
+            f"{owner} got an invalid value at {name}{path}: {own_message}"
+            if path
+            else own_message
         )
     if path:
         # A value inside a list option, or inside a mapping or its lists.
@@ -465,7 +473,7 @@ def invalid_message(
         detail = f" {problem['msg']}."
     return (
         f"{owner} got {_value_text(value)} {where}, but {rule}.{detail} "
-        f"See help(ae.{owner}) for every {noun}."
+        f"{see_every(owner, noun, surface)}"
     )
 
 

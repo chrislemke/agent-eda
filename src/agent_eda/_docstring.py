@@ -8,6 +8,7 @@ analysis's docstring to the format read here.
 import re
 import textwrap
 from dataclasses import dataclass
+from typing import Any
 
 # The section headers, in the order every analysis's docstring has them.
 SECTIONS = ("When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See Also:")
@@ -59,6 +60,14 @@ def parse(doc: str) -> Docstring:
         examples="\n".join(sections.get("Examples:", [])),
         see_also=_entries(sections.get("See Also:", [])),
     )
+
+
+def without_examples(schema: dict[str, Any]) -> None:
+    """Cut the Examples: section from the description of a pydantic model's JSON
+    Schema, which is the model's docstring, since a doctest is Python."""
+    description = schema.get("description")
+    if description is not None:
+        schema["description"] = description.split("\n\nExamples:")[0]
 
 
 def _sections(lines: list[str]) -> dict[str, list[str]]:
