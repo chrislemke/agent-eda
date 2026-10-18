@@ -10,14 +10,14 @@ Read these sections of `.scratch/first-look/spec.md`: the infer_column_semantics
 
 **Status:** ready-for-agent
 
-- [ ] `ae.LogicalType` is a literal with the values `boolean`, `integer`, `float`, `categorical`, `text`, `datetime` and `timedelta`. The spec left the values open, and this set was agreed when the tickets were cut. GLOSSARY.md's Logical type entry lists them.
-- [ ] `ae.ColumnSpec` holds a logical type, `nullable` and an optional `datetime_format`. An invalid spec raises `InvalidArgumentError` in the package's message format, never a raw pydantic error.
-- [ ] `declared_schema` is optional and maps column names to a logical type or a `ColumnSpec`.
-- [ ] Per column, the result gives the candidate logical types ranked by a heuristic score between 0 and 1, with reasons; the flags `identifier_like`, `constant`, `all_missing`, `numbers_as_text`, `dates_as_text`, `non_iso_date_text`, `boolean_like` and `mixed_value_types`; and the evidence: non-missing and distinct counts, the uniqueness share, and the shares of values that parse as numbers, integers, ISO 8601 dates and booleans.
-- [ ] Scores come from documented, deterministic rules, and the docstring says they are not probabilities.
-- [ ] Parse checks run on distinct values weighted by their counts. Dates parse as ISO 8601 only. Other date-like text gets the `non_iso_date_text` flag and is never parsed.
-- [ ] The analysis never overwrites a declared type. When the top candidate differs from it, the result carries a suspected finding.
-- [ ] Tests cover every classification case in the spec:
+- [x] `ae.LogicalType` is a literal with the values `boolean`, `integer`, `float`, `categorical`, `text`, `datetime` and `timedelta`. The spec left the values open, and this set was agreed when the tickets were cut. GLOSSARY.md's Logical type entry lists them.
+- [x] `ae.ColumnSpec` holds a logical type, `nullable` and an optional `datetime_format`. An invalid spec raises `InvalidArgumentError` in the package's message format, never a raw pydantic error.
+- [x] `declared_schema` is optional and maps column names to a logical type or a `ColumnSpec`.
+- [x] Per column, the result gives the candidate logical types ranked by a heuristic score between 0 and 1, with reasons; the flags `identifier_like`, `constant`, `all_missing`, `numbers_as_text`, `dates_as_text`, `non_iso_date_text`, `boolean_like` and `mixed_value_types`; and the evidence: non-missing and distinct counts, the uniqueness share, and the shares of values that parse as numbers, integers, ISO 8601 dates and booleans.
+- [x] Scores come from documented, deterministic rules, and the docstring says they are not probabilities.
+- [x] Parse checks run on distinct values weighted by their counts. Dates parse as ISO 8601 only. Other date-like text gets the `non_iso_date_text` flag and is never parsed.
+- [x] The analysis never overwrites a declared type. When the top candidate differs from it, the result carries a suspected finding.
+- [x] Tests cover every classification case in the spec:
   - postal codes with leading zeros stored as text rank a non-numeric type first
   - numeric-looking IDs are flagged `identifier_like`
   - ISO date strings rank `datetime` first
@@ -26,12 +26,47 @@ Read these sections of `.scratch/first-look/spec.md`: the infer_column_semantics
   - free-text sentences rank `text` first
   - a few labels repeated over many rows rank `categorical` first
   - an all-distinct integer sequence is flagged `identifier_like`
-- [ ] The result shows no raw data values.
-- [ ] The declared statuses are `completed`, `partial`, `insufficient_data`, `not_applicable` and `failed`.
-- [ ] The docstring has the seven sections in order and passes the contract tests.
-- [ ] The property suite has a call recipe for it, and the properties hold.
-- [ ] With default arguments it finishes in under 5 seconds on the benchmark DataFrame.
-- [ ] `ae.search_analyses("what kind of column is this")` returns it first. The row joins the search acceptance table, and every earlier row still passes.
-- [ ] Its catalogue entry is marked implemented, with its differences from the catalogue noted.
-- [ ] Nearby analyses mention it in `When to use:` and `See Also:` where it is the better choice.
-- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest and on the minimum dependency versions.
+- [x] The result shows no raw data values.
+- [x] The declared statuses are `completed`, `partial`, `insufficient_data`, `not_applicable` and `failed`.
+- [x] The docstring has the seven sections in order and passes the contract tests.
+- [x] The property suite has a call recipe for it, and the properties hold.
+- [x] With default arguments it finishes in under 5 seconds on the benchmark DataFrame.
+- [x] `ae.search_analyses("what kind of column is this")` returns it first. The row joins the search acceptance table, and every earlier row still passes.
+- [x] Its catalogue entry is marked implemented, with its differences from the catalogue noted.
+- [x] Nearby analyses mention it in `When to use:` and `See Also:` where it is the better choice.
+- [x] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest and on the minimum dependency versions.
+
+## Comments
+
+What this ticket settled that the spec left open:
+
+- **Where things live.** `LogicalType` and the `ColumnFlag` literal sit in `agent_eda.results` next to `Status`, since results use them; `ae.LogicalType` exports the first. `ColumnSpec` and the analysis live in `agent_eda.data.validation`, where validate_column_types will join them. The parse rules live in `agent_eda/_parse.py`; see "For ticket 13" below.
+- **ColumnSpec** is a frozen, strict pydantic model with `logical_type`, `nullable` and `datetime_format`. `nullable` defaults to None, which declares nothing, because whether a column may be missing is a project-specific value and gets no default (AGENTS.md, Defaults). `datetime_format` is allowed only with logical type datetime and must hold at least one directive `datetime.strptime` knows (`%:z` included); anything else raises. `ae.ColumnSpec("integer", nullable=False)` takes the logical type by position too, NumPy scalars become Python values, and `inspect.signature` shows that call rather than pydantic's. Every way to build one, `ColumnSpec(...)`, `ColumnSpec.model_validate(...)` and a dict of its fields inside `declared_schema`, raises `InvalidArgumentError` in the package's format: an unknown field or a missing `logical_type` with code `invalid_call`, a bad value with `invalid_argument`, listing the allowed values and the closest one. pydantic calls a model's own `__init__` when it validates a dict into it, so the error raised there reaches the registry as the ValidationError's `ctx["error"]`, and the message uses it.
+- **declared_schema** maps column names to a logical type or a ColumnSpec; a dict of a ColumnSpec's fields works too, as JSON gives it. Keys that aren't strings name a column by their string form, as `columns` does, and two keys with the same string form raise. Only the logical type is compared. Inference parses ISO 8601 only, also for a column whose ColumnSpec declares a `datetime_format`; validate_column_types reads that format. A declared column the data lacks is a violation finding, `declared_columns_missing`, whose claim names the closest column, and not an exception, the same as the spec's rule for validate_column_types. Declarations for columns that `columns` leaves out are ignored. Besides the suspected `declared_type_mismatch` the ticket asks for, `declared_type_match` (passed) and `declared_type_unchecked` (unknown, a declared column without a candidate) tell a comparison that held from one that didn't run.
+- **Scores**, each between 0 and 1, from the evidence, where every share is of the non-missing values: boolean = boolean_share; integer = integer_share; float = number_share; datetime = datetime_share; timedelta = timedelta_share; categorical = 1 - uniqueness_share; text = (plain_text_share × uniqueness_share + multi_word_share) / 2. When any text value is a whole number written with a leading zero, the column holds codes: integer and float score 0, and its numbers count as plain text. Ties go to boolean, integer, float, datetime, timedelta, categorical, then text, so 0/1 ranks boolean first and whole floats integer first. The candidates are the types scoring above 0, plus integer and float at 0 when leading zeros rule them out, each with one reason from a fixed template. `inferred_logical_type` is the top candidate, null when none scores above 0. The dtype only decides how values are read, never a score.
+- **Flags.** identifier_like: every value distinct, at least two, top candidate integer or text, no text of several words, and when the values are numbers stored as numbers, they run like a sequence, max - min + 1 <= 2 x count. Without that last rule every small sample of distinct measurements, such as summarize_numeric's example ages, looked like IDs; text needs no such shape, so numeric-looking IDs stored as text are flagged however sparse. constant and all_missing as describe_dataset decides them. numbers_as_text and dates_as_text: the top candidate is integer or float (datetime) and some of those values are stored as text. non_iso_date_text: date-like text that isn't ISO 8601 is present and, with ISO 8601 text, makes up at least half the values, so a stray date in free text raises nothing. boolean_like: the top candidate is boolean and some values are numbers or text that read as booleans; a column stored as booleans isn't flagged. mixed_value_types: values of more than one Python type among boolean, number, text, datetime, timedelta and other. Each flag has a finding, suspected apart from boolean_like_columns, which is descriptive.
+- **Evidence** is `non_missing_count`, `distinct_count` and `uniqueness_share`, the shares the ticket lists (`boolean_share`, `number_share`, `integer_share` and `datetime_share` for ISO 8601 dates), and `timedelta_share`, `leading_zero_share`, `non_iso_date_share`, `plain_text_share`, `multi_word_share` and `value_type_counts`, which the scores and flags need. Missing means what pandas isna() counts, plus NaN that a float column stores as a value, as in summarize_numeric, with the same `nan_counted_as_missing` limitation. Distinct values are counted as pandas counts them, so 1, 1.0 and True are one, but the types are read value by value. Values that can't be hashed leave the distinct count null with `unhashable_values`, and then categorical and text aren't scored. A column without values gets null shares and a `too_few_values` limitation.
+- **Statuses.** A column ends `completed`, `insufficient_data` (`no_values`) or `not_applicable` (`unsupported_values`: only values of other types, such as lists or intervals, that aren't repeated category labels). The overall status follows ticket 02's rules; data without columns is `not_applicable` with `no_columns`. Every dtype is accepted, by default and by name, Arrow lists, periods and intervals included, and read as Python objects when no faster path fits. `failed` is declared and has no code path, as in the other analyses.
+- **Text and tables.** The printed table shows each column's top candidate and score, the runner-up and its score, the declared type when `declared_schema` is given, and the flags. `to_frame()` gives one row per column with the evidence, one boolean column per flag and the type counts as `boolean_values`, `number_values` and so on; `to_frame("candidates")` gives one row per candidate with its rank and reasons, and any other table name raises.
+- **Shared code.** The registry now normalizes mapping options (string keys, NumPy scalars) and words errors for a value inside a mapping, such as `declared_schema['zip']`. Its message builder, now `invalid_message(owner, annotations, options, errors, noun=...)`, also serves ColumnSpec, and a union of fixed choices and a type reads "one of 'boolean', ... or 'timedelta', or a ColumnSpec". `_annotations.item_annotation` returns a mapping's value type, so `describe_analysis()` lists the seven logical types as `declared_schema`'s allowed values. In the record, `parameters` now caps mapping arguments like list ones, adding `<name>_total`; `data` keeps its shape. The contract test exempts parameters keyed by column names, such as `declared_schema`, from ending in `column(s)` through `COLUMN_MAPPINGS`; ticket 10's `sentinel_values` and ticket 13's `schema` join that set.
+- **Search.** Tags: logical type, semantic type, kind, identifier, numbers as text, dates as text, postal code. "what kind of column is this" scores 7 here against 3 for the next analysis. "check data types against a schema" now finds infer_column_semantics with 4 (type from the tags, schema from `When to use:`), so ticket 13's tags must score validate_column_types above that, for example with both "schema" and a tag holding "types"; ties go to infer_column_semantics alphabetically. The `When to use:` text avoids missing, null, count, check and data, which other tickets' queries use.
+
+For ticket 13:
+
+- `agent_eda._parse.read_texts(texts)` takes an object array of distinct strings and returns one boolean array per rule: `number`, `whole`, `leading_zero`, `boolean`, `iso_date`, `date_like` and `several_words`. Factorize a column, read the uniques once and map back through the codes for counts, row IDs and example values. `value_kind`, `is_whole` and `is_zero_or_one` read values that aren't text; `BOOLEAN_WORDS` lists the words. The rules decide text with a leading zero, such as "01234", isn't a number, so it isn't convertible to integer. ISO 8601 text is validated against the calendar by our own code rather than pandas, so pandas 2.2's nanosecond bounds don't make 9999-12-31 fail there. Reading a declared `datetime_format` is ticket 13's to add.
+- `ColumnSpec.nullable` is None unless declared, so the non-nullable check runs only for `nullable=False`. pydantic warns that a field named `schema` shadows `BaseModel.schema` when the registry builds the arguments model for a `schema` parameter; that is a UserWarning at import, outside what the warning policy fails, and worth silencing there.
+
+Measurements, on the Apple M3 Max with 2 threads, while other agents used the CPU (describe_dataset ran at 1.04 s and 2.67 s against ticket 03's 0.80 s and 1.82 s):
+
+| Versions | infer_column_semantics | describe_dataset in the same run |
+| --- | --- | --- |
+| pandas 3.0.6, numpy 2.5.4, pyarrow 26.0.0 | 1.80 s (1.98 s before the category fast path) | 1.04 s |
+| pandas 2.2.0, numpy 1.26.0, pyarrow 14.0.1 | 2.64 s (2.72 s before) | 2.67 s |
+
+- A profile on pandas 2.2.0: factorizing the 20 object text columns takes 1.30 of 2.64 s, as in describe_dataset, and reading their 4.7 million distinct strings 0.47 s. One vectorized look at each string's first character (`astype("U1")`) skips the regular expressions for text that can't parse, such as the benchmark's "v123" and "id0000123". A column of 1 million distinct numbers or ISO datetimes stored as text runs the full rules on every distinct value, about 0.4 to 0.6 s per column; the benchmark has none.
+- The 25 float columns take 0.40 s, nearly all of it counting distinct values with `pd.unique`.
+
+Checks:
+
+- `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass. `uv run --isolated --resolution lowest-direct --python 3.12 pytest` passed with numpy 1.26.0, pandas 2.2.0 and pydantic 2.7.0 and left `uv.lock` unchanged. The `thorough` Hypothesis profile passed, and random runs of the property checks passed 4,500 examples each on pandas 3.0.6 and on pandas 2.2.0, with frames of up to 30 rows and 8 columns.
+- Not run locally: Linux and the 2-vCPU target machine; ticket 05's CI covers them.

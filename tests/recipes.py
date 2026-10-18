@@ -81,6 +81,26 @@ def column_lists(candidates: list[str]) -> st.SearchStrategy[list[str] | None]:
     return st.none() | st.lists(st.sampled_from(candidates), min_size=1, unique=True)
 
 
+def any_dtype(dtype: Any) -> bool:
+    return True
+
+
+def declared_schemas(
+    data: pd.DataFrame, analysis: str, parameter: str
+) -> st.SearchStrategy[dict[str, Any]]:
+    """Declarations for some columns, and for one the data lacks.
+
+    Each declares a logical type, a ColumnSpec or a ColumnSpec as a dict.
+    """
+    logical_types = st.sampled_from(choices(analysis, parameter))
+    specs = st.builds(
+        ae.ColumnSpec, logical_type=logical_types, nullable=st.none() | st.booleans()
+    )
+    declarations = logical_types | specs | specs.map(lambda spec: spec.model_dump())
+    columns = st.sampled_from([*names(data, any_dtype), "not_a_column"])
+    return st.dictionaries(columns, declarations, max_size=4)
+
+
 def is_number_or_boolean(dtype: Any) -> bool:
     """Integers, floats and booleans, nullable and pyarrow-backed ones included."""
     if isinstance(dtype, pd.CategoricalDtype):
@@ -109,6 +129,13 @@ RECIPES: dict[str, Recipe] = {
                 choices("summarize_numeric", "quantile_method")
             ),
             trim_fraction=st.floats(0, 0.5, exclude_max=True),
+        ),
+    ),
+    "infer_column_semantics": Recipe(
+        options=lambda data: optional(
+            columns=column_lists(names(data, any_dtype)),
+            declared_schema=st.none()
+            | declared_schemas(data, "infer_column_semantics", "declared_schema"),
         ),
     ),
 }

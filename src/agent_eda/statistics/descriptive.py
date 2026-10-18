@@ -70,7 +70,9 @@ def summarize_numeric(
         standard deviation; the extremes, quantiles and median; a trimmed mean
         and the median absolute deviation, which outliers barely move; and
         skewness and excess kurtosis. The result states how each statistic is
-        defined. Booleans are left out unless named in columns. A text,
+        defined. Booleans are left out unless named in columns. Statistics of
+        identifiers or codes stored as numbers mean nothing, and numbers stored
+        as text are left out: `infer_column_semantics` finds both. A text,
         categorical or datetime column named in columns raises
         `errors.ColumnTypeError`; `describe_dataset` covers every dtype, and
         `list_analyses` lists the other analyses.
@@ -182,6 +184,8 @@ def summarize_numeric(
     See Also:
         describe_dataset: Dtypes, missing and distinct counts and memory of every
             column, whatever its dtype.
+        infer_column_semantics: Which columns hold identifiers, codes or numbers
+            stored as text rather than measurements.
         list_analyses: Every analysis, with the question each one answers.
     """
     levels = list(quantiles)

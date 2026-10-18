@@ -1,5 +1,6 @@
 """Every registered analysis meets the docstring and registration contract."""
 
+import collections.abc
 import doctest
 import inspect
 import re
@@ -18,6 +19,9 @@ SECTIONS = ["When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See 
 # Parameters that take text other than column names. A new one joins this list
 # only if it takes no column names; otherwise its name ends in column(s).
 NOT_COLUMN_NAMES = {"source", "source_version"}
+# Parameters that map column names to what is declared for each column, named as
+# the spec names them. Their keys are column names.
+COLUMN_MAPPINGS = {"declared_schema"}
 ENTRY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?: \([^)]*\))?:(?: |$)")
 REFERENCE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(\))?`")
 SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
@@ -174,9 +178,15 @@ def test_parameters_that_take_names_end_in_column_or_columns(name):
     misnamed = [
         p
         for p in textual
-        if not p.endswith(("column", "columns")) and p not in NOT_COLUMN_NAMES
+        if not p.endswith(("column", "columns"))
+        and p not in NOT_COLUMN_NAMES | COLUMN_MAPPINGS
     ]
     assert misnamed == []
+    assert [
+        p.name
+        for p in parameters
+        if p.name in COLUMN_MAPPINGS and not takes_a_mapping(p.annotation)
+    ] == []
 
 
 def test_analysis_is_hidden_from_pytest(name):
@@ -282,3 +292,10 @@ def takes_text(annotation):
     return annotation is str or any(
         takes_text(arg) for arg in typing.get_args(annotation)
     )
+
+
+def takes_a_mapping(annotation):
+    """Whether an annotation accepts a mapping, alone or in a union."""
+    if typing.get_origin(annotation) in (dict, collections.abc.Mapping):
+        return True
+    return any(takes_a_mapping(arg) for arg in typing.get_args(annotation))

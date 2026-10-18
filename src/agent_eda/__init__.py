@@ -22,21 +22,25 @@ if TYPE_CHECKING:
     from agent_eda import results as results
     from agent_eda._version import __version__
     from agent_eda.data.provenance import describe_dataset
+    from agent_eda.data.validation import ColumnSpec, infer_column_semantics
     from agent_eda.discovery import (
         describe_analysis,
         guide,
         list_analyses,
         search_analyses,
     )
-    from agent_eda.results import AnalysisResult
+    from agent_eda.results import AnalysisResult, LogicalType
     from agent_eda.statistics.descriptive import summarize_numeric
 
 __all__ = [
     "AnalysisResult",
+    "ColumnSpec",
+    "LogicalType",
     "__version__",
     "describe_analysis",
     "describe_dataset",
     "guide",
+    "infer_column_semantics",
     "list_analyses",
     "search_analyses",
     "summarize_numeric",
@@ -46,10 +50,13 @@ __all__ = [
 # here; ae.list_analyses() imports these modules to find them.
 _EXPORTS: dict[str, str] = {
     "AnalysisResult": "agent_eda.results",
+    "ColumnSpec": "agent_eda.data.validation",
+    "LogicalType": "agent_eda.results",
     "__version__": "agent_eda._version",
     "describe_analysis": "agent_eda.discovery",
     "describe_dataset": "agent_eda.data.provenance",
     "guide": "agent_eda.discovery",
+    "infer_column_semantics": "agent_eda.data.validation",
     "list_analyses": "agent_eda.discovery",
     "search_analyses": "agent_eda.discovery",
     "summarize_numeric": "agent_eda.statistics.descriptive",
