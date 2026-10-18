@@ -241,7 +241,8 @@ uv run pre-commit install
 | Format | `uv run ruff format .` |
 | Type check | `uv run ty check` |
 | Test | `uv run pytest` |
-| Test on the minimum versions | `uv run --isolated --resolution lowest-direct --python 3.12 pytest` |
+| Test on the minimum versions | `uv run --isolated --resolution lowest-direct --no-group mcp --group core --python 3.12 pytest` |
+| Test on the minimum versions with the mcp extra | `uv run --isolated --resolution lowest-direct --extra mcp --python 3.12 pytest` |
 | Test with more generated examples | `uv run pytest --hypothesis-profile=thorough` |
 | Test with coverage | `uv run pytest --cov` |
 | Benchmark | `uv run pytest -m benchmark` |
@@ -250,7 +251,8 @@ uv run pre-commit install
 
 Notes on the less obvious commands:
 
-- **Minimum versions.** The run installs every dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1) into a throwaway environment on Python 3.12. Keep `--isolated`; without it, uv rewrites `uv.lock`.
+- **Minimum versions.** The run installs every dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1) into a throwaway environment on Python 3.12, without the mcp extra, whose tests skip. The second run adds the extra at its floors (mcp 2.3 and pyarrow 14), and with them the pydantic 2.12 that mcp needs, so it runs the whole suite. Keep `--isolated`; without it, uv rewrites `uv.lock`.
+- **The mcp extra.** `uv sync` and `uv run` install it, so `uv run pytest` runs the MCP server tests. This needs uv 0.13 or later, the version CI and the hooks use; uv 0.10 leaves the extra out unless you pass `--extra mcp`.
 - **Property tests.** Hypothesis calls every analysis on generated DataFrames full of edge cases. It runs derandomized: 50 examples per analysis, or 1,000 with the `thorough` profile.
 - **Benchmark.** It times every analysis with default arguments on a deterministic DataFrame of 1,000,000 rows and 100 mixed columns, with BLAS and pyarrow limited to 2 threads, and fails any analysis that takes 5 seconds or more. The default test run skips it.
 - **README.** `tests/test_readme.py` runs this README's python examples in order and fails when a `text` block right after one differs from what it prints. It also checks the analyses table against `ae.guide()`.

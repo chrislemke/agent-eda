@@ -16,6 +16,13 @@ dependencies = [
     "statsmodels>=0.14.1",
 ]
 
+[project.optional-dependencies]
+# The MCP server (ADR 0006). mcp 2.3 needs pydantic 2.12; the core keeps 2.7.
+mcp = ["mcp>=2.3", "pyarrow>=14"]
+
+[project.scripts]
+agent-eda-mcp = "agent_eda.mcp:main"
+
 [build-system]
 requires = ["uv_build>=0.10.11,<0.11.0"]
 build-backend = "uv_build"
@@ -34,6 +41,20 @@ dev = [
     "threadpoolctl>=3.7.0",
     "ty>=0.0.89",
     "uv-build>=0.10.11,<0.11.0",
+]
+# The mcp extra, installed by default so that `uv run pytest` runs the MCP tests.
+mcp = ["agent-eda[mcp]"]
+# Selected with --no-group mcp --group core: the core alone, which the first
+# minimum-versions run tests on pydantic 2.7, below the mcp extra's floor.
+core = []
+
+[tool.uv]
+default-groups = ["dev", "mcp"]
+# Without these, uv resolves every extra and group together, and the mcp extra's
+# pydantic floor would lift the core's.
+conflicts = [
+    [{ extra = "mcp" }, { group = "core" }],
+    [{ group = "mcp" }, { group = "core" }],
 ]
 
 [tool.ruff]

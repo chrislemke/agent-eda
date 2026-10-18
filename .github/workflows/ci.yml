@@ -71,7 +71,7 @@ jobs:
       # The README's command; tests/test_ci_workflow.py fails if the two differ.
       # Python 3.12, because numpy 1.26 has no wheels for 3.13.
       - name: Test on the minimum versions
-        run: uv run --isolated --resolution lowest-direct --python 3.12 pytest
+        run: uv run --isolated --resolution lowest-direct --no-group mcp --group core --python 3.12 pytest
 
   packaging:
     name: packaging, offline install routes
@@ -133,4 +133,4 @@ jobs:
         run: taskset --cpu-list 0,1 uv run --locked pytest -m benchmark
       - name: Benchmark on 2 CPUs with the minimum versions
         if: matrix.versions == 'minimum'
-        run: taskset --cpu-list 0,1 uv run --isolated --resolution lowest-direct --python 3.12 pytest -m benchmark
+        run: taskset --cpu-list 0,1 uv run --isolated --resolution lowest-direct --no-group mcp --group core --python 3.12 pytest -m benchmark

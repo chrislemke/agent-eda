@@ -43,6 +43,10 @@ Codes, with the class that raises each:
     project_file_exists (ProjectFileExistsError, also a FileExistsError):
         project.save found a file at the path and overwrite was False; pass
         overwrite=True to replace it.
+    missing_dependency (MissingDependencyError, also an ImportError): a
+        feature needs an optional extra that isn't installed, such as the MCP
+        server without the mcp extra; the message gives the pip and uv install
+        commands.
 """
 
 
@@ -108,3 +112,12 @@ class ProjectFileExistsError(ProjectFileError, FileExistsError):
     """
 
     code = "project_file_exists"
+
+
+class MissingDependencyError(AgentEDAError, ImportError):
+    """A feature needs an optional extra that isn't installed.
+
+    It is also an ImportError, so handlers for a missing module catch it.
+    """
+
+    code = "missing_dependency"

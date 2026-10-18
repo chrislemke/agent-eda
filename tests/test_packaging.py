@@ -21,6 +21,7 @@ REQUIRED_DEPENDENCIES = [
     "scipy>=1.11.2",
     "statsmodels>=0.14.1",
 ]
+MCP_EXTRA = ["mcp>=2.3 ; extra == 'mcp'", "pyarrow>=14 ; extra == 'mcp'"]
 
 # Fails the subprocess on a DeprecationWarning or FutureWarning, like the suite.
 STRICT_WARNINGS = ("-W", "error::DeprecationWarning", "-W", "error::FutureWarning")
@@ -63,6 +64,7 @@ def test_wheel_is_pure_python_typed_and_declares_the_six_dependencies(wheel):
         names = archive.namelist()
         tags = archive.read(f"{info}/WHEEL").decode()
         metadata = archive.read(f"{info}/METADATA").decode()
+        scripts = archive.read(f"{info}/entry_points.txt").decode()
 
     assert wheel.name == f"agent_eda-{ae.__version__}-py3-none-any.whl"
     assert "Root-Is-Purelib: true" in tags.splitlines()
@@ -74,7 +76,11 @@ def test_wheel_is_pure_python_typed_and_declares_the_six_dependencies(wheel):
         for line in metadata.splitlines()
         if line.startswith("Requires-Dist:")
     ]
-    assert sorted(requires) == REQUIRED_DEPENDENCIES
+    assert sorted(r for r in requires if "extra ==" not in r) == REQUIRED_DEPENDENCIES
+    # The MCP server's dependencies come only with the mcp extra (ADR 0006).
+    assert sorted(r for r in requires if "extra ==" in r) == MCP_EXTRA
+    assert "Provides-Extra: mcp" in metadata.splitlines()
+    assert "agent-eda-mcp = agent_eda.mcp:main" in scripts.splitlines()
 
 
 def test_wheel_on_sys_path_imports_and_runs_in_an_isolated_interpreter(wheel, tmp_path):
@@ -139,6 +145,25 @@ print("network:", sorted(set(network)))
     assert lines[-2:] == ["heavy: []", "network: []"]
 
 
+@pytest.mark.parametrize(
+    "call",
+    ["pass", *DISCOVERY_CALLS],
+    ids=["import", "list", "guide", "search", "describe"],
+)
+def test_the_package_and_discovery_import_no_mcp_module(call):
+    code = f"""
+import sys
+import agent_eda as ae
+{call}
+mcp = {{"mcp", "mcp_types", "agent_eda.mcp", "agent_eda._mcp_server"}}
+print("mcp:", sorted(n for n in sys.modules if n in mcp or n.startswith("mcp.")))
+"""
+
+    lines = run_python(code, args=("-I", *STRICT_WARNINGS)).splitlines()
+
+    assert lines[-1] == "mcp: []"
+
+
 def test_identical_calls_give_identical_json_under_different_hash_seeds():
     code = """
 import pandas as pd
@@ -175,6 +200,42 @@ for info in ae.list_analyses().analyses:
     }
 
     assert len(outputs) == 1
+
+
+def test_the_mcp_server_without_the_extra_names_the_install_commands():
+    # Setting sys.modules["mcp"] to None makes `import mcp` fail, as it does
+    # where the extra isn't installed. The console script is loaded from the
+    # installed entry point and run the way its generated script runs it.
+    code = """
+import sys
+from importlib.metadata import entry_points
+sys.modules["mcp"] = None
+(script,) = entry_points(group="console_scripts", name="agent-eda-mcp")
+assert script.value == "agent_eda.mcp:main", script.value
+sys.argv = ["agent-eda-mcp"]
+sys.exit(script.load()())
+"""
+
+    completed = subprocess.run(
+        [sys.executable, *STRICT_WARNINGS, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert completed.stdout == ""
+    assert "pip install 'agent-eda[mcp]'" in completed.stderr
+    assert "uv add 'agent-eda[mcp]'" in completed.stderr
+    assert "Traceback" not in completed.stderr
+
+
+def test_missing_dependency_error_has_a_stable_code_and_is_an_import_error():
+    error = ae.errors.MissingDependencyError("pip install 'agent-eda[mcp]'")
+
+    assert error.code == "missing_dependency"
+    assert isinstance(error, ae.errors.AgentEDAError)
+    assert isinstance(error, ImportError)
 
 
 def test_package_code_never_reads_files_through_dunder_file():
