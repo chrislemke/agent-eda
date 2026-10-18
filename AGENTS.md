@@ -5,15 +5,16 @@ An open-source library of deterministic EDA analyses. Its callers are agents in 
 ## Commands
 
 ```sh
-uv sync                     # install the package and the dev tools
+uv sync                     # install the package, the mcp extra and the dev tools
 uv run ruff check --fix .   # lint
 uv run ruff format .        # format
 uv run ty check             # type check
-uv run pytest               # test
+uv run pytest               # test, the MCP server tests included
+uv run --extra mcp python -I tests/smoke_mcp.py  # start agent-eda-mcp over stdio and call one MCP tool
 uv add --dev <package>      # add a dev dependency and update uv.lock
 ```
 
-`uv run` uses the latest numpy 2.x and pandas 3.x. Ticket 01 adds the command that runs the suite on the minimum versions (Python 3.12, numpy 1.26, pandas 2.2) to the README's Development table. The git hooks run ruff and ty on commit and pytest on push.
+`uv run` uses the latest numpy 2.x and pandas 3.x and installs the mcp extra. That needs uv 0.13 or later; with an older uv, add `--extra mcp` to each `uv run`, or `ty check` fails on the `mcp` imports and the MCP tests skip. The README's Development table has the two minimum-versions runs (Python 3.12, numpy 1.26, pandas 2.2): one without the mcp extra on pydantic 2.7, where the MCP tests skip, and one with the extra at its floors. The git hooks run ruff and ty on commit and pytest on push.
 
 ## Sources of truth
 

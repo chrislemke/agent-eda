@@ -34,6 +34,8 @@ DISCOVERY = ["search_analyses", "list_analyses"]
 DESCRIBED = ["When to use:", "Returns:", "Statuses:", "See Also:"]
 # Python call syntax, such as to_frame() or ae.guide(): a name and a bracket.
 CALL = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\(")
+# "server" without "MCP " before it, which GLOSSARY.md asks to avoid.
+BARE_SERVER = re.compile(r"(?<!MCP )\bserver\b", flags=re.IGNORECASE)
 
 # A small CSV of mixed dtypes: integers, text with a stand-in "N/A", floats
 # with an empty field and -999, dates as text, booleans and class labels.
@@ -162,6 +164,18 @@ def test_every_mcp_tool_takes_an_optional_table_path_with_the_server_text(tools)
         "Full table written to",
     ):
         assert fact in description, fact
+
+
+def test_the_mcp_tools_call_the_server_mcp_server_as_the_glossary_does(tools):
+    # GLOSSARY.md: "MCP server", never "server" alone, in what a caller reads.
+    texts = [tool.description for tool in tools.values()] + [
+        prop.get("description", "")
+        for tool in tools.values()
+        for prop in tool.input_schema["properties"].values()
+    ]
+    sentences = {s for text in texts for s in re.split(r"(?<=\.) ", text)}
+
+    assert sorted(s for s in sentences if BARE_SERVER.search(s)) == []
 
 
 def test_the_summarize_numeric_schema_lists_methods_and_the_trim_range(tools):

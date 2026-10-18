@@ -54,7 +54,7 @@ list_analyses lists every one with what it declares. Each MCP tool's description
 
 
 def instructions() -> str:
-    """The server's instructions, naming every registered analysis."""
+    """The MCP server's instructions, naming every registered analysis."""
     listing = list_analyses()
     return "\n".join(
         [

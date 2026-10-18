@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import json
 import re
 from pathlib import Path
 
@@ -57,6 +58,16 @@ def test_calls_masking_a_guardrail_not_anonymization_or_access_control():
         "Masking is a guardrail against accidental exposure, not anonymization or "
         "access control."
     ) in text
+
+
+def test_the_mcp_client_configuration_is_valid_json_that_starts_agent_eda_mcp():
+    configs = [
+        json.loads(code) for language, code in fenced_blocks() if language == "json"
+    ]
+
+    assert [config["mcpServers"]["agent-eda"]["command"] for config in configs] == [
+        "agent-eda-mcp"
+    ]
 
 
 def fenced_blocks():

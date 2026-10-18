@@ -2,7 +2,7 @@
 
 Deterministic exploratory data analysis (EDA) for pandas DataFrames, built for LLM agents and usable by people.
 
-> Status: version 0.1, in development and not yet on PyPI. It ships 11 first-look analyses, four discovery functions and an optional `Project` for masking sensitive columns. The [catalogue](docs/eda-python-implementation-catalogue.md) lists the analyses planned next.
+> Status: version 0.1, in development and not yet on PyPI. It ships 11 first-look analyses, four discovery functions, an optional `Project` for masking sensitive columns and an optional MCP server. The [catalogue](docs/eda-python-implementation-catalogue.md) lists the analyses planned next.
 
 Each analysis is a plain Python function. It takes a DataFrame and typed keyword arguments and returns a typed result that prints as a short text summary. The library never calls an LLM or the network, so the same data and arguments always give the same result, down to the byte.
 
@@ -20,6 +20,7 @@ It is written for three kinds of callers:
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package from inside Python.
 - **Helpful errors**: a misspelled column name raises an error that lists the available columns and the closest match.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses, in everything a result shows.
+- **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that call tools instead of writing Python.
 - **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, all preinstalled in AgentCore Code Interpreter.
 
 ## Installation
@@ -33,7 +34,7 @@ uv build --wheel  # writes dist/agent_eda-0.1.0-py3-none-any.whl
 pip install dist/agent_eda-0.1.0-py3-none-any.whl
 ```
 
-Once it is released, `pip install agent-eda` is enough.
+Once it is released, `pip install agent-eda` is enough. The MCP server needs the optional `mcp` extra; see [Use over MCP](#use-over-mcp).
 
 **AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode the session can't reach PyPI: upload the wheel and run `pip install --no-deps <wheel>`, or, if pip is blocked, put the wheel file on `sys.path` and import from it directly. Installs don't carry over to a new session. Code Interpreter returns only printed output, so always `print()` results.
 
@@ -226,6 +227,73 @@ mask_sensitive = true
 
 Masking is a guardrail against accidental exposure, not anonymization or access control. The package runs in the agent's own Python process, so an agent that can call it can also read the data directly. [ADR 0001](docs/adr/0001-data-policy-is-a-guardrail.md) records why.
 
+## Use over MCP
+
+Agents that call tools instead of writing Python, such as Claude Desktop, Cursor or a Claude Code session without a shell, can reach the analyses through a local MCP server. It speaks stdio only. The MCP client starts `agent-eda-mcp` as a subprocess, and the MCP server opens no network connection. [ADR 0006](docs/adr/0006-local-mcp-server-over-stdio-data-by-path.md) records the design.
+
+### Install and register
+
+The MCP server needs the optional `mcp` extra, which adds the MCP Python SDK and pyarrow:
+
+```sh
+pip install 'agent-eda[mcp]'  # or, in a uv project: uv add 'agent-eda[mcp]'
+```
+
+Until 0.1 is on PyPI, install the wheel you built with the extra: `pip install 'dist/agent_eda-0.1.0-py3-none-any.whl[mcp]'`. Without the extra, `agent-eda-mcp` exits with the install command on stderr.
+
+Register it with Claude Code, without or with a project file:
+
+```sh
+claude mcp add agent-eda -- agent-eda-mcp
+claude mcp add agent-eda -- agent-eda-mcp --project /path/to/project.toml
+```
+
+Claude Desktop, Cursor and most other MCP clients read an `mcpServers` entry from their JSON configuration. Leave out `args` to start without a project:
+
+```json
+{
+  "mcpServers": {
+    "agent-eda": {
+      "command": "agent-eda-mcp",
+      "args": ["--project", "/path/to/project.toml"]
+    }
+  }
+}
+```
+
+If the client doesn't start it in the environment where you installed the extra, give the full path that `which agent-eda-mcp` prints as `command`.
+
+Each analysis is an MCP tool with the analysis's name. Its description and input schema come from the docstring that `help()` shows, with each argument's type, allowed values and default. Two more MCP tools find the analyses: `search_analyses` takes a question in your own words, and `list_analyses` lists them all. The MCP server's instructions tell a connecting agent how to pass data, how to read a response and which first-look order to follow.
+
+### Pass data by path
+
+An MCP tool takes `data_path`, the path to a file, where a Python caller passes the DataFrame.
+
+- The extension sets the format, in any case: `.csv`, `.tsv`, `.csv.gz`, `.tsv.gz`, `.parquet` or `.pq`. Any other extension gives the error `unsupported_data_format`.
+- The MCP server reads CSV and TSV files as UTF-8, and only an empty field counts as missing. Values such as `N/A`, `NULL` or `-999` reach the analyses as values, so `detect_missing_sentinels` can find them.
+- Parquet files keep their dtypes and their stored index.
+- A relative path resolves against the MCP server's working directory, the directory the MCP client starts it in. Pass absolute paths if you don't know which directory that is.
+- The MCP server reads only local files. It reads a URL such as `s3://bucket/data.csv` as a relative file path, so the call fails with `data_file_not_found`.
+- A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names in its directory.
+- Row IDs in a result are 0-based data-row numbers for a CSV or TSV file, and follow the stored index for a Parquet file. `id_column` names rows by a column's values instead.
+- The MCP server keeps the last two files it read in memory, so several analyses of one large file read it once. It reads a file again when its modification time or size changes.
+
+### Read the response
+
+A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. A run that doesn't complete, such as `insufficient_data` from `summarize_numeric` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as a tool error (`isError: true`) whose structured content holds the stable error `code` and the `message` a Python caller gets.
+
+To get past the caps, pass `table_path`. The MCP server writes the complete table, the one `res.to_frame()` gives in Python, to a new `.csv`, `.parquet` or `.pq` file, and the text ends with `Full table written to <absolute path> (<n> rows).`
+
+- `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. The directory must exist already.
+- A cell that holds a list or a mapping, such as the row IDs of a duplicate group, is written as JSON text. In Parquet, a column whose values mix types, such as numbers and text, is written as text, as in the CSV.
+- An analysis with several tables writes its default one.
+
+### Masking over MCP
+
+The five MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes.
+
+Masking over MCP is the same guardrail as in Python: it guards against accidental exposure and is not anonymization or access control. The MCP server enforces nothing, since whoever can call it can usually read the data file directly.
+
 ## Development
 
 The project uses [uv](https://docs.astral.sh/uv/). Clone the repository, then install the package with its dev tools and the git hooks:
@@ -243,6 +311,8 @@ uv run pre-commit install
 | Test | `uv run pytest` |
 | Test on the minimum versions | `uv run --isolated --resolution lowest-direct --no-group mcp --group core --python 3.12 pytest` |
 | Test on the minimum versions with the mcp extra | `uv run --isolated --resolution lowest-direct --extra mcp --python 3.12 pytest` |
+| Test the MCP server alone | `uv run --extra mcp pytest tests/test_mcp_*.py` |
+| Smoke test the MCP server over stdio | `uv run --extra mcp python -I tests/smoke_mcp.py` |
 | Test with more generated examples | `uv run pytest --hypothesis-profile=thorough` |
 | Test with coverage | `uv run pytest --cov` |
 | Benchmark | `uv run pytest -m benchmark` |
@@ -252,13 +322,15 @@ uv run pre-commit install
 Notes on the less obvious commands:
 
 - **Minimum versions.** The run installs every dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1) into a throwaway environment on Python 3.12, without the mcp extra, whose tests skip. The second run adds the extra at its floors (mcp 2.3 and pyarrow 14.0.1), and with them the pydantic 2.12 that mcp needs, so it runs the whole suite. Keep `--isolated`; without it, uv rewrites `uv.lock`.
-- **The mcp extra.** `uv sync` and `uv run` install it, so `uv run pytest` runs the MCP server tests. This needs uv 0.13 or later, the version CI and the hooks use; uv 0.10 leaves the extra out unless you pass `--extra mcp`.
+- **The mcp extra.** `uv sync` and `uv run` install it, so `uv run pytest` runs the MCP server tests. This needs uv 0.13 or later, the version CI and the hooks use; uv 0.10 leaves the extra out unless you pass `--extra mcp`. Without the extra, the MCP test modules skip and say why.
+- **MCP smoke test.** `tests/smoke_mcp.py` starts `agent-eda-mcp` over real stdio, lists the MCP tools and calls `describe_dataset`. Unlike the MCP test modules, it fails rather than skips when the extra is missing.
+- **The MCP server in Claude Code.** The repository's `.mcp.json` runs `uv run --extra mcp agent-eda-mcp`, so Claude Code started in a clone offers the analyses of your checkout as MCP tools once you approve the MCP server. Restart the session to pick up a changed analysis.
 - **Property tests.** Hypothesis calls every analysis on generated DataFrames full of edge cases. It runs derandomized: 50 examples per analysis, or 1,000 with the `thorough` profile.
 - **Benchmark.** It times every analysis with default arguments on a deterministic DataFrame of 1,000,000 rows and 100 mixed columns, with BLAS and pyarrow limited to 2 threads, and fails any analysis that takes 5 seconds or more. The default test run skips it.
 - **README.** `tests/test_readme.py` runs this README's python examples in order and fails when a `text` block right after one differs from what it prints. It also checks the analyses table against `ae.guide()`.
 - **New analyses** need a recipe in `tests/recipes.py`, or the suite fails and says so. [AGENTS.md](AGENTS.md) has the rules every analysis follows.
 
-The pre-commit hooks run ruff, ty and file checks on every commit, and the tests on `git push`. On GitHub, `.github/workflows/ci.yml` runs lint, type checks and the tests on Python 3.12 to 3.14 on Linux x86_64 and ARM64, the minimum-versions run, and a packaging job that installs the wheel offline with only the required dependencies. The benchmark runs only when started by hand from the Actions tab.
+The pre-commit hooks run ruff, ty and file checks on every commit, and the tests on `git push`. On GitHub, `.github/workflows/ci.yml` runs lint, type checks and the tests, the MCP server tests included, on Python 3.12 to 3.14 on Linux x86_64 and ARM64. It also runs both minimum-versions runs, the MCP smoke test on Python 3.12 and 3.14, and a packaging job that installs the wheel offline with only the required dependencies. The benchmark runs only when started by hand from the Actions tab.
 
 ## Documentation
 

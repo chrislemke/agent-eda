@@ -54,7 +54,8 @@ jobs:
           enable-cache: false
           python-version: ${{ matrix.python }}
       # The versions in uv.lock; --locked fails if the lock is out of date.
-      - run: uv run --locked pytest
+      # --extra mcp, so the MCP server tests run rather than skip.
+      - run: uv run --locked --extra mcp pytest
 
   tests-minimum:
     name: tests, minimum versions (Python 3.12, x86_64)
@@ -72,6 +73,48 @@ jobs:
       # Python 3.12, because numpy 1.26 has no wheels for 3.13.
       - name: Test on the minimum versions
         run: uv run --isolated --resolution lowest-direct --no-group mcp --group core --python 3.12 pytest
+
+  tests-minimum-mcp:
+    name: tests, minimum versions with the mcp extra (Python 3.12, x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      # The README's command; tests/test_ci_workflow.py fails if the two differ.
+      # The extra at its floors (mcp 2.3, pyarrow 14.0.1) and the pydantic 2.12
+      # that mcp needs, so the whole suite runs, the MCP tests included.
+      - name: Test on the minimum versions with the mcp extra
+        run: uv run --isolated --resolution lowest-direct --extra mcp --python 3.12 pytest
+
+  mcp-smoke:
+    name: MCP server over stdio (Python ${{ matrix.python }}, x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { python: "3.12" }
+          - { python: "3.14" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+          python-version: ${{ matrix.python }}
+      # Starts agent-eda-mcp as an MCP client does and calls one MCP tool. Unlike
+      # the MCP test modules, the script fails rather than skips without the extra.
+      - name: Smoke test the MCP server over stdio
+        run: uv run --locked --extra mcp python -I tests/smoke_mcp.py
 
   packaging:
     name: packaging, offline install routes

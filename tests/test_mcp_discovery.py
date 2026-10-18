@@ -58,6 +58,15 @@ def test_the_instructions_keep_within_one_page_of_the_guides_limits(instructions
     assert lines == [line.rstrip() for line in lines]
 
 
+def test_the_instructions_call_the_server_mcp_server_as_the_glossary_does(
+    instructions,
+):
+    # GLOSSARY.md: "MCP server", never "server" alone.
+    bare = re.compile(r"(?<!MCP )\bserver\b", flags=re.IGNORECASE)
+
+    assert bare.findall(" ".join(instructions.split())) == []
+
+
 def test_the_instructions_hold_no_python_call_syntax(instructions):
     assert CALL.findall(instructions) == []
     assert "import " not in instructions

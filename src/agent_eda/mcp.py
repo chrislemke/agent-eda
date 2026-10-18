@@ -7,8 +7,8 @@ client, which starts it as a subprocess and talks to it over stdio:
     pip install 'agent-eda[mcp]'
     claude mcp add agent-eda -- agent-eda-mcp
 
-Each MCP tool takes a data path in place of the DataFrame. The server reads a
-CSV file counting only an empty field as missing, so stand-ins such as 'N/A'
+Each MCP tool takes a data path in place of the DataFrame. The MCP server reads
+a CSV file counting only an empty field as missing, so stand-ins such as 'N/A'
 reach the analyses as values. A call returns the printed result as text and the
 result's to_dict() record as structured content, also when the run doesn't
 complete, such as with status insufficient_data. A caller mistake, an
@@ -18,8 +18,8 @@ other exception is a bug and becomes a JSON-RPC internal error.
 
 The MCP tools of analyses that take a project have project_path in its place:
 the path to a project TOML file, as ae.Project.save writes it. Started as
-agent-eda-mcp --project project.toml, the server uses that Project for every
-such call that passes no project_path; a call's mask_sensitive wins over both,
+agent-eda-mcp --project project.toml, the MCP server uses that Project for
+every such call that passes no project_path; a call's mask_sensitive wins over both,
 as in Python. Masking is a guardrail against accidental exposure, not
 anonymization or access control (ADR 0001).
 
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 __all__ = ["create_server", "main"]
 
-# The packages of the mcp extra that the server imports.
+# The packages of the mcp extra that the MCP server imports.
 _EXTRA_MODULES = ("mcp", "mcp_types", "anyio")
 
 
@@ -55,11 +55,11 @@ def create_server(
     """Build the MCP server, ready to run over any MCP transport.
 
     agent-eda-mcp runs it over stdio. Tests and embedding code can connect an
-    in-memory MCP client to it instead. Each MCP tool is built when the server
-    starts, from the analysis's registry entry and docstring: its name, a
+    in-memory MCP client to it instead. Each MCP tool is built when the MCP
+    server starts, from the analysis's registry entry and docstring: its name, a
     description, an input schema with data_path in place of data, and an
     output schema of the analysis's to_dict() record. The search_analyses and
-    list_analyses MCP tools return the Python listings, and the server's
+    list_analyses MCP tools return the Python listings, and the MCP server's
     instructions are the guide for an MCP caller: what the package does, data
     paths, results and statuses, masking, every analysis and the first-look
     order. describe_analysis and guide are not MCP tools.
@@ -74,8 +74,9 @@ def create_server(
             is called as it is, without the registry's checks. The
             discovery MCP tools and the instructions always cover every
             registered analysis, as their Python counterparts do.
-        project: The server's Project, such as ae.Project.load('project.toml'),
-            which agent-eda-mcp --project loads. Every call of an MCP tool
+        project: The MCP server's Project, such as
+            ae.Project.load('project.toml'), which agent-eda-mcp --project
+            loads. Every call of an MCP tool
             that has project_path uses it, unless the call passes its own
             project_path; a call's mask_sensitive wins over both, as in
             Python. MCP tools of analyses that don't take a project ignore
@@ -104,8 +105,8 @@ def create_server(
 def main(argv: Sequence[str] | None = None) -> None:
     """Run the MCP server over stdio until the client closes the connection.
 
-    This is the agent-eda-mcp console script. --project PATH loads the
-    server's Project once, at start. A mistake that stops the server from
+    This is the agent-eda-mcp console script. --project PATH loads the MCP
+    server's Project once, at start. A mistake that stops the MCP server from
     starting, such as a missing mcp extra or a project file that
     ae.Project.load refuses, prints its message to stderr and exits with
     status 1, without a traceback.
@@ -139,18 +140,18 @@ def _parser() -> argparse.ArgumentParser:
         "--project",
         metavar="PATH",
         help="A project TOML file, as ae.Project.save writes it, whose data policy "
-        "names the sensitive columns and says whether to mask them. The server "
-        "loads it once, at start, and every call of an MCP tool that takes "
-        "project_path uses it unless the call passes its own project_path; a "
-        "call's mask_sensitive wins over both. An invalid file stops the server "
-        "with its message. Masking is a guardrail against accidental exposure, "
-        "not anonymization or access control.",
+        "names the sensitive columns and says whether to mask them. The MCP "
+        "server loads it once, at start, and every call of an MCP tool that "
+        "takes project_path uses it unless the call passes its own project_path; "
+        "a call's mask_sensitive wins over both. An invalid file stops the MCP "
+        "server with its message. Masking is a guardrail against accidental "
+        "exposure, not anonymization or access control.",
     )
     return parser
 
 
 def _require_extra() -> None:
-    """Import the server's implementation, which needs the mcp extra."""
+    """Import the MCP server's implementation, which needs the mcp extra."""
     try:
         import agent_eda._mcp_server  # noqa: F401  # imported for the check
     except ImportError as error:

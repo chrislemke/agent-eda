@@ -61,9 +61,10 @@ _PROJECT_PATH = {
     "server's working directory, whose data policy names the sensitive columns "
     "and says whether to mask them. The file has a [data_policy] table with "
     'sensitive_columns = ["email"] and mask_sensitive = true or false, and an '
-    "optional top-level name. null, the default, uses the project the server "
-    "was started with (agent-eda-mcp --project), or no project, which masks "
-    "nothing. A project_path replaces the server's project for this call. "
+    "optional top-level name. null, the default, uses the project the MCP "
+    "server was started with (agent-eda-mcp --project), or no project, which "
+    "masks nothing. A project_path replaces the MCP server's project for this "
+    "call. "
     f"{_GUARDRAIL}",
 }
 
@@ -75,8 +76,8 @@ _TABLE_PATH = {
     "the structured content aren't enough. The extension names the format: .csv "
     "for CSV, or .parquet or .pq for Parquet, in any case. The path is absolute "
     "or relative to the MCP server's working directory, and its directory must "
-    "exist. The server never overwrites: a path where a file already exists is an "
-    "error, raised before the analysis runs. The text of the response then ends "
+    "exist. The MCP server never overwrites: a path where a file already exists "
+    "is an error, raised before the analysis runs. The text of the response then ends "
     "with the line 'Full table written to <absolute path> (<n> rows).' The index "
     "becomes the first column only when it is more than the row numbers 0, 1, 2, "
     "... A cell that holds a list or a mapping, such as row IDs, is written as "
@@ -89,7 +90,7 @@ _TABLE_PATH = {
 # argument a Python caller passes.
 _MCP_PROJECT = (
     "Over MCP, the project is the file at project_path, or else the one the "
-    "server was started with (agent-eda-mcp --project)."
+    "MCP server was started with (agent-eda-mcp --project)."
 )
 
 # Every analysis MCP tool may write a file (table_path), never overwrites one,
