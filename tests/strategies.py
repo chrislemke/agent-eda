@@ -169,9 +169,11 @@ KINDS: dict[str, Kind] = {
         _series(object),
         [1, "1", None, True],
     ),
+    # Tuples can be hashed, unlike the lists and dicts next to them.
     "object of lists and dicts": Kind(
         st.lists(st.integers(0, 2), max_size=2)
         | st.dictionaries(st.sampled_from("ab"), st.integers(0, 2), max_size=1)
+        | st.tuples(st.integers(0, 1), st.sampled_from([NAN, None, 0]))
         | TEXT,
         _series(object),
         [["a"], None, {"k": 1}, ["a"]],

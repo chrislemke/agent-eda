@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from agent_eda import errors as errors
     from agent_eda import results as results
     from agent_eda._version import __version__
+    from agent_eda.data.duplicates import find_duplicate_rows
     from agent_eda.data.provenance import describe_dataset
     from agent_eda.discovery import (
         describe_analysis,
@@ -36,6 +37,7 @@ __all__ = [
     "__version__",
     "describe_analysis",
     "describe_dataset",
+    "find_duplicate_rows",
     "guide",
     "list_analyses",
     "search_analyses",
@@ -49,6 +51,7 @@ _EXPORTS: dict[str, str] = {
     "__version__": "agent_eda._version",
     "describe_analysis": "agent_eda.discovery",
     "describe_dataset": "agent_eda.data.provenance",
+    "find_duplicate_rows": "agent_eda.data.duplicates",
     "guide": "agent_eda.discovery",
     "list_analyses": "agent_eda.discovery",
     "search_analyses": "agent_eda.discovery",

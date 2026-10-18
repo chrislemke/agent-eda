@@ -1,16 +1,20 @@
 """Result classes returned by agent-eda analyses."""
 
+import datetime as dt
 import itertools
 import json
+import math
 from collections.abc import Sequence
 from typing import Annotated, Any, Literal, Self
 
+import numpy as np
 import pandas as pd
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     JsonValue,
+    PlainSerializer,
     SerializationInfo,
     SerializerFunctionWrapHandler,
     model_serializer,
@@ -18,7 +22,7 @@ from pydantic import (
 )
 
 from agent_eda import _text
-from agent_eda._annotations import python_literal
+from agent_eda._annotations import TypeName, python_literal
 
 Status = Literal[
     "completed",
@@ -54,6 +58,9 @@ LimitationCode = Literal[
     # A computation overflowed float64 or failed numerically (division by zero,
     # an invalid value, precision loss), so the values it affects are null.
     "numerical_warning",
+    # Index labels or id_column values repeat, so a row ID can match more than
+    # one row.
+    "ambiguous_row_ids",
 ]
 
 
@@ -78,6 +85,59 @@ _ENTRIES = _Cap(100)
 _LISTS_INSIDE = _Cap(100, each_list=True)
 
 _RECORD = "agent_eda_record"
+
+
+def row_id_json(value: object) -> JsonValue:
+    """A row ID as JSON, the same in every process and with every library version.
+
+    Timestamps, dates and times become ISO 8601 strings, durations ISO 8601
+    durations, MultiIndex tuples lists, and NumPy scalars Python numbers.
+    Missing values become null, and infinite floats the strings 'inf' and
+    '-inf'. A set becomes a list ordered by its items' JSON, not by Python's
+    hash order, and a dict a JSON object. Anything else, such as a Period or a
+    Decimal, becomes its str().
+    """
+    if isinstance(value, tuple | list):
+        return [row_id_json(item) for item in value]
+    if isinstance(value, set | frozenset):
+        items = [row_id_json(item) for item in value]
+        return sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
+    if isinstance(value, dict):
+        return {str(key): row_id_json(item) for key, item in value.items()}
+    if pd.api.types.is_scalar(value) and pd.isna(value):
+        return None
+    if isinstance(value, bool | np.bool_):
+        return bool(value)
+    if isinstance(value, dt.datetime | dt.date | dt.time):
+        return value.isoformat()
+    if isinstance(value, np.datetime64):
+        return pd.Timestamp(value).isoformat()
+    # Before the integers: NumPy's timedelta64 is one of its integer types.
+    if isinstance(value, dt.timedelta | np.timedelta64):
+        return pd.Timedelta(value).isoformat()
+    if isinstance(value, int | np.integer):
+        return int(value)
+    if isinstance(value, float | np.floating):
+        number = float(value)
+        return number if math.isfinite(number) else repr(number)
+    return str(value)
+
+
+# A row ID: an index label, or a value of the column id_column names. The result
+# object holds it as pandas gives it, so df.loc[row_ids] finds the rows; the
+# record converts it with row_id_json.
+RowId = Annotated[
+    Any,
+    PlainSerializer(row_id_json, return_type=Any, when_used="json"),
+    TypeName("RowId"),
+]
+
+
+def _head(values: list[Any] | dict[Any, Any], limit: int) -> list[Any] | dict[Any, Any]:
+    """The first `limit` entries of a list or dict."""
+    if isinstance(values, dict):
+        return dict(itertools.islice(values.items(), limit))
+    return values[:limit]
 
 
 def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
@@ -129,9 +189,8 @@ class ResultModel(BaseModel):
     def _cap_growing_fields(
         self, handler: SerializerFunctionWrapHandler, info: SerializationInfo
     ) -> dict[str, Any]:
-        data = handler(self)
         if not (info.context and info.context.get(_RECORD)):
-            return data
+            return handler(self)
         caps = {
             name: marker
             for name, field in type(self).model_fields.items()
@@ -139,11 +198,22 @@ class ResultModel(BaseModel):
             if isinstance(marker, _Cap)
         }
         if not caps:
-            return data
-        record = _capped(
-            data,
-            {name: cap.limit for name, cap in caps.items() if not cap.each_list},
-        )
+            return handler(self)
+        limits = {name: cap.limit for name, cap in caps.items() if not cap.each_list}
+        totals = {name: len(getattr(self, name)) for name in limits}
+        # Serialize only the entries the record keeps, which saves converting
+        # what it would drop, such as the row IDs of 500,000 duplicate groups.
+        heads = {
+            name: _head(getattr(self, name), limit)
+            for name, limit in limits.items()
+            if totals[name] > limit
+        }
+        data = handler(self.model_copy(update=heads) if heads else self)
+        record: dict[str, Any] = {}
+        for name, value in data.items():
+            record[name] = value
+            if name in totals:
+                record[f"{name}_total"] = totals[name]
         for name, cap in caps.items():
             inner = record.get(name)
             if cap.each_list and isinstance(inner, dict):
@@ -1016,3 +1086,105 @@ class SummarizeNumericResult(AnalysisResult):
                 dtype = _FRAME_DTYPES.get(field.annotation)
                 columns[name] = pd.Series(values, dtype=dtype)
         return pd.DataFrame(columns, columns=list(columns))
+
+
+class DuplicateGroup(ResultModel):
+    """Rows that are equal in every compared column."""
+
+    size: int = Field(description="Rows in the group, at least 2.")
+    row_ids: Annotated[list[RowId], _ROW_IDS] = Field(
+        description="The rows' IDs in row order: index labels, or values of "
+        "id_column when it is given. The record keeps the first 10 and adds "
+        "row_ids_total."
+    )
+
+
+class FindDuplicateRowsResult(AnalysisResult):
+    """The result of find_duplicate_rows."""
+
+    compared_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="The columns in which rows must be equal to count as duplicates, "
+        "in the order compared. The record keeps the first 100 and adds "
+        "compared_columns_total."
+    )
+    missing_values_compare_equal: bool = Field(
+        description="Whether missing values count as equal when rows are compared: "
+        "always true. None, NaN, NaT and pd.NA all equal each other, as in pandas' "
+        "duplicated() over two or more columns. Lists, dicts and sets compare by "
+        "content."
+    )
+    duplicate_groups: Annotated[list[DuplicateGroup], _ENTRIES] = Field(
+        description="Each group of rows equal in every compared column, ordered "
+        "by first occurrence; a group's number is its position here. The record "
+        "keeps the first 100 and adds duplicate_groups_total; to_frame() has "
+        "every row of every group."
+    )
+    duplicate_group_count: int = Field(description="Groups of duplicate rows.")
+    duplicate_group_row_count: int = Field(
+        description="Rows in duplicate groups, every copy counted, the first too."
+    )
+    excess_copy_count: int = Field(
+        description="Rows in duplicate groups beyond the first of each group: "
+        "duplicate_group_row_count - duplicate_group_count, the rows that "
+        "removing duplicates would drop."
+    )
+    duplicate_share: float | None = Field(
+        description="excess_copy_count over all rows, from 0 up to but excluding 1; "
+        "null when the data has no rows."
+    )
+
+    def _text_facts(self) -> list[str]:
+        facts = []
+        if self.compared_columns:
+            compared = _text.plural(len(self.compared_columns), "column", "columns")
+            facts.append(
+                f"Compared {compared}: {_text.join_labels(self.compared_columns)}; "
+                "missing values compare equal, as in pandas."
+            )
+        id_column = self.parameters.get("id_column")
+        source = (
+            f"values of id_column {id_column!r}"
+            if isinstance(id_column, str)
+            else "index labels"
+        )
+        facts.append(f"Row IDs: {source}.")
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        rows = self.duplicate_group_row_count
+        return _text.Table(
+            title="Duplicate groups",
+            unit=("group", "groups"),
+            headers=("group", "size", "row_ids"),
+            rows=[
+                (number, group.size, _text.join_labels(group.row_ids))
+                for number, group in enumerate(
+                    self.duplicate_groups[: _text.MAX_TABLE_ROWS]
+                )
+            ],
+            total=len(self.duplicate_groups),
+            frame=f"all {_text.plural(rows, 'row', 'rows')} in groups"
+            if rows
+            else "no rows",
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """Every row in a duplicate group, by group, then in row order.
+
+        The column group holds the group's number, its position in
+        duplicate_groups, and row_id the row's ID.
+        """
+        numbers = [
+            number
+            for number, group in enumerate(self.duplicate_groups)
+            for _ in group.row_ids
+        ]
+        row_ids = [
+            row_id for group in self.duplicate_groups for row_id in group.row_ids
+        ]
+        return pd.DataFrame(
+            {
+                "group": pd.Series(numbers, dtype="int64"),
+                "row_id": pd.Series(row_ids, dtype=object),
+            }
+        )

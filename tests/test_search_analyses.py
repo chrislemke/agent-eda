@@ -17,6 +17,7 @@ TAGS = {info.name: info.tags for info in ae.list_analyses().analyses}
 SEARCH_ACCEPTANCE = [
     ("dataset overview", "describe_dataset"),
     ("mean and standard deviation", "summarize_numeric"),
+    ("duplicate rows", "find_duplicate_rows"),
 ]
 
 

@@ -22,8 +22,8 @@ Codes, with the class that raises each:
     column_not_found (ColumnNotFoundError): a column name isn't in the data;
         the message lists the closest names and the available ones.
     unsupported_column_type (ColumnTypeError): a named column has a dtype the
-        analysis can't use; the message names the dtype, the accepted dtypes
-        and a fix.
+        analysis can't use, or an id_column holds values that can't be hashed,
+        such as lists; the message names the dtype, what is accepted and a fix.
     unknown_analysis (UnknownAnalysisError): describe_analysis got a name that
         isn't an analysis; the message suggests the closest names and lists
         every analysis.

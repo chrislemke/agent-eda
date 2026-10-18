@@ -37,6 +37,12 @@ class Table:
     unit: tuple[str, str]
     headers: Sequence[str]
     rows: Sequence[Sequence[Cell]]
+    # How many rows the table has when `rows` holds only the first ones, which
+    # saves formatting rows the text never shows; None means len(rows).
+    total: int | None = None
+    # What res.to_frame() has when that isn't one row per table row, such as
+    # "all 5 rows in groups"; None means the table's rows.
+    frame: str | None = None
 
 
 @dataclass(frozen=True)
@@ -149,11 +155,14 @@ def label_text(label: object) -> str:
 
 def join_labels(labels: Sequence[object]) -> str:
     """Show labels as "'a', 'b' and 3", naming at most MAX_NAMED of them."""
-    return join_items([label_text(label) for label in labels])
+    shown = [label_text(label) for label in labels[:MAX_NAMED]]
+    if len(labels) > MAX_NAMED:
+        return ", ".join(shown) + f" and {len(labels) - MAX_NAMED:,} more"
+    return join_items(shown)
 
 
 def _table_lines(table: Table) -> list[str]:
-    total = len(table.rows)
+    total = len(table.rows) if table.total is None else table.total
     if total == 0:
         return [f"{table.title}: none"]
     shown = table.rows[:MAX_TABLE_ROWS]
@@ -214,7 +223,9 @@ def _footer(table: Table | None) -> str:
     rest = "res.findings, res.limitations and res.to_json() have the rest."
     if table is None:
         return f"More: {rest}"
-    count = len(table.rows)
+    if table.frame is not None:
+        return f"More: res.to_frame() has {table.frame}; {rest}"
+    count = len(table.rows) if table.total is None else table.total
     rows = plural(count, *table.unit)
     return f"More: res.to_frame() has {'the' if count == 1 else 'all'} {rows}; {rest}"
 
