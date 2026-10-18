@@ -7,7 +7,7 @@ form of each label, which is also how results show columns.
 import difflib
 from collections import Counter
 from collections.abc import Hashable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -188,6 +188,9 @@ class ColumnRule:
     # For a rejected kind, how to fix the call, such as "convert durations with
     # {column}.dt.total_seconds()"; {column} becomes the code for the column.
     fixes: Mapping[ColumnKind, str]
+    # For a rejected kind, the analysis that fits it, such as
+    # "summarize_categorical" for text; the message names it first.
+    alternatives: Mapping[ColumnKind, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -290,6 +293,12 @@ def _not_found(
 def _wrong_type(
     analysis: str, parameter: str, rejected: list[Column], rule: ColumnRule
 ) -> str:
+    # Each analysis that fits some of the columns, with the columns it fits.
+    fitting: dict[str, list[str]] = {}
+    for column in rejected:
+        other = rule.alternatives.get(column.kind)
+        if other is not None:
+            fitting.setdefault(other, []).append(repr(column.name))
     # Each fix once, shown with the first column it applies to.
     fixes: dict[str, str] = {}
     for column in rejected:
@@ -305,7 +314,11 @@ def _wrong_type(
         listed = join_items(named, limit=MAX_LISTED_COLUMNS)
         what = f"{len(rejected):,} columns: {listed}"
         leave = f"leave them out of {parameter}"
-    steps = list(fixes.values())
+    steps = [
+        f"use {other} for {join_items(names, limit=MAX_LISTED_COLUMNS)} instead"
+        for other, names in fitting.items()
+    ]
+    steps.extend(fixes.values())
     if not steps:
         fix = leave
     elif len(steps) == 1:

@@ -212,28 +212,22 @@ def test_the_available_columns_are_capped_at_20_names():
     )
 
 
+TEXT_FIX = (
+    "Use summarize_categorical for 'x' instead; convert numbers stored as text "
+    "with pd.to_numeric(df['x'], errors='coerce'); or leave 'x' out of columns."
+)
+
+
 @pytest.mark.parametrize(
     ("values", "fix"),
     [
-        (
-            pd.Series(["1", "2", None]),
-            "Convert numbers stored as text with "
-            "pd.to_numeric(df['x'], errors='coerce'), or leave 'x' out of columns.",
-        ),
-        (
-            pd.Series(["1", "2", None], dtype="string"),
-            "Convert numbers stored as text with "
-            "pd.to_numeric(df['x'], errors='coerce'), or leave 'x' out of columns.",
-        ),
-        (
-            pd.Series([1, "a", None], dtype=object),
-            "Convert numbers stored as text with "
-            "pd.to_numeric(df['x'], errors='coerce'), or leave 'x' out of columns.",
-        ),
+        (pd.Series(["1", "2", None]), TEXT_FIX),
+        (pd.Series(["1", "2", None], dtype="string"), TEXT_FIX),
+        (pd.Series([1, "a", None], dtype=object), TEXT_FIX),
         (
             pd.Categorical([1, 2, 1]),
-            "Convert numeric categories with df['x'].astype(float), or leave 'x' "
-            "out of columns.",
+            "Use summarize_categorical for 'x' instead; convert numeric categories "
+            "with df['x'].astype(float); or leave 'x' out of columns.",
         ),
         (
             pd.to_datetime(["2024-01-01", None, "2024-03-01"]),
@@ -271,8 +265,22 @@ def test_several_columns_of_unsupported_dtypes_are_named_together(df):
 
     assert str(caught.value) == (
         "summarize_numeric can't use 2 columns: 'grade' with dtype category and "
-        f"'city' with dtype {df['city'].dtype}. {ACCEPTED} Convert numeric "
+        f"'city' with dtype {df['city'].dtype}. {ACCEPTED} Use "
+        "summarize_categorical for 'grade' and 'city' instead; convert numeric "
         "categories with df['grade'].astype(float); convert numbers stored as "
         "text with pd.to_numeric(df['city'], errors='coerce'); or leave them out "
         "of columns."
+    )
+
+
+def test_the_analysis_that_fits_is_named_only_for_the_columns_it_fits(df):
+    df["when"] = pd.to_datetime(["2024-01-01", None, "2024-03-01"])
+
+    with pytest.raises(ColumnTypeError) as caught:
+        ae.summarize_numeric(df, columns=["when", "city"])
+
+    assert str(caught.value).endswith(
+        f"{ACCEPTED} Use summarize_categorical for 'city' instead; convert numbers "
+        "stored as text with pd.to_numeric(df['city'], errors='coerce'); or leave "
+        "them out of columns."
     )

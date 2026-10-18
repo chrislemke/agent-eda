@@ -6,7 +6,17 @@ from typing import Annotated
 import pandas as pd
 from annotated_types import Ge, Le, Lt
 
-from agent_eda._columns import ColumnRule, select_columns
+from agent_eda._columns import ColumnKind, ColumnRule, select_columns
+from agent_eda._levels import (
+    LEVEL_ORDER,
+    Levels,
+    count_levels,
+    ordered,
+    record_label,
+    type_name,
+    value_types,
+    variant_groups,
+)
 from agent_eda._numeric import (
     NumericSummary,
     QuantileMethod,
@@ -17,12 +27,17 @@ from agent_eda._numeric import (
 )
 from agent_eda._registry import analysis
 from agent_eda._run import check_distinct, data_shape, execution, overall_status
-from agent_eda._text import join_labels, plural
+from agent_eda._text import join_items, join_labels, label_text, plural
 from agent_eda.results import (
     ColumnResult,
     ColumnSupport,
     Finding,
+    Limitation,
     StatusReason,
+    SummarizeCategoricalColumn,
+    SummarizeCategoricalLevel,
+    SummarizeCategoricalResult,
+    SummarizeCategoricalVariants,
     SummarizeNumericColumn,
     SummarizeNumericResult,
     Support,
@@ -46,6 +61,9 @@ _NUMERIC = ColumnRule(
         "categorical": "convert numeric categories with {column}.astype(float)",
         "timedelta": "convert durations with {column}.dt.total_seconds()",
     },
+    alternatives=dict.fromkeys(
+        ("text", "object", "categorical"), "summarize_categorical"
+    ),
 )
 
 
@@ -72,8 +90,10 @@ def summarize_numeric(
         skewness and excess kurtosis. The result states how each statistic is
         defined. Booleans are left out unless named in columns. A text,
         categorical or datetime column named in columns raises
-        `errors.ColumnTypeError`; `describe_dataset` covers every dtype, and
-        `list_analyses` lists the other analyses.
+        `errors.ColumnTypeError`. For which values occur in text, categorical
+        and boolean columns and how often, call `summarize_categorical`
+        instead; `describe_dataset` covers every dtype, and `list_analyses`
+        lists the other analyses.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -180,6 +200,8 @@ def summarize_numeric(
         59.625
 
     See Also:
+        summarize_categorical: Each level's count and share and the most common
+            levels of every text, categorical and boolean column.
         describe_dataset: Dtypes, missing and distinct counts and memory of every
             column, whatever its dtype.
         list_analyses: Every analysis, with the question each one answers.
@@ -334,5 +356,408 @@ def _infinite_values(summaries: dict[str, NumericSummary]) -> list[Finding]:
             assessment="suspected",
             columns=names,
             fields=[f"{_entry_path(name)}.infinite_count" for name in names],
+        )
+    ]
+
+
+_AS_TEXT_FIX = "count its values as text with {column}.astype(str)"
+_CATEGORICAL = ColumnRule(
+    default=frozenset({"text", "object", "categorical", "boolean"}),
+    default_text="every text, object, categorical and boolean column",
+    accepted=frozenset({"text", "object", "categorical", "boolean", "numeric"}),
+    accepted_text=(
+        "text, object, categorical, boolean and numeric columns, nullable and "
+        "pyarrow-backed ones included"
+    ),
+    fixes=dict.fromkeys(("datetime", "timedelta", "other"), _AS_TEXT_FIX),
+)
+
+
+@analysis(
+    statuses=("completed", "partial", "insufficient_data", "not_applicable", "failed"),
+    finding_codes=("case_or_space_variants", "mixed_value_types", "unused_categories"),
+    tags=(
+        "value counts",
+        "frequencies",
+        "levels",
+        "categories",
+        "cardinality",
+        "most common values",
+        "unused categories",
+        "case variants",
+    ),
+)
+def summarize_categorical(
+    data: pd.DataFrame,
+    *,
+    columns: Sequence[str] | None = None,
+    top_n: Annotated[int, Ge(1), Le(100)] = 10,
+) -> SummarizeCategoricalResult:
+    """Which values occur in each categorical column, and how often?
+
+    When to use:
+        Call it after `describe_dataset` for the values of every text, object,
+        categorical and boolean column: each level with its count and its share
+        of the non-missing values, the missing count, the cardinality and the
+        most common levels. It also flags labels that differ only by case or
+        surrounding spaces, such as 'Yes', 'yes ' and 'YES', which a model
+        treats as different categories; values of different Python types in one
+        column, such as 1 and '1'; and categories of a categorical dtype that
+        never occur. Name a numeric column in columns to count its values, such
+        as codes 1, 2 and 3. For how numeric values are distributed, call
+        `summarize_numeric` instead; `describe_dataset` gives distinct counts
+        for every dtype, and `list_analyses` lists the other analyses.
+
+    Args:
+        data (pd.DataFrame): The data. Column labels must be unique, distinct as
+            strings and a single level; describe_dataset reports labels that
+            aren't. It is never modified.
+        columns (Sequence[str] | None): Names of the columns to summarize, in the
+            order to report them: a list, a tuple, a pandas Index such as
+            df.columns[:3], or a single name. A label that isn't a string can
+            be given as itself, such as 0, or as its string form. Numeric
+            columns named here are summarized by their values; datetime and
+            duration columns raise. None, the default, selects every text,
+            object, categorical and boolean column, in DataFrame order.
+        top_n (int): How many of each column's most common levels
+            most_common_levels holds and the printed text shows, from 1 to 100;
+            defaults to 10. It limits only the display: levels keeps the first
+            100 levels and to_frame() every level.
+
+    Returns:
+        SummarizeCategoricalResult: `columns` maps each selected column name to
+        its entry, such as res.columns["plan"]. An entry holds:
+
+        - `non_missing_count`, `missing_count` and `cardinality`, the number of
+          levels: the distinct non-missing values, as pandas value_counts tells
+          them apart, so 1, 1.0 and True are one level.
+        - `levels`, the first 100 levels, and `most_common_levels`, the first
+          top_n, each with its `label`, `label_type`, `count` and `share`.
+          `left_out_level_count` counts the levels beyond top_n, and
+          `seen_once_count` the levels that occur once.
+        - `unused_categories`, the categories of a categorical dtype that no
+          value takes.
+        - `value_types`, the Python types of the values, and
+          `mixed_value_types`, whether there is more than one.
+        - `case_or_space_variants`, groups of labels that differ only by case
+          or surrounding spaces, tabs included.
+        - `status` and `status_reason`, the column's own.
+
+        Shares divide by the column's `non_missing_count`, as
+        `share_denominator` states, so missing values never dilute them.
+        Levels go by count, descending, then by label, as `level_order`
+        states: booleans and numbers by value, then text by Unicode code
+        point, then other types by type name. Labels are kept as stored, so
+        'Yes' and 'yes ' are two levels; a label JSON can't hold, such as a
+        Decimal or a timestamp, appears as its string form, with its type in
+        `label_type`. `to_frame()` returns every level of every column, with
+        each label exactly as stored. `left_out_columns` names the columns
+        that columns=None skipped. Values that can't be hashed, such as
+        lists, leave a column's levels uncounted, with an `unhashable_values`
+        limitation.
+
+        Two findings are suspected and one is descriptive:
+
+        - `case_or_space_variants`: suspected; a column holds labels that
+          differ only by case or surrounding spaces, such as 'Yes' and 'yes '.
+        - `mixed_value_types`: suspected; a column holds values of more than
+          one Python type, such as 1 and '1'.
+        - `unused_categories`: descriptive; a categorical column has categories
+          that no value takes.
+
+    Statuses:
+        completed: Every selected column has a non-missing value.
+        partial: Some selected columns have no non-missing value or hold values
+            that can't be hashed; their entries say which.
+        insufficient_data: The data has no rows, or no selected column has a
+            non-missing value.
+        not_applicable: columns is None and the data has no text, object,
+            categorical or boolean columns, or every selected column holds
+            values that can't be hashed.
+        failed: An anticipated computation failure stopped the analysis, and
+            `status_reason` gives its code and message. None is known today:
+            a count that can't be computed is null, with a limitation, instead.
+
+    Examples:
+        >>> import pandas as pd
+        >>> import agent_eda as ae
+        >>> df = pd.DataFrame(
+        ...     {
+        ...         "plan": ["basic", "pro", "basic", None, "team", "basic"],
+        ...         "answer": ["Yes", "yes ", "no", "YES", "no", "Yes"],
+        ...         "grade": pd.Categorical(
+        ...             ["a", "b", "a", "a", None, "b"], categories=["a", "b", "c"]
+        ...         ),
+        ...         "age": [34, 51, 29, 47, 38, 41],
+        ...     }
+        ... )
+        >>> res = ae.summarize_categorical(df, top_n=3)
+        >>> print(res)
+        summarize_categorical: completed on 6 rows x 4 columns
+        Shares are of each column's non-missing values. Levels go by count, then label; most_common_levels has the top 3.
+        Left out, not text, object, categorical or boolean: 'age'.
+        Columns (3 of 3 shown):
+        column  non_missing_count  missing_count  cardinality  most_common_levels
+        plan                    5              1            3  'basic': 3 (60%), 'pro': 1 (20%), 'team': 1 (20%)
+        answer                  6              0            4  'Yes': 2 (33.33%), 'no': 2 (33.33%), 'YES': 1 (16.67%)
+        grade                   5              1            2  'a': 3 (60%), 'b': 2 (40%)
+        Findings (2 of 2 shown):
+        - suspected case_or_space_variants: 1 column holds labels that differ only by case or surrounding spaces: 'answer'.
+        - descriptive unused_categories: 1 categorical column has categories that never occur: 'grade'.
+        Limitations: none
+        More: res.to_frame() has all 9 levels; res.findings, res.limitations and res.to_json() have the rest.
+        >>> res.columns["plan"].levels[0].share
+        0.6
+        >>> [
+        ...     level.label
+        ...     for level in res.columns["answer"].case_or_space_variants[0].levels
+        ... ]
+        ['Yes', 'YES', 'yes ']
+
+    See Also:
+        summarize_numeric: Counts, mean, spread, quantiles and shape of every
+            numeric column.
+        describe_dataset: Dtypes, missing and distinct counts and memory of every
+            column, whatever its dtype.
+        list_analyses: Every analysis, with the question each one answers.
+    """
+    selection = select_columns("summarize_categorical", data, columns, _CATEGORICAL)
+    selected = selection.columns
+    tables: dict[str, Levels] = {}
+    entries: dict[str, SummarizeCategoricalColumn] = {}
+    for column in selected:
+        series = data.iloc[:, column.position]
+        levels = count_levels(series, column.kind)
+        if levels is not None:
+            tables[column.name] = levels
+        entries[column.name] = _categorical_entry(
+            column.name, series, column.kind, levels, top_n
+        )
+    status, status_reason = overall_status(
+        len(data), list(entries.values()), no_columns=_NO_CATEGORICAL_COLUMNS
+    )
+    result = SummarizeCategoricalResult(
+        analysis="summarize_categorical",
+        method=None,
+        status=status,
+        status_reason=status_reason,
+        parameters={
+            "data": data_shape(data),
+            "columns": [column.name for column in selected],
+            "top_n": top_n,
+        },
+        support=Support(
+            row_count=len(data),
+            column_count=len(selected),
+            columns=[_categorical_support(e, len(data)) for e in entries.values()],
+        ),
+        findings=[
+            *_case_or_space_variants(entries),
+            *_mixed_value_types(entries),
+            *_unused_categories(entries),
+        ],
+        limitations=_unhashable_values(entries),
+        execution=execution(("numpy", "pandas")),
+        columns=entries,
+        left_out_columns=selection.left_out,
+        share_denominator="non_missing_count",
+        level_order=LEVEL_ORDER,
+    )
+    result._tables = tables
+    return result
+
+
+_NO_CATEGORICAL_COLUMNS = StatusReason(
+    code="no_categorical_columns",
+    message=(
+        "The data has no text, object, categorical or boolean columns. Name a "
+        "numeric column in columns to count its values."
+    ),
+)
+
+# The levels each column entry and the record keep; to_frame() has every level.
+_KEPT_LEVELS = 100
+_NO_VALUES = StatusReason(
+    code="no_values", message="There are no non-missing values to count."
+)
+_UNHASHABLE = StatusReason(
+    code="unhashable_values",
+    message=(
+        "The column holds values that can't be hashed, such as lists or dicts, so "
+        "its levels can't be counted."
+    ),
+)
+# The counts of levels that are null when a column's values can't be hashed.
+_LEVEL_COUNTS = ("cardinality", "left_out_level_count", "seen_once_count")
+
+
+def _categorical_entry(
+    name: str, series: pd.Series, kind: ColumnKind, levels: Levels | None, top_n: int
+) -> SummarizeCategoricalColumn:
+    types = value_types(series, kind, levels)
+    if levels is None:
+        missing = int(series.isna().sum())
+        return SummarizeCategoricalColumn(
+            column=name,
+            status="not_applicable",
+            status_reason=_UNHASHABLE,
+            non_missing_count=len(series) - missing,
+            missing_count=missing,
+            cardinality=None,
+            levels=[],
+            most_common_levels=[],
+            left_out_level_count=None,
+            seen_once_count=None,
+            unused_categories=[],
+            value_types=types,
+            mixed_value_types=len(types) > 1,
+            case_or_space_variants=[],
+        )
+    non_missing = len(series) - levels.missing_count
+    kept = [
+        _level(levels, position, non_missing)
+        for position in ordered(levels, _KEPT_LEVELS)
+    ]
+    cardinality = len(levels.counts)
+    shown = kept[:top_n]
+    return SummarizeCategoricalColumn(
+        column=name,
+        status="completed" if non_missing else "insufficient_data",
+        status_reason=None if non_missing else _NO_VALUES,
+        non_missing_count=non_missing,
+        missing_count=levels.missing_count,
+        cardinality=cardinality,
+        levels=kept,
+        most_common_levels=shown,
+        left_out_level_count=cardinality - len(shown),
+        seen_once_count=int((levels.counts == 1).sum()),
+        unused_categories=[record_label(c) for c in levels.unused_categories],
+        value_types=types,
+        mixed_value_types=len(types) > 1,
+        case_or_space_variants=[
+            SummarizeCategoricalVariants(
+                levels=[_level(levels, position, non_missing) for position in group]
+            )
+            for group in variant_groups(levels)
+        ],
+    )
+
+
+def _level(
+    levels: Levels, position: int, non_missing: int
+) -> SummarizeCategoricalLevel:
+    label = levels.label(position)
+    count = int(levels.counts[position])
+    return SummarizeCategoricalLevel(
+        label=record_label(label),
+        label_type=type_name(label),
+        count=count,
+        share=count / non_missing,
+    )
+
+
+def _categorical_support(
+    entry: SummarizeCategoricalColumn, row_count: int
+) -> ColumnSupport:
+    excluded = {
+        reason: count
+        for reason, count in (
+            ("missing", entry.missing_count),
+            ("unhashable", entry.non_missing_count if entry.cardinality is None else 0),
+        )
+        if count
+    }
+    return ColumnSupport(
+        column=entry.column,
+        eligible_count=row_count,
+        evaluated_count=row_count - sum(excluded.values()),
+        excluded_count=sum(excluded.values()),
+        excluded_by_reason=excluded,
+    )
+
+
+def _unhashable_values(
+    entries: dict[str, SummarizeCategoricalColumn],
+) -> list[Limitation]:
+    names = [name for name, entry in entries.items() if entry.cardinality is None]
+    if not names:
+        return []
+    hold = plural(len(names), "column holds", "columns hold")
+    its = "its" if len(names) == 1 else "their"
+    return [
+        Limitation(
+            code="unhashable_values",
+            reason=(
+                f"{hold} values that can't be hashed, such as lists or dicts, so "
+                f"{its} levels weren't counted and {its} counts of levels are null: "
+                f"{join_labels(names)}."
+            ),
+            fields=[
+                f"{_entry_path(name)}.{field}"
+                for name in names
+                for field in _LEVEL_COUNTS
+            ],
+        )
+    ]
+
+
+def _case_or_space_variants(
+    entries: dict[str, SummarizeCategoricalColumn],
+) -> list[Finding]:
+    names = [name for name, entry in entries.items() if entry.case_or_space_variants]
+    if not names:
+        return []
+    hold = plural(len(names), "column holds", "columns hold")
+    return [
+        Finding(
+            code="case_or_space_variants",
+            claim=(
+                f"{hold} labels that differ only by case or surrounding spaces: "
+                f"{join_labels(names)}."
+            ),
+            assessment="suspected",
+            columns=names,
+            fields=[f"{_entry_path(name)}.case_or_space_variants" for name in names],
+        )
+    ]
+
+
+def _mixed_value_types(
+    entries: dict[str, SummarizeCategoricalColumn],
+) -> list[Finding]:
+    names = [name for name, entry in entries.items() if entry.mixed_value_types]
+    if not names:
+        return []
+    hold = plural(len(names), "column holds", "columns hold")
+    described = [
+        f"{label_text(name)} ({', '.join(entries[name].value_types)})" for name in names
+    ]
+    return [
+        Finding(
+            code="mixed_value_types",
+            claim=(
+                f"{hold} values of more than one Python type: {join_items(described)}."
+            ),
+            assessment="suspected",
+            columns=names,
+            fields=[f"{_entry_path(name)}.value_types" for name in names],
+        )
+    ]
+
+
+def _unused_categories(
+    entries: dict[str, SummarizeCategoricalColumn],
+) -> list[Finding]:
+    names = [name for name, entry in entries.items() if entry.unused_categories]
+    if not names:
+        return []
+    have = plural(len(names), "categorical column has", "categorical columns have")
+    return [
+        Finding(
+            code="unused_categories",
+            claim=f"{have} categories that never occur: {join_labels(names)}.",
+            assessment="descriptive",
+            columns=names,
+            fields=[f"{_entry_path(name)}.unused_categories" for name in names],
         )
     ]

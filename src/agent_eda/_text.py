@@ -37,6 +37,10 @@ class Table:
     unit: tuple[str, str]
     headers: Sequence[str]
     rows: Sequence[Sequence[Cell]]
+    # What res.to_frame() holds when its rows aren't the table's, such as
+    # levels for a table of columns: the row count and the unit.
+    frame_rows: int | None = None
+    frame_unit: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -214,8 +218,8 @@ def _footer(table: Table | None) -> str:
     rest = "res.findings, res.limitations and res.to_json() have the rest."
     if table is None:
         return f"More: {rest}"
-    count = len(table.rows)
-    rows = plural(count, *table.unit)
+    count = len(table.rows) if table.frame_rows is None else table.frame_rows
+    rows = plural(count, *(table.frame_unit or table.unit))
     return f"More: res.to_frame() has {'the' if count == 1 else 'all'} {rows}; {rest}"
 
 

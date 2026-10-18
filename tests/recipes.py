@@ -91,6 +91,15 @@ def is_number_or_boolean(dtype: Any) -> bool:
     return isinstance(dtype, pd.ArrowDtype) and pd.api.types.is_numeric_dtype(dtype)
 
 
+def has_countable_values(dtype: Any) -> bool:
+    """Text, object, categorical, boolean and numeric columns, pyarrow ones too."""
+    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype):
+        return True
+    if isinstance(dtype, pd.ArrowDtype):
+        return dtype.kind in "biufU" or pd.api.types.is_numeric_dtype(dtype)
+    return dtype.kind in "biufO"
+
+
 # Any text, sometimes longer than a printed line.
 TEXT = st.text() | st.text(min_size=121, max_size=130)
 
@@ -109,6 +118,12 @@ RECIPES: dict[str, Recipe] = {
                 choices("summarize_numeric", "quantile_method")
             ),
             trim_fraction=st.floats(0, 0.5, exclude_max=True),
+        ),
+    ),
+    "summarize_categorical": Recipe(
+        options=lambda data: optional(
+            columns=column_lists(names(data, has_countable_values)),
+            top_n=st.integers(1, 100),
         ),
     ),
 }
