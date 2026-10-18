@@ -8,6 +8,7 @@ import pandas as pd
 
 from agent_eda._columns import Labels, first_positions
 from agent_eda._registry import analysis
+from agent_eda._row_ids import duplicated_labels
 from agent_eda._run import data_shape, execution
 from agent_eda._text import plural
 from agent_eda.results import (
@@ -61,11 +62,17 @@ def describe_dataset(
         duplicated or colliding column labels, MultiIndex columns, a non-unique
         index, all-missing columns and constant columns. Every other analysis
         raises on bad column labels, so run this one to find them. It never
-        shows a raw data value. For how the values of each numeric column are
-        distributed, call `summarize_numeric` next. Columns whose values, not
-        labels, duplicate or derive from another column show up as perfect
-        associations in `compute_association_matrix`. `list_analyses` lists the
-        other analyses.
+        shows a raw data value. For missing values per column and per row,
+        counting stand-ins such as -999 that you declare, call
+        `profile_missing_values` next; for how the values of each numeric
+        column are distributed, call `summarize_numeric`, and for which values
+        occur in each text, categorical and boolean column and how often,
+        `summarize_categorical`. For rows that repeat, call
+        `find_duplicate_rows`; for which columns, alone or combined, identify
+        rows, call `find_candidate_keys`. Columns whose values, not labels,
+        duplicate or derive from another column show up as perfect
+        associations in `compute_association_matrix`. `list_analyses` lists
+        the other analyses.
 
     Args:
         data (pd.DataFrame): The data to describe. Any column labels are
@@ -139,8 +146,17 @@ def describe_dataset(
         1
 
     See Also:
+        profile_missing_values: Missing values per column and per row, counting
+            declared sentinel values.
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
             numeric column.
+        summarize_categorical: Each level's count and share, the most common
+            levels and labels that differ only by case or surrounding spaces,
+            for every text, categorical and boolean column.
+        find_duplicate_rows: Groups of rows that are equal in every column,
+            with their row IDs.
+        find_candidate_keys: Which columns, alone or combined, uniquely identify
+            rows, with duplicate and missing counts.
         compute_association_matrix: How strongly pairs of columns are
             associated, with perfect associations flagged as possibly duplicated
             or derived columns.
@@ -273,15 +289,11 @@ def _distinct_count(series: pd.Series) -> int | None:
 
 
 def _describe_index(index: pd.Index) -> DescribeDatasetIndex:
+    # The rule every analysis uses for repeated row IDs.
+    duplicated = int(duplicated_labels(index, keep="first").sum())
     if isinstance(index, pd.MultiIndex):
-        # MultiIndex.duplicated() works on the codes alone.
-        duplicated = int(index.duplicated().sum())
         missing = int(np.any([codes == -1 for codes in index.codes], axis=0).sum())
     else:
-        # Index.duplicated() first asks is_unique, which builds and keeps the
-        # caller's lookup table; a Series over the same values doesn't.
-        values = pd.Series(index.array, copy=False, dtype=index.dtype)
-        duplicated = int(values.duplicated().sum())
         missing = int(index.isna().sum())
     return DescribeDatasetIndex(
         dtype=str(index.dtype),

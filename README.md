@@ -2,7 +2,7 @@
 
 Deterministic exploratory data analysis (EDA) functions for LLM agents.
 
-> Status: in development. `describe_dataset`, `summarize_numeric`, `compute_association_matrix` and the discovery functions `guide`, `search_analyses`, `describe_analysis` and `list_analyses` work; the rest of the code below shows the planned interface.
+> Status: in development. `describe_dataset`, `profile_missing_values`, `summarize_numeric`, `summarize_categorical`, `find_duplicate_rows`, `find_candidate_keys`, `compute_association_matrix` and the discovery functions `guide`, `search_analyses`, `describe_analysis` and `list_analyses` work; the rest of the code below shows the planned interface.
 
 agent-eda is a Python library for the EDA phase of a data science project: data quality, missing values, duplicates, distributions, associations, leakage checks and more. Each analysis is a plain function. It takes a pandas DataFrame and typed arguments and returns a typed result. The library never calls an LLM or the network, so the same data, arguments and seed always give the same result.
 
@@ -71,11 +71,13 @@ uv run pre-commit install
 
 The minimum-versions run installs every direct dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1, and the dev tools' lower bounds) into a throwaway environment on Python 3.12, the newest Python with numpy 1.26 wheels. It leaves `uv.lock` and `.venv` unchanged. Keep `--isolated`: without it, uv rewrites `uv.lock` for the new resolution mode.
 
-The packaging tests build the wheel offline with the `uv_build` backend from the dev dependencies, pinned to the range in `[build-system]`, so they need no network and work with any uv version.
+The packaging tests build the wheel offline with the `uv_build` backend from the dev dependencies, pinned to the range in `[build-system]`, so they need no network and work with any uv version. When `AGENT_EDA_WHEEL` names a wheel file, they check that file instead.
 
 The property tests call every analysis in `ae.list_analyses()` on DataFrames that Hypothesis generates full of edge cases, and on fixed ones such as a column of every dtype. Hypothesis runs derandomized, so every run tests the same 50 examples per analysis, or 1,000 with the `thorough` profile. The benchmark times every analysis with its default arguments on a deterministic DataFrame of 1,000,000 rows and 100 mixed columns, fails one that takes 5 seconds or more, and prints the timings at the end. It limits NumPy's BLAS and pyarrow to 2 threads, like the 2-vCPU AgentCore session it targets. The default test run skips it. Both call each analysis through its recipe in `tests/recipes.py`, so a new analysis needs one there, or the suite fails and says so.
 
 On every commit, pre-commit checks the files (whitespace, line endings, YAML/TOML/JSON syntax, merge conflict markers, private keys, files over 1 MB), keeps `uv.lock` in sync, and runs ruff and ty. The tests run on `git push`.
+
+On GitHub, `.github/workflows/ci.yml` runs on every push and pull request. One job runs ruff and ty. The tests run with the versions in `uv.lock` on Python 3.12, 3.13 and 3.14 on Linux x86_64, and on Python 3.12 on Linux ARM64. Another job runs the minimum-versions command from the table, and `tests/test_ci_workflow.py` fails if the two differ. The packaging job builds the wheel and runs the packaging tests on it. It then installs the wheel with `pip install --no-deps` into an environment that holds only the six required dependencies at their minimum versions, as in an offline AgentCore sandbox, and runs `tests/smoke.py` there. That script prints a result and runs every analysis's docstring examples. The benchmark runs only when started by hand from the Actions tab. It runs on Linux ARM64, limited to 2 CPUs with `taskset`, once with the latest and once with the minimum versions.
 
 ## License
 

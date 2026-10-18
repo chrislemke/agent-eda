@@ -12,8 +12,9 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import Phase, assume, find, given, settings
 from hypothesis import strategies as st
+from hypothesis.errors import NoSuchExample
 from recipes import RECIPES, Arguments, recipe_for
 from strategies import EDGE_FRAMES, LABEL_EDGE_FRAMES, STR, data_frames
 
@@ -110,16 +111,34 @@ def test_generated_frames_cover_every_dtype_family_and_shape():
     @settings(max_examples=500)
     @given(data_frames())
     def collect(df):
-        seen.update(name for name, has in FRAME_FEATURES.items() if has(df))
-        for position in range(df.shape[1]):
-            column = df.iloc[:, position]
-            seen.update(name for name, has in COLUMN_FEATURES.items() if has(column))
+        seen.update(features_of(df))
 
     collect()
 
-    assert [
-        name for name in [*FRAME_FEATURES, *COLUMN_FEATURES] if name not in seen
-    ] == []
+    # Hypothesis also draws literals from the package's own code, so the frames
+    # it draws shift whenever the code gains a constant. Search on for a frame
+    # with each feature the 200 missed before calling it uncovered.
+    uncovered = []
+    for name in [*FRAME_FEATURES, *COLUMN_FEATURES]:
+        if name in seen:
+            continue
+        try:
+            find(
+                data_frames(),
+                lambda df, name=name: name in features_of(df),
+                settings=settings(max_examples=1_000, phases=[Phase.generate]),
+            )
+        except NoSuchExample:
+            uncovered.append(name)
+    assert uncovered == []
+
+
+def features_of(df: pd.DataFrame) -> set[str]:
+    found = {name for name, has in FRAME_FEATURES.items() if has(df)}
+    for position in range(df.shape[1]):
+        column = df.iloc[:, position]
+        found.update(name for name, has in COLUMN_FEATURES.items() if has(column))
+    return found
 
 
 def check_contract(name: str, df: pd.DataFrame, arguments: Arguments) -> None:
@@ -138,6 +157,11 @@ def check_contract(name: str, df: pd.DataFrame, arguments: Arguments) -> None:
         again = analysis(df, **arguments).to_json()
 
     assert res.status in INFO[name].statuses
+    if res.status == "budget_exceeded":
+        # The reason names the limit to raise.
+        assert res.status_reason is not None
+        limits = INFO[name].work_limit_parameters
+        assert any(limit in res.status_reason.message for limit in limits)
     json.loads(record, parse_constant=reject_constant)
     assert again == record, "two identical calls gave different JSON"
     before.assert_unchanged(df)

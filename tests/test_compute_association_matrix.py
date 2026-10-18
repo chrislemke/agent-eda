@@ -571,8 +571,8 @@ def test_to_frame_with_an_unknown_table_raises_with_the_choices():
 
     assert caught.value.code == "invalid_argument"
     assert str(caught.value) == (
-        "to_frame got 'matirx' for table, but table must be 'pairs' or 'matrix'. "
-        "Did you mean 'matrix'?"
+        "to_frame got 'matirx' for table, but table must be one of 'pairs' or "
+        "'matrix'. Did you mean 'matrix'? res.to_frame() returns the pairs table."
     )
 
 
@@ -584,8 +584,8 @@ def test_to_frame_with_data_for_a_table_name_shows_none_of_it():
         res.to_frame(table=secret)  # ty: ignore[invalid-argument-type]  # the wrong type is the test
 
     assert str(caught.value) == (
-        "to_frame got a pandas Series of 2 values for table, but table must be "
-        "'pairs' or 'matrix'."
+        "to_frame got a Series for table, but table must be one of 'pairs' or "
+        "'matrix'. res.to_frame() returns the pairs table."
     )
 
 
@@ -602,12 +602,8 @@ def test_prints_the_strongest_pairs_and_names_both_tables():
         "y_column).",
     ]
     assert lines[3] == "Skipped 1 column, see res.skipped_columns: 'when' (datetime)."
-    assert lines[4] == (
-        "Tables: res.to_frame() has every pair, strongest first; "
-        "res.to_frame(table='matrix') has the 4 x 4 matrix."
-    )
-    assert lines[5] == "Pairs (6 of 6 shown):"
-    assert lines[6].split() == [
+    assert lines[4] == "Pairs (6 of 6 shown):"
+    assert lines[5].split() == [
         "x_column",
         "y_column",
         "method",
@@ -616,7 +612,7 @@ def test_prints_the_strongest_pairs_and_names_both_tables():
         "direction",
     ]
     strongest = res.pairs[0]
-    assert lines[7].split() == [
+    assert lines[6].split() == [
         strongest.x_column,
         strongest.y_column,
         strongest.method,
@@ -624,9 +620,11 @@ def test_prints_the_strongest_pairs_and_names_both_tables():
         str(strongest.pair_count),
         strongest.direction,
     ]
-    assert lines[-1] == (
-        "More: res.to_frame() has all 6 pairs; res.findings, res.limitations and "
-        "res.to_json() have the rest."
+    # The footer names both tables.
+    assert " ".join(line.strip() for line in lines[-2:]) == (
+        "More: res.to_frame() has all 6 pairs; res.to_frame(table='matrix') has the "
+        "wide 4 x 4 matrix; res.findings, res.limitations and res.to_json() have the "
+        "rest."
     )
 
 
@@ -700,9 +698,8 @@ def test_more_pairs_than_max_pairs_stops_before_computing_any():
     assert res.status_reason is not None
     assert res.status_reason.code == "too_many_pairs"
     assert res.status_reason.message == (
-        "The 4 paired columns make 6 pairs, more than max_pairs=5, so no pair was "
-        "computed. Name fewer columns in columns, or pass max_pairs=6 to compute "
-        "them all."
+        "The 4 paired columns make 6 pairs, more than max_pairs=5 allows; no pair "
+        "was computed. Raise max_pairs to 6, or name fewer columns in columns."
     )
     assert res.pairs == []
     assert list(res.columns) == ["age", "region", "zip", "income"]

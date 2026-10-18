@@ -7,8 +7,11 @@ every option keeps its default; `options` draws further arguments, which the
 property tests add.
 """
 
+import datetime as dt
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 import numpy as np
@@ -82,6 +85,25 @@ def column_lists(candidates: list[str]) -> st.SearchStrategy[list[str] | None]:
     return st.none() | st.lists(st.sampled_from(candidates), min_size=1, unique=True)
 
 
+def column_names(candidates: list[str]) -> st.SearchStrategy[str | None]:
+    """None, or one of the candidates."""
+    if not candidates:
+        return st.none()
+    return st.none() | st.sampled_from(candidates)
+
+
+def hashable_names(data: pd.DataFrame) -> list[str]:
+    """The names of the columns whose values can all be hashed, as row IDs must."""
+    found = []
+    for label, column in data.items():
+        try:
+            pd.factorize(column)
+        except (TypeError, NotImplementedError):  # lists, dicts, nested Arrow types
+            continue
+        found.append(str(label))
+    return found
+
+
 def is_number_or_boolean(dtype: Any) -> bool:
     """Integers, floats and booleans, nullable and pyarrow-backed ones included."""
     if isinstance(dtype, pd.CategoricalDtype):
@@ -123,6 +145,81 @@ def association_options(data: pd.DataFrame) -> st.SearchStrategy[Arguments]:
     )
 
 
+def has_countable_values(dtype: Any) -> bool:
+    """Text, object, categorical, boolean and numeric columns, pyarrow ones too."""
+    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype):
+        return True
+    if isinstance(dtype, pd.ArrowDtype):
+        return dtype.kind in "biufU" or pd.api.types.is_numeric_dtype(dtype)
+    return dtype.kind in "biufO"
+
+
+def any_dtype(dtype: Any) -> bool:
+    return True
+
+
+def sentinel_candidates(column: pd.Series) -> list[Any]:
+    """Values an agent could declare as sentinel values for the column.
+
+    They are values the column holds, plus a stand-in it may not hold, all of a
+    type the column can hold, so declaring any of them is a valid call.
+    """
+    values = (
+        column.cat.categories
+        if isinstance(column.dtype, pd.CategoricalDtype)
+        else column
+    )
+    kept = [
+        value for value in (_sentinel(v) for v in values.tolist()) if value is not None
+    ]
+    kinds = {type(value) for value in kept}
+    stand_ins = {str: "N/A", int: 0, float: -999.0}
+    kept.extend(stand_ins[kind] for kind in kinds if kind in stand_ins)
+    return list(dict.fromkeys(kept))
+
+
+def _sentinel(value: Any) -> Any:
+    """A value as a declared sentinel value, or None when it can't be one."""
+    if isinstance(value, Decimal):
+        value = float(value)
+    if isinstance(value, float) and not math.isfinite(value):
+        return None  # NaN means missing, and infinities can't be declared
+    if value is pd.NaT or value is pd.NA or isinstance(value, list | dict):
+        return None
+    if isinstance(value, bool | int | float | str | dt.date | dt.timedelta):
+        return value
+    return None
+
+
+@st.composite
+def missing_value_arguments(draw: st.DrawFn, data: pd.DataFrame) -> Arguments:
+    """Columns, and sentinel values for some of the selected ones."""
+    arguments = draw(optional(columns=column_lists(names(data, any_dtype))))
+    labels = {str(label): label for label in data.columns}
+    selected = arguments.get("columns") or list(labels)
+    candidates = {
+        name: values
+        for name in selected
+        if (values := sentinel_candidates(data[labels[name]]))
+    }
+    if candidates and draw(st.booleans()):
+        chosen = draw(st.lists(st.sampled_from(list(candidates)), unique=True))
+        arguments["sentinel_values"] = {
+            name: draw(
+                st.lists(
+                    st.sampled_from(candidates[name]),
+                    min_size=1,
+                    max_size=3,
+                    unique=True,
+                )
+            )
+            for name in chosen
+        }
+    elif draw(st.booleans()):
+        arguments["sentinel_values"] = None
+    return arguments
+
+
 # Any text, sometimes longer than a printed line.
 TEXT = st.text() | st.text(min_size=121, max_size=130)
 
@@ -134,6 +231,20 @@ RECIPES: dict[str, Recipe] = {
         ),
         any_column_labels=True,
     ),
+    "find_candidate_keys": Recipe(
+        options=lambda data: optional(
+            columns=column_lists(names(data, lambda dtype: True)),
+            max_key_size=st.integers(1, 4),
+            max_combinations=st.integers(1, 64),
+        ),
+    ),
+    "find_duplicate_rows": Recipe(
+        options=lambda data: optional(
+            columns=column_lists(names(data, lambda dtype: True)),
+            id_column=column_names(hashable_names(data)),
+        ),
+    ),
+    "profile_missing_values": Recipe(options=missing_value_arguments),
     "summarize_numeric": Recipe(
         options=lambda data: optional(
             columns=column_lists(names(data, is_number_or_boolean)),
@@ -142,6 +253,12 @@ RECIPES: dict[str, Recipe] = {
                 choices("summarize_numeric", "quantile_method")
             ),
             trim_fraction=st.floats(0, 0.5, exclude_max=True),
+        ),
+    ),
+    "summarize_categorical": Recipe(
+        options=lambda data: optional(
+            columns=column_lists(names(data, has_countable_values)),
+            top_n=st.integers(1, 100),
         ),
     ),
 }

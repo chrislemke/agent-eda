@@ -17,9 +17,14 @@ from agent_eda._columns import (
     column_kind,
     select_columns,
 )
-from agent_eda._numeric import NumericColumn, read_limitations, read_numeric
+from agent_eda._numeric import (
+    NumericColumn,
+    read_limitations,
+    read_numeric,
+    stored_nan_count,
+)
 from agent_eda._registry import analysis
-from agent_eda._run import data_shape, execution
+from agent_eda._run import NO_ROWS, budget_exceeded_reason, data_shape, execution
 from agent_eda._text import join_items, join_labels, plural
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.results import (
@@ -106,7 +111,6 @@ _SKIP_MESSAGES: dict[SkipReason, str] = {
 # many rows, so a column with far too many is skipped without reading it all.
 PROBE_ROWS = 20_000
 
-_NO_ROWS = StatusReason(code="no_rows", message="The data has no rows.")
 _FEWER_THAN_TWO_COLUMNS = StatusReason(
     code="fewer_than_two_columns",
     message=(
@@ -327,7 +331,6 @@ def compute_association_matrix(
         Pairs, each on its own complete rows: 1 numeric (pearson), 1 categorical (cramers_v_bias_corrected),
             4 mixed (correlation_ratio, from the categorical x_column to the numeric y_column).
         Skipped 1 column, see res.skipped_columns: 'joined' (datetime).
-        Tables: res.to_frame() has every pair, strongest first; res.to_frame(table='matrix') has the 4 x 4 matrix.
         Pairs (6 of 6 shown):
         x_column  y_column  method                     value  pair_count  direction
         age       income    pearson                   0.9429           8  symmetric
@@ -338,7 +341,8 @@ def compute_association_matrix(
         member    age       correlation_ratio         0.1237           8  x_to_y
         Findings: none
         Limitations: none
-        More: res.to_frame() has all 6 pairs; res.findings, res.limitations and res.to_json() have the rest.
+        More: res.to_frame() has all 6 pairs; res.to_frame(table='matrix') has the wide 4 x 4 matrix; res.findings,
+            res.limitations and res.to_json() have the rest.
         >>> top = res.pairs[0]
         >>> top.x_column, top.y_column, round(top.value, 4)
         ('age', 'income', 0.9429)
@@ -389,19 +393,20 @@ def compute_association_matrix(
     status: Status = "completed"
     reason: StatusReason | None = None
     if row_count == 0:
-        status, reason = "insufficient_data", _NO_ROWS
+        status, reason = "insufficient_data", NO_ROWS
     elif len(paired) < 2:
         status, reason = "not_applicable", _FEWER_THAN_TWO_COLUMNS
     elif pair_count > max_pairs:
         status = "budget_exceeded"
-        reason = StatusReason(
+        reason = budget_exceeded_reason(
             code="too_many_pairs",
-            message=(
-                f"The {len(paired):,} paired columns make {pair_count:,} pairs, "
-                f"more than max_pairs={max_pairs:,}, so no pair was computed. Name "
-                f"fewer columns in columns, or pass max_pairs={pair_count} to "
-                "compute them all."
-            ),
+            needs=f"The {len(paired):,} paired columns make",
+            required=pair_count,
+            unit=("pair", "pairs"),
+            parameter="max_pairs",
+            limit=max_pairs,
+            outcome="no pair was computed",
+            narrow="name fewer columns in columns",
         )
     else:
         pairs = _strongest_first(_pairs(paired, numeric_method, categorical_method))
@@ -533,7 +538,7 @@ def _read(
             values=np.empty(0),
             boolean=False,
             beyond_exact_integers=False,
-            stored_nan_count=found.stored_nan,
+            stored_nan_count=stored_nan_count(series),
         )
         if is_number
         else None,
@@ -553,9 +558,6 @@ class _Levels:
 
     codes: np.ndarray
     levels: int
-    # Values that are NaN stored as a value, which pandas isna() doesn't count
-    # as missing but these codes do.
-    stored_nan: int = 0
 
 
 def _codes(series: pd.Series, *, numbers: bool) -> _Levels | None:
@@ -574,10 +576,9 @@ def _codes(series: pd.Series, *, numbers: bool) -> _Levels | None:
         levels = pd.Index(uniques).to_numpy(dtype="float64", na_value=np.nan)
         is_nan = np.isnan(levels)
         if is_nan.any():
-            stored = int(is_nan[codes[codes >= 0]].sum())
             renumbered = np.where(is_nan, -1, np.cumsum(~is_nan) - 1)
             codes = np.where(codes >= 0, renumbered[codes], -1)
-            return _Levels(codes, int((~is_nan).sum()), stored)
+            return _Levels(codes, int((~is_nan).sum()))
     return _Levels(codes, len(uniques))
 
 

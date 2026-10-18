@@ -7,14 +7,10 @@ the rest is. The text never exceeds 40 lines or 120 characters per line, and
 every section counts what it leaves out.
 """
 
-import reprlib
 import textwrap
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
-
-import numpy as np
-import pandas as pd
 
 MAX_LINES = 40
 MAX_WIDTH = 120
@@ -41,6 +37,17 @@ class Table:
     unit: tuple[str, str]
     headers: Sequence[str]
     rows: Sequence[Sequence[Cell]]
+    # How many rows the table has when `rows` holds only the first ones, which
+    # saves formatting rows the text never shows; None means len(rows).
+    total: int | None = None
+    # What res.to_frame() holds when its rows aren't the table's, such as
+    # levels for a table of columns: the row count and the unit.
+    frame_rows: int | None = None
+    frame_unit: tuple[str, str] | None = None
+    # What res.to_frame() has, in words, when a count and a unit can't say it,
+    # such as "all 5 rows in groups"; it wins over frame_rows and frame_unit.
+    # None means the count of the table's rows or of frame_rows.
+    frame: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,14 +65,20 @@ def render(
     table: Table | None,
     findings: Sequence[Item],
     limitations: Sequence[Item],
+    other_tables: Sequence[str] = (),
 ) -> str:
-    """Render a result with the fixed template, within the line and width caps."""
+    """Render a result with the fixed template, within the line and width caps.
+
+    `other_tables` names the tables besides the key table that to_frame()
+    returns, each as a clause for the footer, such as "res.to_frame(table='x')
+    has ...".
+    """
     lines = [heading, *facts]
     if table is not None:
         lines.extend(_table_lines(table))
     lines.extend(_item_lines("Findings", findings, MAX_FINDINGS))
     lines.extend(_item_lines("Limitations", limitations, MAX_LIMITATIONS))
-    lines.append(_footer(table))
+    lines.extend(_footer(table, other_tables))
     lines = [_fit(_printable(line)) for line in lines]
     if len(lines) > MAX_LINES:
         hidden = len(lines) - MAX_LINES + 1
@@ -153,11 +166,14 @@ def label_text(label: object) -> str:
 
 def join_labels(labels: Sequence[object]) -> str:
     """Show labels as "'a', 'b' and 3", naming at most MAX_NAMED of them."""
-    return join_items([label_text(label) for label in labels])
+    shown = [label_text(label) for label in labels[:MAX_NAMED]]
+    if len(labels) > MAX_NAMED:
+        return ", ".join(shown) + f" and {len(labels) - MAX_NAMED:,} more"
+    return join_items(shown)
 
 
 def _table_lines(table: Table) -> list[str]:
-    total = len(table.rows)
+    total = len(table.rows) if table.total is None else table.total
     if total == 0:
         return [f"{table.title}: none"]
     shown = table.rows[:MAX_TABLE_ROWS]
@@ -214,13 +230,24 @@ def _item_lines(title: str, items: Sequence[Item], limit: int) -> list[str]:
     return lines
 
 
-def _footer(table: Table | None) -> str:
+def _footer(table: Table | None, other_tables: Sequence[str]) -> list[str]:
     rest = "res.findings, res.limitations and res.to_json() have the rest."
     if table is None:
-        return f"More: {rest}"
-    count = len(table.rows)
-    rows = plural(count, *table.unit)
-    return f"More: res.to_frame() has {'the' if count == 1 else 'all'} {rows}; {rest}"
+        return [f"More: {rest}"]
+    if table.frame is not None:
+        frame = f"res.to_frame() has {table.frame}"
+    else:
+        if table.frame_rows is not None:
+            count = table.frame_rows
+        elif table.total is not None:
+            count = table.total
+        else:
+            count = len(table.rows)
+        rows = plural(count, *(table.frame_unit or table.unit))
+        frame = f"res.to_frame() has {'the' if count == 1 else 'all'} {rows}"
+    return wrap(
+        f"More: {'; '.join([frame, *other_tables])}; {rest}", first="", indent="    "
+    )
 
 
 def _printable(text: str) -> str:
@@ -237,26 +264,3 @@ def _fit(line: str) -> str:
     if len(line) <= MAX_WIDTH:
         return line
     return line[: MAX_WIDTH - len(ELLIPSIS)] + ELLIPSIS
-
-
-_SCALAR_REPR = reprlib.Repr(maxstring=40, maxother=40)
-
-
-def value_text(value: object) -> str:
-    """Show a scalar value; describe anything larger by its type and size.
-
-    A container passed by mistake, such as a column of a DataFrame, would
-    otherwise put raw data values into the message.
-    """
-    if value is None or isinstance(value, bool | int | float | str | np.generic):
-        return _SCALAR_REPR.repr(value)
-    if isinstance(value, pd.DataFrame):
-        rows = plural(value.shape[0], "row", "rows")
-        return f"a pandas DataFrame with {rows} and {plural(value.shape[1], 'column', 'columns')}"
-    if isinstance(value, pd.Series | pd.Index):
-        return f"a pandas {type(value).__name__} of {plural(len(value), 'value', 'values')}"
-    if isinstance(value, np.ndarray):
-        return f"a NumPy array of shape {value.shape}"
-    if isinstance(value, list | tuple | set | frozenset | dict):
-        return f"a {type(value).__name__} of {plural(len(value), 'item', 'items')}"
-    return f"a {type(value).__name__}"
