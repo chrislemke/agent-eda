@@ -13,7 +13,7 @@ The order never follows hash or set iteration order.
 import heapq
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
 from typing import TYPE_CHECKING, cast
@@ -76,9 +76,52 @@ class Levels:
         values = self.values if positions is None else self.values[positions]
         return np.asarray(values, dtype=object)
 
+    def subset(self, positions: np.ndarray) -> "Levels":
+        """The levels at the given positions, in that order, without categories."""
+        return replace(
+            self,
+            values=self.values[positions],
+            counts=self.counts[positions],
+            sort_values=(
+                None if self.sort_values is None else self.sort_values[positions]
+            ),
+            unused_categories=[],
+        )
+
 
 def count_levels(series: pd.Series, kind: "ColumnKind") -> Levels | None:
     """Count the levels of a column; None when its values can't be hashed."""
+    counted = _count(series, kind)
+    return None if counted is None else counted[0]
+
+
+def count_levels_by_row(
+    series: pd.Series, kind: "ColumnKind"
+) -> tuple[Levels, np.ndarray] | None:
+    """Count the levels of a column, as count_levels does, and find each row's level.
+
+    The array gives each row's level as its position in Levels.values, or -1
+    where the value is missing. None when the values can't be hashed.
+    """
+    counted = _count(series, kind)
+    if counted is None:
+        return None
+    levels, codes, used = counted
+    if used is None:
+        return levels, codes
+    # A category code becomes the category's position among the used ones.
+    positions = np.cumsum(used) - 1
+    return levels, np.where(codes >= 0, positions[codes], -1)
+
+
+def _count(
+    series: pd.Series, kind: "ColumnKind"
+) -> tuple[Levels, np.ndarray, np.ndarray | None] | None:
+    """The levels, each row's code, and for a categorical which categories occur.
+
+    A code is the level's position for a column that isn't categorical, and the
+    category's position for a categorical; -1 marks a missing value.
+    """
     if kind == "categorical":
         return _count_categories(series)
     try:
@@ -94,7 +137,7 @@ def count_levels(series: pd.Series, kind: "ColumnKind") -> Levels | None:
     )
     # Code -1 marks a missing value, so the first count is the missing one.
     counts = np.bincount(codes + 1, minlength=len(values) + 1)
-    return Levels(
+    levels = Levels(
         values=values,
         counts=counts[1:],
         missing_count=int(counts[0]),
@@ -102,16 +145,17 @@ def count_levels(series: pd.Series, kind: "ColumnKind") -> Levels | None:
         text=kind == "text" or _all_text(values),
         unused_categories=[],
     )
+    return levels, codes, None
 
 
-def _count_categories(series: pd.Series) -> Levels:
+def _count_categories(series: pd.Series) -> tuple[Levels, np.ndarray, np.ndarray]:
     categorical = cast("pd.Categorical", series.array)
     categories = categorical.categories
     codes = np.asarray(categorical.codes, dtype=np.intp)
     counts = np.bincount(codes + 1, minlength=len(categories) + 1)
     used = counts[1:] > 0
     values = categories[used]
-    return Levels(
+    levels = Levels(
         values=values,
         counts=counts[1:][used],
         missing_count=int(counts[0]),
@@ -119,6 +163,7 @@ def _count_categories(series: pd.Series) -> Levels:
         text=_all_text(values),
         unused_categories=categories[~used].tolist(),
     )
+    return levels, codes, used
 
 
 def _numpy_values(values: pd.Index) -> np.ndarray | None:
@@ -156,6 +201,21 @@ def ordered(levels: Levels, limit: int | None = None) -> np.ndarray:
     tied = np.flatnonzero(counts == cut)
     tail = _first_labels(levels, tied, limit - len(head))
     return np.asarray([*head, *tail], dtype=np.intp)
+
+
+def ordered_among(
+    levels: Levels, selected: np.ndarray, limit: int | None = None
+) -> np.ndarray:
+    """Positions of the selected levels in level order, only the first `limit` when given.
+
+    `selected` holds a bool per level. The selected levels keep the order they
+    have among all levels, so profile_target's classes and its labels outside
+    expected_labels follow the same order.
+    """
+    positions = np.flatnonzero(selected)
+    if len(positions) == len(levels.counts):
+        return ordered(levels, limit)
+    return positions[ordered(levels.subset(positions), limit)]
 
 
 def _full_order(levels: Levels) -> np.ndarray:
@@ -304,18 +364,11 @@ def levels_frame(tables: Mapping[str, Levels]) -> pd.DataFrame:
     counts: list[np.ndarray] = []
     shares: list[np.ndarray] = []
     for name, levels in tables.items():
-        order = ordered(levels)
+        order, ordered_labels, ordered_types = level_rows(levels)
         ordered_counts = levels.counts[order].astype(np.int64)
-        if levels.masked_types is None:
-            ordered_labels = [stored_label(label) for label in levels.objects(order)]
-            types.extend(_type_names(levels, ordered_labels))
-        else:
-            # The values are the placeholders' numbers.
-            ordered_labels = [placeholder(int(n)) for n in levels.objects(order)]
-            masked = levels.masked_types
-            types.extend([masked] * len(order) if isinstance(masked, str) else masked)
         columns.extend([name] * len(order))
         labels.extend(ordered_labels)
+        types.extend(ordered_types)
         counts.append(ordered_counts)
         total = int(ordered_counts.sum())
         shares.append(ordered_counts / total if total else ordered_counts * 0.0)
@@ -328,6 +381,24 @@ def levels_frame(tables: Mapping[str, Levels]) -> pd.DataFrame:
             "share": np.concatenate([np.empty(0, np.float64), *shares]),
         }
     )
+
+
+def level_rows(levels: Levels) -> tuple[np.ndarray, list[object], list[str]]:
+    """Every level in level order, as a table of levels lists them.
+
+    Returns the levels' positions, their labels as stored (NumPy scalars as the
+    Python scalars they hold, or with masking the placeholders) and the type
+    name of each label.
+    """
+    order = ordered(levels)
+    if levels.masked_types is None:
+        labels = [stored_label(label) for label in levels.objects(order)]
+        return order, labels, _type_names(levels, labels)
+    # The values are the placeholders' numbers.
+    placeholders: list[object] = [placeholder(int(n)) for n in levels.objects(order)]
+    masked = levels.masked_types
+    types = [masked] * len(order) if isinstance(masked, str) else list(masked)
+    return order, placeholders, types
 
 
 def _type_names(levels: Levels, labels: list[object]) -> list[str]:

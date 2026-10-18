@@ -1,8 +1,9 @@
 """The numeric summary of one column, shared by every analysis that reports one.
 
-summarize_numeric reports it for each numeric column; profile_target will report
-it for a regression target. A column is read as float64 with NaN for missing
-values, and every statistic uses the finite values only.
+summarize_numeric reports it for each numeric column and profile_target for a
+regression target, both with numeric_entry(), so the two can't disagree. A
+column is read as float64 with NaN for missing values, and every statistic uses
+the finite values only.
 """
 
 import math
@@ -15,7 +16,12 @@ import pandas as pd
 
 from agent_eda._run import watch_warnings
 from agent_eda._text import join_labels, plural
-from agent_eda.results import Limitation
+from agent_eda.results import (
+    ColumnSupport,
+    Limitation,
+    StatusReason,
+    SummarizeNumericColumn,
+)
 
 # The statistics of the finite values, in the order results list them.
 STATISTICS = (
@@ -59,6 +65,11 @@ QuantileMethod = Literal[
     "midpoint",
     "nearest",
 ]
+
+# summarize_numeric's defaults, which profile_target uses for a regression target.
+DEFAULT_QUANTILES = (0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99)
+DEFAULT_QUANTILE_METHOD: QuantileMethod = "linear"
+DEFAULT_TRIM_FRACTION = 0.1
 
 # Why a statistic is null: a limitation code.
 NullReason = Literal["too_few_values", "zero_variance", "numerical_warning"]
@@ -230,6 +241,51 @@ def summarize_values(
         warnings=warned,
         constant=constant,
         constant_infinite=constant and infinite > 0,
+    )
+
+
+# Why a column without a finite value has status insufficient_data.
+NO_FINITE_VALUES = StatusReason(
+    code="no_finite_values", message="There are no finite values to summarize."
+)
+
+
+def numeric_entry[Entry: SummarizeNumericColumn](
+    model: type[Entry], name: str, summary: NumericSummary
+) -> Entry:
+    """A column's entry with summarize_numeric's fields; `model` is its class."""
+    finite_count = summary.count - summary.infinite_count
+    return model(
+        column=name,
+        status="completed" if finite_count else "insufficient_data",
+        status_reason=None if finite_count else NO_FINITE_VALUES,
+        count=summary.count,
+        missing_count=summary.missing_count,
+        infinite_count=summary.infinite_count,
+        zero_count=summary.zero_count,
+        negative_count=summary.negative_count,
+        quantiles=summary.quantiles,
+        **summary.statistics,
+    )
+
+
+def numeric_support(name: str, summary: NumericSummary) -> ColumnSupport:
+    """The support of a column's summary: missing and infinite values are excluded."""
+    excluded = {
+        reason: count
+        for reason, count in (
+            ("missing", summary.missing_count),
+            ("infinite", summary.infinite_count),
+        )
+        if count
+    }
+    eligible = summary.count + summary.missing_count
+    return ColumnSupport(
+        column=name,
+        eligible_count=eligible,
+        evaluated_count=eligible - sum(excluded.values()),
+        excluded_count=sum(excluded.values()),
+        excluded_by_reason=excluded,
     )
 
 

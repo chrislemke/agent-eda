@@ -72,8 +72,9 @@ def describe_dataset(
         each text, categorical and boolean column and how often,
         `summarize_categorical`. For rows that repeat, call
         `find_duplicate_rows`; for which columns, alone or combined, identify
-        rows, call `find_candidate_keys`. Columns whose values, not labels,
-        duplicate or derive from another column show up as perfect
+        rows, call `find_candidate_keys`. For the column a model will
+        predict, call `profile_target` with the task. Columns whose values,
+        not labels, duplicate or derive from another column show up as perfect
         associations in `compute_association_matrix`. `list_analyses` lists
         the other analyses.
 
@@ -162,6 +163,8 @@ def describe_dataset(
             with their row IDs.
         find_candidate_keys: Which columns, alone or combined, uniquely identify
             rows, with duplicate and missing counts.
+        profile_target: The classes and imbalance, or the statistics, of the
+            column a model will predict, checked against the task.
         compute_association_matrix: How strongly pairs of columns are
             associated, with perfect associations flagged as possibly duplicated
             or derived columns.

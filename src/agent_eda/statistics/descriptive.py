@@ -19,9 +19,14 @@ from agent_eda._levels import (
 )
 from agent_eda._masking import MaskedLevels, mask_levels, resolve_masking
 from agent_eda._numeric import (
+    DEFAULT_QUANTILE_METHOD,
+    DEFAULT_QUANTILES,
+    DEFAULT_TRIM_FRACTION,
     NumericSummary,
     QuantileMethod,
     null_limitations,
+    numeric_entry,
+    numeric_support,
     read_limitations,
     read_numeric,
     summarize_values,
@@ -44,8 +49,6 @@ from agent_eda.results import (
     SummarizeNumericResult,
     Support,
 )
-
-DEFAULT_QUANTILES = (0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99)
 
 _TEXT_FIX = (
     "convert numbers stored as text with pd.to_numeric({column}, errors='coerce')"
@@ -79,8 +82,8 @@ def summarize_numeric(
     *,
     columns: Sequence[str] | None = None,
     quantiles: Sequence[Annotated[float, Ge(0), Le(1)]] = DEFAULT_QUANTILES,
-    quantile_method: QuantileMethod = "linear",
-    trim_fraction: Annotated[float, Ge(0), Lt(0.5)] = 0.1,
+    quantile_method: QuantileMethod = DEFAULT_QUANTILE_METHOD,
+    trim_fraction: Annotated[float, Ge(0), Lt(0.5)] = DEFAULT_TRIM_FRACTION,
 ) -> SummarizeNumericResult:
     """How are the values in each numeric column distributed?
 
@@ -100,7 +103,10 @@ def summarize_numeric(
         lists the other analyses. For missing values in columns of every dtype
         and per row, counting stand-ins such as -999 that you declare, call
         `profile_missing_values`. For how strongly pairs of columns move
-        together, call `compute_association_matrix`.
+        together, call `compute_association_matrix`. For the column a model
+        will predict, call `profile_target` with the task: it gives a
+        regression target these statistics and checks that the target fits
+        the task.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -217,6 +223,9 @@ def summarize_numeric(
             declared sentinel values.
         compute_association_matrix: How strongly every pair of numeric and
             categorical columns is associated, strongest first.
+        profile_target: These statistics for a regression target, or the class
+            counts and imbalance of a classification target, checked against
+            the task.
         list_analyses: Every analysis, with the question each one answers.
     """
     levels = list(quantiles)
@@ -236,7 +245,10 @@ def summarize_numeric(
         )
         for name, column in read.items()
     }
-    entries = {name: _entry(name, summary) for name, summary in summaries.items()}
+    entries = {
+        name: numeric_entry(SummarizeNumericColumn, name, summary)
+        for name, summary in summaries.items()
+    }
     status, status_reason = overall_status(
         row_count, list(entries.values()), no_columns=_NO_NUMERIC_COLUMNS
     )
@@ -255,7 +267,9 @@ def summarize_numeric(
         support=Support(
             row_count=row_count,
             column_count=len(selected),
-            columns=[_support(name, summary) for name, summary in summaries.items()],
+            columns=[
+                numeric_support(name, summary) for name, summary in summaries.items()
+            ],
         ),
         findings=[
             *_constant_columns(summaries),
@@ -278,9 +292,6 @@ _DEFINITIONS = {
     for name, field in SummarizeNumericColumn.model_fields.items()
     if name not in ColumnResult.model_fields
 }
-_NO_FINITE_VALUES = StatusReason(
-    code="no_finite_values", message="There are no finite values to summarize."
-)
 _NO_NUMERIC_COLUMNS = StatusReason(
     code="no_numeric_columns",
     message=(
@@ -288,41 +299,6 @@ _NO_NUMERIC_COLUMNS = StatusReason(
         "columns, which reads them as 0 and 1."
     ),
 )
-
-
-def _entry(name: str, summary: NumericSummary) -> SummarizeNumericColumn:
-    finite_count = summary.count - summary.infinite_count
-    return SummarizeNumericColumn(
-        column=name,
-        status="completed" if finite_count else "insufficient_data",
-        status_reason=None if finite_count else _NO_FINITE_VALUES,
-        count=summary.count,
-        missing_count=summary.missing_count,
-        infinite_count=summary.infinite_count,
-        zero_count=summary.zero_count,
-        negative_count=summary.negative_count,
-        quantiles=summary.quantiles,
-        **summary.statistics,
-    )
-
-
-def _support(name: str, summary: NumericSummary) -> ColumnSupport:
-    excluded = {
-        reason: count
-        for reason, count in (
-            ("missing", summary.missing_count),
-            ("infinite", summary.infinite_count),
-        )
-        if count
-    }
-    eligible = summary.count + summary.missing_count
-    return ColumnSupport(
-        column=name,
-        eligible_count=eligible,
-        evaluated_count=eligible - sum(excluded.values()),
-        excluded_count=sum(excluded.values()),
-        excluded_by_reason=excluded,
-    )
 
 
 def _entry_path(name: str) -> str:
@@ -425,8 +401,11 @@ def summarize_categorical(
         switch masking on. For how numeric values are distributed, call
         `summarize_numeric` instead; for how strongly categorical columns are
         associated with each other and with numeric ones, call
-        `compute_association_matrix`. `describe_dataset` gives distinct
-        counts for every dtype, and `list_analyses` lists the other analyses.
+        `compute_association_matrix`. For the classes of the column a model
+        will predict, call `profile_target` instead: it checks them against
+        the task and the labels you expect, and measures their imbalance.
+        `describe_dataset` gives distinct counts for every dtype, and
+        `list_analyses` lists the other analyses.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -563,6 +542,8 @@ def summarize_categorical(
         compute_association_matrix: How strongly every pair of numeric and
             categorical columns is associated, Cramér's V between categorical
             ones.
+        profile_target: The class counts, shares and imbalance of a target
+            column, checked against the task and the labels you expect.
         list_analyses: Every analysis, with the question each one answers.
     """
     masking = resolve_masking("summarize_categorical", project, mask_sensitive)

@@ -25,6 +25,7 @@ SEARCH_ACCEPTANCE = [
     ("value counts", "summarize_categorical"),
     ("duplicate rows", "find_duplicate_rows"),
     ("correlation", "compute_association_matrix"),
+    ("class imbalance", "profile_target"),
 ]
 
 
