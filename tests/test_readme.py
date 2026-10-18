@@ -1,6 +1,7 @@
 """The README shows what agent-eda does, in examples that run as written."""
 
 import contextlib
+import inspect
 import io
 import json
 import re
@@ -63,6 +64,54 @@ def test_lists_each_planned_function_once_and_no_shipped_analysis_as_planned():
     assert [name for name in names if name in shipped] == []
 
 
+def test_the_reference_has_an_entry_for_every_public_name():
+    public = [name for name in ae.__all__ if name != "__version__"]
+
+    assert sorted(reference_entries()) == sorted(public)
+
+
+def test_the_reference_shows_each_function_signature_as_python_has_it():
+    entries = reference_entries()
+    functions = [name for name in ae.__all__ if inspect.isfunction(getattr(ae, name))]
+
+    assert functions
+    for name in functions:
+        assert f"`{signature_line(name)}`" in entries[name], name
+
+
+def test_the_reference_lists_each_analysis_arguments_findings_and_statuses():
+    entries = reference_entries()
+
+    for info in ae.list_analyses().analyses:
+        entry = entries[info.name]
+        # Rows such as: | `columns` | `None` | Columns to profile; ... |
+        arguments = re.findall(r"^\| `(\w+)` \| ", entry, flags=re.MULTILINE)
+        # Lines such as: - `infinite_values` (suspected): a column holds inf.
+        assessments = "descriptive|suspected|violation|passed|unknown"
+        findings = re.findall(
+            rf"^- `(\w+)` \((?:{assessments})\): ", entry, flags=re.MULTILINE
+        )
+        statuses = re.search(r"^\*\*Statuses:\*\* (.+)$", entry, flags=re.MULTILINE)
+
+        assert arguments == info.parameters[1:], info.name
+        assert findings == info.finding_codes, info.name
+        assert statuses, info.name
+        assert re.findall(r"`(\w+)`", statuses[1]) == info.statuses, info.name
+
+
+def test_the_reference_lists_every_error_code_with_the_class_that_raises_it():
+    # Lines such as: "    column_not_found (ColumnNotFoundError): a column ..."
+    codes = ae.errors.__doc__ or ""
+    documented = re.findall(r"^    (\w+) \((\w+)", codes, flags=re.MULTILINE)
+    text = README.read_text()
+    errors = text[text.index("### Errors") : text.index("### MCP server command")]
+    # Rows such as: | `column_not_found` | `ColumnNotFoundError` | ... |
+    rows = re.findall(r"^\| `(\w+)` \| `(\w+)` \|", errors, flags=re.MULTILINE)
+
+    assert documented
+    assert rows == documented
+
+
 def test_calls_masking_a_guardrail_not_anonymization_or_access_control():
     text = " ".join(README.read_text().split())
 
@@ -80,6 +129,30 @@ def test_the_mcp_client_configuration_is_valid_json_that_starts_agent_eda_mcp():
     assert [config["mcpServers"]["agent-eda"]["command"] for config in configs] == [
         "agent-eda-mcp"
     ]
+
+
+def reference_entries():
+    """The Reference section's entries by public name, from its #### headings."""
+    text = README.read_text()
+    reference = text[text.index("## Reference") : text.index("## Planned analyses")]
+    parts = re.split(r"^#### `(\w+)`\n", reference, flags=re.MULTILINE)
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
+
+
+def signature_line(name):
+    """A function's signature as the reference shows it, from inspect."""
+    signature = inspect.signature(getattr(ae, name))
+    parts = []
+    for parameter in signature.parameters.values():
+        if parameter.kind is parameter.KEYWORD_ONLY and "*" not in parts:
+            parts.append("*")
+        if parameter.default is parameter.empty:
+            parts.append(parameter.name)
+        else:
+            parts.append(f"{parameter.name}={parameter.default!r}")
+    returns = signature.return_annotation
+    returns = "None" if returns is None else returns.__name__
+    return f"ae.{name}({', '.join(parts)}) -> {returns}"
 
 
 def fenced_blocks():
