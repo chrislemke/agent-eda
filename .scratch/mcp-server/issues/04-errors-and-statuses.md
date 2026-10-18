@@ -14,6 +14,6 @@ Read these sections of `.scratch/mcp-server/spec.md`: Errors, and test group 4. 
 - [ ] Arguments that fail the input schema (wrong type, unknown property, value outside a Literal) come back as a tool error naming the property. The ticket comments record whether the SDK or our code produces it and the exact message shape.
 - [ ] A non-completed status, such as `insufficient_data` on an empty CSV, is a normal result with `status` and `status_reason` in the structured content.
 - [ ] An unexpected exception propagates as a JSON-RPC internal error (tested with a stand-in analysis registered in the test that raises).
-- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest and on the minimum dependency versions.
+- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest versions and in both minimum-versions runs.
 
 ## Comments

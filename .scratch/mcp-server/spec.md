@@ -151,7 +151,7 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 
 ### The seam
 
-For this feature the seam is the MCP protocol. Tests start the server through the SDK's in-memory client session and act as a client does: list tools, read descriptions and schemas, call tools, and check the text, the structured content, `isError` and the error code. Tests import only `agent_eda` and `mcp` (plus `jsonschema` for output-schema validation). A smoke test launches `agent-eda-mcp` as a subprocess over real stdio and calls one MCP tool. Data files are written to pytest's `tmp_path`.
+For this feature the seam is the MCP protocol. Tests start the server through the SDK's in-memory client session and act as a client does: list tools, read descriptions and schemas, call tools, and check the text, the structured content, `isError` and the error code. Tests import only `agent_eda` and `mcp` (plus `jsonschema` for output-schema validation), and each MCP test module skips when `mcp` isn't installed. A smoke test launches `agent-eda-mcp` as a subprocess over real stdio and calls one MCP tool. Data files are written to pytest's `tmp_path`.
 
 ### What makes a good test here
 
@@ -170,7 +170,11 @@ The rules of the main suite apply: small hand-built data with obvious answers, n
 
 ### CI
 
-The MCP tests run in every existing test job with the extra installed. The minimum-versions run installs the extra at its floors (`mcp` 2.3, pyarrow 14, pydantic 2.12 for that run). The stdio smoke test runs on Python 3.12 and 3.14. The packaging job's offline install without extras stays as it is, which shows the core doesn't need them.
+- `uv run pytest` installs the extra and runs the MCP tests, so every test job with the latest versions covers them.
+- The existing minimum-versions run stays without the extra, because `mcp` needs pydantic 2.12 and the core must keep being tested on pydantic 2.7. In that run the MCP test modules skip with a reason naming the missing extra.
+- A second minimum-versions run installs the extra at its floors (`mcp` 2.3, pyarrow 14, and the pydantic 2.12 that `mcp` needs) and runs the whole suite. The README's Development table gets its command.
+- The stdio smoke test runs on Python 3.12 and 3.14.
+- The packaging job's offline install without extras stays as it is, which shows the core doesn't need them.
 
 ## Out of Scope
 

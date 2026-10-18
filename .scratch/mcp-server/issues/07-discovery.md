@@ -13,6 +13,6 @@ Read these sections of `.scratch/mcp-server/spec.md`: Discovery, and test group 
 - [ ] The `search_analyses` MCP tool takes `query` and `limit` (default 5) and returns the `SearchListing`'s text and record, equal to the Python call; the spec's search acceptance table holds over MCP.
 - [ ] The `list_analyses` MCP tool returns the `AnalysisListing`'s text and record, equal to the Python call.
 - [ ] There is no `describe_analysis` or `guide` MCP tool.
-- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest and on the minimum dependency versions.
+- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest versions and in both minimum-versions runs.
 
 ## Comments

@@ -8,10 +8,11 @@ Read these sections of `.scratch/mcp-server/spec.md`: Responses, and test group 
 
 **Status:** ready-for-agent
 
+- [ ] Every analysis MCP tool has an optional `table_path` (string or null) with fixed server text as its description, and the contract test checks it.
 - [ ] `table_path` ending in `.csv`, `.parquet` or `.pq` writes `res.to_frame()`; reading the file back gives the same rows and columns, with the index written as a column unless it is a default `RangeIndex`.
 - [ ] The text gains the line `Full table written to <absolute path> (<n> rows).`, and nothing else changes in the response.
 - [ ] An existing file, an unsupported extension or a missing parent directory raises `TableFileExistsError` (`table_file_exists`) or an `InvalidArgumentError` before the analysis runs, and no file is written.
 - [ ] With masking on, the written table holds no raw value of a sensitive column.
-- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest and on the minimum dependency versions.
+- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest versions and in both minimum-versions runs.
 
 ## Comments

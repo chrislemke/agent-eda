@@ -14,6 +14,6 @@ Read these sections of `.scratch/mcp-server/spec.md`: Project and masking, and t
 - [ ] Precedence holds: per-call `project_path` over `--project` over none, and a per-call `mask_sensitive` over both.
 - [ ] With masking on, no raw value of a sensitive column appears in the text or the structured content of any masking analysis's response; the results equal the Python calls with the same Project.
 - [ ] The descriptions of `project_path` and `mask_sensitive` say masking is a guardrail against accidental exposure, not anonymization or access control.
-- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest and on the minimum dependency versions.
+- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest versions and in both minimum-versions runs.
 
 ## Comments

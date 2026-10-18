@@ -16,6 +16,6 @@ Read these sections of `.scratch/mcp-server/spec.md`: Reading data, and test gro
 - [ ] A missing file raises `DataFileNotFoundError` (`data_file_not_found`) with the absolute path tried, whether its directory exists, and up to 3 closest file names.
 - [ ] A file pandas can't parse raises `DataFileError` (`unreadable_data_file`) quoting the parser's message.
 - [ ] The cache keeps the 2 most recently read files: a second call on the same file doesn't read it again, a changed file (mtime or size) is read again, and a third file evicts the least recently used. The tests observe reads without importing private modules (for example by changing the file's content without changing its key, or by counting opens with an audit hook).
-- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest and on the minimum dependency versions.
+- [ ] `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, on the latest versions and in both minimum-versions runs.
 
 ## Comments
