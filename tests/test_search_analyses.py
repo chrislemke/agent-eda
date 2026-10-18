@@ -1,4 +1,5 @@
 import inspect
+import itertools
 import json
 
 import pytest
@@ -15,9 +16,14 @@ TAGS = {info.name: info.tags for info in ae.list_analyses().analyses}
 # package's, and the analysis it must find first. Each analysis ticket adds its
 # rows when the analysis ships, and every earlier row keeps passing.
 SEARCH_ACCEPTANCE = [
+    ("missing values", "profile_missing_values"),
+    ("nulls per column", "profile_missing_values"),
+    ("primary key", "find_candidate_keys"),
     ("dataset overview", "describe_dataset"),
     ("mean and standard deviation", "summarize_numeric"),
     ("what kind of column is this", "infer_column_semantics"),
+    ("value counts", "summarize_categorical"),
+    ("duplicate rows", "find_duplicate_rows"),
 ]
 
 
@@ -136,10 +142,12 @@ def test_ranks_by_score_then_alphabetically_by_name(query):
 
 
 def test_a_tie_goes_to_the_alphabetically_first_name():
-    first, second = ae.search_analyses("missing").matches[:2]
+    matches = ae.search_analyses("missing", limit=100).matches
 
-    assert first.score == second.score
-    assert first.name < second.name
+    # Several analyses mention missing values only in their When to use: text.
+    ties = [(a, b) for a, b in itertools.pairwise(matches) if a.score == b.score]
+    assert ties
+    assert all(first.name < second.name for first, second in ties)
 
 
 def test_the_same_query_gives_the_same_listing():

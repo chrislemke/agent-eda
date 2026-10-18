@@ -8,6 +8,7 @@ import pandas as pd
 
 from agent_eda._columns import Labels, first_positions
 from agent_eda._registry import analysis
+from agent_eda._row_ids import duplicated_labels
 from agent_eda._run import data_shape, execution
 from agent_eda._text import plural
 from agent_eda.results import (
@@ -64,9 +65,15 @@ def describe_dataset(
         shows a raw data value. A dtype only tells how pandas stores a column:
         to learn each column's logical type from its values, such as
         identifiers or numbers and dates stored as text, call
-        `infer_column_semantics` next. For how the values of each numeric
-        column are distributed, call `summarize_numeric`. `list_analyses` lists
-        the other analyses.
+        `infer_column_semantics` next. For missing values per column and per
+        row, counting stand-ins such as -999 that you declare, call
+        `profile_missing_values`; for how the values of each numeric column are
+        distributed, call `summarize_numeric`, and for which values occur in
+        each text, categorical and boolean column and how often,
+        `summarize_categorical`. For rows that repeat, call
+        `find_duplicate_rows`; for which columns, alone or combined, identify
+        rows, call `find_candidate_keys`. `list_analyses` lists the other
+        analyses.
 
     Args:
         data (pd.DataFrame): The data to describe. Any column labels are
@@ -142,8 +149,17 @@ def describe_dataset(
     See Also:
         infer_column_semantics: The logical type of each column, from its values,
             with flags for identifiers and numbers or dates stored as text.
+        profile_missing_values: Missing values per column and per row, counting
+            declared sentinel values.
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
             numeric column.
+        summarize_categorical: Each level's count and share, the most common
+            levels and labels that differ only by case or surrounding spaces,
+            for every text, categorical and boolean column.
+        find_duplicate_rows: Groups of rows that are equal in every column,
+            with their row IDs.
+        find_candidate_keys: Which columns, alone or combined, uniquely identify
+            rows, with duplicate and missing counts.
         list_analyses: Every analysis, with the question each one answers.
     """
     row_count = len(data)
@@ -273,15 +289,11 @@ def _distinct_count(series: pd.Series) -> int | None:
 
 
 def _describe_index(index: pd.Index) -> DescribeDatasetIndex:
+    # The rule every analysis uses for repeated row IDs.
+    duplicated = int(duplicated_labels(index, keep="first").sum())
     if isinstance(index, pd.MultiIndex):
-        # MultiIndex.duplicated() works on the codes alone.
-        duplicated = int(index.duplicated().sum())
         missing = int(np.any([codes == -1 for codes in index.codes], axis=0).sum())
     else:
-        # Index.duplicated() first asks is_unique, which builds and keeps the
-        # caller's lookup table; a Series over the same values doesn't.
-        values = pd.Series(index.array, copy=False, dtype=index.dtype)
-        duplicated = int(values.duplicated().sum())
         missing = int(index.isna().sum())
     return DescribeDatasetIndex(
         dtype=str(index.dtype),

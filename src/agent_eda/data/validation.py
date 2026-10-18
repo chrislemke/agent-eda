@@ -14,6 +14,8 @@ import pydantic
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agent_eda._columns import ColumnKind, ColumnRule, closest_names, select_columns
+from agent_eda._levels import Levels, count_levels, value_types
+from agent_eda._numeric import stored_nan_count
 from agent_eda._parse import (
     VALUE_KINDS,
     ValueKind,
@@ -324,8 +326,9 @@ def infer_column_semantics(
           declares the column.
         - `evidence`: `non_missing_count`, `distinct_count`,
           `uniqueness_share`, the shares of values that read as booleans,
-          numbers, whole numbers, datetimes and durations, and the shares of
-          leading zeros, date-like text, plain text and text of several words.
+          numbers, whole numbers, datetimes and durations, the shares of
+          leading zeros, date-like text, plain text and text of several words,
+          and `value_types`, the names of the values' Python types.
         - `status` and `status_reason`, the column's own.
 
         Scores lie between 0 and 1 and come from fixed rules over the evidence;
@@ -376,7 +379,8 @@ def infer_column_semantics(
           candidate is boolean and some values are numbers or text that read
           as booleans, such as 0/1 or yes/no.
         - `mixed_value_types`: suspected, flag mixed_value_types. The values
-          have more than one Python type, such as numbers and strings.
+          have more than one Python type, such as int and str: evidence
+          value_types lists them, as summarize_categorical does.
         - `declared_type_mismatch`: suspected. A declared column's top
           candidate differs from its declared logical type.
         - `declared_type_match`: passed. A declared column's top candidate is
@@ -416,7 +420,6 @@ def infer_column_semantics(
         infer_column_semantics: completed on 6 rows x 5 columns
         Scores rank logical types by fixed rules and aren't probabilities. Dates parse as ISO 8601 only.
         declared_schema: 1 column declared in the data, 0 with that top candidate, 1 with another; 0 not in the data.
-        res.to_frame() has each column's evidence; res.to_frame('candidates') has every candidate with its reasons.
         Columns (5 of 5 shown):
         column    inferred      score  next         next_score  declared  flags
         zip       categorical  0.3333  text             0.3333  null
@@ -431,7 +434,8 @@ def infer_column_semantics(
         - descriptive boolean_like_columns: 1 column holds booleans stored as numbers or text: 'paid'.
         - suspected declared_type_mismatch: 1 column has a top candidate other than the declared logical type: 'amount'.
         Limitations: none
-        More: res.to_frame() has all 5 columns; res.findings, res.limitations and res.to_json() have the rest.
+        More: res.to_frame() has all 5 columns; res.to_frame(table='candidates') has every candidate with its reasons;
+            res.findings, res.limitations and res.to_json() have the rest.
         >>> res.columns["zip"].inferred_logical_type
         'categorical'
         >>> res.columns["zip"].evidence.leading_zero_share
@@ -544,57 +548,62 @@ class _Reading:
     # max - min + 1 of the values stored as numbers; None without any, or when
     # one isn't finite.
     span: float | None = None
+    # The names of the values' Python types, as summarize_categorical reports
+    # them; more than one means mixed value types.
+    types: list[str] = field(default_factory=list)
 
 
 def _read_column(series: pd.Series, kind: ColumnKind) -> _Reading:
-    """Read what a column's values are, the way its dtype allows."""
-    if kind == "numeric":
-        return _read_numbers(series)
-    if kind in ("boolean", "datetime", "timedelta"):
+    """Read what a column's values are, the way its dtype allows.
+
+    The distinct values and their counts are the column's levels, and the names
+    of the values' types come from the same module, both as
+    summarize_categorical counts them, so the two analyses can't disagree.
+    """
+    levels = count_levels(series, kind)
+    if levels is None:  # values such as lists can't be hashed
+        reading = _read_unhashable(np.asarray(series.array, dtype=object))
+    elif kind == "numeric":
+        reading = _read_numbers(series, levels)
+    elif kind in ("boolean", "datetime", "timedelta"):
         # Every value is of the kind its dtype stores.
-        non_missing = len(series) - int(series.isna().sum())
-        reading = _Reading(non_missing=non_missing, distinct=int(series.nunique()))
+        non_missing = int(levels.counts.sum())
+        reading = _Reading(non_missing=non_missing, distinct=len(levels.values))
         reading.kinds[kind] = non_missing
         setattr(reading, kind, non_missing)
-        return reading
-    if kind == "categorical":
-        codes = series.cat.codes.to_numpy()
-        present = codes >= 0
-        categories = series.cat.categories
-        counts = np.bincount(codes[present], minlength=len(categories))
-        used = np.flatnonzero(counts)
-        values = np.asarray(categories, dtype=object)[used]
-        reading = _read_distinct(values, counts[used])
-        reading.distinct = len(used)
-        return reading
-    if kind == "text":
-        codes, uniques = pd.factorize(series)
-        present = codes >= 0
-        counts = np.bincount(codes[present], minlength=len(uniques))
-        reading = _read_texts(np.asarray(uniques, dtype=object), counts)
-        reading.distinct = len(uniques)
-        return reading
-    return _read_objects(np.asarray(series.array, dtype=object))
+    elif kind == "object":
+        reading = _read_objects(series, levels)
+    else:  # categorical, text and other dtypes, such as periods
+        reading = _read_distinct(levels.objects(), levels.counts)
+        reading.distinct = len(levels.values)
+    reading.types = value_types(series, kind, levels)
+    return reading
 
 
-def _read_numbers(series: pd.Series) -> _Reading:
+def _read_numbers(series: pd.Series, levels: Levels) -> _Reading:
     """Read a column of numbers: integers, floats or decimals."""
     if series.dtype.kind in "iu":
-        non_missing = len(series) - int(series.isna().sum())
-        reading = _Reading(non_missing=non_missing, distinct=int(series.nunique()))
+        non_missing = int(levels.counts.sum())
+        reading = _Reading(non_missing=non_missing, distinct=len(levels.values))
         reading.number = reading.whole = reading.kinds["number"] = non_missing
         reading.boolean = int(((series == 0) | (series == 1)).sum())
         if non_missing:
             reading.span = int(series.max()) - int(series.min()) + 1
         return reading
     floats = series.to_numpy(dtype="float64", na_value=np.nan)
-    missing = np.isnan(floats)
-    values = floats[~missing]
+    values = floats[~np.isnan(floats)]
     finite = values[np.isfinite(values)]
+    # NaN that the column stores as a value counts as missing here, but pandas
+    # counts it as a level.
+    nan_levels = (
+        int(np.isnan(levels.sort_values).sum())
+        if levels.sort_values is not None and levels.sort_values.dtype.kind == "f"
+        else 0
+    )
     reading = _Reading(
         non_missing=len(values),
-        distinct=len(pd.unique(values)),
-        stored_nan=int(missing.sum()) - int(series.isna().sum()),
+        distinct=len(levels.values) - nan_levels,
+        stored_nan=stored_nan_count(series, floats),
     )
     reading.number = reading.kinds["number"] = len(values)
     reading.whole = int(np.count_nonzero(finite == np.floor(finite)))
@@ -604,16 +613,11 @@ def _read_numbers(series: pd.Series) -> _Reading:
     return reading
 
 
-def _read_objects(objects: np.ndarray) -> _Reading:
+def _read_objects(series: pd.Series, levels: Levels) -> _Reading:
     """Read a column of Python objects, whatever their types."""
-    try:
-        codes, found = pd.factorize(objects)
-    except TypeError:  # values such as lists can't be hashed
-        return _read_unhashable(objects)
-    uniques = np.asarray(found, dtype=object)
-    present = codes >= 0
-    counts = np.bincount(codes[present], minlength=len(uniques))
-    if _all_text(uniques):
+    uniques = levels.objects()
+    counts = levels.counts
+    if levels.text:
         reading = _read_texts(uniques, counts)
         reading.distinct = len(uniques)
         return reading
@@ -626,16 +630,18 @@ def _read_objects(objects: np.ndarray) -> _Reading:
     reading.distinct = len(uniques)
     reading.span = _number_span(uniques)
     if ambiguous.any():
-        positions = np.flatnonzero(np.isin(codes, np.flatnonzero(ambiguous)))
+        # Every boolean stands behind such a level, and missing values aren't
+        # booleans, so the booleans among all values are the ones it holds.
+        behind = int(counts[ambiguous].sum())
         booleans = sum(
-            isinstance(objects[position], bool | np.bool_)
-            for position in positions.tolist()
+            isinstance(value, bool | np.bool_)
+            for value in np.asarray(series.array, dtype=object)
         )
-        numbers = len(positions) - booleans
-        reading.non_missing += len(positions)
+        numbers = behind - booleans
+        reading.non_missing += behind
         reading.kinds["boolean"] += booleans
         reading.kinds["number"] += numbers
-        reading.boolean += len(positions)
+        reading.boolean += behind
         reading.number += numbers
         reading.whole += numbers
     return reading
@@ -907,7 +913,8 @@ def _flags(
         and 2 * (reading.datetime + reading.date_like) >= count,
         "boolean_like": inferred == "boolean"
         and reading.boolean > reading.kinds["boolean"],
-        "mixed_value_types": sum(1 for n in reading.kinds.values() if n) > 1,
+        # As summarize_categorical decides it: more than one Python type.
+        "mixed_value_types": len(reading.types) > 1,
     }
     return [flag for flag, on in raised.items() if on]
 
@@ -931,6 +938,7 @@ def _evidence(reading: _Reading) -> ColumnEvidence:
         non_iso_date_share=share(reading.date_like),
         plain_text_share=share(reading.plain_text),
         multi_word_share=share(reading.several_words),
+        value_types=reading.types,
         value_type_counts=ValueTypeCounts(**reading.kinds),
     )
 
@@ -1028,7 +1036,7 @@ _FLAG_FINDINGS = (
         "suspected",
         "mixes values of different types",
         "mix values of different types",
-        "value_type_counts",
+        "value_types",
     ),
 )
 

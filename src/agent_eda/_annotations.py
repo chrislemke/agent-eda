@@ -7,6 +7,7 @@ same functions, so they can't disagree.
 import collections.abc
 import types
 import typing
+from dataclasses import dataclass
 
 import annotated_types
 from pydantic import JsonValue
@@ -18,6 +19,17 @@ _LIBRARY_ALIASES = {"pandas": "pd", "numpy": "np"}
 LIST_TYPES = (list, tuple, collections.abc.Sequence)
 # The annotations of options that take a mapping, keyed by column name.
 MAPPING_TYPES = (dict, collections.abc.Mapping)
+
+
+@dataclass(frozen=True)
+class TypeName:
+    """Annotated metadata naming a type the way agents should read it.
+
+    Such as 'RowId' for a field that holds any index label; type_text() shows
+    the name instead of the type underneath.
+    """
+
+    name: str
 
 
 def members(annotation: object) -> tuple[object, ...]:
@@ -105,12 +117,14 @@ def type_text(annotation: object) -> str:
     """A type as an agent reads it, such as 'Sequence[str] | None'.
 
     Ranges declared with Annotated are left out, and a Literal shows the type of
-    its values, such as 'str'; the allowed values are listed on their own.
+    its values, such as 'str'; the allowed values are listed on their own. A
+    TypeName in Annotated gives the name to show.
     """
     origin = typing.get_origin(annotation)
     arguments = typing.get_args(annotation)
     if origin is typing.Annotated:
-        return type_text(arguments[0])
+        names = [item.name for item in arguments[1:] if isinstance(item, TypeName)]
+        return names[0] if names else type_text(arguments[0])
     if origin is typing.Literal:
         names = [type(argument).__name__ for argument in arguments]
         return " | ".join(dict.fromkeys(names))

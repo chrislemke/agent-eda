@@ -1,17 +1,23 @@
 """Result classes returned by agent-eda analyses."""
 
+import datetime as dt
+import difflib
 import itertools
 import json
+import math
 import typing
 from collections.abc import Sequence
 from typing import Annotated, Any, Literal, Self
 
+import numpy as np
 import pandas as pd
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     JsonValue,
+    PlainSerializer,
+    PrivateAttr,
     SerializationInfo,
     SerializerFunctionWrapHandler,
     model_serializer,
@@ -19,7 +25,8 @@ from pydantic import (
 )
 
 from agent_eda import _text
-from agent_eda._annotations import python_literal
+from agent_eda._annotations import TypeName, python_literal
+from agent_eda._levels import Levels, levels_frame
 from agent_eda.errors import InvalidArgumentError
 
 Status = Literal[
@@ -78,9 +85,21 @@ LimitationCode = Literal[
     # A column stores NaN as a value, which pandas' isna() doesn't count as
     # missing; a numeric summary counts it as missing all the same.
     "nan_counted_as_missing",
+    # A column stores NaN as a value, which pandas' isna() doesn't count as
+    # missing, and neither does a count of native missing values.
+    "nan_not_counted_as_missing",
     # A computation overflowed float64 or failed numerically (division by zero,
     # an invalid value, precision loss), so the values it affects are null.
     "numerical_warning",
+    # Index labels or id_column values repeat, so a row ID can match more than
+    # one row.
+    "ambiguous_row_ids",
+    # No sentinel values were declared for a column, so its sentinel count is
+    # null and stand-ins such as -999 don't count as missing.
+    "sentinel_values_not_declared",
+    # A ranking stopped at its work limit before bounds proved it, so a set it
+    # didn't count could rank higher than one it lists.
+    "ranking_not_proven",
 ]
 
 
@@ -91,14 +110,22 @@ class _Cap:
     `<field>_total` with the full count. The result object keeps every entry.
     With `each_list`, a dict field stays whole and every list or dict inside it
     is capped instead, with `<key>_total` next to it, except the keys named in
-    `whole`.
+    `whole`. With `total`, the field holds only the first entries even on the
+    result object, and `<field>_total` takes the full count from the field that
+    `total` names.
     """
 
     def __init__(
-        self, limit: int, *, each_list: bool = False, whole: tuple[str, ...] = ()
+        self,
+        limit: int,
+        *,
+        each_list: bool = False,
+        total: str | None = None,
+        whole: tuple[str, ...] = (),
     ) -> None:
         self.limit = limit
         self.each_list = each_list
+        self.total = total
         self.whole = whole
 
 
@@ -110,6 +137,59 @@ _ENTRIES = _Cap(100)
 _LISTS_INSIDE = _Cap(100, each_list=True, whole=("data",))
 
 _RECORD = "agent_eda_record"
+
+
+def row_id_json(value: object) -> JsonValue:
+    """A row ID as JSON, the same in every process and with every library version.
+
+    Timestamps, dates and times become ISO 8601 strings, durations ISO 8601
+    durations, MultiIndex tuples lists, and NumPy scalars Python numbers.
+    Missing values become null, and infinite floats the strings 'inf' and
+    '-inf'. A set becomes a list ordered by its items' JSON, not by Python's
+    hash order, and a dict a JSON object. Anything else, such as a Period or a
+    Decimal, becomes its str().
+    """
+    if isinstance(value, tuple | list):
+        return [row_id_json(item) for item in value]
+    if isinstance(value, set | frozenset):
+        items = [row_id_json(item) for item in value]
+        return sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
+    if isinstance(value, dict):
+        return {str(key): row_id_json(item) for key, item in value.items()}
+    if pd.api.types.is_scalar(value) and pd.isna(value):
+        return None
+    if isinstance(value, bool | np.bool_):
+        return bool(value)
+    if isinstance(value, dt.datetime | dt.date | dt.time):
+        return value.isoformat()
+    if isinstance(value, np.datetime64):
+        return pd.Timestamp(value).isoformat()
+    # Before the integers: NumPy's timedelta64 is one of its integer types.
+    if isinstance(value, dt.timedelta | np.timedelta64):
+        return pd.Timedelta(value).isoformat()
+    if isinstance(value, int | np.integer):
+        return int(value)
+    if isinstance(value, float | np.floating):
+        number = float(value)
+        return number if math.isfinite(number) else repr(number)
+    return str(value)
+
+
+# A row ID: an index label, or a value of the column id_column names. The result
+# object holds it as pandas gives it, so df.loc[row_ids] finds the rows; the
+# record converts it with row_id_json.
+RowId = Annotated[
+    Any,
+    PlainSerializer(row_id_json, return_type=Any, when_used="json"),
+    TypeName("RowId"),
+]
+
+
+def _head(values: list[Any] | dict[Any, Any], limit: int) -> list[Any] | dict[Any, Any]:
+    """The first `limit` entries of a list or dict."""
+    if isinstance(values, dict):
+        return dict(itertools.islice(values.items(), limit))
+    return values[:limit]
 
 
 def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
@@ -133,9 +213,29 @@ def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
 _FRAME_DTYPES: dict[Any, str] = {
     int: "int64",
     int | None: "Int64",
+    float: "float64",
     float | None: "float64",
     bool: "bool",
 }
+
+
+def _check_table(table: object, tables: Sequence[str]) -> None:
+    """Raise unless `table` names one of a result's tables; the first is the default.
+
+    Results with more than one table take the name in to_frame(table=...).
+    """
+    if isinstance(table, str) and table in tables:
+        return
+    shown = repr(table) if isinstance(table, str) else f"a {type(table).__name__}"
+    closest = (
+        difflib.get_close_matches(table, tables, n=1) if isinstance(table, str) else []
+    )
+    hint = f" Did you mean {closest[0]!r}?" if closest else ""
+    allowed = _text.join_alternatives([repr(name) for name in tables])
+    raise InvalidArgumentError(
+        f"to_frame got {shown} for table, but table must be one of {allowed}.{hint} "
+        f"res.to_frame() returns the {tables[0]} table."
+    )
 
 
 def _entries_frame(
@@ -161,9 +261,8 @@ class ResultModel(BaseModel):
     def _cap_growing_fields(
         self, handler: SerializerFunctionWrapHandler, info: SerializationInfo
     ) -> dict[str, Any]:
-        data = handler(self)
         if not (info.context and info.context.get(_RECORD)):
-            return data
+            return handler(self)
         caps = {
             name: marker
             for name, field in type(self).model_fields.items()
@@ -171,11 +270,28 @@ class ResultModel(BaseModel):
             if isinstance(marker, _Cap)
         }
         if not caps:
-            return data
-        record = _capped(
-            data,
-            {name: cap.limit for name, cap in caps.items() if not cap.each_list},
-        )
+            return handler(self)
+        limits = {name: cap.limit for name, cap in caps.items() if not cap.each_list}
+        lengths = {name: len(getattr(self, name)) for name in limits}
+        # A cap with `total` names the field that holds the full count, since
+        # the result object keeps only the first entries of that list.
+        totals = {
+            name: getattr(self, total) if (total := caps[name].total) else length
+            for name, length in lengths.items()
+        }
+        # Serialize only the entries the record keeps, which saves converting
+        # what it would drop, such as the row IDs of 500,000 duplicate groups.
+        heads = {
+            name: _head(getattr(self, name), limit)
+            for name, limit in limits.items()
+            if lengths[name] > limit
+        }
+        data = handler(self.model_copy(update=heads) if heads else self)
+        record: dict[str, Any] = {}
+        for name, value in data.items():
+            record[name] = value
+            if name in totals:
+                record[f"{name}_total"] = totals[name]
         for name, cap in caps.items():
             inner = record.get(name)
             if cap.each_list and isinstance(inner, dict):
@@ -329,7 +445,14 @@ class AnalysisResult(ResultModel):
 
     def __str__(self) -> str:
         reason = self.status_reason
-        facts = [f"Reason: {reason.code}: {reason.message}"] if reason else []
+        # Wrapped, not cut: a reason ends with how to fix the call.
+        facts = (
+            _text.wrap(
+                f"Reason: {reason.code}: {reason.message}", indent="    ", first=""
+            )
+            if reason
+            else []
+        )
         return _text.render(
             heading=self._heading(),
             facts=[*facts, *self._text_facts()],
@@ -338,6 +461,7 @@ class AnalysisResult(ResultModel):
                 _text.Item(f"{f.assessment} {f.code}", f.claim) for f in self.findings
             ],
             limitations=[_text.Item(lim.code, lim.reason) for lim in self.limitations],
+            other_tables=self._text_other_tables(),
         )
 
     def __repr__(self) -> str:
@@ -368,6 +492,11 @@ class AnalysisResult(ResultModel):
     def _text_table(self) -> _text.Table | None:
         """The key table; analyses override this."""
         return None
+
+    def _text_other_tables(self) -> list[str]:
+        """What to_frame(table=...) returns besides the key table, as clauses for
+        the footer; analyses with more than one table override this."""
+        return []
 
     def to_dict(self) -> dict[str, Any]:
         """The result record as JSON-compatible Python objects.
@@ -1052,6 +1181,618 @@ class SummarizeNumericResult(AnalysisResult):
         return pd.DataFrame(columns, columns=list(columns))
 
 
+class SummarizeCategoricalLevel(ResultModel):
+    """A level of a column: a distinct non-missing value and how often it occurs."""
+
+    label: str | bool | int | float = Field(
+        description="The value exactly as stored, so 'Yes' and 'yes ' are two "
+        "levels. A value JSON can't hold, such as a Decimal, a timestamp or a "
+        "non-finite float, appears as its string form; label_type names its type."
+    )
+    label_type: str = Field(
+        description="The Python type of the stored value, such as 'str', 'int' or "
+        "'bool'; a NumPy scalar counts as the Python type it holds."
+    )
+    count: int = Field(description="Values equal to the label.")
+    share: float = Field(
+        description="count / non_missing_count of the column: the share of its "
+        "non-missing values, so missing values never dilute it."
+    )
+
+
+def _level_text(level: SummarizeCategoricalLevel) -> str:
+    """A level as the text shows it, such as "'basic': 3 (60%)".
+
+    Text labels are quoted, so surrounding spaces stay visible.
+    """
+    label = repr(level.label) if level.label_type == "str" else str(level.label)
+    share = _text.format_number(level.share * 100)
+    return f"{label}: {level.count:,} ({share}%)"
+
+
+class SummarizeCategoricalVariants(ResultModel):
+    """Labels of one column that differ only by case or surrounding whitespace."""
+
+    levels: Annotated[list[SummarizeCategoricalLevel], _ENTRIES] = Field(
+        description="The labels of the group as levels, each with its count and "
+        "share, in level order."
+    )
+
+
+class SummarizeCategoricalColumn(ColumnResult):
+    """What summarize_categorical found in one column."""
+
+    non_missing_count: int = Field(description="Values that aren't missing.")
+    missing_count: int = Field(
+        description="Missing values: None, NaN, NaT and pd.NA, the ones pandas "
+        "value_counts leaves out. NaN that a pyarrow-backed float column stores "
+        "as a value is a level, as in value_counts."
+    )
+    cardinality: int | None = Field(
+        description="Levels: the distinct non-missing values, as pandas "
+        "value_counts tells them apart, so 1, 1.0 and True are one level. Null "
+        "when the values can't be hashed."
+    )
+    levels: Annotated[
+        list[SummarizeCategoricalLevel], _Cap(100, total="cardinality")
+    ] = Field(
+        description="The first 100 levels, ordered by count, descending, then by "
+        "label, as level_order states. cardinality counts every level, the "
+        "record adds it as levels_total, and to_frame() has every level."
+    )
+    most_common_levels: list[SummarizeCategoricalLevel] = Field(
+        description="The first top_n levels: the ones the printed text shows."
+    )
+    left_out_level_count: int | None = Field(
+        description="Levels beyond the first top_n, which most_common_levels and "
+        "the printed text leave out. Null when the values can't be hashed."
+    )
+    seen_once_count: int | None = Field(
+        description="Levels that occur exactly once. Null when the values can't "
+        "be hashed."
+    )
+    unused_categories: Annotated[list[str | bool | int | float], _ENTRIES] = Field(
+        description="Categories of a categorical dtype that no value takes, in "
+        "category order, each written as a level's label is; empty for other "
+        "dtypes."
+    )
+    value_types: Annotated[list[str], _ENTRIES] = Field(
+        description="The Python types of the non-missing values by name, sorted, "
+        "such as ['int', 'str']; a NumPy scalar counts as the Python type it holds."
+    )
+    mixed_value_types: bool = Field(
+        description="Whether the non-missing values have more than one Python "
+        "type, such as 1 and '1'. Values pandas counts as one level, such as 1 "
+        "and True, can still differ in type."
+    )
+    case_or_space_variants: Annotated[list[SummarizeCategoricalVariants], _ENTRIES] = (
+        Field(
+            description="Groups of text labels that become equal once str.strip "
+            "removes surrounding whitespace and str.casefold folds case, such as "
+            "'Yes', 'yes ' and 'YES'. Each group is in level order, and the groups "
+            "follow the level order of their first label. Empty when there are none."
+        )
+    )
+
+
+class SummarizeCategoricalResult(AnalysisResult):
+    """The result of summarize_categorical."""
+
+    columns: Annotated[dict[str, SummarizeCategoricalColumn], _ENTRIES] = Field(
+        description="One entry per selected column, keyed by column name, in the "
+        "selected order. The record keeps the first 100 and adds columns_total."
+    )
+    left_out_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Columns that columns=None left out because they aren't text, "
+        "object, categorical or boolean columns, in DataFrame order; empty when "
+        "columns names the columns."
+    )
+    share_denominator: Literal["non_missing_count"] = Field(
+        description="The entry field every share divides by: non_missing_count, "
+        "the column's values that aren't missing. Missing values get no share; "
+        "missing_count counts them."
+    )
+    level_order: str = Field(
+        description="How levels are ordered. They go by count, descending, then by "
+        "label, and labels of different types follow a fixed order that never "
+        "depends on hashing."
+    )
+    # Every level of every counted column, outside the record; to_frame() sorts
+    # them when asked, since sorting a million labels is slow.
+    _tables: dict[str, Levels] = PrivateAttr(default_factory=dict)
+
+    def _text_facts(self) -> list[str]:
+        facts = [
+            "Shares are of each column's non-missing values. Levels go by count, "
+            f"then label; most_common_levels has the top {self.parameters.get('top_n')}."
+        ]
+        if self.left_out_columns:
+            names = _text.join_labels(self.left_out_columns)
+            facts.append(
+                f"Left out, not text, object, categorical or boolean: {names}."
+            )
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        return _text.Table(
+            title="Columns",
+            unit=("column", "columns"),
+            headers=(
+                "column",
+                "non_missing_count",
+                "missing_count",
+                "cardinality",
+                "most_common_levels",
+            ),
+            rows=[
+                (
+                    e.column,
+                    e.non_missing_count,
+                    e.missing_count,
+                    e.cardinality,
+                    ", ".join(_level_text(level) for level in e.most_common_levels),
+                )
+                for e in self.columns.values()
+            ],
+            frame_rows=sum(e.cardinality or 0 for e in self.columns.values()),
+            frame_unit=("level", "levels"),
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """Every level of every column, one row per level.
+
+        Rows follow the selected column order, then level order. The columns
+        are column, label, label_type, count and share, and label holds each
+        value exactly as stored. Columns whose values can't be hashed have no
+        rows.
+        """
+        return levels_frame(self._tables)
+
+
+class DuplicateGroup(ResultModel):
+    """Rows that are equal in every compared column."""
+
+    size: int = Field(description="Rows in the group, at least 2.")
+    row_ids: Annotated[list[RowId], _ROW_IDS] = Field(
+        description="The rows' IDs in row order: index labels, or values of "
+        "id_column when it is given. The record keeps the first 10 and adds "
+        "row_ids_total."
+    )
+
+
+class FindDuplicateRowsResult(AnalysisResult):
+    """The result of find_duplicate_rows."""
+
+    compared_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="The columns in which rows must be equal to count as duplicates, "
+        "in the order compared. The record keeps the first 100 and adds "
+        "compared_columns_total."
+    )
+    missing_values_compare_equal: bool = Field(
+        description="Whether missing values count as equal when rows are compared: "
+        "always true. None, NaN, NaT and pd.NA all equal each other, as in pandas' "
+        "duplicated() over two or more columns. Lists, dicts and sets compare by "
+        "content."
+    )
+    duplicate_groups: Annotated[list[DuplicateGroup], _ENTRIES] = Field(
+        description="Each group of rows equal in every compared column, ordered "
+        "by first occurrence; a group's number is its position here. The record "
+        "keeps the first 100 and adds duplicate_groups_total; to_frame() has "
+        "every row of every group."
+    )
+    duplicate_group_count: int = Field(description="Groups of duplicate rows.")
+    duplicate_group_row_count: int = Field(
+        description="Rows in duplicate groups, every copy counted, the first too."
+    )
+    excess_copy_count: int = Field(
+        description="Rows in duplicate groups beyond the first of each group: "
+        "duplicate_group_row_count - duplicate_group_count, the rows that "
+        "removing duplicates would drop."
+    )
+    duplicate_share: float | None = Field(
+        description="excess_copy_count over all rows, from 0 up to but excluding 1; "
+        "null when the data has no rows."
+    )
+
+    def _text_facts(self) -> list[str]:
+        facts = []
+        if self.compared_columns:
+            compared = _text.plural(len(self.compared_columns), "column", "columns")
+            facts.append(
+                f"Compared {compared}: {_text.join_labels(self.compared_columns)}; "
+                "missing values compare equal, as in pandas."
+            )
+        id_column = self.parameters.get("id_column")
+        source = (
+            f"values of id_column {id_column!r}"
+            if isinstance(id_column, str)
+            else "index labels"
+        )
+        facts.append(f"Row IDs: {source}.")
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        rows = self.duplicate_group_row_count
+        return _text.Table(
+            title="Duplicate groups",
+            unit=("group", "groups"),
+            headers=("group", "size", "row_ids"),
+            rows=[
+                (number, group.size, _text.join_labels(group.row_ids))
+                for number, group in enumerate(
+                    self.duplicate_groups[: _text.MAX_TABLE_ROWS]
+                )
+            ],
+            total=len(self.duplicate_groups),
+            frame=f"all {_text.plural(rows, 'row', 'rows')} in groups"
+            if rows
+            else "no rows",
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """Every row in a duplicate group, by group, then in row order.
+
+        The column group holds the group's number, its position in
+        duplicate_groups, and row_id the row's ID.
+        """
+        numbers = [
+            number
+            for number, group in enumerate(self.duplicate_groups)
+            for _ in group.row_ids
+        ]
+        row_ids = [
+            row_id for group in self.duplicate_groups for row_id in group.row_ids
+        ]
+        return pd.DataFrame(
+            {
+                "group": pd.Series(numbers, dtype="int64"),
+                "row_id": pd.Series(row_ids, dtype=object),
+            }
+        )
+
+
+class DeclaredSentinelValue(ResultModel):
+    """A sentinel value declared for a column, and how often it occurs there."""
+
+    value: bool | int | float | str = Field(
+        description="The value as declared; dates, datetimes and timedeltas as ISO "
+        "8601 text."
+    )
+    count: int = Field(
+        description="Values in the column equal to it, among those pandas doesn't "
+        "count as missing."
+    )
+
+
+class ProfileMissingValuesColumn(ColumnResult):
+    """What profile_missing_values found in one column."""
+
+    native_missing_count: int = Field(
+        description="Values pandas isna() counts as missing: None, NaN, NaT and pd.NA."
+    )
+    sentinel_count: int | None = Field(
+        description="Values equal to a sentinel value declared for the column; null "
+        "when none was declared."
+    )
+    missing_count: int = Field(
+        description="native_missing_count plus sentinel_count: every value that is "
+        "missing or a declared sentinel value, each counted once."
+    )
+    missing_share: float | None = Field(
+        description="missing_count over all rows, from 0 to 1; null when the data "
+        "has no rows."
+    )
+    sentinel_values: Annotated[list[DeclaredSentinelValue], _ENTRIES] = Field(
+        description="The sentinel values declared for the column, in the order "
+        "given, each with its count; empty when none was declared. The record "
+        "keeps the first 100 and adds sentinel_values_total."
+    )
+
+
+class ProfileMissingValuesRowCount(ResultModel):
+    """How many rows miss a given number of the selected values."""
+
+    missing_count: int = Field(
+        description="Selected values a row misses, counting declared sentinel values."
+    )
+    row_count: int = Field(description="Rows that miss exactly that many values.")
+    row_share: float = Field(description="row_count over all rows, from 0 to 1.")
+
+
+def _percent(share: float | None) -> str:
+    """A share as " (33.33%)" with 4 significant digits; "" when it is null."""
+    return "" if share is None else f" ({_text.format_number(share * 100)}%)"
+
+
+class ProfileMissingValuesResult(AnalysisResult):
+    """The result of profile_missing_values."""
+
+    columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES] = Field(
+        description="One entry per selected column, keyed by column name, in the "
+        "selected order. The record keeps the first 100 and adds columns_total; "
+        "to_frame() has every column."
+    )
+    missing_count: int = Field(
+        description="Selected values that are missing or a declared sentinel value, "
+        "over every selected column."
+    )
+    missing_share: float | None = Field(
+        description="missing_count over all selected values (rows times selected "
+        "columns), from 0 to 1; null when there are none."
+    )
+    complete_row_count: int = Field(
+        description="Rows that miss none of the selected values, counting declared "
+        "sentinel values as missing."
+    )
+    complete_row_share: float | None = Field(
+        description="complete_row_count over all rows, from 0 to 1; null when the "
+        "data has no rows."
+    )
+    row_distribution: Annotated[list[ProfileMissingValuesRowCount], _ENTRIES] = Field(
+        description="How many rows miss each number of selected values, one entry "
+        "per number that occurs, fewest missing first. The record keeps the first "
+        "100 and adds row_distribution_total; to_frame(table='row_distribution') "
+        "has every entry."
+    )
+
+    def _text_facts(self) -> list[str]:
+        entries = self.columns.values()
+        rows = self.support.row_count
+        declared = any(entry.sentinel_count is not None for entry in entries)
+        missing = (
+            f"Missing: {self.missing_count:,} of {rows * len(self.columns):,} "
+            f"selected values{_percent(self.missing_share)}"
+            f"{', counting declared sentinel values' if declared else ''}. "
+            f"Complete rows: {self.complete_row_count:,} of {rows:,}"
+            f"{_percent(self.complete_row_share)}."
+        )
+        facts = _text.wrap(missing, first="", indent="    ")
+        if self.row_distribution:
+            per_row = [
+                f"{entry.missing_count:,} in "
+                f"{_text.plural(entry.row_count, 'row', 'rows')}"
+                for entry in self.row_distribution
+            ]
+            facts.extend(
+                _text.wrap(
+                    f"Missing values per row: {_text.join_items(per_row, limit=8)}.",
+                    first="",
+                    indent="    ",
+                )
+            )
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        # Most missing first, so a long table shows where data is missing.
+        entries = sorted(self.columns.values(), key=lambda e: -e.missing_count)
+        return _text.Table(
+            title="Columns, most missing first",
+            unit=("column", "columns"),
+            headers=(
+                "column",
+                "native_missing_count",
+                "sentinel_count",
+                "missing_count",
+                "missing_share",
+            ),
+            rows=[
+                (
+                    e.column,
+                    e.native_missing_count,
+                    e.sentinel_count,
+                    e.missing_count,
+                    e.missing_share,
+                )
+                for e in entries
+            ],
+        )
+
+    def _text_other_tables(self) -> list[str]:
+        return [
+            "res.to_frame(table='row_distribution') has the rows per number of "
+            "missing values"
+        ]
+
+    def to_frame(
+        self, table: Literal["columns", "row_distribution"] = "columns"
+    ) -> pd.DataFrame:
+        """One of the result's two tables as a DataFrame.
+
+        Args:
+            table: 'columns', the default, gives one row per selected column in
+                the selected order, with its counts and share; status_reason
+                holds the reason's code, and sentinel_values maps each declared
+                value to its count. 'row_distribution' gives one row per number
+                of missing values that occurs: missing_count, row_count and
+                row_share.
+        """
+        _check_table(table, ("columns", "row_distribution"))
+        if table == "row_distribution":
+            return _entries_frame(self.row_distribution, ProfileMissingValuesRowCount)
+        columns: dict[str, pd.Series] = {}
+        entries = list(self.columns.values())
+        for name, field in ProfileMissingValuesColumn.model_fields.items():
+            values = [getattr(entry, name) for entry in entries]
+            if name == "status_reason":
+                codes = [reason.code if reason else None for reason in values]
+                columns[name] = pd.Series(codes, dtype=object)
+            elif name == "sentinel_values":
+                counts = [{v.value: v.count for v in declared} for declared in values]
+                columns[name] = pd.Series(counts, dtype=object)
+            else:
+                dtype = _FRAME_DTYPES.get(field.annotation)
+                columns[name] = pd.Series(values, dtype=dtype)
+        return pd.DataFrame(columns, columns=list(columns))
+
+
+class CandidateKey(ResultModel):
+    """A column set the key search reports, with how well it identifies rows."""
+
+    columns: Annotated[list[str], _ENTRIES] = Field(
+        description="The columns of the set, in the order of the searched columns."
+    )
+    distinct_count: int = Field(
+        description="Distinct combinations of values in these columns, with missing "
+        "values compared equal: the rows df.drop_duplicates(subset=columns) keeps."
+    )
+    duplicate_row_count: int = Field(
+        description="Rows whose combination another row shares, the rows "
+        "df.duplicated(subset=columns, keep=False) marks; 0 for a key."
+    )
+    missing_row_count: int = Field(
+        description="Rows with a missing value in at least one of these columns."
+    )
+    uniqueness_share: float = Field(
+        description="distinct_count divided by the rows of the data; 1 for a key."
+    )
+    is_minimal: bool = Field(
+        description="Whether no smaller set of these columns identifies rows as "
+        "well, so every column is needed."
+    )
+
+
+class KeySearch(ResultModel):
+    """How far the key search went."""
+
+    column_count: int = Field(
+        description="Columns searched: the selected ones whose values can be hashed."
+    )
+    combination_count: int = Field(
+        description="Column sets of 1 to max_key_size searched columns: the most "
+        "the complete search examines, and the max_combinations that always "
+        "suffices."
+    )
+    examined_count: int = Field(
+        description="Column sets the search examined. Supersets of keys aren't "
+        "examined."
+    )
+    rejected_on_subset_count: int = Field(
+        description="Examined sets that repeated a combination within an evenly "
+        "spaced subset of rows, which proves they aren't keys."
+    )
+    checked_on_all_rows_count: int = Field(
+        description="Examined sets checked on all rows because no subset showed "
+        "a repeat. Only a check on all rows confirms a key."
+    )
+    subset_row_count: int = Field(
+        description="Rows in the evenly spaced subset each set is checked on "
+        "first: row i * rows // 16,384 for each i below 16,384, or every row of "
+        "smaller data. In data of more than 65,536 rows, a set without a repeat "
+        "there is checked on every 4th row next."
+    )
+
+
+class FindCandidateKeysResult(AnalysisResult):
+    """The result of find_candidate_keys."""
+
+    keys: Annotated[list[CandidateKey], _ENTRIES] = Field(
+        description="Minimal keys without missing values, each fit to serve as a "
+        "primary key: column sets whose combination of values no two rows share. "
+        "Fewest columns first, then in column order. The record keeps the first "
+        "100 and adds keys_total; to_frame() has every one."
+    )
+    keys_with_missing_values: Annotated[list[CandidateKey], _ENTRIES] = Field(
+        description="Minimal keys with a missing value in some rows, which can't "
+        "serve as primary keys, in the same order as keys."
+    )
+    most_unique_column_sets: Annotated[list[CandidateKey], _ENTRIES] = Field(
+        description="When the search found no key: the 10 minimal column sets "
+        "with the most distinct combinations, most first, then fewest columns, "
+        "then in column order. Empty when it found a key."
+    )
+    exhaustive: bool = Field(
+        description="Whether the search examined every set of up to max_key_size "
+        "columns, apart from supersets of keys. False when max_combinations "
+        "stopped it, or when no search ran."
+    )
+    search: KeySearch = Field(description="How far the search went.")
+    left_out_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Selected columns the search left out because their values "
+        "can't be hashed, such as lists or dicts, in the selected order; empty "
+        "when it searched every selected column."
+    )
+
+    def _candidates(self) -> list[tuple[str, CandidateKey]]:
+        """Every reported column set with its kind, in the order of the lists."""
+        return [
+            *(("key", key) for key in self.keys),
+            *(
+                ("key_with_missing_values", key)
+                for key in self.keys_with_missing_values
+            ),
+            *(("not_a_key", key) for key in self.most_unique_column_sets),
+        ]
+
+    def _text_facts(self) -> list[str]:
+        search = self.search
+        if not search.examined_count:
+            return []
+        size = self.parameters.get("max_key_size")
+        largest = min(size, search.column_count) if isinstance(size, int) else 0
+        keys = f"keys of up to {_text.plural(largest, 'column', 'columns')}"
+        if self.exhaustive:
+            columns = _text.plural(search.column_count, "column", "columns")
+            examined = _text.plural(search.examined_count, "set", "sets")
+            skipped = search.combination_count - search.examined_count
+            searched = (
+                f"Exhaustive search for {keys} among {columns}: examined {examined}"
+            )
+            searched += f", skipped {skipped:,} supersets of keys." if skipped else "."
+        else:
+            searched = (
+                f"Not exhaustive: max_combinations stopped the search for {keys} after "
+                f"{search.examined_count:,} of up to {search.combination_count:,} sets."
+            )
+        facts = [
+            searched,
+            "Missing values compare equal; a key with missing values can't serve as a "
+            "primary key.",
+        ]
+        if self.left_out_columns:
+            names = _text.join_labels(self.left_out_columns)
+            facts.append(f"Left out, values can't be hashed: {names}.")
+        return facts
+
+    def _text_table(self) -> _text.Table | None:
+        if not self.search.examined_count:
+            return None
+        found = self.keys or self.keys_with_missing_values
+        return _text.Table(
+            title="Keys" if found else "Most unique column sets",
+            unit=("column set", "column sets"),
+            headers=(
+                "columns",
+                "kind",
+                "distinct_count",
+                "duplicate_row_count",
+                "missing_row_count",
+                "uniqueness_share",
+            ),
+            rows=[
+                (
+                    ", ".join(_text.label_text(name) for name in candidate.columns),
+                    kind,
+                    candidate.distinct_count,
+                    candidate.duplicate_row_count,
+                    candidate.missing_row_count,
+                    candidate.uniqueness_share,
+                )
+                for kind, candidate in self._candidates()
+            ],
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """Every reported column set, one row each: keys, keys with missing values,
+        then the most unique sets, with `kind` naming the list each comes from.
+        """
+        candidates = self._candidates()
+        frame = _entries_frame([candidate for _, candidate in candidates], CandidateKey)
+        frame.insert(
+            1, "kind", pd.Series([kind for kind, _ in candidates], dtype=object)
+        )
+        return frame
+
+
 class LogicalTypeCandidate(ResultModel):
     """A logical type a column may hold, with its score and the reasons."""
 
@@ -1138,9 +1879,14 @@ class ColumnEvidence(ResultModel):
     multi_word_share: float | None = Field(
         description="Plain text values with a space between other characters."
     )
+    value_types: list[str] = Field(
+        description="The names of the Python types of the non-missing values, "
+        "sorted, as summarize_categorical reports them, such as ['int', 'str']; "
+        "more than one flags mixed_value_types."
+    )
     value_type_counts: ValueTypeCounts = Field(
-        description="The non-missing values by Python type; more than one type "
-        "with values flags mixed_value_types."
+        description="The non-missing values by the kind of value the scores read: "
+        "booleans, numbers, text, datetimes, durations and others."
     )
 
 
@@ -1213,11 +1959,10 @@ class InferColumnSemanticsResult(AnalysisResult):
                 f"declared in the data, {matching:,} with that top candidate, "
                 f"{differing:,} with another; {missing:,} not in the data."
             )
-        facts.append(
-            "res.to_frame() has each column's evidence; "
-            "res.to_frame('candidates') has every candidate with its reasons."
-        )
         return facts
+
+    def _text_other_tables(self) -> list[str]:
+        return ["res.to_frame(table='candidates') has every candidate with its reasons"]
 
     def _text_table(self) -> _text.Table:
         declared = self.parameters.get("declared_schema") is not None
@@ -1247,19 +1992,20 @@ class InferColumnSemanticsResult(AnalysisResult):
     def to_frame(
         self, table: Literal["columns", "candidates"] = "columns"
     ) -> pd.DataFrame:
-        """A complete table of the result as a DataFrame.
+        """One of the result's two tables as a DataFrame.
 
-        "columns", the default, has one row per column in selected order: its
-        status, dtype, inferred and declared logical types, the top score, one
-        boolean column per flag and the evidence, with the value type counts as
-        boolean_values, number_values and so on. "candidates" has one row per
-        candidate: the column, its rank from 1, the logical type, the score and
-        the reasons.
+        Args:
+            table: 'columns', the default, gives one row per column in selected
+                order: its status, dtype, inferred and declared logical types,
+                the top score, one boolean column per flag and the evidence,
+                with value_types joined by ", " and the value type counts as
+                boolean_values, number_values and so on. 'candidates' gives one
+                row per candidate: the column, its rank from 1, the logical
+                type, the score and the reasons.
         """
+        _check_table(table, ("columns", "candidates"))
         if table == "candidates":
             return self._candidates_frame()
-        if table != "columns":
-            raise _invalid_table(table, ("columns", "candidates"))
         entries = list(self.columns.values())
         frame: dict[str, pd.Series] = {
             "column": pd.Series([e.column for e in entries], dtype=object),
@@ -1286,7 +2032,11 @@ class InferColumnSemanticsResult(AnalysisResult):
         for flag in _FLAGS:
             frame[flag] = pd.Series([flag in e.flags for e in entries], dtype="bool")
         for name, field in ColumnEvidence.model_fields.items():
-            if name != "value_type_counts":
+            if name == "value_types":
+                frame[name] = pd.Series(
+                    [", ".join(e.evidence.value_types) for e in entries], dtype=object
+                )
+            elif name != "value_type_counts":
                 frame[name] = pd.Series(
                     [getattr(e.evidence, name) for e in entries],
                     dtype=_FRAME_DTYPES.get(field.annotation),
@@ -1313,12 +2063,3 @@ class InferColumnSemanticsResult(AnalysisResult):
             },
             columns=names,
         )
-
-
-def _invalid_table(table: object, tables: Sequence[str]) -> Exception:
-    """The error for a to_frame() table name that isn't one of the result's."""
-    allowed = _text.join_alternatives([repr(name) for name in tables])
-    return InvalidArgumentError(
-        f"to_frame got {table!r} for table, but table must be one of {allowed}, "
-        f"such as res.to_frame({tables[-1]!r})."
-    )

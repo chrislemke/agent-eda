@@ -19,9 +19,9 @@ SECTIONS = ["When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See 
 # Parameters that take text other than column names. A new one joins this list
 # only if it takes no column names; otherwise its name ends in column(s).
 NOT_COLUMN_NAMES = {"source", "source_version"}
-# Parameters that map column names to what is declared for each column, named as
-# the spec names them. Their keys are column names.
-COLUMN_MAPPINGS = {"declared_schema"}
+# Parameters that map column names to a setting for each column, named after
+# the setting as the spec names them. They must take a mapping keyed by str.
+KEYED_BY_COLUMN = {"declared_schema", "sentinel_values"}
 ENTRY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?: \([^)]*\))?:(?: |$)")
 REFERENCE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(\))?`")
 SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
@@ -174,19 +174,36 @@ def test_examples_run_and_print_a_result(name):
 def test_parameters_that_take_names_end_in_column_or_columns(name):
     parameters = list(inspect.signature(getattr(ae, name)).parameters.values())[1:]
 
-    textual = [p.name for p in parameters if takes_text(p.annotation)]
+    textual = [p for p in parameters if takes_text(p.annotation)]
     misnamed = [
-        p
+        p.name
         for p in textual
-        if not p.endswith(("column", "columns"))
-        and p not in NOT_COLUMN_NAMES | COLUMN_MAPPINGS
+        if not p.name.endswith(("column", "columns"))
+        and p.name not in NOT_COLUMN_NAMES
+        and not (p.name in KEYED_BY_COLUMN and keyed_by_str(p.annotation))
     ]
     assert misnamed == []
-    assert [
-        p.name
-        for p in parameters
-        if p.name in COLUMN_MAPPINGS and not takes_a_mapping(p.annotation)
-    ] == []
+
+
+def keyed_by_str(annotation):
+    """Whether an annotation takes a mapping keyed by str, alone or with None."""
+    return any(
+        typing.get_origin(member) in (collections.abc.Mapping, dict)
+        and typing.get_args(member)[0] is str
+        for member in typing.get_args(annotation) or (annotation,)
+    )
+
+
+def test_work_limits_and_budget_exceeded_come_together(name):
+    info = INFO[name]
+    described = {p.name: p for p in ae.describe_analysis(name).parameters}
+
+    assert ("budget_exceeded" in info.statuses) == bool(info.work_limit_parameters)
+    for parameter in info.work_limit_parameters:
+        # An int with a default and a lower bound, such as 1 <= max_pairs.
+        assert described[parameter].type == "int"
+        assert not described[parameter].required
+        assert described[parameter].valid_range
 
 
 def test_analysis_is_hidden_from_pytest(name):
@@ -292,10 +309,3 @@ def takes_text(annotation):
     return annotation is str or any(
         takes_text(arg) for arg in typing.get_args(annotation)
     )
-
-
-def takes_a_mapping(annotation):
-    """Whether an annotation accepts a mapping, alone or in a union."""
-    if typing.get_origin(annotation) in (dict, collections.abc.Mapping):
-        return True
-    return any(takes_a_mapping(arg) for arg in typing.get_args(annotation))

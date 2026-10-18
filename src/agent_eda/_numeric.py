@@ -83,17 +83,27 @@ class NumericColumn:
 def read_numeric(series: pd.Series) -> NumericColumn:
     """Read a numeric or boolean column as float64."""
     values = series.to_numpy(dtype="float64", na_value=np.nan)
-    stored_nan = 0
-    if isinstance(series.dtype, pd.api.extensions.ExtensionDtype) and (
-        series.dtype.kind == "f"
-    ):
-        stored_nan = int(np.isnan(values).sum()) - int(series.isna().sum())
     return NumericColumn(
         values=values,
         boolean=series.dtype.kind == "b",
         beyond_exact_integers=_beyond_exact_integers(series),
-        stored_nan_count=stored_nan,
+        stored_nan_count=stored_nan_count(series, values),
     )
+
+
+def stored_nan_count(series: pd.Series, values: np.ndarray | None = None) -> int:
+    """NaN values the column stores apart from missing ones; 0 for most dtypes.
+
+    pyarrow-backed floats, and nullable floats on pandas 2, can store NaN as a
+    value that pandas' isna() doesn't count as missing. `values` is the column
+    read as float64 with NaN for missing values, when the caller has it.
+    """
+    dtype = series.dtype
+    if not (isinstance(dtype, pd.api.extensions.ExtensionDtype) and dtype.kind == "f"):
+        return 0
+    if values is None:
+        values = series.to_numpy(dtype="float64", na_value=np.nan)
+    return int(np.isnan(values).sum()) - int(series.isna().sum())
 
 
 def _beyond_exact_integers(series: pd.Series) -> bool:

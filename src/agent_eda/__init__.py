@@ -21,7 +21,10 @@ if TYPE_CHECKING:
     from agent_eda import errors as errors
     from agent_eda import results as results
     from agent_eda._version import __version__
+    from agent_eda.data.duplicates import find_duplicate_rows
+    from agent_eda.data.missingness import profile_missing_values
     from agent_eda.data.provenance import describe_dataset
+    from agent_eda.data.structure import find_candidate_keys
     from agent_eda.data.validation import ColumnSpec, infer_column_semantics
     from agent_eda.discovery import (
         describe_analysis,
@@ -30,7 +33,10 @@ if TYPE_CHECKING:
         search_analyses,
     )
     from agent_eda.results import AnalysisResult, LogicalType
-    from agent_eda.statistics.descriptive import summarize_numeric
+    from agent_eda.statistics.descriptive import (
+        summarize_categorical,
+        summarize_numeric,
+    )
 
 __all__ = [
     "AnalysisResult",
@@ -39,10 +45,14 @@ __all__ = [
     "__version__",
     "describe_analysis",
     "describe_dataset",
+    "find_candidate_keys",
+    "find_duplicate_rows",
     "guide",
     "infer_column_semantics",
     "list_analyses",
+    "profile_missing_values",
     "search_analyses",
+    "summarize_categorical",
     "summarize_numeric",
 ]
 
@@ -55,10 +65,14 @@ _EXPORTS: dict[str, str] = {
     "__version__": "agent_eda._version",
     "describe_analysis": "agent_eda.discovery",
     "describe_dataset": "agent_eda.data.provenance",
+    "find_candidate_keys": "agent_eda.data.structure",
+    "find_duplicate_rows": "agent_eda.data.duplicates",
     "guide": "agent_eda.discovery",
     "infer_column_semantics": "agent_eda.data.validation",
     "list_analyses": "agent_eda.discovery",
+    "profile_missing_values": "agent_eda.data.missingness",
     "search_analyses": "agent_eda.discovery",
+    "summarize_categorical": "agent_eda.statistics.descriptive",
     "summarize_numeric": "agent_eda.statistics.descriptive",
 }
 

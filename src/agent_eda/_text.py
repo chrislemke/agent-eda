@@ -37,6 +37,17 @@ class Table:
     unit: tuple[str, str]
     headers: Sequence[str]
     rows: Sequence[Sequence[Cell]]
+    # How many rows the table has when `rows` holds only the first ones, which
+    # saves formatting rows the text never shows; None means len(rows).
+    total: int | None = None
+    # What res.to_frame() holds when its rows aren't the table's, such as
+    # levels for a table of columns: the row count and the unit.
+    frame_rows: int | None = None
+    frame_unit: tuple[str, str] | None = None
+    # What res.to_frame() has, in words, when a count and a unit can't say it,
+    # such as "all 5 rows in groups"; it wins over frame_rows and frame_unit.
+    # None means the count of the table's rows or of frame_rows.
+    frame: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,14 +65,20 @@ def render(
     table: Table | None,
     findings: Sequence[Item],
     limitations: Sequence[Item],
+    other_tables: Sequence[str] = (),
 ) -> str:
-    """Render a result with the fixed template, within the line and width caps."""
+    """Render a result with the fixed template, within the line and width caps.
+
+    `other_tables` names the tables besides the key table that to_frame()
+    returns, each as a clause for the footer, such as "res.to_frame(table='x')
+    has ...".
+    """
     lines = [heading, *facts]
     if table is not None:
         lines.extend(_table_lines(table))
     lines.extend(_item_lines("Findings", findings, MAX_FINDINGS))
     lines.extend(_item_lines("Limitations", limitations, MAX_LIMITATIONS))
-    lines.append(_footer(table))
+    lines.extend(_footer(table, other_tables))
     lines = [_fit(_printable(line)) for line in lines]
     if len(lines) > MAX_LINES:
         hidden = len(lines) - MAX_LINES + 1
@@ -149,11 +166,14 @@ def label_text(label: object) -> str:
 
 def join_labels(labels: Sequence[object]) -> str:
     """Show labels as "'a', 'b' and 3", naming at most MAX_NAMED of them."""
-    return join_items([label_text(label) for label in labels])
+    shown = [label_text(label) for label in labels[:MAX_NAMED]]
+    if len(labels) > MAX_NAMED:
+        return ", ".join(shown) + f" and {len(labels) - MAX_NAMED:,} more"
+    return join_items(shown)
 
 
 def _table_lines(table: Table) -> list[str]:
-    total = len(table.rows)
+    total = len(table.rows) if table.total is None else table.total
     if total == 0:
         return [f"{table.title}: none"]
     shown = table.rows[:MAX_TABLE_ROWS]
@@ -210,13 +230,24 @@ def _item_lines(title: str, items: Sequence[Item], limit: int) -> list[str]:
     return lines
 
 
-def _footer(table: Table | None) -> str:
+def _footer(table: Table | None, other_tables: Sequence[str]) -> list[str]:
     rest = "res.findings, res.limitations and res.to_json() have the rest."
     if table is None:
-        return f"More: {rest}"
-    count = len(table.rows)
-    rows = plural(count, *table.unit)
-    return f"More: res.to_frame() has {'the' if count == 1 else 'all'} {rows}; {rest}"
+        return [f"More: {rest}"]
+    if table.frame is not None:
+        frame = f"res.to_frame() has {table.frame}"
+    else:
+        if table.frame_rows is not None:
+            count = table.frame_rows
+        elif table.total is not None:
+            count = table.total
+        else:
+            count = len(table.rows)
+        rows = plural(count, *(table.frame_unit or table.unit))
+        frame = f"res.to_frame() has {'the' if count == 1 else 'all'} {rows}"
+    return wrap(
+        f"More: {'; '.join([frame, *other_tables])}; {rest}", first="", indent="    "
+    )
 
 
 def _printable(text: str) -> str:

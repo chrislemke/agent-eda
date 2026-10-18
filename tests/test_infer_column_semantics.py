@@ -366,6 +366,21 @@ def test_flags_values_of_mixed_types():
     assert "mixed_value_types" in entry.flags
 
 
+@pytest.mark.parametrize(
+    "values",
+    [[1, 2.5, None], [1, "a", True, 1.0], ["a", "b"], [1.5, None], [[1], "a"]],
+    ids=["int-float", "int-str-bool", "text", "floats", "lists"],
+)
+def test_mixed_value_types_agree_with_summarize_categorical(values):
+    df = pd.DataFrame({"x": pd.Series(values, dtype=object)})
+
+    inferred = ae.infer_column_semantics(df).columns["x"]
+    summarized = ae.summarize_categorical(df).columns["x"]
+
+    assert inferred.evidence.value_types == summarized.value_types
+    assert ("mixed_value_types" in inferred.flags) == summarized.mixed_value_types
+
+
 def test_tells_true_from_1_although_pandas_counts_them_as_one_value():
     entry = infer(pd.Series([1, True, 1.0, True, 0], dtype=object))
 
@@ -609,7 +624,7 @@ def test_an_unknown_declared_logical_type_raises_with_the_closest():
 
     assert caught.value.code == "invalid_argument"
     assert str(caught.value) == (
-        "infer_column_semantics got 'int' for declared_schema['zip'], but each "
+        "infer_column_semantics got 'int' at declared_schema['zip'], but each "
         "value in declared_schema must be one of 'boolean', 'integer', 'float', "
         "'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec. Did "
         "you mean 'integer'? See help(ae.infer_column_semantics) for every "
@@ -624,7 +639,7 @@ def test_an_invalid_column_spec_in_declared_schema_raises_in_the_package_format(
         ae.infer_column_semantics(frame(), declared_schema=schema)
 
     assert str(caught.value) == (
-        "infer_column_semantics got an invalid value for declared_schema['zip']: "
+        "infer_column_semantics got an invalid value at declared_schema['zip']: "
         "ColumnSpec got 'txt' for logical_type, but logical_type must be one of "
         "'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or "
         "'timedelta'. Did you mean 'text'? See help(ae.ColumnSpec) for every field."
@@ -639,8 +654,8 @@ def test_a_column_named_twice_in_declared_schema_raises():
         ae.infer_column_semantics(df, declared_schema={1: "integer", "1": "float"})  # ty: ignore[invalid-argument-type]  # labels that aren't strings are accepted at runtime
 
     assert str(caught.value) == (
-        "infer_column_semantics got the column '1' more than once in "
-        "declared_schema, as 1 and '1'. Declare each column once."
+        "infer_column_semantics got column '1' more than once in "
+        "declared_schema, as 1 and '1'. Name each column once."
     )
 
 
@@ -709,11 +724,8 @@ def test_prints_each_column_with_its_top_candidates_and_flags():
         "declared_schema: 1 column declared in the data, 0 with that top "
         "candidate, 1 with another; 0 not in the data."
     )
-    assert lines[3] == (
-        "res.to_frame() has each column's evidence; res.to_frame('candidates') has "
-        "every candidate with its reasons."
-    )
-    header = lines[5].split()
+    assert lines[3] == "Columns (4 of 4 shown):"
+    header = lines[4].split()
     assert header == [
         "column",
         "inferred",
@@ -723,7 +735,7 @@ def test_prints_each_column_with_its_top_candidates_and_flags():
         "declared",
         "flags",
     ]
-    assert lines[6].split()[:6] == [
+    assert lines[5].split()[:6] == [
         "zip",
         "categorical",
         "0.5",
@@ -731,6 +743,10 @@ def test_prints_each_column_with_its_top_candidates_and_flags():
         "0.25",
         "integer",
     ]
+    # The footer names the second table.
+    assert "res.to_frame(table='candidates') has every candidate with its reasons" in (
+        " ".join(lines[-2:])
+    )
     assert max(len(line) for line in lines) <= 120
 
 
@@ -769,7 +785,7 @@ def test_to_frame_names_its_tables_when_given_another():
 
     assert str(caught.value) == (
         "to_frame got 'evidence' for table, but table must be one of 'columns' or "
-        "'candidates', such as res.to_frame('candidates')."
+        "'candidates'. res.to_frame() returns the columns table."
     )
 
 

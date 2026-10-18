@@ -5,9 +5,10 @@ form of each label, which is also how results show columns.
 """
 
 import difflib
+import typing
 from collections import Counter
 from collections.abc import Hashable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -32,6 +33,8 @@ ColumnKind = Literal[
     "object",
     "other",
 ]
+# Every kind of column, for analyses that take any column.
+ALL_KINDS: frozenset[ColumnKind] = frozenset(typing.get_args(ColumnKind))
 
 
 class Labels:
@@ -188,6 +191,9 @@ class ColumnRule:
     # For a rejected kind, how to fix the call, such as "convert durations with
     # {column}.dt.total_seconds()"; {column} becomes the code for the column.
     fixes: Mapping[ColumnKind, str]
+    # For a rejected kind, the analysis that fits it, such as
+    # "summarize_categorical" for text; the message names it first.
+    alternatives: Mapping[ColumnKind, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -195,8 +201,8 @@ class Selection:
     """The columns an analysis works on, and the ones its default left out."""
 
     columns: list[Column]
-    # Names of the columns that columns=None left out, in DataFrame order;
-    # empty when the call named the columns.
+    # Names of the columns that columns=None left out for their kind, in
+    # DataFrame order, without id_column; empty when the call named the columns.
     left_out: list[str]
 
 
@@ -207,11 +213,14 @@ def select_columns(
     rule: ColumnRule,
     *,
     parameter: str = "columns",
+    id_column: str | None = None,
 ) -> Selection:
     """The columns to analyse: the requested ones in their order, or the defaults.
 
-    Raises before any computation when the request is empty, names a column
-    twice, names an unknown column or names one the analysis can't handle.
+    The defaults also leave out `id_column`, the column that identifies rows,
+    without listing it in `left_out`, while a request may name it. Raises before
+    any computation when the request is empty, names a column twice, names an
+    unknown column or names one the analysis can't handle.
     """
     columns = [
         Column(position, label, str(label), str(dtype), column_kind(dtype))
@@ -219,7 +228,9 @@ def select_columns(
     ]
     if requested is None:
         return Selection(
-            columns=[c for c in columns if c.kind in rule.default],
+            columns=[
+                c for c in columns if c.kind in rule.default and c.name != id_column
+            ],
             left_out=[c.name for c in columns if c.kind not in rule.default],
         )
     if not requested:
@@ -290,6 +301,12 @@ def _not_found(
 def _wrong_type(
     analysis: str, parameter: str, rejected: list[Column], rule: ColumnRule
 ) -> str:
+    # Each analysis that fits some of the columns, with the columns it fits.
+    fitting: dict[str, list[str]] = {}
+    for column in rejected:
+        other = rule.alternatives.get(column.kind)
+        if other is not None:
+            fitting.setdefault(other, []).append(repr(column.name))
     # Each fix once, shown with the first column it applies to.
     fixes: dict[str, str] = {}
     for column in rejected:
@@ -305,7 +322,11 @@ def _wrong_type(
         listed = join_items(named, limit=MAX_LISTED_COLUMNS)
         what = f"{len(rejected):,} columns: {listed}"
         leave = f"leave them out of {parameter}"
-    steps = list(fixes.values())
+    steps = [
+        f"use {other} for {join_items(names, limit=MAX_LISTED_COLUMNS)} instead"
+        for other, names in fitting.items()
+    ]
+    steps.extend(fixes.values())
     if not steps:
         fix = leave
     elif len(steps) == 1:
