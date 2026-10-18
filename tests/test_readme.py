@@ -51,6 +51,18 @@ def test_the_first_look_table_follows_the_guide_with_each_analysis_question(caps
     assert row.findall(README.read_text()) == expected
 
 
+def test_lists_each_planned_function_once_and_no_shipped_analysis_as_planned():
+    text = README.read_text()
+    planned = text[text.index("## Planned analyses") : text.index("## Development")]
+    # Rows such as: | `estimate_quantiles` | `statistics.descriptive` | Estimate ... |
+    names = re.findall(r"^\| `(\w+)` \| `[\w.]+` \|", planned, flags=re.MULTILINE)
+    shipped = {info.name for info in ae.list_analyses().analyses}
+
+    assert names
+    assert len(names) == len(set(names))
+    assert [name for name in names if name in shipped] == []
+
+
 def test_calls_masking_a_guardrail_not_anonymization_or_access_control():
     text = " ".join(README.read_text().split())
 
