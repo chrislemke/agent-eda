@@ -6,11 +6,13 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
+from agent_eda._masking import mask_values, resolve_masking
 from agent_eda._registry import analysis
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, data_shape, execution
 from agent_eda._text import format_number, plural
 from agent_eda._values import column_values, hashable_values
+from agent_eda.project import Project
 from agent_eda.results import (
     ColumnSupport,
     FindDuplicateRowsResult,
@@ -43,12 +45,15 @@ _ANY_COLUMN = ColumnRule(
         "deduplicate",
         "row ids",
     ),
+    masking=True,
 )
 def find_duplicate_rows(
     data: pd.DataFrame,
     *,
     columns: Sequence[str] | None = None,
     id_column: str | None = None,
+    project: Project | None = None,
+    mask_sensitive: bool | None = None,
 ) -> FindDuplicateRowsResult:
     """Are there exact duplicate rows?
 
@@ -61,11 +66,14 @@ def find_duplicate_rows(
         over two or more columns, even when only one column is compared.
         Pass id_column when a column identifies rows, such as an order number:
         row IDs then come from it, and columns=None leaves it out of the
-        comparison, so unique IDs don't hide duplicated records.
-        `describe_dataset` reports duplicated column labels and a non-unique
-        index, and columns whose values duplicate or derive from each other
-        show up as perfect associations in `compute_association_matrix`;
-        `list_analyses` lists the other analyses.
+        comparison, so unique IDs don't hide duplicated records. Row IDs are
+        raw values, so when id_column holds personal data, such as email
+        addresses, declare it sensitive in a project and switch masking on.
+        Index labels are never masked: when the index holds sensitive values,
+        pass a non-sensitive id_column. `describe_dataset` reports duplicated
+        column labels and a non-unique index, and columns whose values
+        duplicate or derive from each other show up as perfect associations in
+        `compute_association_matrix`; `list_analyses` lists the other analyses.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -83,6 +91,17 @@ def find_duplicate_rows(
             hashable, such as numbers or strings; a column of lists raises. A
             label that isn't a string can be given as itself or as its string
             form. None, the default, uses the index labels as row IDs.
+        project (Project | None): The project, whose data policy names the
+            sensitive columns and says whether to mask them. None, the
+            default, declares no sensitive column, so nothing is masked.
+        mask_sensitive (bool | None): True replaces each row ID taken from a
+            sensitive id_column with a numbered placeholder, '<masked 1>' for
+            the first ID the result shows and so on, equal IDs alike, and
+            needs a project that declares sensitive columns; False shows the
+            IDs as stored. None, the default, follows the project's
+            data_policy.mask_sensitive, and masks nothing without a project.
+            Index labels are never masked. Masking is a guardrail against
+            accidental exposure, not anonymization or access control.
 
     Returns:
         FindDuplicateRowsResult: `duplicate_groups` lists each group of rows
@@ -103,6 +122,11 @@ def find_duplicate_rows(
         When index labels or id_column values repeat, a row ID can match more
         than one row: the `ambiguous_row_ids` limitation names the groups whose
         row IDs repeat and recommends a unique id_column.
+
+        `masking` says whether masking was on and names id_column when it is
+        sensitive. With masking on, its row IDs are placeholders, numbered in
+        the order the groups show them, in the printed text, `to_dict()`,
+        `to_json()` and `to_frame()` alike; the groups and counts stay.
 
         - `duplicate_rows`: two or more rows are equal in every compared
           column. Suspected, since repeated records can be real, such as two
@@ -145,6 +169,12 @@ def find_duplicate_rows(
         More: res.to_frame() has all 5 rows in groups; res.findings, res.limitations and res.to_json() have the rest.
         >>> res.duplicate_groups[0].row_ids
         [101, 103, 106]
+        >>> project = ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["order"]))
+        >>> masked = ae.find_duplicate_rows(
+        ...     df, id_column="order", project=project, mask_sensitive=True
+        ... )
+        >>> masked.duplicate_groups[0].row_ids
+        ['<masked 1>', '<masked 2>', '<masked 3>']
 
     See Also:
         describe_dataset: Dtypes, missing and distinct counts and memory of
@@ -153,6 +183,7 @@ def find_duplicate_rows(
             associated, with columns that duplicate each other flagged.
         list_analyses: Every analysis, with the question each one answers.
     """
+    masking = resolve_masking("find_duplicate_rows", project, mask_sensitive)
     row_ids = read_row_ids("find_duplicate_rows", data, id_column)
     selection = select_columns(
         "find_duplicate_rows", data, columns, _ANY_COLUMN, id_column=row_ids.id_column
@@ -168,7 +199,9 @@ def find_duplicate_rows(
         positions = numbers = np.zeros(0, dtype=np.int64)
     sizes = np.bincount(numbers).tolist()
     # By group, then by position: positions ascend, and a stable sort keeps that.
-    ids = row_ids.at(positions[np.argsort(numbers, kind="stable")])
+    ids: list[object] = row_ids.at(positions[np.argsort(numbers, kind="stable")])
+    if masking.masks(row_ids.id_column):
+        ids = list(mask_values(ids))
     ends = np.cumsum(sizes).tolist()
     excess = len(positions) - len(sizes)
     # The groups holding a row ID that another row shares.
@@ -185,6 +218,8 @@ def find_duplicate_rows(
             "data": data_shape(data),
             "columns": compared,
             "id_column": row_ids.id_column,
+            "project": project.model_dump(mode="json") if project else None,
+            "mask_sensitive": mask_sensitive,
         },
         support=Support(
             row_count=row_count,
@@ -210,6 +245,8 @@ def find_duplicate_rows(
             *([] if row_count else [_NO_SHARE]),
         ],
         execution=execution(("numpy", "pandas")),
+        # The row IDs are the only values the result shows, if it has groups.
+        masking=masking.record([row_ids.id_column] if sizes else [], data),
         compared_columns=compared,
         missing_values_compare_equal=True,
         duplicate_groups=[

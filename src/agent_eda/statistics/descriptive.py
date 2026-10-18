@@ -17,6 +17,7 @@ from agent_eda._levels import (
     value_types,
     variant_groups,
 )
+from agent_eda._masking import MaskedLevels, mask_levels, resolve_masking
 from agent_eda._numeric import (
     NumericSummary,
     QuantileMethod,
@@ -28,6 +29,7 @@ from agent_eda._numeric import (
 from agent_eda._registry import analysis
 from agent_eda._run import check_distinct, data_shape, execution, overall_status
 from agent_eda._text import join_items, join_labels, label_text, plural
+from agent_eda.project import Project
 from agent_eda.results import (
     ColumnResult,
     ColumnSupport,
@@ -397,12 +399,15 @@ _CATEGORICAL = ColumnRule(
         "unused categories",
         "case variants",
     ),
+    masking=True,
 )
 def summarize_categorical(
     data: pd.DataFrame,
     *,
     columns: Sequence[str] | None = None,
     top_n: Annotated[int, Ge(1), Le(100)] = 10,
+    project: Project | None = None,
+    mask_sensitive: bool | None = None,
 ) -> SummarizeCategoricalResult:
     """Which values occur in each categorical column, and how often?
 
@@ -415,7 +420,9 @@ def summarize_categorical(
         treats as different categories; values of different Python types in one
         column, such as 1 and '1'; and categories of a categorical dtype that
         never occur. Name a numeric column in columns to count its values, such
-        as codes 1, 2 and 3. For how numeric values are distributed, call
+        as codes 1, 2 and 3. Levels are raw values, so for columns that hold
+        personal data, such as names, declare them sensitive in a project and
+        switch masking on. For how numeric values are distributed, call
         `summarize_numeric` instead; for how strongly categorical columns are
         associated with each other and with numeric ones, call
         `compute_association_matrix`. `describe_dataset` gives distinct
@@ -436,6 +443,17 @@ def summarize_categorical(
             most_common_levels holds and the printed text shows, from 1 to 100;
             defaults to 10. It limits only the display: levels keeps the first
             100 levels and to_frame() every level.
+        project (Project | None): The project, whose data policy names the
+            sensitive columns and says whether to mask them. None, the
+            default, declares no sensitive column, so nothing is masked.
+        mask_sensitive (bool | None): True replaces each level of a sensitive
+            column with a numbered placeholder, '<masked 1>' for the most
+            common and so on in level order, and needs a project that
+            declares sensitive columns; False shows the levels as stored.
+            None, the default, follows the project's
+            data_policy.mask_sensitive, and masks nothing without a project.
+            Masking is a guardrail against accidental exposure, not
+            anonymization or access control.
 
     Returns:
         SummarizeCategoricalResult: `columns` maps each selected column name to
@@ -468,6 +486,12 @@ def summarize_categorical(
         that columns=None skipped. Values that can't be hashed, such as
         lists, leave a column's levels uncounted, with an `unhashable_values`
         limitation.
+
+        `masking` says whether masking was on and names the sensitive columns
+        among the selected ones. With masking on, their labels and unused
+        categories are placeholders, numbered per column in level order, in
+        the printed text, `to_dict()`, `to_json()` and `to_frame()` alike,
+        while counts, shares and label types stay.
 
         Two findings are suspected and one is descriptive:
 
@@ -526,6 +550,10 @@ def summarize_categorical(
         ...     for level in res.columns["answer"].case_or_space_variants[0].levels
         ... ]
         ['Yes', 'YES', 'yes ']
+        >>> project = ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["plan"]))
+        >>> masked = ae.summarize_categorical(df, project=project, mask_sensitive=True)
+        >>> [level.label for level in masked.columns["plan"].levels]
+        ['<masked 1>', '<masked 2>', '<masked 3>']
 
     See Also:
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
@@ -537,6 +565,7 @@ def summarize_categorical(
             ones.
         list_analyses: Every analysis, with the question each one answers.
     """
+    masking = resolve_masking("summarize_categorical", project, mask_sensitive)
     selection = select_columns("summarize_categorical", data, columns, _CATEGORICAL)
     selected = selection.columns
     tables: dict[str, Levels] = {}
@@ -544,10 +573,16 @@ def summarize_categorical(
     for column in selected:
         series = data.iloc[:, column.position]
         levels = count_levels(series, column.kind)
+        masked = (
+            mask_levels(levels)
+            if levels is not None and masking.masks(column.name)
+            else None
+        )
         if levels is not None:
-            tables[column.name] = levels
+            # A masked column keeps only its placeholders, never its labels.
+            tables[column.name] = levels if masked is None else masked.levels
         entries[column.name] = _categorical_entry(
-            column.name, series, column.kind, levels, top_n
+            column.name, series, column.kind, levels, top_n, masked
         )
     status, status_reason = overall_status(
         len(data), list(entries.values()), no_columns=_NO_CATEGORICAL_COLUMNS
@@ -561,6 +596,8 @@ def summarize_categorical(
             "data": data_shape(data),
             "columns": [column.name for column in selected],
             "top_n": top_n,
+            "project": project.model_dump(mode="json") if project else None,
+            "mask_sensitive": mask_sensitive,
         },
         support=Support(
             row_count=len(data),
@@ -574,6 +611,7 @@ def summarize_categorical(
         ],
         limitations=_unhashable_values(entries),
         execution=execution(("numpy", "pandas")),
+        masking=masking.record([column.name for column in selected], data),
         columns=entries,
         left_out_columns=selection.left_out,
         share_denominator="non_missing_count",
@@ -608,8 +646,14 @@ _LEVEL_COUNTS = ("cardinality", "left_out_level_count", "seen_once_count")
 
 
 def _categorical_entry(
-    name: str, series: pd.Series, kind: ColumnKind, levels: Levels | None, top_n: int
+    name: str,
+    series: pd.Series,
+    kind: ColumnKind,
+    levels: Levels | None,
+    top_n: int,
+    masked: MaskedLevels | None,
 ) -> SummarizeCategoricalColumn:
+    """One column's entry; with `masked`, placeholders stand for its labels."""
     types = value_types(series, kind, levels)
     if levels is None:
         missing = int(series.isna().sum())
@@ -631,11 +675,16 @@ def _categorical_entry(
         )
     non_missing = len(series) - levels.missing_count
     kept = [
-        _level(levels, position, non_missing)
+        _level(levels, position, non_missing, masked)
         for position in ordered(levels, _KEPT_LEVELS)
     ]
     cardinality = len(levels.counts)
     shown = kept[:top_n]
+    unused = (
+        [record_label(c) for c in levels.unused_categories]
+        if masked is None
+        else masked.unused_categories
+    )
     return SummarizeCategoricalColumn(
         column=name,
         status="completed" if non_missing else "insufficient_data",
@@ -647,12 +696,14 @@ def _categorical_entry(
         most_common_levels=shown,
         left_out_level_count=cardinality - len(shown),
         seen_once_count=int((levels.counts == 1).sum()),
-        unused_categories=[record_label(c) for c in levels.unused_categories],
+        unused_categories=unused,
         value_types=types,
         mixed_value_types=len(types) > 1,
         case_or_space_variants=[
             SummarizeCategoricalVariants(
-                levels=[_level(levels, position, non_missing) for position in group]
+                levels=[
+                    _level(levels, position, non_missing, masked) for position in group
+                ]
             )
             for group in variant_groups(levels)
         ],
@@ -660,12 +711,12 @@ def _categorical_entry(
 
 
 def _level(
-    levels: Levels, position: int, non_missing: int
+    levels: Levels, position: int, non_missing: int, masked: MaskedLevels | None
 ) -> SummarizeCategoricalLevel:
     label = levels.label(position)
     count = int(levels.counts[position])
     return SummarizeCategoricalLevel(
-        label=record_label(label),
+        label=record_label(label) if masked is None else masked.label(position),
         label_type=type_name(label),
         count=count,
         share=count / non_missing,

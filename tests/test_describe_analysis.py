@@ -362,10 +362,8 @@ def test_prints_each_part_compactly_in_plain_text():
     assert lines[1].startswith(
         "Signature: summarize_numeric(data: pd.DataFrame, *, columns: "
     )
-    assert (
-        "Module: agent_eda.statistics.descriptive. Masking: not supported. "
-        "Work limits: none."
-    ) in lines
+    assert "Module: agent_eda.statistics.descriptive. Work limits: none." in lines
+    assert any(line.startswith("Masking: not needed.") for line in lines)
     assert "When to use:" in lines
     assert "Parameters:" in lines
     assert "  data: pd.DataFrame (required)" in lines

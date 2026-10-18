@@ -206,6 +206,19 @@ def test_work_limits_and_budget_exceeded_come_together(name):
         assert described[parameter].valid_range
 
 
+def test_masking_comes_with_project_mask_sensitive_and_a_masking_field(name):
+    info = INFO[name]
+    result_class = getattr(ae.results, info.result_class)
+
+    # An analysis may take a project for dataset roles alone, but
+    # mask_sensitive only together with masking.
+    assert info.supports_masking == ("mask_sensitive" in info.parameters)
+    assert info.supports_masking == issubclass(result_class, ae.results.MaskableResult)
+    if info.supports_masking:
+        assert "project" in info.parameters
+        assert ae.describe_analysis(name).shows_raw_values
+
+
 def test_analysis_is_hidden_from_pytest(name):
     assert getattr(ae, name).__test__ is False
 

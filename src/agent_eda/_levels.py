@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import pandas as pd
 
+from agent_eda._text import placeholder
+
 if TYPE_CHECKING:
     # Result classes build their tables here, so this module imports nothing
     # that imports them.
@@ -58,6 +60,12 @@ class Levels:
     text: bool
     # The categories of a categorical dtype that never occur, in category order.
     unused_categories: list[object]
+    # Set when masking put numbered placeholders in place of the labels: values
+    # then holds the placeholders' numbers, 1 to n in level order, and this
+    # names the type of the value each placeholder stands for, in that order,
+    # or once for all of them when they share it. The placeholders themselves
+    # are written only when to_frame() asks for them.
+    masked_types: str | tuple[str, ...] | None = None
 
     def label(self, position: int) -> object:
         """One label as Python holds it."""
@@ -137,6 +145,8 @@ def ordered(levels: Levels, limit: int | None = None) -> np.ndarray:
     """
     counts = levels.counts
     size = len(counts)
+    if levels.masked_types is not None:
+        return np.arange(size if limit is None else min(limit, size), dtype=np.intp)
     if limit is None or limit >= size:
         return _full_order(levels)
     # The limit-th largest count: fewer than `limit` levels have more.
@@ -296,10 +306,16 @@ def levels_frame(tables: Mapping[str, Levels]) -> pd.DataFrame:
     for name, levels in tables.items():
         order = ordered(levels)
         ordered_counts = levels.counts[order].astype(np.int64)
-        ordered_labels = [stored_label(label) for label in levels.objects(order)]
+        if levels.masked_types is None:
+            ordered_labels = [stored_label(label) for label in levels.objects(order)]
+            types.extend(_type_names(levels, ordered_labels))
+        else:
+            # The values are the placeholders' numbers.
+            ordered_labels = [placeholder(int(n)) for n in levels.objects(order)]
+            masked = levels.masked_types
+            types.extend([masked] * len(order) if isinstance(masked, str) else masked)
         columns.extend([name] * len(order))
         labels.extend(ordered_labels)
-        types.extend(_type_names(levels, ordered_labels))
         counts.append(ordered_counts)
         total = int(ordered_counts.sum())
         shares.append(ordered_counts / total if total else ordered_counts * 0.0)
@@ -321,6 +337,20 @@ def _type_names(levels: Levels, labels: list[object]) -> list[str]:
     if levels.sort_values is not None:
         return [_name_of(levels.sort_values.dtype.type)] * len(labels)
     return [type_name(label) for label in labels]
+
+
+def label_types(levels: Levels, positions: np.ndarray) -> str | tuple[str, ...]:
+    """The type names of the labels at these positions, or one name they share.
+
+    Text and numbers name their type without turning every label into a
+    Python object.
+    """
+    if levels.text:
+        return "str"
+    if levels.sort_values is not None:
+        return _name_of(levels.sort_values.dtype.type)
+    names = tuple(type_name(stored_label(label)) for label in levels.objects(positions))
+    return names[0] if len(set(names)) == 1 else names
 
 
 def _name_of(kind: type) -> str:

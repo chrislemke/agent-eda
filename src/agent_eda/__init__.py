@@ -32,6 +32,7 @@ if TYPE_CHECKING:
         list_analyses,
         search_analyses,
     )
+    from agent_eda.project import DataPolicy, Project
     from agent_eda.results import AnalysisResult, LogicalType
     from agent_eda.statistics.association import compute_association_matrix
     from agent_eda.statistics.descriptive import (
@@ -42,7 +43,9 @@ if TYPE_CHECKING:
 __all__ = [
     "AnalysisResult",
     "ColumnSpec",
+    "DataPolicy",
     "LogicalType",
+    "Project",
     "__version__",
     "compute_association_matrix",
     "describe_analysis",
@@ -63,7 +66,9 @@ __all__ = [
 _EXPORTS: dict[str, str] = {
     "AnalysisResult": "agent_eda.results",
     "ColumnSpec": "agent_eda.data.validation",
+    "DataPolicy": "agent_eda.project",
     "LogicalType": "agent_eda.results",
+    "Project": "agent_eda.project",
     "__version__": "agent_eda._version",
     "compute_association_matrix": "agent_eda.statistics.association",
     "describe_analysis": "agent_eda.discovery",

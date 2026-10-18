@@ -32,6 +32,12 @@ def _no_options(data: pd.DataFrame) -> st.SearchStrategy[Arguments]:
     return st.just({})
 
 
+def _no_sensitive_options(
+    data: pd.DataFrame, sensitive: list[str]
+) -> st.SearchStrategy[Arguments]:
+    return st.just({})
+
+
 @dataclass(frozen=True)
 class Recipe:
     """Valid arguments for one analysis, built for a given DataFrame."""
@@ -46,6 +52,12 @@ class Recipe:
     # Whether the analysis takes column labels that can't serve as names:
     # repeated, colliding as strings, missing or a MultiIndex.
     any_column_labels: bool = False
+    # For an analysis that supports masking: arguments that make its result
+    # show values of the given sensitive columns, such as id_column for row
+    # IDs. The no-leak property draws them, and they may replace the options.
+    sensitive_options: Callable[
+        [pd.DataFrame, list[str]], st.SearchStrategy[Arguments]
+    ] = field(default=_no_sensitive_options)
 
 
 def recipe_for(name: str) -> Recipe:
@@ -236,6 +248,43 @@ def missing_value_arguments(draw: st.DrawFn, data: pd.DataFrame) -> Arguments:
     return arguments
 
 
+@st.composite
+def masking_arguments(draw: st.DrawFn, data: pd.DataFrame) -> Arguments:
+    """project= and mask_sensitive= in any valid combination, or left out.
+
+    The project declares some of the data's columns sensitive, maybe with a
+    name the data lacks, or none. mask_sensitive=True comes only with sensitive
+    columns, since without them it raises.
+    """
+    candidates = [*(str(label) for label in data.columns), "not in the data"]
+    sensitive = draw(st.lists(st.sampled_from(candidates), unique=True, max_size=3))
+    arguments: Arguments = {}
+    if sensitive or draw(st.booleans()):
+        arguments["project"] = ae.Project(
+            name=draw(st.none() | st.sampled_from(["churn", "support tickets"])),
+            data_policy=ae.DataPolicy(
+                sensitive_columns=sensitive,
+                mask_sensitive=bool(sensitive) and draw(st.booleans()),
+            ),
+        )
+    mask_sensitive = draw(
+        st.sampled_from([None, False, *([True] if sensitive else [])])
+    )
+    if mask_sensitive is not None or draw(st.booleans()):
+        arguments["mask_sensitive"] = mask_sensitive
+    return arguments
+
+
+def with_masking(
+    options: Callable[[pd.DataFrame], st.SearchStrategy[Arguments]],
+) -> Callable[[pd.DataFrame], st.SearchStrategy[Arguments]]:
+    """An analysis's options plus project= and mask_sensitive=, for the analyses
+    that support masking."""
+    return lambda data: st.tuples(options(data), masking_arguments(data)).map(
+        lambda parts: {**parts[0], **parts[1]}
+    )
+
+
 # Any text, sometimes longer than a printed line.
 TEXT = st.text() | st.text(min_size=121, max_size=130)
 
@@ -255,9 +304,15 @@ RECIPES: dict[str, Recipe] = {
         ),
     ),
     "find_duplicate_rows": Recipe(
-        options=lambda data: optional(
-            columns=column_lists(names(data, lambda dtype: True)),
-            id_column=column_names(hashable_names(data)),
+        options=with_masking(
+            lambda data: optional(
+                columns=column_lists(names(data, lambda dtype: True)),
+                id_column=column_names(hashable_names(data)),
+            )
+        ),
+        # Row IDs from a sensitive id_column.
+        sensitive_options=lambda data, sensitive: optional(
+            id_column=st.sampled_from(sensitive)
         ),
     ),
     "profile_missing_values": Recipe(options=missing_value_arguments),
@@ -272,9 +327,17 @@ RECIPES: dict[str, Recipe] = {
         ),
     ),
     "summarize_categorical": Recipe(
-        options=lambda data: optional(
-            columns=column_lists(names(data, has_countable_values)),
-            top_n=st.integers(1, 100),
+        options=with_masking(
+            lambda data: optional(
+                columns=column_lists(names(data, has_countable_values)),
+                top_n=st.integers(1, 100),
+            )
+        ),
+        # The levels of the sensitive columns it can count.
+        sensitive_options=lambda data, sensitive: optional(
+            columns=column_lists(
+                [n for n in names(data, has_countable_values) if n in sensitive]
+            )
         ),
     ),
     "infer_column_semantics": Recipe(

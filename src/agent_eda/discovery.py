@@ -72,6 +72,11 @@ Read the result:
   passed or unknown. res.limitations say what limits how far the numbers can be read.
 - res.to_frame() returns the complete table; res.to_dict() and res.to_json() return the whole record."""
 
+_GUIDE_MASKING = """\
+Masking: analyses marked [supports masking] can show raw values, such as labels or row IDs. Pass
+    project=ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"], mask_sensitive=True))
+to show <masked 1> and so on instead, a guardrail against accidental exposure, not anonymization or access control."""
+
 _GUIDE_MORE = """\
 Find more:
   ae.search_analyses("nulls per column")  finds analyses for a question in your own words
@@ -85,10 +90,11 @@ def guide() -> None:
 
     The page covers what the package is, the call pattern, how to read a result
     and its status, every analysis grouped by module with the question it
-    answers, and an order for a first look at a new dataset. It stays within
-    about 60 lines of at most 120 characters. Start here when you are new to the
-    package; then find an analysis with search_analyses() and learn how to call
-    it with describe_analysis().
+    answers, how to mask the values of sensitive columns, and an order for a
+    first look at a new dataset. It stays within about 60 lines of at most 120
+    characters. Start here when you are new to the package; then find an
+    analysis with search_analyses() and learn how to call it with
+    describe_analysis().
 
     Returns:
         None: The page is printed, since Code Interpreter returns only what is
@@ -128,6 +134,8 @@ def _guide_text() -> str:
             _GUIDE_RESULTS,
             "",
             str(listing),
+            "",
+            _GUIDE_MASKING,
             "",
             "A first look at a new dataset, in this order:",
             *first_look,
@@ -254,6 +262,9 @@ def describe_analysis(name: str) -> AnalysisDescription:
             for field_name, field in AnalysisResult.model_fields.items()
         ],
         methods=list(spec.methods),
+        # The analyses whose results can show raw values are exactly the ones
+        # that support masking.
+        shows_raw_values=spec.supports_masking,
         supports_masking=spec.supports_masking,
         work_limit_parameters=list(spec.work_limits),
         example=spec.docstring.examples,

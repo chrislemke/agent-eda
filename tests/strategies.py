@@ -416,3 +416,79 @@ LABEL_EDGE_FRAMES: dict[str, Callable[[], pd.DataFrame]] = {
         [[1.0, 2.0]], columns=pd.MultiIndex.from_tuples([("a", "x"), ("a", "y")])
     ),
 }
+
+
+@dataclass(frozen=True)
+class Secret:
+    """A kind of sensitive column whose every value holds `marker`.
+
+    No other generated value or result text holds a marker, so finding one in
+    a result shows a leak, even where the text cuts a value short.
+    """
+
+    marker: str
+    kind: Kind
+
+
+# Labels that differ only by case or surrounding spaces, characters of 1, 2
+# and 4 bytes, and many distinct values; each holds "secret".
+SECRET_LABELS = [
+    "Secret Ann",
+    "secret ann ",
+    "SECRET ANN",
+    "secret Bob",
+    "secret-çé 日本",
+    "secret 🙂",
+]
+_SECRET_TEXT = st.sampled_from(SECRET_LABELS) | st.integers(0, 40).map(
+    lambda number: f"secret-{number}"
+)
+# Customer numbers and dates far from any other generated number or date.
+_SECRET_NUMBERS = st.integers(0, 40).map(lambda number: 918_273_645_00 + number)
+_SECRET_DATES = st.integers(0, 40).map(
+    lambda days: dt.datetime(2233, 3, 5, 7, 11, 13) + dt.timedelta(days=days)
+)
+
+SECRETS: dict[str, Secret] = {
+    "object text": Secret("secret", Kind(_SECRET_TEXT, _series(object), [])),
+    "str": Secret("secret", Kind(_SECRET_TEXT, _series(STR), [])),
+    "string[pyarrow]": Secret(
+        "secret", Kind(_SECRET_TEXT, _series("string[pyarrow]"), [])
+    ),
+    # "secret unused" is a category that never occurs.
+    "category": Secret(
+        "secret",
+        Kind(
+            st.sampled_from(SECRET_LABELS),
+            _categorical([*SECRET_LABELS, "secret unused"]),
+            [],
+        ),
+    ),
+    # Numbers in an object column: no numeric statistic can show them, as it
+    # could for a numeric dtype, whose statistics are never masked.
+    "object of numbers": Secret(
+        "918273645", Kind(_SECRET_NUMBERS, _series(object), [])
+    ),
+    "datetime64[ns]": Secret("2233-", Kind(_SECRET_DATES, _datetimes, [])),
+}
+
+
+@st.composite
+def frames_with_secrets(draw: st.DrawFn) -> tuple[pd.DataFrame, dict[str, str]]:
+    """A generated DataFrame with one or two sensitive columns in front.
+
+    Returns the DataFrame and each sensitive column's name with its marker.
+    """
+    df = draw(data_frames())
+    if len(df) and draw(st.booleans()):
+        # Repeat some rows, so that rows repeat apart from their sensitive values.
+        positions = st.integers(0, len(df) - 1)
+        df = df.iloc[draw(st.lists(positions, min_size=2, max_size=MAX_ROWS))].copy()
+    markers: dict[str, str] = {}
+    for position in range(draw(st.integers(1, 2))):
+        name = f"sensitive {position}"
+        secret = SECRETS[draw(st.sampled_from(list(SECRETS)))]
+        values = draw(column_values(secret.kind, len(df)))
+        df.insert(position, name, values.array)
+        markers[name] = secret.marker
+    return df, markers

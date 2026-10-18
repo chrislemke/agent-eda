@@ -370,7 +370,13 @@ def test_declares_its_statuses_and_parameters():
         "not_applicable",
         "failed",
     ]
-    assert info.parameters == ["data", "columns", "top_n"]
+    assert info.parameters == [
+        "data",
+        "columns",
+        "top_n",
+        "project",
+        "mask_sensitive",
+    ]
 
 
 def test_every_column_completes_when_each_has_a_value():

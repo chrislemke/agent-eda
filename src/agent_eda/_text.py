@@ -159,14 +159,27 @@ def plural(count: int, singular: str, plural_form: str) -> str:
     return f"{count:,} {singular if count == 1 else plural_form}"
 
 
+def placeholder(number: int) -> str:
+    """What masking shows in place of the value numbered `number`, from 1.
+
+    Such as '<masked 1>': it reveals neither the value's content nor its length.
+    """
+    return f"<masked {number}>"
+
+
 def label_text(label: object) -> str:
     """Show a column or index label: strings quoted, everything else as str()."""
     return repr(label) if isinstance(label, str) else str(label)
 
 
-def join_labels(labels: Sequence[object]) -> str:
-    """Show labels as "'a', 'b' and 3", naming at most MAX_NAMED of them."""
-    shown = [label_text(label) for label in labels[:MAX_NAMED]]
+def join_labels(labels: Sequence[object], *, quote: bool = True) -> str:
+    """Show labels as "'a', 'b' and 3", naming at most MAX_NAMED of them.
+
+    With quote=False, strings show without quotes, as masking's placeholders
+    such as <masked 1> do.
+    """
+    show = label_text if quote else str
+    shown = [show(label) for label in labels[:MAX_NAMED]]
     if len(labels) > MAX_NAMED:
         return ", ".join(shown) + f" and {len(labels) - MAX_NAMED:,} more"
     return join_items(shown)

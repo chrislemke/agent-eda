@@ -377,6 +377,91 @@ class Execution(ResultModel):
     )
 
 
+class Masking(ResultModel):
+    """Whether a result masks the values of sensitive columns, and which ones.
+
+    Masking is a guardrail against accidental exposure, not anonymization and
+    not access control.
+    """
+
+    applied: bool = Field(
+        description="Whether masking was on: every value of a sensitive column "
+        "that the result shows, such as a category label or a row ID taken from "
+        "id_column, is a numbered placeholder, '<masked 1>', '<masked 2>' and so "
+        "on, numbered per column in result order. Placeholders reveal neither "
+        "content nor length; counts, shares and statistics are unchanged."
+    )
+    decided_by: Literal["mask_sensitive", "project", "default"] = Field(
+        description="What switched masking on or off: the call's mask_sensitive "
+        "argument; the project's data_policy.mask_sensitive, when mask_sensitive "
+        "is None; or default, without either, which leaves masking off."
+    )
+    columns: Annotated[list[str], _ENTRIES] = Field(
+        description="The sensitive columns whose values the result shows, in "
+        "result order: as placeholders when applied is true, as stored "
+        "otherwise. Empty when the result shows no value of a sensitive column."
+    )
+    index_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Sensitive columns that the data holds as its index, by "
+        "level name, when the result shows index labels as row IDs. Index "
+        "labels are never masked, so these values show as stored: pass a "
+        "non-sensitive id_column instead."
+    )
+    absent_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Sensitive columns the project declares that the data lacks "
+        "as a column or an index level, in the project's order. Masking matches "
+        "column names exactly, so check them for typos; a project spanning "
+        "several datasets has some anyway."
+    )
+
+
+def _masking_text(masking: Masking) -> list[str]:
+    """The line on masking that a result prints, when it has something to say."""
+    if masking.decided_by == "default":
+        return []
+    setting = (
+        f"mask_sensitive={masking.applied}"
+        if masking.decided_by == "mask_sensitive"
+        else f"data_policy.mask_sensitive={masking.applied}"
+    )
+    names = _text.join_labels(masking.columns)
+    columns = "column" if len(masking.columns) == 1 else "columns"
+    if not masking.applied:
+        if not masking.columns:
+            return []
+        text = (
+            f"Not masked ({setting}): the values of sensitive {columns} {names} "
+            "show as stored. Pass mask_sensitive=True to mask them."
+        )
+    else:
+        if masking.columns:
+            text = (
+                f"Masked ({setting}): the values of {columns} {names} show as "
+                "<masked 1>, <masked 2> and so on; counts and shares are "
+                "unaffected."
+            )
+        elif not masking.index_columns:
+            text = (
+                f"Masking on ({setting}), but the result shows no value of a "
+                "sensitive column."
+            )
+        else:
+            text = f"Masking on ({setting}), but"
+        if masking.index_columns:
+            index = _text.join_labels(masking.index_columns)
+            held = "column" if len(masking.index_columns) == 1 else "columns"
+            text += (
+                f"{' And' if masking.columns else ''} index labels are never "
+                f"masked, and the index holds sensitive {held} {index}, whose "
+                "values show as row IDs. Pass a non-sensitive id_column, such as "
+                "after df.reset_index()."
+            )
+        if masking.absent_columns:
+            absent = _text.join_labels(masking.absent_columns)
+            text += f" Sensitive columns the data lacks: {absent}."
+    return _text.wrap(text, first="", indent="    ")
+
+
 def _check_status_reason(status: Status, reason: StatusReason | None) -> None:
     if (status == "completed") != (reason is None):
         raise ValueError(
@@ -455,7 +540,7 @@ class AnalysisResult(ResultModel):
         )
         return _text.render(
             heading=self._heading(),
-            facts=[*facts, *self._text_facts()],
+            facts=[*facts, *self._masking_facts(), *self._text_facts()],
             table=self._text_table(),
             findings=[
                 _text.Item(f"{f.assessment} {f.code}", f.claim) for f in self.findings
@@ -485,6 +570,10 @@ class AnalysisResult(ResultModel):
         """The complete main table of the result as a DataFrame."""
         raise NotImplementedError(f"{type(self).__name__} has no table")
 
+    def _masking_facts(self) -> list[str]:
+        """The line on masking, for results that support it."""
+        return []
+
     def _text_facts(self) -> list[str]:
         """Lines of key facts under the first line; analyses override this."""
         return []
@@ -513,6 +602,29 @@ class AnalysisResult(ResultModel):
         return json.dumps(
             self.to_dict(), allow_nan=False, ensure_ascii=False, separators=(",", ":")
         )
+
+
+class MaskableResult(AnalysisResult):
+    """The result of an analysis that can show raw values, and so supports masking.
+
+    Such an analysis takes project= and mask_sensitive=, and its `masking`
+    field says whether the values of sensitive columns are placeholders.
+    """
+
+    masking: Masking = Field(
+        description="Whether the values of sensitive columns that the result "
+        "shows are numbered placeholders, decided by mask_sensitive or the "
+        "project's data policy, and which columns that concerns. Masking is a "
+        "guardrail against accidental exposure, not anonymization or access "
+        "control."
+    )
+
+    def _masking_facts(self) -> list[str]:
+        return _masking_text(self.masking)
+
+    def _masked(self, column: str) -> bool:
+        """Whether placeholders stand for this column's values in the result."""
+        return self.masking.applied and column in self.masking.columns
 
 
 class _DiscoveryRecord(ResultModel):
@@ -783,9 +895,17 @@ class AnalysisDescription(_DiscoveryRecord):
     methods: list[str] = Field(
         description="The methods it offers; empty when it has none."
     )
+    shows_raw_values: bool = Field(
+        description="Whether its results can show raw values from the data, such "
+        "as category labels, example values or row IDs. Every analysis whose "
+        "results can show them supports masking. Numeric statistics, such as a "
+        "minimum, don't count and are never masked."
+    )
     supports_masking: bool = Field(
         description="Whether it can mask the values of sensitive columns, through "
-        "its project and mask_sensitive parameters."
+        "its project and mask_sensitive parameters, replacing them with numbered "
+        "placeholders. Masking is a guardrail against accidental exposure, not "
+        "anonymization or access control."
     )
     work_limit_parameters: list[str] = Field(
         description="Its max_* parameters that bound the work it does; it returns "
@@ -798,19 +918,24 @@ class AnalysisDescription(_DiscoveryRecord):
 
     def __str__(self) -> str:
         masking = (
-            "supported (project=, mask_sensitive=)"
+            "Masking: supported (project=, mask_sensitive=). Its results can show "
+            "raw values, such as labels or row IDs, and masking replaces those of "
+            "sensitive columns with numbered placeholders."
             if self.supports_masking
-            else "not supported"
+            else "Masking: not needed. Its results show no raw values such as "
+            "labels, example values or row IDs; numeric statistics, such as a "
+            "minimum, are never masked."
         )
         limits = ", ".join(self.work_limit_parameters) or "none"
         lines = [
             f"{self.name}: {self.summary}",
             *_text.wrap(self.signature, first="Signature: ", indent="    "),
             *_text.wrap(
-                f"Module: {self.module}. Masking: {masking}. Work limits: {limits}.",
+                f"Module: {self.module}. Work limits: {limits}.",
                 first="",
                 indent="    ",
             ),
+            *_text.wrap(masking, first="", indent="    "),
         ]
         if self.methods:
             lines.extend(_text.wrap(f"Methods: {', '.join(self.methods)}."))
@@ -1187,7 +1312,9 @@ class SummarizeCategoricalLevel(ResultModel):
     label: str | bool | int | float = Field(
         description="The value exactly as stored, so 'Yes' and 'yes ' are two "
         "levels. A value JSON can't hold, such as a Decimal, a timestamp or a "
-        "non-finite float, appears as its string form; label_type names its type."
+        "non-finite float, appears as its string form; label_type names its type. "
+        "With masking on, a sensitive column's labels are numbered placeholders, "
+        "'<masked 1>' for its first level in level order and so on."
     )
     label_type: str = Field(
         description="The Python type of the stored value, such as 'str', 'int' or "
@@ -1200,12 +1327,14 @@ class SummarizeCategoricalLevel(ResultModel):
     )
 
 
-def _level_text(level: SummarizeCategoricalLevel) -> str:
+def _level_text(level: SummarizeCategoricalLevel, *, masked: bool = False) -> str:
     """A level as the text shows it, such as "'basic': 3 (60%)".
 
-    Text labels are quoted, so surrounding spaces stay visible.
+    Text labels are quoted, so surrounding spaces stay visible. A masked
+    label, a placeholder such as <masked 1>, is not.
     """
-    label = repr(level.label) if level.label_type == "str" else str(level.label)
+    quoted = level.label_type == "str" and not masked
+    label = repr(level.label) if quoted else str(level.label)
     share = _text.format_number(level.share * 100)
     return f"{label}: {level.count:,} ({share}%)"
 
@@ -1254,7 +1383,8 @@ class SummarizeCategoricalColumn(ColumnResult):
     unused_categories: Annotated[list[str | bool | int | float], _ENTRIES] = Field(
         description="Categories of a categorical dtype that no value takes, in "
         "category order, each written as a level's label is; empty for other "
-        "dtypes."
+        "dtypes. With masking on, a sensitive column's are placeholders numbered "
+        "on from its levels'."
     )
     value_types: Annotated[list[str], _ENTRIES] = Field(
         description="The Python types of the non-missing values by name, sorted, "
@@ -1275,7 +1405,7 @@ class SummarizeCategoricalColumn(ColumnResult):
     )
 
 
-class SummarizeCategoricalResult(AnalysisResult):
+class SummarizeCategoricalResult(MaskableResult):
     """The result of summarize_categorical."""
 
     columns: Annotated[dict[str, SummarizeCategoricalColumn], _ENTRIES] = Field(
@@ -1330,7 +1460,10 @@ class SummarizeCategoricalResult(AnalysisResult):
                     e.non_missing_count,
                     e.missing_count,
                     e.cardinality,
-                    ", ".join(_level_text(level) for level in e.most_common_levels),
+                    ", ".join(
+                        _level_text(level, masked=self._masked(e.column))
+                        for level in e.most_common_levels
+                    ),
                 )
                 for e in self.columns.values()
             ],
@@ -1343,8 +1476,9 @@ class SummarizeCategoricalResult(AnalysisResult):
 
         Rows follow the selected column order, then level order. The columns
         are column, label, label_type, count and share, and label holds each
-        value exactly as stored. Columns whose values can't be hashed have no
-        rows.
+        value exactly as stored, or with masking on, a sensitive column's
+        placeholder, as in levels. Columns whose values can't be hashed have
+        no rows.
         """
         return levels_frame(self._tables)
 
@@ -1355,12 +1489,14 @@ class DuplicateGroup(ResultModel):
     size: int = Field(description="Rows in the group, at least 2.")
     row_ids: Annotated[list[RowId], _ROW_IDS] = Field(
         description="The rows' IDs in row order: index labels, or values of "
-        "id_column when it is given. The record keeps the first 10 and adds "
+        "id_column when it is given. With masking on and a sensitive id_column, "
+        "numbered placeholders, '<masked 1>' for the first ID the groups show "
+        "and so on, equal IDs alike. The record keeps the first 10 and adds "
         "row_ids_total."
     )
 
 
-class FindDuplicateRowsResult(AnalysisResult):
+class FindDuplicateRowsResult(MaskableResult):
     """The result of find_duplicate_rows."""
 
     compared_columns: Annotated[list[str], _ENTRIES] = Field(
@@ -1413,12 +1549,14 @@ class FindDuplicateRowsResult(AnalysisResult):
 
     def _text_table(self) -> _text.Table:
         rows = self.duplicate_group_row_count
+        id_column = self.parameters.get("id_column")
+        quote = not (isinstance(id_column, str) and self._masked(id_column))
         return _text.Table(
             title="Duplicate groups",
             unit=("group", "groups"),
             headers=("group", "size", "row_ids"),
             rows=[
-                (number, group.size, _text.join_labels(group.row_ids))
+                (number, group.size, _text.join_labels(group.row_ids, quote=quote))
                 for number, group in enumerate(
                     self.duplicate_groups[: _text.MAX_TABLE_ROWS]
                 )

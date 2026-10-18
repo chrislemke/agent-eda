@@ -43,6 +43,10 @@ from agent_eda.results import AnalysisResult, Limitation, Status
 
 _CODE = re.compile(r"[a-z][a-z0-9_]*")
 
+# Search tags of every analysis that supports masking. They avoid words such as
+# "values" and "columns", which questions about the data use too.
+MASKING_TAGS = ("masking", "mask sensitive")
+
 
 @dataclass(frozen=True)
 class AnalysisSpec:
@@ -91,7 +95,9 @@ def analysis[F: FunctionType](
         finding_codes: Every finding code the analysis can report.
         tags: Words that help search find the analysis.
         methods: The values its `method` argument accepts, if it has one.
-        masking: Whether it supports masking sensitive columns.
+        masking: Whether it supports masking sensitive columns. Such an
+            analysis also gets the tags in MASKING_TAGS, so a search for
+            masking finds every one of them.
         work_limits: Its `max_*` parameters that bound the work it does.
         any_column_labels: Whether it takes data whose column labels can't
             serve as names (duplicated, colliding or a MultiIndex), as
@@ -203,7 +209,7 @@ def _spec(
         module=func.__module__,
         summary=docstring.summary,
         docstring=docstring,
-        tags=tags,
+        tags=(*tags, *MASKING_TAGS) if masking else tags,
         signature=signature,
         methods=methods,
         statuses=statuses,
@@ -289,8 +295,15 @@ def _validate(spec: AnalysisSpec, options: dict[str, Any]) -> dict[str, Any]:
     try:
         validated = spec.arguments.model_validate(options)
     except pydantic.ValidationError as error:
+        problems = error.errors()
+        # The package's own error about a whole option, such as a Project
+        # given as a dict, keeps its code: invalid_call for an unknown field.
+        for problem in problems:
+            own = _own_error(problem)
+            if own is not None and len(problem["loc"]) == 1:
+                raise own from None
         raise InvalidArgumentError(
-            invalid_message(spec.name, spec.annotations, options, error.errors())
+            invalid_message(spec.name, spec.annotations, options, problems)
         ) from None
     return {name: getattr(validated, name) for name in spec.parameters[1:]}
 

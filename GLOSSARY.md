@@ -65,7 +65,7 @@ _Avoid_: placeholder, missing code, magic number
 ### Projects and guardrails
 
 **Project**:
-The optional declaration of a data science project's dataset roles and data policy, given to analyses where roles matter.
+The optional declaration of a data science project's dataset roles and data policy, given to analyses where roles or the data policy matter.
 _Avoid_: context, session, config
 
 **Dataset role**:

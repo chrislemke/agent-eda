@@ -101,3 +101,17 @@ def test_suggests_the_first_look_order_for_the_analyses_registered_so_far(capsys
     registered = {info.name for info in ANALYSES}
     expected = [[n for n in step if n in registered] for step in FIRST_LOOK]
     assert steps == [step for step in expected if step]
+
+
+def test_explains_how_to_mask_the_values_of_sensitive_columns(capsys):
+    text = " ".join(" ".join(guide_lines(capsys)).split())
+
+    assert "[supports masking] can show raw values" in text
+    assert (
+        'project=ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"], '
+        "mask_sensitive=True))"
+    ) in text
+    assert "<masked 1>" in text
+    assert (
+        "guardrail against accidental exposure, not anonymization or access control"
+    ) in text

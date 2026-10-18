@@ -6,8 +6,10 @@ from tests/recipes.py, so a new analysis is held to them without new tests.
 
 import copy
 import json
+import typing
 import warnings
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,12 +18,20 @@ from hypothesis import Phase, assume, find, given, settings
 from hypothesis import strategies as st
 from hypothesis.errors import NoSuchExample
 from recipes import RECIPES, Arguments, recipe_for
-from strategies import EDGE_FRAMES, LABEL_EDGE_FRAMES, STR, data_frames
+from strategies import (
+    EDGE_FRAMES,
+    LABEL_EDGE_FRAMES,
+    STR,
+    data_frames,
+    frames_with_secrets,
+)
 
 import agent_eda as ae
 
 ANALYSES = [info.name for info in ae.list_analyses().analyses]
 INFO = {info.name: info for info in ae.list_analyses().analyses}
+# The analyses whose results can show raw values, and so support masking.
+MASKING = [info.name for info in ae.list_analyses().analyses if info.supports_masking]
 
 
 @pytest.mark.parametrize("name", ANALYSES)
@@ -61,6 +71,66 @@ def test_every_analysis_keeps_the_contract_on_edge_cases(name, frame):
         pytest.skip(f"{frame!r} allows no valid call of {name}")
 
     check_contract(name, df, arguments)
+
+
+@pytest.mark.parametrize("name", MASKING)
+@given(data=st.data())
+def test_with_masking_on_no_value_of_a_sensitive_column_reaches_the_result(name, data):
+    recipe = recipe_for(name)
+    df, markers = data.draw(frames_with_secrets(), "data")
+    arguments = recipe.required(df)
+    assume(arguments is not None)  # the data allows no valid call
+    arguments |= data.draw(recipe.options(df), "arguments")
+    arguments |= data.draw(recipe.sensitive_options(df, list(markers)), "showing")
+    arguments |= data.draw(masking_on(list(markers)), "masking")
+
+    check_contract(name, df, arguments)
+    res = getattr(ae, name)(df, **arguments)
+
+    assert res.masking.applied
+    outputs = {"the text": str(res), "to_json()": res.to_json(), **frames_as_text(res)}
+    leaks = [
+        f"{marker!r} in {where}"
+        for where, text in outputs.items()
+        for marker in sorted(set(markers.values()))
+        if marker in text.lower()
+    ]
+    assert leaks == [], "raw values of sensitive columns reached the result"
+
+
+def masking_on(columns: list[str]) -> st.SearchStrategy[Arguments]:
+    """project= and mask_sensitive= that switch masking on for these columns.
+
+    Either the project's data policy switches it on, and the call leaves it or
+    says True too, or the call switches it on against the project's setting.
+    The project may also declare a column the data lacks.
+    """
+
+    def arguments(project_masks: bool, call: bool | None, absent: bool) -> Arguments:
+        sensitive = [*columns, *(["not in the data"] if absent else [])]
+        policy = ae.DataPolicy(
+            sensitive_columns=sensitive, mask_sensitive=project_masks
+        )
+        return {"project": ae.Project(data_policy=policy), "mask_sensitive": call}
+
+    return st.builds(
+        arguments, st.just(True), st.sampled_from([None, True]), st.booleans()
+    ) | st.builds(arguments, st.just(False), st.just(True), st.booleans())
+
+
+def frames_as_text(res: Any) -> dict[str, str]:
+    """Every table to_frame() returns, as CSV text, by how to get it.
+
+    `res` is any analysis result; some take the table to return by name.
+    """
+    hints = typing.get_type_hints(res.to_frame)
+    tables = typing.get_args(hints["table"]) if "table" in hints else (None,)
+    return {
+        f"to_frame({'' if table is None else f'table={table!r}'})": (
+            res.to_frame() if table is None else res.to_frame(table=table)
+        ).to_csv()
+        for table in tables
+    }
 
 
 # What the generated DataFrames must cover, read off a column or a whole frame.
