@@ -1,20 +1,47 @@
 # agent-eda
 
-Deterministic exploratory data analysis (EDA) functions for LLM agents.
+Deterministic exploratory data analysis (EDA) for pandas DataFrames, built for LLM agents and usable by people.
 
-> Status: version 0.1, in development and not yet on PyPI. It contains the 11 first-look analyses in the table under [A first look at a new dataset](#a-first-look-at-a-new-dataset) and four discovery functions: `guide`, `search_analyses`, `list_analyses` and `describe_analysis`. An optional `Project` declares sensitive columns whose values the analyses can mask, and saves to a TOML file. The [catalogue](docs/eda-python-implementation-catalogue.md) lists the analyses planned after these.
+> Status: version 0.1, in development and not yet on PyPI. It ships 11 first-look analyses, four discovery functions and an optional `Project` for masking sensitive columns. The [catalogue](docs/eda-python-implementation-catalogue.md) lists the analyses planned next.
 
-agent-eda is a Python library for the EDA phase of a data science project: data quality, missing values, duplicates, distributions, associations, leakage checks and more. Each analysis is a plain function. It takes a pandas DataFrame and typed arguments and returns a typed result. The library never calls an LLM or the network, so the same data, arguments and seed always give the same result.
+Each analysis is a plain Python function. It takes a DataFrame and typed keyword arguments and returns a typed result that prints as a short text summary. The library never calls an LLM or the network, so the same data and arguments always give the same result, down to the byte.
 
-Three kinds of callers matter equally:
+It is written for three kinds of callers:
 
-- agents running in AWS Bedrock AgentCore that use its Code Interpreter
+- agents in AWS Bedrock AgentCore, through its Code Interpreter
 - coding agents such as Claude Code
-- people, who install and import it like any other package
+- people, who use it like any other package
 
-## Usage
+## Features
 
-Call an analysis with the DataFrame first and every other argument by keyword. There is nothing to set up, and the analysis leaves the DataFrame unchanged.
+- **11 first-look analyses**: structure, column types, missing values, placeholder codes such as -999, distributions, duplicates, keys, the target and associations.
+- **Results you can read and parse**: `print(res)` gives at most 40 lines of text, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
+- **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
+- **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package from inside Python.
+- **Helpful errors**: a misspelled column name raises an error that lists the available columns and the closest match.
+- **Opt-in masking** of sensitive columns, such as e-mail addresses, in everything a result shows.
+- **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, all preinstalled in AgentCore Code Interpreter.
+
+## Installation
+
+agent-eda needs Python 3.12 or later. It runs with numpy 1.26 through 2.x and pandas 2.2 through 3.x.
+
+Until 0.1 is on PyPI, build the wheel in a clone of this repository with [uv](https://docs.astral.sh/uv/):
+
+```sh
+uv build --wheel  # writes dist/agent_eda-0.1.0-py3-none-any.whl
+pip install dist/agent_eda-0.1.0-py3-none-any.whl
+```
+
+Once it is released, `pip install agent-eda` is enough.
+
+**AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode the session can't reach PyPI: upload the wheel and run `pip install --no-deps <wheel>`, or, if pip is blocked, put the wheel file on `sys.path` and import from it directly. Installs don't carry over to a new session. Code Interpreter returns only printed output, so always `print()` results.
+
+**AgentCore Runtime.** Add `agent-eda` to the agent's container image or code zip. AWS's example zip command uses the `manylinux2014` platform tag, which installs old numpy and pandas releases; use `--python-platform aarch64-manylinux_2_28` to get current ones.
+
+## Quick start
+
+Pass the DataFrame first and every other argument by keyword. There is nothing to set up, and analyses never change the DataFrame.
 
 ```python
 import pandas as pd
@@ -34,7 +61,7 @@ df = pd.DataFrame(
 )
 
 res = ae.summarize_numeric(df, columns=["age", "income"])
-print(res)  # short text: status, key numbers, findings, limitations
+print(res)
 ```
 
 It prints:
@@ -52,45 +79,33 @@ Limitations: none
 More: res.to_frame() has all 2 columns; res.findings, res.limitations and res.to_json() have the rest.
 ```
 
-The printed text stays within 40 lines of 120 characters however large the data, and counts what it leaves out. The result holds the rest:
+The mean age of -86.12 is the first sign of trouble. The sample data hides three problems: a -999 that stands for a missing age, a plan written both `'basic'` and `'Basic '`, and one customer recorded twice, under the IDs 102 and 108.
 
-```python
-table = res.to_frame()  # every statistic of every column, as a DataFrame
-record = res.to_json()  # the whole result as strict JSON
-age = res.columns["age"]  # typed fields, such as age.median and age.std
-```
+## Analyses
 
-A mistake in a call raises an error from `ae.errors` whose message says how to fix it, such as the closest name for a misspelled column.
+The analyses are listed in the order `ae.guide()` suggests for a first look at a new dataset. Most need nothing but the DataFrame. The ones that need project knowledge, such as your schema or your target, ask for it; they never guess it.
 
-### Finding an analysis
+| Step | Analysis | What it answers | Required arguments |
+| --- | --- | --- | --- |
+| 1 | `describe_dataset` | What does this dataset contain? | none |
+| 2 | `infer_column_semantics` | What kind of values does each column hold? | none |
+| 2 | `validate_column_types` | Do the columns hold the logical types I declared? | `schema` |
+| 3 | `profile_missing_values` | How much data is missing, and where? | none |
+| 4 | `detect_missing_sentinels` | Which values look like stand-ins for missing data? | none |
+| 5 | `summarize_numeric` | How are the values in each numeric column distributed? | none |
+| 5 | `summarize_categorical` | Which values occur in each categorical column, and how often? | none |
+| 6 | `find_duplicate_rows` | Are there exact duplicate rows? | none |
+| 6 | `find_candidate_keys` | Which columns, alone or combined, uniquely identify rows? | none |
+| 7 | `profile_target` | What does the target look like for this task? | `target_column`, `task` |
+| 8 | `compute_association_matrix` | How strongly are pairs of columns associated? | none |
 
-```python
-ae.guide()  # one page: how to call and read analyses, every analysis, the first-look order
-print(ae.search_analyses("nulls per column"))  # analyses for a question in your words
-print(ae.describe_analysis("profile_missing_values"))  # its parameters and an example
-```
+Every analysis that works column by column takes `columns=` to limit it to some columns; the default uses every column it can. `help(ae.<name>)` and `ae.describe_analysis("<name>")` show all the options.
 
-### A first look at a new dataset
-
-`ae.guide()` suggests this order. It covers structure, logical types, missing values and their stand-ins, distributions, duplicates and keys, the target and associations:
-
-| Step | Analysis | The question it answers |
-| --- | --- | --- |
-| 1 | `describe_dataset` | What does this dataset contain? |
-| 2 | `infer_column_semantics` | What kind of values does each column hold? |
-| 2 | `validate_column_types` | Do the columns hold the logical types I declared? |
-| 3 | `profile_missing_values` | How much data is missing, and where? |
-| 4 | `detect_missing_sentinels` | Which values look like stand-ins for missing data? |
-| 5 | `summarize_numeric` | How are the values in each numeric column distributed? |
-| 5 | `summarize_categorical` | Which values occur in each categorical column, and how often? |
-| 6 | `find_duplicate_rows` | Are there exact duplicate rows? |
-| 6 | `find_candidate_keys` | Which columns, alone or combined, uniquely identify rows? |
-| 7 | `profile_target` | What does the target look like for this task? |
-| 8 | `compute_association_matrix` | How strongly are pairs of columns associated? |
+Run all 11 on the sample data and print what they suspect:
 
 ```python
 schema = {"customer_id": "integer", "age": "integer", "plan": "categorical"}
-for res in [
+results = [
     ae.describe_dataset(df),
     ae.infer_column_semantics(df),
     ae.validate_column_types(df, schema=schema),
@@ -102,19 +117,69 @@ for res in [
     ae.find_candidate_keys(df),
     ae.profile_target(df, target_column="churned", task="binary_classification"),
     ae.compute_association_matrix(df),
-]:
-    print(res)
+]
+for res in results:
+    for finding in res.findings:
+        if finding.assessment == "suspected":
+            print(f"{res.analysis}: {finding.claim}")
 ```
 
-On this data they flag three problems. The -999 in `age` likely stands in for a missing age, and it pulled the mean above down to -86.12. `plan` holds `'Basic '` next to `'basic'`. Customers 102 and 108 are the same record twice. The analyses never guess a project-specific value. `validate_column_types` needs your schema, and `profile_target` needs the target column and its task.
+```text
+infer_column_semantics: 1 column looks like an identifier, every value distinct: 'customer_id'.
+detect_missing_sentinels: 1 value in 1 column may stand in for missing values: 'age'.
+summarize_categorical: 1 column holds labels that differ only by case or surrounding spaces: 'plan'.
+find_duplicate_rows: 2 rows form 1 duplicate group; 1 is an excess copy (duplicate_share 0.125).
+compute_association_matrix: 3 pairs are perfectly associated, an absolute value of 1, so one column may duplicate or derive from the other: ('email', 'age'), ('email', 'income') and ('email', 'churned').
+```
 
-### Masking sensitive columns
+The second, third and fourth lines are the three planted problems. The other two are worth a glance but expected here: `customer_id` is meant to be an identifier, and `email` is unique for all but the duplicated customer, so it "predicts" every other column perfectly. A finding says what the data suggests; deciding what it means is your call.
 
-Some analyses can show raw values, such as the labels `summarize_categorical` counts or the row IDs `find_duplicate_rows` lists. These take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`. A `Project`'s data policy names the sensitive columns, and masking replaces their values with numbered placeholders. Counts and shares stay:
+## Discovery
+
+Four functions describe the package from inside Python, so an agent can start without reading the source:
+
+| Function | What it gives you |
+| --- | --- |
+| `ae.guide()` | Prints one page: how to call an analysis and read its result, every analysis, and the first-look order. |
+| `ae.search_analyses(query)` | The analyses that best match a question in your own words, such as "nulls per column". |
+| `ae.describe_analysis(name)` | An analysis's parameters, statuses, result fields, finding codes and an example. |
+| `ae.list_analyses()` | Every analysis with its module, question and masking support; `.to_frame()` gives a table. |
+
+```python
+ae.guide()
+print(ae.search_analyses("nulls per column"))
+print(ae.describe_analysis("profile_missing_values"))
+```
+
+## Reading a result
+
+Every result has the same shared fields, next to its own:
+
+- `res.status` says how the run ended: `completed`, `partial`, `insufficient_data`, `not_applicable`, `missing_prerequisites`, `budget_exceeded`, `blocked_by_policy` or `failed`. `res.status_reason` says why it didn't complete.
+- `res.findings` are claims about the data, each with a `code`, a `claim` and an `assessment`: `descriptive`, `suspected`, `violation`, `passed` or `unknown`.
+- `res.limitations` say what limits how far the numbers can be read, such as too few values for a statistic.
+- `res.parameters` records every argument the analysis used, defaults included.
+
+```python
+res = ae.summarize_numeric(df, columns=["age", "income"])
+table = res.to_frame()  # every statistic of every column, as a DataFrame
+record = res.to_json()  # the whole result as strict JSON
+age = res.columns["age"]  # typed fields, such as age.median and age.std
+```
+
+The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, and carry their totals.
+
+A mistake in a call, such as a misspelled column or an unknown option, raises a subclass of `ae.errors.AgentEDAError` before any work starts. Each error has a stable `code`, and its message says what is wrong and how to fix it. Problems in the data never raise; they show up in the status, the findings and the limitations.
+
+## Projects and masking
+
+Five analyses can show raw values, such as the labels `summarize_categorical` counts or the row IDs `find_duplicate_rows` lists: `validate_column_types`, `detect_missing_sentinels`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
+
+A `Project` holds settings that stay the same across calls. Its data policy names the sensitive columns, and masking replaces their values with numbered placeholders. Counts and shares stay:
 
 ```python
 policy = ae.DataPolicy(sensitive_columns=["email"], mask_sensitive=True)
-project = ae.Project(data_policy=policy)
+project = ae.Project(name="churn", data_policy=policy)
 print(ae.summarize_categorical(df, columns=["email"], project=project))
 ```
 
@@ -131,41 +196,39 @@ Limitations: none
 More: res.to_frame() has all 7 levels; res.findings, res.limitations and res.to_json() have the rest.
 ```
 
-Masking covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike. It stays off until you switch it on, even for declared sensitive columns. `mask_sensitive=True` in the data policy switches it on for every call that gets the project, and `mask_sensitive=True` or `False` in a call decides for that call. Masking never touches numeric statistics, such as a minimum, or index labels, so pass a non-sensitive `id_column` when the index holds sensitive values.
+How masking is decided:
 
-An agent that runs each script in a new process can save the project once and load it in every later script:
+- It is off by default, even for columns declared sensitive.
+- `mask_sensitive=True` in the data policy switches it on for every call that gets the project.
+- `mask_sensitive=True` or `False` in a call overrides the project for that call.
+- It covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
+- It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` when the index holds sensitive values.
+
+Save the project once and load it in every later script, which helps an agent that runs each script in a new process:
 
 ```python
 project.save("project.toml")
 project = ae.Project.load("project.toml")
 ```
 
-Masking is a guardrail against accidental exposure, not anonymization or access control. The package runs in the agent's own Python process, so an agent that can call it can also read the data directly. [ADR 0001](docs/adr/0001-data-policy-is-a-guardrail.md) records why.
+`project.toml` is plain TOML that you can edit by hand:
 
-## Installation
+```toml
+# An agent-eda Project. Load it with ae.Project.load(path).
+name = "churn"
 
-Nothing is on PyPI yet. Until then, build the wheel in a clone of this repository with `uv build --wheel`. It lands in `dist/`, ready for `pip install` or for uploading to a Code Interpreter session. Once it is released:
-
-**People and coding agents**
-
-```sh
-pip install agent-eda
+[data_policy]
+sensitive_columns = [
+    "email",
+]
+mask_sensitive = true
 ```
 
-**AgentCore Runtime.** Add `agent-eda` to the agent's container image or code zip. AWS's example zip command uses the `manylinux2014` platform tag, which installs old numpy and pandas releases. Use `--python-platform aarch64-manylinux_2_28` to get current ones.
-
-**AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode the session can't reach PyPI. Upload the wheel and run `pip install --no-deps <wheel>`, or, if pip is blocked, put the wheel file on `sys.path` and import from it directly. Installs don't carry over to a new session. Code Interpreter only returns printed output to the agent, so `print()` results.
-
-## Design documents
-
-- [GLOSSARY.md](GLOSSARY.md) defines the terms used in code and docs.
-- [docs/adr/](docs/adr/) records the decisions that are hard to reverse, and why.
-- [docs/eda-python-implementation-catalogue.md](docs/eda-python-implementation-catalogue.md) lists the planned analyses and marks the ones that shipped, with how they differ from the plan.
-- [AGENTS.md](AGENTS.md) holds the rules for anyone writing code here, people or agents.
+Masking is a guardrail against accidental exposure, not anonymization or access control. The package runs in the agent's own Python process, so an agent that can call it can also read the data directly. [ADR 0001](docs/adr/0001-data-policy-is-a-guardrail.md) records why.
 
 ## Development
 
-Install the project with its dev tools:
+The project uses [uv](https://docs.astral.sh/uv/). Clone the repository, then install the package with its dev tools and the git hooks:
 
 ```sh
 uv sync
@@ -182,19 +245,25 @@ uv run pre-commit install
 | Test with more generated examples | `uv run pytest --hypothesis-profile=thorough` |
 | Test with coverage | `uv run pytest --cov` |
 | Benchmark | `uv run pytest -m benchmark` |
+| Build the wheel | `uv build --wheel` |
 | Run all hooks | `uv run pre-commit run --all-files` |
 
-The minimum-versions run installs every direct dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1, and the dev tools' lower bounds) into a throwaway environment on Python 3.12, the newest Python with numpy 1.26 wheels. It leaves `uv.lock` and `.venv` unchanged. Keep `--isolated`: without it, uv rewrites `uv.lock` for the new resolution mode.
+Notes on the less obvious commands:
 
-The packaging tests build the wheel offline with the `uv_build` backend from the dev dependencies, pinned to the range in `[build-system]`, so they need no network and work with any uv version. When `AGENT_EDA_WHEEL` names a wheel file, they check that file instead.
+- **Minimum versions.** The run installs every dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1) into a throwaway environment on Python 3.12. Keep `--isolated`; without it, uv rewrites `uv.lock`.
+- **Property tests.** Hypothesis calls every analysis on generated DataFrames full of edge cases. It runs derandomized: 50 examples per analysis, or 1,000 with the `thorough` profile.
+- **Benchmark.** It times every analysis with default arguments on a deterministic DataFrame of 1,000,000 rows and 100 mixed columns, with BLAS and pyarrow limited to 2 threads, and fails any analysis that takes 5 seconds or more. The default test run skips it.
+- **README.** `tests/test_readme.py` runs this README's python examples in order and fails when a `text` block right after one differs from what it prints. It also checks the analyses table against `ae.guide()`.
+- **New analyses** need a recipe in `tests/recipes.py`, or the suite fails and says so. [AGENTS.md](AGENTS.md) has the rules every analysis follows.
 
-The property tests call every analysis in `ae.list_analyses()` on DataFrames that Hypothesis generates full of edge cases, and on fixed ones such as a column of every dtype. Hypothesis runs derandomized, so every run tests the same 50 examples per analysis, or 1,000 with the `thorough` profile. The benchmark times every analysis with its default arguments on a deterministic DataFrame of 1,000,000 rows and 100 mixed columns, fails one that takes 5 seconds or more, and prints the timings at the end. It limits NumPy's BLAS and pyarrow to 2 threads, like the 2-vCPU AgentCore session it targets. The default test run skips it. Both call each analysis through its recipe in `tests/recipes.py`, so a new analysis needs one there, or the suite fails and says so.
+The pre-commit hooks run ruff, ty and file checks on every commit, and the tests on `git push`. On GitHub, `.github/workflows/ci.yml` runs lint, type checks and the tests on Python 3.12 to 3.14 on Linux x86_64 and ARM64, the minimum-versions run, and a packaging job that installs the wheel offline with only the required dependencies. The benchmark runs only when started by hand from the Actions tab.
 
-`tests/test_readme.py` runs the README's python examples in order and fails when a `text` block right after one differs from what it prints. It also checks that the first-look table follows `ae.guide()`, with each analysis's own question.
+## Documentation
 
-On every commit, pre-commit checks the files (whitespace, line endings, YAML/TOML/JSON syntax, merge conflict markers, private keys, files over 1 MB), keeps `uv.lock` in sync, and runs ruff and ty. The tests run on `git push`.
-
-On GitHub, `.github/workflows/ci.yml` runs on every push and pull request. One job runs ruff and ty. The tests run with the versions in `uv.lock` on Python 3.12, 3.13 and 3.14 on Linux x86_64, and on Python 3.12 on Linux ARM64. Another job runs the minimum-versions command from the table, and `tests/test_ci_workflow.py` fails if the two differ. The packaging job builds the wheel and runs the packaging tests on it. It then installs the wheel with `pip install --no-deps` into an environment that holds only the six required dependencies at their minimum versions, as in an offline AgentCore sandbox, and runs `tests/smoke.py` there. That script prints a result and runs every analysis's docstring examples. The benchmark runs only when started by hand from the Actions tab. It runs on Linux ARM64, limited to 2 CPUs with `taskset`, once with the latest and once with the minimum versions.
+- [GLOSSARY.md](GLOSSARY.md): the terms used in code, docstrings and messages.
+- [docs/adr/](docs/adr/): the decisions that are hard to reverse, and why.
+- [docs/eda-python-implementation-catalogue.md](docs/eda-python-implementation-catalogue.md): the planned analyses, with the shipped ones marked and their differences from the plan.
+- [AGENTS.md](AGENTS.md): the rules for anyone writing code here, people or agents.
 
 ## License
 

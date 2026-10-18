@@ -76,10 +76,10 @@ Read the result:
 - res.to_frame() returns the complete table; res.to_dict() and res.to_json() return the whole record."""
 
 _GUIDE_MASKING = """\
-Masking: analyses marked [supports masking] can show raw values, such as labels or row IDs. Pass
-    project=ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"], mask_sensitive=True))
-to show <masked 1> and so on instead, a guardrail against accidental exposure, not anonymization or access control.
-Save it once with project.save("project.toml") and load it in each later script with ae.Project.load("project.toml")."""
+Masking: analyses marked [supports masking] can show raw values, such as labels or row IDs. Create a project:
+    project = ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"], mask_sensitive=True))
+and pass project=project to show <masked 1> and so on, a guardrail against accidental exposure, not anonymization
+or access control. Save it with project.save("project.toml") and in a later script ae.Project.load("project.toml")."""
 
 _GUIDE_MORE = """\
 Find more:

@@ -25,9 +25,12 @@ def test_the_usage_examples_run_as_written_and_print_what_the_readme_shows(
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed):
             exec(compile(blocks[i][1], f"README.md, block {i}", "exec"), namespace)
-        # A text block right after an example shows exactly what it prints.
+        # A text block right after an example shows exactly what it prints, and
+        # a toml block the project file it saved.
         if i + 1 < len(blocks) and blocks[i + 1][0] == "text":
             assert printed.getvalue() == blocks[i + 1][1]
+        if i + 1 < len(blocks) and blocks[i + 1][0] == "toml":
+            assert Path("project.toml").read_text() == blocks[i + 1][1]
 
 
 def test_the_first_look_table_follows_the_guide_with_each_analysis_question(capsys):
@@ -42,8 +45,8 @@ def test_the_first_look_table_follows_the_guide_with_each_analysis_question(caps
             break
         expected += [(step[1], n, summaries[n]) for n in step[2].split(" and ")]
 
-    # Rows such as: | 1 | `describe_dataset` | What does this dataset contain? |
-    row = re.compile(r"^\| (\d+) \| `(\w+)` \| (.+?) \|$", flags=re.MULTILINE)
+    # Rows such as: | 1 | `describe_dataset` | What does this dataset contain? | none |
+    row = re.compile(r"^\| (\d+) \| `(\w+)` \| ([^|]+?) \|", flags=re.MULTILINE)
     assert row.findall(README.read_text()) == expected
 
 

@@ -108,9 +108,10 @@ def test_explains_how_to_mask_the_values_of_sensitive_columns(capsys):
 
     assert "[supports masking] can show raw values" in text
     assert (
-        'project=ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"], '
+        'project = ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"], '
         "mask_sensitive=True))"
     ) in text
+    assert "pass project=project" in text
     assert "<masked 1>" in text
     assert (
         "guardrail against accidental exposure, not anonymization or access control"
