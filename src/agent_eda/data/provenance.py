@@ -68,7 +68,9 @@ def describe_dataset(
         column are distributed, call `summarize_numeric`, and for which values
         occur in each text, categorical and boolean column and how often,
         `summarize_categorical`. For rows that repeat, call
-        `find_duplicate_rows`. `list_analyses` lists the other analyses.
+        `find_duplicate_rows`; for which columns, alone or combined, identify
+        rows, call `find_candidate_keys`. `list_analyses` lists the other
+        analyses.
 
     Args:
         data (pd.DataFrame): The data to describe. Any column labels are
@@ -151,6 +153,8 @@ def describe_dataset(
             for every text, categorical and boolean column.
         find_duplicate_rows: Groups of rows that are equal in every column,
             with their row IDs.
+        find_candidate_keys: Which columns, alone or combined, uniquely identify
+            rows, with duplicate and missing counts.
         list_analyses: Every analysis, with the question each one answers.
     """
     row_count = len(data)

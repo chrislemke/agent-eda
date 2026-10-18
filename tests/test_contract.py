@@ -194,6 +194,18 @@ def keyed_by_str(annotation):
     )
 
 
+def test_work_limits_and_budget_exceeded_come_together(name):
+    info = INFO[name]
+    described = {p.name: p for p in ae.describe_analysis(name).parameters}
+
+    assert ("budget_exceeded" in info.statuses) == bool(info.work_limit_parameters)
+    for parameter in info.work_limit_parameters:
+        # An int with a default and a lower bound, such as 1 <= max_pairs.
+        assert described[parameter].type == "int"
+        assert not described[parameter].required
+        assert described[parameter].valid_range
+
+
 def test_analysis_is_hidden_from_pytest(name):
     assert getattr(ae, name).__test__ is False
 
