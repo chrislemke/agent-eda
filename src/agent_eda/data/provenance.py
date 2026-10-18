@@ -62,11 +62,14 @@ def describe_dataset(
         duplicated or colliding column labels, MultiIndex columns, a non-unique
         index, all-missing columns and constant columns. Every other analysis
         raises on bad column labels, so run this one to find them. It never
-        shows a raw data value. For missing values per column and per row,
-        counting stand-ins such as -999 that you declare, call
-        `profile_missing_values` next; for how the values of each numeric
-        column are distributed, call `summarize_numeric`, and for which values
-        occur in each text, categorical and boolean column and how often,
+        shows a raw data value. A dtype only tells how pandas stores a column:
+        to learn each column's logical type from its values, such as
+        identifiers or numbers and dates stored as text, call
+        `infer_column_semantics` next. For missing values per column and per
+        row, counting stand-ins such as -999 that you declare, call
+        `profile_missing_values`; for how the values of each numeric column are
+        distributed, call `summarize_numeric`, and for which values occur in
+        each text, categorical and boolean column and how often,
         `summarize_categorical`. For rows that repeat, call
         `find_duplicate_rows`; for which columns, alone or combined, identify
         rows, call `find_candidate_keys`. Columns whose values, not labels,
@@ -146,6 +149,8 @@ def describe_dataset(
         1
 
     See Also:
+        infer_column_semantics: The logical type of each column, from its values,
+            with flags for identifiers and numbers or dates stored as text.
         profile_missing_values: Missing values per column and per row, counting
             declared sentinel values.
         summarize_numeric: Counts, mean, spread, quantiles and shape of every

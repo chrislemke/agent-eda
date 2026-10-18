@@ -5,6 +5,7 @@ import difflib
 import itertools
 import json
 import math
+import typing
 from collections.abc import Sequence
 from typing import Annotated, Any, Literal, Self
 
@@ -40,6 +41,31 @@ Status = Literal[
 ]
 
 Assessment = Literal["descriptive", "suspected", "violation", "passed", "unknown"]
+
+# What a column's values mean, as opposed to the dtype pandas stores them in.
+# infer_column_semantics ranks these for each column, and a declared schema
+# names one per column.
+LogicalType = Literal[
+    "boolean",
+    "integer",
+    "float",
+    "categorical",
+    "text",
+    "datetime",
+    "timedelta",
+]
+
+# What infer_column_semantics flags in a column that needs attention.
+ColumnFlag = Literal[
+    "identifier_like",
+    "constant",
+    "all_missing",
+    "numbers_as_text",
+    "dates_as_text",
+    "non_iso_date_text",
+    "boolean_like",
+    "mixed_value_types",
+]
 
 # The package-wide list of limitation codes. Codes are public API: renaming one
 # follows the rule for renamed names.
@@ -83,24 +109,32 @@ class _Cap:
     The record (to_dict and to_json) keeps the first `limit` entries and adds
     `<field>_total` with the full count. The result object keeps every entry.
     With `each_list`, a dict field stays whole and every list or dict inside it
-    is capped instead, with `<key>_total` next to it. With `total`, the field
-    holds only the first entries even on the result object, and
-    `<field>_total` takes the full count from the field that `total` names.
+    is capped instead, with `<key>_total` next to it, except the keys named in
+    `whole`. With `total`, the field holds only the first entries even on the
+    result object, and `<field>_total` takes the full count from the field that
+    `total` names.
     """
 
     def __init__(
-        self, limit: int, *, each_list: bool = False, total: str | None = None
+        self,
+        limit: int,
+        *,
+        each_list: bool = False,
+        total: str | None = None,
+        whole: tuple[str, ...] = (),
     ) -> None:
         self.limit = limit
         self.each_list = each_list
         self.total = total
+        self.whole = whole
 
 
 # The caps the spec sets for every list in the record that grows with the data.
 _ROW_IDS = _Cap(10)
 _EXAMPLE_VALUES = _Cap(5)
 _ENTRIES = _Cap(100)
-_LISTS_INSIDE = _Cap(100, each_list=True)
+# For parameters: list and mapping arguments, but not data's shape.
+_LISTS_INSIDE = _Cap(100, each_list=True, whole=("data",))
 
 _RECORD = "agent_eda_record"
 
@@ -264,7 +298,7 @@ class ResultModel(BaseModel):
                 lists = {
                     key: cap.limit
                     for key, v in inner.items()
-                    if isinstance(v, list | dict)
+                    if isinstance(v, list | dict) and key not in cap.whole
                 }
                 record[name] = _capped(inner, lists)
         return record
@@ -1979,4 +2013,276 @@ class ComputeAssociationMatrixResult(AnalysisResult):
                 for p in self.pairs[: _text.MAX_TABLE_ROWS]
             ],
             total=len(self.pairs),
+        )
+
+
+class LogicalTypeCandidate(ResultModel):
+    """A logical type a column may hold, with its score and the reasons."""
+
+    logical_type: LogicalType = Field(description="The logical type.")
+    score: float = Field(
+        description="Heuristic score from 0 to 1 by fixed, documented rules; "
+        "higher fits better. It isn't a probability."
+    )
+    reasons: list[str] = Field(
+        description="Why the type scored this, one sentence per rule that "
+        "applied, from fixed templates that show shares and counts, never values."
+    )
+
+
+class ValueTypeCounts(ResultModel):
+    """How many of a column's non-missing values have each Python type."""
+
+    boolean: int = Field(description="Values that are booleans.")
+    number: int = Field(
+        description="Values that are numbers: int, float, Decimal, Fraction or "
+        "NumPy numbers, not booleans."
+    )
+    text: int = Field(description="Values that are strings, whatever they hold.")
+    datetime: int = Field(
+        description="Values that are datetimes or dates, pd.Timestamp included."
+    )
+    timedelta: int = Field(description="Values that are durations.")
+    other: int = Field(
+        description="Values of any other type, such as lists, dicts or periods."
+    )
+
+
+class ColumnEvidence(ResultModel):
+    """The counts and shares a column's candidates and flags rest on.
+
+    Every share is of the non-missing values and is null when there are none.
+    Text is parsed once per distinct value, weighted by how often it occurs.
+    """
+
+    non_missing_count: int = Field(
+        description="Values that aren't missing: None, NaN, NaT and pd.NA are "
+        "missing, as pandas isna() counts them, and so is NaN that a float "
+        "column stores as a value."
+    )
+    distinct_count: int | None = Field(
+        description="Distinct non-missing values, as pandas counts them, so 1, "
+        "1.0 and True are one value; null when values such as lists can't be "
+        "hashed."
+    )
+    uniqueness_share: float | None = Field(
+        description="distinct_count / non_missing_count: 1 when every value is "
+        "distinct."
+    )
+    boolean_share: float | None = Field(
+        description="Values that are booleans or read as one: numbers equal to 0 "
+        "or 1, and the words true, false, t, f, yes, no, y and n in any case."
+    )
+    number_share: float | None = Field(
+        description="Values that are numbers or text that parses as a decimal "
+        "number, such as '42', '-3.5' or '1e-3'."
+    )
+    integer_share: float | None = Field(
+        description="Values that are or parse as whole numbers, such as 42, 42.0 "
+        "or '4.2e1'."
+    )
+    datetime_share: float | None = Field(
+        description="Values that are datetimes or dates, or text that parses as "
+        "an ISO 8601 date, with or without a time."
+    )
+    timedelta_share: float | None = Field(description="Values that are durations.")
+    leading_zero_share: float | None = Field(
+        description="Text values that are whole numbers written with a leading "
+        "zero, such as '007': codes, which don't parse as numbers."
+    )
+    non_iso_date_share: float | None = Field(
+        description="Text values that look like dates without being ISO 8601, "
+        "such as '01/02/2020' or '5 Jan 2020'; they are never parsed."
+    )
+    plain_text_share: float | None = Field(
+        description="Text values that parse as no number, ISO 8601 date or "
+        "boolean; leading zeros and date-like text included. With leading zeros "
+        "in a column, its numbers count as plain text too."
+    )
+    multi_word_share: float | None = Field(
+        description="Plain text values with a space between other characters."
+    )
+    value_types: list[str] = Field(
+        description="The names of the Python types of the non-missing values, "
+        "sorted, as summarize_categorical reports them, such as ['int', 'str']; "
+        "more than one flags mixed_value_types."
+    )
+    value_type_counts: ValueTypeCounts = Field(
+        description="The non-missing values by the kind of value the scores read: "
+        "booleans, numbers, text, datetimes, durations and others."
+    )
+
+
+class InferColumnSemanticsColumn(ColumnResult):
+    """What infer_column_semantics found in one column."""
+
+    dtype: str = Field(description="The dtype as pandas reports it, such as 'str'.")
+    inferred_logical_type: LogicalType | None = Field(
+        description="The top candidate's logical type; null when no candidate "
+        "scores above 0. A guess from the values, never a declaration."
+    )
+    declared_logical_type: LogicalType | None = Field(
+        description="The logical type declared_schema gives the column; null when "
+        "it declares none. Inference never overwrites it."
+    )
+    matches_declared: bool | None = Field(
+        description="Whether inferred_logical_type equals declared_logical_type; "
+        "null when either is null."
+    )
+    candidates: list[LogicalTypeCandidate] = Field(
+        description="The logical types with a score above 0, best first, ties in "
+        "the order boolean, integer, float, datetime, timedelta, categorical, "
+        "text. Integer and float also appear, scored 0, when leading zeros rule "
+        "them out."
+    )
+    flags: list[ColumnFlag] = Field(
+        description="What needs attention, in a fixed order: identifier_like, "
+        "constant, all_missing, numbers_as_text, dates_as_text, "
+        "non_iso_date_text, boolean_like and mixed_value_types."
+    )
+    evidence: ColumnEvidence = Field(
+        description="The counts and shares the candidates and flags rest on."
+    )
+
+
+_FLAGS: tuple[ColumnFlag, ...] = typing.get_args(ColumnFlag)
+
+
+class InferColumnSemanticsResult(AnalysisResult):
+    """The result of infer_column_semantics."""
+
+    columns: Annotated[dict[str, InferColumnSemanticsColumn], _ENTRIES] = Field(
+        description="One entry per selected column, keyed by column name, in the "
+        "selected order. The record keeps the first 100 and adds columns_total; "
+        "to_frame() has every column."
+    )
+    missing_declared_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Columns declared_schema names that the data doesn't have, in "
+        "declared order; empty without declared_schema."
+    )
+
+    def _text_facts(self) -> list[str]:
+        facts = [
+            "Scores rank logical types by fixed rules and aren't probabilities. "
+            "Dates parse as ISO 8601 only."
+        ]
+        if self.parameters.get("declared_schema") is None:
+            facts.append(
+                "No declared_schema was given, so no column was compared with a "
+                "declared logical type."
+            )
+        else:
+            entries = self.columns.values()
+            declared = sum(e.declared_logical_type is not None for e in entries)
+            matching = sum(e.matches_declared is True for e in entries)
+            differing = sum(e.matches_declared is False for e in entries)
+            missing = len(self.missing_declared_columns)
+            facts.append(
+                f"declared_schema: {_text.plural(declared, 'column', 'columns')} "
+                f"declared in the data, {matching:,} with that top candidate, "
+                f"{differing:,} with another; {missing:,} not in the data."
+            )
+        return facts
+
+    def _text_other_tables(self) -> list[str]:
+        return ["res.to_frame(table='candidates') has every candidate with its reasons"]
+
+    def _text_table(self) -> _text.Table:
+        declared = self.parameters.get("declared_schema") is not None
+        headers = ["column", "inferred", "score", "next", "next_score"]
+        if declared:
+            headers.append("declared")
+        headers.append("flags")
+        rows = []
+        for entry in self.columns.values():
+            top = entry.candidates[0] if entry.candidates else None
+            runner_up = entry.candidates[1] if len(entry.candidates) > 1 else None
+            row: list[_text.Cell] = [
+                entry.column,
+                top.logical_type if top else None,
+                top.score if top else None,
+                runner_up.logical_type if runner_up else None,
+                runner_up.score if runner_up else None,
+            ]
+            if declared:
+                row.append(entry.declared_logical_type)
+            row.append(", ".join(entry.flags))
+            rows.append(row)
+        return _text.Table(
+            title="Columns", unit=("column", "columns"), headers=headers, rows=rows
+        )
+
+    def to_frame(
+        self, table: Literal["columns", "candidates"] = "columns"
+    ) -> pd.DataFrame:
+        """One of the result's two tables as a DataFrame.
+
+        Args:
+            table: 'columns', the default, gives one row per column in selected
+                order: its status, dtype, inferred and declared logical types,
+                the top score, one boolean column per flag and the evidence,
+                with value_types joined by ", " and the value type counts as
+                boolean_values, number_values and so on. 'candidates' gives one
+                row per candidate: the column, its rank from 1, the logical
+                type, the score and the reasons.
+        """
+        _check_table(table, ("columns", "candidates"))
+        if table == "candidates":
+            return self._candidates_frame()
+        entries = list(self.columns.values())
+        frame: dict[str, pd.Series] = {
+            "column": pd.Series([e.column for e in entries], dtype=object),
+            "status": pd.Series([e.status for e in entries], dtype=object),
+            "status_reason": pd.Series(
+                [e.status_reason.code if e.status_reason else None for e in entries],
+                dtype=object,
+            ),
+            "dtype": pd.Series([e.dtype for e in entries], dtype=object),
+            "inferred_logical_type": pd.Series(
+                [e.inferred_logical_type for e in entries], dtype=object
+            ),
+            "score": pd.Series(
+                [e.candidates[0].score if e.candidates else None for e in entries],
+                dtype="float64",
+            ),
+            "declared_logical_type": pd.Series(
+                [e.declared_logical_type for e in entries], dtype=object
+            ),
+            "matches_declared": pd.Series(
+                [e.matches_declared for e in entries], dtype=object
+            ),
+        }
+        for flag in _FLAGS:
+            frame[flag] = pd.Series([flag in e.flags for e in entries], dtype="bool")
+        for name, field in ColumnEvidence.model_fields.items():
+            if name == "value_types":
+                frame[name] = pd.Series(
+                    [", ".join(e.evidence.value_types) for e in entries], dtype=object
+                )
+            elif name != "value_type_counts":
+                frame[name] = pd.Series(
+                    [getattr(e.evidence, name) for e in entries],
+                    dtype=_FRAME_DTYPES.get(field.annotation),
+                )
+        for kind in ValueTypeCounts.model_fields:
+            frame[f"{kind}_values"] = pd.Series(
+                [getattr(e.evidence.value_type_counts, kind) for e in entries],
+                dtype="int64",
+            )
+        return pd.DataFrame(frame, columns=list(frame))
+
+    def _candidates_frame(self) -> pd.DataFrame:
+        rows = [
+            (entry.column, rank, c.logical_type, c.score, " ".join(c.reasons))
+            for entry in self.columns.values()
+            for rank, c in enumerate(entry.candidates, start=1)
+        ]
+        names = ["column", "rank", "logical_type", "score", "reasons"]
+        dtypes = [object, "int64", object, "float64", object]
+        return pd.DataFrame(
+            {
+                name: pd.Series([row[i] for row in rows], dtype=dtype)
+                for i, (name, dtype) in enumerate(zip(names, dtypes, strict=True))
+            },
+            columns=names,
         )

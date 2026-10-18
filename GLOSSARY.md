@@ -55,7 +55,7 @@ _Avoid_: test family, family (unqualified)
 ### Columns and values
 
 **Logical type**:
-What a column's values mean, such as integer, category, free text or date, as opposed to the dtype pandas stores them in.
+What a column's values mean, as opposed to the dtype pandas stores them in: boolean, integer, float, categorical, text (free text), datetime or timedelta (a duration).
 _Avoid_: semantic type, data type (when you mean the meaning)
 
 **Sentinel value**:

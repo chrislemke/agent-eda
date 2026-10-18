@@ -88,7 +88,9 @@ def summarize_numeric(
         standard deviation; the extremes, quantiles and median; a trimmed mean
         and the median absolute deviation, which outliers barely move; and
         skewness and excess kurtosis. The result states how each statistic is
-        defined. Booleans are left out unless named in columns. A text,
+        defined. Booleans are left out unless named in columns. Statistics of
+        identifiers or codes stored as numbers mean nothing, and numbers stored
+        as text are left out: `infer_column_semantics` finds both. A text,
         categorical or datetime column named in columns raises
         `errors.ColumnTypeError`. For which values occur in text, categorical
         and boolean columns and how often, call `summarize_categorical`
@@ -207,6 +209,8 @@ def summarize_numeric(
             levels of every text, categorical and boolean column.
         describe_dataset: Dtypes, missing and distinct counts and memory of every
             column, whatever its dtype.
+        infer_column_semantics: Which columns hold identifiers, codes or numbers
+            stored as text rather than measurements.
         profile_missing_values: Missing values per column and per row, counting
             declared sentinel values.
         compute_association_matrix: How strongly every pair of numeric and

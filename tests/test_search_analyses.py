@@ -21,6 +21,7 @@ SEARCH_ACCEPTANCE = [
     ("primary key", "find_candidate_keys"),
     ("dataset overview", "describe_dataset"),
     ("mean and standard deviation", "summarize_numeric"),
+    ("what kind of column is this", "infer_column_semantics"),
     ("value counts", "summarize_categorical"),
     ("duplicate rows", "find_duplicate_rows"),
     ("correlation", "compute_association_matrix"),

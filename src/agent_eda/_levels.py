@@ -353,7 +353,8 @@ def value_types(
 
     Values that pandas counts as one level can still differ in type, such as 1,
     1.0 and True, so a column of objects that aren't all text is checked value
-    by value.
+    by value. summarize_categorical and infer_column_semantics both call this,
+    and more than one name means mixed value types to both.
     """
     if levels is not None:
         if not len(levels.values):
@@ -362,6 +363,10 @@ def value_types(
             return ["str"]
         if levels.sort_values is not None:
             return [_name_of(levels.sort_values.dtype.type)]
+        if kind in ("datetime", "timedelta"):
+            # A datetime or duration dtype gives every value one type, so the
+            # first names them all without converting a million of them.
+            return [type_name(levels.label(0))]
         if kind != "object":
             return sorted({type_name(label) for label in levels.objects()})
     values = np.asarray(series.array, dtype=object)

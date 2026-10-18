@@ -85,6 +85,22 @@ def column_lists(candidates: list[str]) -> st.SearchStrategy[list[str] | None]:
     return st.none() | st.lists(st.sampled_from(candidates), min_size=1, unique=True)
 
 
+def declared_schemas(
+    data: pd.DataFrame, analysis: str, parameter: str
+) -> st.SearchStrategy[dict[str, Any]]:
+    """Declarations for some columns, and for one the data lacks.
+
+    Each declares a logical type, a ColumnSpec or a ColumnSpec as a dict.
+    """
+    logical_types = st.sampled_from(choices(analysis, parameter))
+    specs = st.builds(
+        ae.ColumnSpec, logical_type=logical_types, nullable=st.none() | st.booleans()
+    )
+    declarations = logical_types | specs | specs.map(lambda spec: spec.model_dump())
+    columns = st.sampled_from([*names(data, any_dtype), "not_a_column"])
+    return st.dictionaries(columns, declarations, max_size=4)
+
+
 def column_names(candidates: list[str]) -> st.SearchStrategy[str | None]:
     """None, or one of the candidates."""
     if not candidates:
@@ -259,6 +275,13 @@ RECIPES: dict[str, Recipe] = {
         options=lambda data: optional(
             columns=column_lists(names(data, has_countable_values)),
             top_n=st.integers(1, 100),
+        ),
+    ),
+    "infer_column_semantics": Recipe(
+        options=lambda data: optional(
+            columns=column_lists(names(data, any_dtype)),
+            declared_schema=st.none()
+            | declared_schemas(data, "infer_column_semantics", "declared_schema"),
         ),
     ),
 }

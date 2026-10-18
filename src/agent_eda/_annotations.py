@@ -17,6 +17,8 @@ _LIBRARY_ALIASES = {"pandas": "pd", "numpy": "np"}
 
 # The annotations of options that take a list.
 LIST_TYPES = (list, tuple, collections.abc.Sequence)
+# The annotations of options that take a mapping, keyed by column name.
+MAPPING_TYPES = (dict, collections.abc.Mapping)
 
 
 @dataclass(frozen=True)
@@ -49,10 +51,15 @@ def strip_optional(annotation: object) -> object:
 
 
 def item_annotation(annotation: object) -> object:
-    """The annotation of the values inside a list option, else the annotation."""
+    """The annotation of the values inside a list or mapping option.
+
+    The annotation itself when the option takes neither.
+    """
     for member in members(annotation):
         if typing.get_origin(member) in LIST_TYPES:
             return typing.get_args(member)[0]
+        if typing.get_origin(member) in MAPPING_TYPES:
+            return typing.get_args(member)[1]
     return annotation
 
 

@@ -7,7 +7,6 @@ while the analysis runs never reach the caller, and the result is checked
 against what the analysis declared.
 """
 
-import collections.abc
 import difflib
 import functools
 import importlib
@@ -17,7 +16,7 @@ import reprlib
 import types
 import typing
 import warnings
-from collections.abc import Callable, Hashable, Iterable, Mapping
+from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import FunctionType
 from typing import Any, cast
@@ -28,6 +27,7 @@ import pydantic
 
 from agent_eda._annotations import (
     LIST_TYPES,
+    MAPPING_TYPES,
     bounds,
     item_annotation,
     members,
@@ -38,7 +38,7 @@ from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
 from agent_eda._run import watch_all_warnings
 from agent_eda._text import join_alternatives, plural
-from agent_eda.errors import InvalidArgumentError
+from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.results import AnalysisResult, Limitation, Status
 
 _CODE = re.compile(r"[a-z][a-z0-9_]*")
@@ -234,11 +234,8 @@ def _bind(
         )
     unknown = [key for key in kwargs if key not in spec.parameters]
     if unknown:
-        closest = difflib.get_close_matches(unknown[0], spec.parameters, n=1)
-        hint = f" Did you mean {closest[0]!r}?" if closest else ""
         raise InvalidArgumentError(
-            f"{spec.name} has no argument {unknown[0]!r}.{hint} "
-            f"Allowed: {', '.join(spec.parameters)}.",
+            unknown_name_message(spec.name, "argument", unknown[0], spec.parameters),
             code="invalid_call",
         )
     if args and "data" in kwargs:
@@ -293,26 +290,61 @@ def _validate(spec: AnalysisSpec, options: dict[str, Any]) -> dict[str, Any]:
         validated = spec.arguments.model_validate(options)
     except pydantic.ValidationError as error:
         raise InvalidArgumentError(
-            _invalid_message(spec, options, error.errors()[0])
+            invalid_message(spec.name, spec.annotations, options, error.errors())
         ) from None
     return {name: getattr(validated, name) for name in spec.parameters[1:]}
 
 
-def _invalid_message(spec: AnalysisSpec, options: dict[str, Any], problem: Any) -> str:
-    """Say what is wrong with an option, what it allows and how to fix it."""
+def unknown_name_message(
+    owner: str, noun: str, name: str, allowed: Sequence[str]
+) -> str:
+    """Say that a keyword isn't one of `owner`'s, naming the closest and the rest."""
+    closest = difflib.get_close_matches(name, allowed, n=1)
+    hint = f" Did you mean {closest[0]!r}?" if closest else ""
+    return f"{owner} has no {noun} {name!r}.{hint} Allowed: {', '.join(allowed)}."
+
+
+def invalid_message(
+    owner: str,
+    annotations: Mapping[str, object],
+    options: Mapping[str, Any],
+    problems: Sequence[Any],
+    *,
+    noun: str = "argument",
+) -> str:
+    """Say what is wrong with an option, what it allows and how to fix it.
+
+    `problems` are pydantic's errors for the options; the first one is shown,
+    unless one comes from a check of the package's own, such as ColumnSpec's,
+    whose message says it best.
+    """
+    problem = next((p for p in problems if _own_error(p) is not None), problems[0])
     location = problem["loc"]
     name = str(location[0]) if location else "?"
-    annotation = spec.annotations.get(name)
+    annotation = annotations.get(name)
     value, path, inner = _locate(options.get(name), annotation, location[1:])
+    own = _own_error(problem)
+    if own is not None:
+        # The package's own check, such as ColumnSpec's, says it best.
+        return (
+            f"{owner} got an invalid value at {name}{path}: {own}" if path else str(own)
+        )
     if path:
-        # A value inside a list option, or inside a mapping's lists.
+        # A value inside a list option, or inside a mapping or its lists.
         where = f"at {name}{path}"
         rule = f"each value in {name} must be {_allowed(inner, 'value')}"
     else:
         where = f"for {name}"
         rule = f"{name} must be {_allowed(annotation, name)}"
     if problem["type"] == "literal_error":
-        choices = [str(c) for c in typing.get_args(strip_optional(inner))]
+        # The choices of the Literal, alone or in a union such as a logical type
+        # or a ColumnSpec.
+        choices = [
+            str(choice)
+            for member in members(strip_optional(inner))
+            if typing.get_origin(member) is typing.Literal
+            for choice in typing.get_args(member)
+        ]
         closest = closest_names(value, choices)[:1] if isinstance(value, str) else []
         detail = f" Did you mean {closest[0]!r}?" if closest else ""
     elif problem["type"] in _OUT_OF_RANGE or len(members(strip_optional(inner))) > 1:
@@ -321,9 +353,15 @@ def _invalid_message(spec: AnalysisSpec, options: dict[str, Any], problem: Any) 
     else:
         detail = f" {problem['msg']}."
     return (
-        f"{spec.name} got {_value_text(value)} {where}, but {rule}.{detail} "
-        f"See help(ae.{spec.name}) for every argument."
+        f"{owner} got {_value_text(value)} {where}, but {rule}.{detail} "
+        f"See help(ae.{owner}) for every {noun}."
     )
+
+
+def _own_error(problem: Any) -> AgentEDAError | None:
+    """The package's own error behind a pydantic error, if there is one."""
+    error = problem.get("ctx", {}).get("error")
+    return error if isinstance(error, AgentEDAError) else None
 
 
 def _locate(
@@ -354,7 +392,11 @@ _OUT_OF_RANGE = {"greater_than", "greater_than_equal", "less_than", "less_than_e
 
 
 def _allowed(annotation: object, subject: str) -> str:
-    """What an option allows, such as "float with 0 <= trim_fraction < 0.5"."""
+    """What an option allows, such as "float with 0 <= trim_fraction < 0.5".
+
+    A union of fixed choices and other types, such as a logical type or a
+    ColumnSpec, lists the choices first: "one of 'a' or 'b', or a ColumnSpec".
+    """
     origin = typing.get_origin(annotation)
     if origin is typing.Literal:
         choices = [repr(choice) for choice in typing.get_args(annotation)]
@@ -363,6 +405,17 @@ def _allowed(annotation: object, subject: str) -> str:
         inner, *metadata = typing.get_args(annotation)
         limits = bounds(metadata, subject)
         return f"{_allowed(inner, subject)} with {limits}" if limits else _plain(inner)
+    if origin in (typing.Union, types.UnionType):
+        options = typing.get_args(annotation)
+        literals = [o for o in options if typing.get_origin(o) is typing.Literal]
+        if literals:
+            others = [_plain(o) for o in options if o not in literals]
+            choices = [
+                repr(c) for literal in literals for c in typing.get_args(literal)
+            ]
+            listed = f"one of {join_alternatives(choices)}"
+            others = [other if other == "None" else f"a {other}" for other in others]
+            return ", or ".join([listed, *others])
     return _plain(annotation)
 
 
@@ -401,7 +454,7 @@ def _normalize(spec: AnalysisSpec, name: str, value: object) -> object:
     if values is not None:
         return _normalize_mapping(spec, name, value, values)
     if not _takes_list(annotation):
-        value = _python_scalar(value)
+        value = python_scalar(value)
         if name.endswith("column") and value is not None:
             return _column_name(value)
         return value
@@ -420,7 +473,7 @@ def _takes_list(annotation: object) -> bool:
 def _mapping_values(annotation: object) -> object:
     """The annotation of a mapping option's values, or None if it takes no mapping."""
     for member in members(annotation):
-        if typing.get_origin(member) in (collections.abc.Mapping, dict):
+        if typing.get_origin(member) in MAPPING_TYPES:
             return typing.get_args(member)[1]
     return None
 
@@ -442,7 +495,7 @@ def _normalize_mapping(
             )
         given[column] = key
         normalized[column] = (
-            _as_list(spec, name, item) if _takes_list(values) else _python_scalar(item)
+            _as_list(spec, name, item) if _takes_list(values) else python_scalar(item)
         )
     return normalized
 
@@ -451,7 +504,7 @@ def _as_list(spec: AnalysisSpec, name: str, value: object) -> object:
     if value is None:
         return None
     if isinstance(value, np.generic):
-        return [_python_scalar(value)]
+        return [python_scalar(value)]
     if isinstance(value, str | bytes) or not isinstance(value, Iterable):
         return [value]
     if isinstance(value, set | frozenset):
@@ -465,10 +518,10 @@ def _as_list(spec: AnalysisSpec, name: str, value: object) -> object:
         return value  # validation rejects it, naming its type
     if isinstance(value, pd.Index | pd.Series):
         return value.tolist()  # pandas gives Timestamps for datetimes
-    return [_python_scalar(item) for item in value]
+    return [python_scalar(item) for item in value]
 
 
-def _python_scalar(value: object) -> object:
+def python_scalar(value: object) -> object:
     """A NumPy scalar as Python's or pandas' own; anything else as it is.
 
     NumPy datetimes and timedeltas become pandas ones: their item() is an int

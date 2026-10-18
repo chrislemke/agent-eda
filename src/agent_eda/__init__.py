@@ -25,13 +25,14 @@ if TYPE_CHECKING:
     from agent_eda.data.missingness import profile_missing_values
     from agent_eda.data.provenance import describe_dataset
     from agent_eda.data.structure import find_candidate_keys
+    from agent_eda.data.validation import ColumnSpec, infer_column_semantics
     from agent_eda.discovery import (
         describe_analysis,
         guide,
         list_analyses,
         search_analyses,
     )
-    from agent_eda.results import AnalysisResult
+    from agent_eda.results import AnalysisResult, LogicalType
     from agent_eda.statistics.association import compute_association_matrix
     from agent_eda.statistics.descriptive import (
         summarize_categorical,
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AnalysisResult",
+    "ColumnSpec",
+    "LogicalType",
     "__version__",
     "compute_association_matrix",
     "describe_analysis",
@@ -47,6 +50,7 @@ __all__ = [
     "find_candidate_keys",
     "find_duplicate_rows",
     "guide",
+    "infer_column_semantics",
     "list_analyses",
     "profile_missing_values",
     "search_analyses",
@@ -58,6 +62,8 @@ __all__ = [
 # here; ae.list_analyses() imports these modules to find them.
 _EXPORTS: dict[str, str] = {
     "AnalysisResult": "agent_eda.results",
+    "ColumnSpec": "agent_eda.data.validation",
+    "LogicalType": "agent_eda.results",
     "__version__": "agent_eda._version",
     "compute_association_matrix": "agent_eda.statistics.association",
     "describe_analysis": "agent_eda.discovery",
@@ -65,6 +71,7 @@ _EXPORTS: dict[str, str] = {
     "find_candidate_keys": "agent_eda.data.structure",
     "find_duplicate_rows": "agent_eda.data.duplicates",
     "guide": "agent_eda.discovery",
+    "infer_column_semantics": "agent_eda.data.validation",
     "list_analyses": "agent_eda.discovery",
     "profile_missing_values": "agent_eda.data.missingness",
     "search_analyses": "agent_eda.discovery",
