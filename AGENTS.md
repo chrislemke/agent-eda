@@ -23,7 +23,7 @@ uv add --dev <package>      # add a dev dependency and update uv.lock
 
 ## Working on a ticket
 
-Specs and tickets live under `.scratch/<feature>/` (see `docs/agents/issue-tracker.md`). The current feature is `first-look`: `.scratch/first-look/spec.md` and the tickets in `.scratch/first-look/issues/`, taken in number order.
+Specs and tickets live under `.scratch/<feature>/` (see `docs/agents/issue-tracker.md`). The current feature is `mcp-server`: `.scratch/mcp-server/spec.md` and the tickets in `.scratch/mcp-server/issues/`, taken in number order. `first-look` is finished.
 
 1. Take the lowest-numbered ticket whose `Blocked by:` tickets have every box ticked. Read the ticket, the spec sections it names, and the ADRs behind them.
 2. Work test-first with the `/tdd` skill: for each acceptance box, write a failing test through the public API, then the code that makes it pass.

@@ -87,3 +87,17 @@ _Avoid_: PII column, private column
 **Masking**:
 Replacing the raw values of sensitive columns in a result with placeholders, while keeping counts and statistics. It is a guardrail, not anonymization.
 _Avoid_: redaction, anonymization
+
+### Calling over MCP
+
+**MCP server**:
+The local process that makes the analyses callable over the Model Context Protocol, for agents that call tools instead of writing Python.
+_Avoid_: server (unqualified), gateway, API
+
+**MCP tool**:
+The protocol-level entry point for one analysis or discovery function on the MCP server. Always qualified: an analysis is never called a tool.
+_Avoid_: tool (unqualified), endpoint, command
+
+**Data path**:
+The file an MCP tool reads the DataFrame from, in place of the DataFrame a Python caller passes.
+_Avoid_: dataset (when you mean the file), source, input file
