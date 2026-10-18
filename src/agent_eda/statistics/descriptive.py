@@ -152,7 +152,7 @@ def summarize_numeric(
 
         Every statistic uses the finite values only, and `definitions` states
         each one. `left_out_columns` names the columns that columns=None
-        skipped. `to_frame()` returns every statistic, one row per column and
+        skipped. `to_frame` returns every statistic, one row per column and
         one column per quantile level, such as q0.25.
 
         A statistic that doesn't exist is null, and a limitation names its
@@ -426,7 +426,7 @@ def summarize_categorical(
         top_n (int): How many of each column's most common levels
             most_common_levels holds and the printed text shows, from 1 to 100;
             defaults to 10. It limits only the display: levels keeps the first
-            100 levels and to_frame() every level.
+            100 levels and `to_frame` every level.
         project (Project | None): The project, whose data policy names the
             sensitive columns and says whether to mask them. None, the
             default, declares no sensitive column, so nothing is masked.
@@ -465,7 +465,7 @@ def summarize_categorical(
         point, then other types by type name. Labels are kept as stored, so
         'Yes' and 'yes ' are two levels; a label JSON can't hold, such as a
         Decimal or a timestamp, appears as its string form, with its type in
-        `label_type`. `to_frame()` returns every level of every column, with
+        `label_type`. `to_frame` returns every level of every column, with
         each label exactly as stored. `left_out_columns` names the columns
         that columns=None skipped. Values that can't be hashed, such as
         lists, leave a column's levels uncounted, with an `unhashable_values`
@@ -474,7 +474,7 @@ def summarize_categorical(
         `masking` says whether masking was on and names the sensitive columns
         among the selected ones. With masking on, their labels and unused
         categories are placeholders, numbered per column in level order, in
-        the printed text, `to_dict()`, `to_json()` and `to_frame()` alike,
+        the printed text, `to_dict`, `to_json` and `to_frame` alike,
         while counts, shares and label types stay.
 
         Two findings are suspected and one is descriptive:

@@ -62,8 +62,9 @@ def find_duplicate_rows(
         compared column, such as records loaded twice. It groups the equal rows
         and reports each group's row IDs, the rows in groups, the excess copies
         and the duplicate share. It removes no rows, so you decide what to do
-        with them. Missing values compare equal, as in pandas' duplicated()
-        over two or more columns, even when only one column is compared.
+        with them. Missing values compare equal, as in pandas'
+        DataFrame.duplicated over two or more columns, even when only one
+        column is compared.
         Pass id_column when a column identifies rows, such as an order number:
         row IDs then come from it, and columns=None leaves it out of the
         comparison, so unique IDs don't hide duplicated records. Row IDs are
@@ -115,7 +116,7 @@ def find_duplicate_rows(
         limitation, when the data has no rows. `compared_columns` names the
         columns compared, and `missing_values_compare_equal` records that
         missing values (None, NaN, NaT, pd.NA) equal each other. Lists, dicts
-        and sets compare by content. `to_frame()` returns every row in a
+        and sets compare by content. `to_frame` returns every row in a
         duplicate group with its group number. The record keeps the first 100
         groups and the first 10 row IDs of each, with their totals.
 
@@ -125,8 +126,8 @@ def find_duplicate_rows(
 
         `masking` says whether masking was on and names id_column when it is
         sensitive. With masking on, its row IDs are placeholders, numbered in
-        the order the groups show them, in the printed text, `to_dict()`,
-        `to_json()` and `to_frame()` alike; the groups and counts stay.
+        the order the groups show them, in the printed text, `to_dict`,
+        `to_json` and `to_frame` alike; the groups and counts stay.
 
         - `duplicate_rows`: two or more rows are equal in every compared
           column. Suspected, since repeated records can be real, such as two

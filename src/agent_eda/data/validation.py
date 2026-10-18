@@ -376,8 +376,8 @@ def infer_column_semantics(
         float score 0, and its numbers count as plain text. Ties go to
         boolean, then integer, float, datetime, timedelta, categorical and
         text. Text is parsed once per distinct value, weighted by how often it
-        occurs. `to_frame()` returns every column's evidence and
-        to_frame("candidates") every candidate with its reasons.
+        occurs. `to_frame` returns every column's evidence, and with
+        table="candidates" every candidate with its reasons.
 
         A share is null for a column without values, with a `too_few_values`
         limitation. `unhashable_values` means values such as lists left the
@@ -1351,13 +1351,13 @@ def validate_column_types(
         guessed. Text is read after stripping surrounding whitespace, once
         per distinct value, by the rules infer_column_semantics reads it with.
         Values of different types count apart, so 1 and True are two values.
-        `to_frame()` returns one row per declared column and
-        to_frame("invalid_values") every distinct invalid value with its count.
+        `to_frame` returns one row per declared column, and with
+        table="invalid_values" every distinct invalid value with its count.
 
         `masking` says whether masking was on and names the sensitive columns
         whose values the result shows. With masking on, their invalid values
         and row IDs from a sensitive id_column are numbered placeholders in
-        the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
+        the printed text, `to_dict`, `to_json` and `to_frame` alike.
 
         - `invalid_values`: violation. Columns that hold invalid values.
         - `declared_columns_missing`: violation. Declared columns the data

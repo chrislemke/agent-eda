@@ -10,7 +10,7 @@ import inspect
 import numbers
 import typing
 
-from pydantic import BaseModel, JsonValue
+from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_core import to_jsonable_python
 
@@ -243,7 +243,7 @@ def describe_analysis(name: str) -> AnalysisDescription:
         when_to_use=spec.docstring.when_to_use,
         signature=_signature(spec, parameters),
         parameters=parameters,
-        parameters_schema=_parameters_schema(spec, parameters),
+        parameters_schema=spec.parameters_schema(),
         statuses=[
             StatusDescription(
                 status=status, reason=spec.docstring.statuses.get(status, "")
@@ -399,18 +399,6 @@ def _parameter(
         valid_range=valid_range(annotation, parameter.name),
         description=spec.docstring.args.get(parameter.name, ""),
     )
-
-
-def _parameters_schema(
-    spec: AnalysisSpec, parameters: list[ParameterDescription]
-) -> dict[str, JsonValue]:
-    """The JSON Schema of the options, with each one's docstring description."""
-    schema = spec.arguments.model_json_schema()
-    properties = schema.get("properties", {})
-    for parameter in parameters:
-        if parameter.name in properties:
-            properties[parameter.name]["description"] = parameter.description
-    return schema
 
 
 def _signature(spec: AnalysisSpec, parameters: list[ParameterDescription]) -> str:

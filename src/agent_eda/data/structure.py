@@ -81,7 +81,7 @@ def find_candidate_keys(
         share their values. It lists minimal keys, keys with missing values,
         which can't serve as primary keys, and, when no key exists, the column
         sets closest to one, such as an ID broken by a few duplicates. Missing
-        values compare equal, as in pandas' duplicated(). For each column's
+        values compare equal, as in pandas' DataFrame.duplicated. For each column's
         distinct and missing counts, call `describe_dataset`; `list_analyses`
         lists the other analyses.
 
@@ -111,7 +111,7 @@ def find_candidate_keys(
         supersets of a key are never listed. Each entry has `columns`,
         `distinct_count`, `duplicate_row_count` (rows whose combination another
         row shares), `missing_row_count`, `uniqueness_share` and `is_minimal`,
-        all counted on all rows. `to_frame()` lists every entry with its kind.
+        all counted on all rows. `to_frame` lists every entry with its kind.
 
         `exhaustive` says whether the search examined every set of up to
         max_key_size columns; a key with more columns can exist either way.

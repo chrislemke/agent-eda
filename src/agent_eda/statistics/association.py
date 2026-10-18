@@ -270,8 +270,8 @@ def compute_association_matrix(
         other, each with its `reason`: datetime, timedelta, unsupported_dtype,
         all_missing, no_finite_values, unhashable_values or
         too_many_categories. The record keeps the 100 strongest pairs and adds
-        pairs_total. `to_frame()` returns every pair, and
-        `to_frame(table="matrix")` the paired columns as rows and columns: the
+        pairs_total. `to_frame` returns every pair, and with
+        table="matrix" the paired columns as rows and columns: the
         cell in row x and column y holds the pair's value, and a correlation
         ratio fills only the cell from its categorical row to its numeric
         column.

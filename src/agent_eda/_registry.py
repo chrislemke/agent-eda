@@ -74,6 +74,17 @@ class AnalysisSpec:
     def parameters(self) -> tuple[str, ...]:
         return tuple(self.signature.parameters)
 
+    def parameters_schema(self) -> dict[str, Any]:
+        """The JSON Schema of the options, with each one's Args: description.
+
+        Raises pydantic's PydanticInvalidForJsonSchema when an option's type
+        has no JSON Schema.
+        """
+        schema = self.arguments.model_json_schema()
+        for name, prop in schema.get("properties", {}).items():
+            prop["description"] = self.docstring.args.get(name, "")
+        return schema
+
 
 _REGISTRY: dict[str, AnalysisSpec] = {}
 
@@ -151,6 +162,32 @@ def registered() -> list[AnalysisSpec]:
     for module in sorted(set(agent_eda._EXPORTS.values())):
         importlib.import_module(module)
     return sorted(_REGISTRY.values(), key=lambda spec: (spec.module, spec.name))
+
+
+def spec_of(function: Callable[..., Any]) -> AnalysisSpec:
+    """The registry entry of an analysis function.
+
+    A function the registry doesn't hold, such as a stand-in a test defines, is
+    read the way the decorator reads an analysis, without registering it: its
+    statuses and finding codes are the ones its docstring lists.
+    """
+    name = getattr(function, "__name__", None)
+    spec = _REGISTRY.get(name) if isinstance(name, str) else None
+    if spec is not None and getattr(function, "__module__", None) == spec.module:
+        return spec
+    if not isinstance(function, FunctionType):
+        raise TypeError(f"{function!r} is not an analysis function")
+    docstring = parse_docstring(inspect.getdoc(function) or "")
+    return _spec(
+        function,
+        statuses=cast("tuple[Status, ...]", tuple(docstring.statuses)),
+        finding_codes=tuple(docstring.codes),
+        tags=(),
+        methods=(),
+        masking=False,
+        work_limits=(),
+        any_column_labels=False,
+    )
 
 
 def _spec(

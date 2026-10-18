@@ -138,6 +138,8 @@ def type_text(annotation: object) -> str:
         return "None"
     if annotation is Ellipsis:  # as in tuple[float, ...]
         return "..."
+    if isinstance(annotation, list):  # the parameters of a Callable
+        return "[" + ", ".join(type_text(argument) for argument in annotation) + "]"
     name = getattr(annotation, "__name__", str(annotation))
     library = getattr(annotation, "__module__", "").split(".")[0]
     alias = _LIBRARY_ALIASES.get(library)

@@ -208,13 +208,13 @@ def profile_target(
         lists the classes whose share lies below it, and `rare_class_count`
         counts them. A check that didn't run leaves its fields null, with an
         `expected_labels_not_declared` or `rare_share_not_declared`
-        limitation. `to_frame()` returns every label with its count, its
+        limitation. `to_frame` returns every label with its count, its
         share, whether expected_labels holds it and whether it is rare.
 
         For regression, `statistics` holds summarize_numeric's fields for the
         target, from the same implementation with summarize_numeric's default
         quantiles, quantile method and trimmed mean, and `non_finite_count`
-        counts the values that are missing, inf or -inf. `to_frame()` returns
+        counts the values that are missing, inf or -inf. `to_frame` returns
         the statistics in one row.
 
         For both tasks, `missing_count` and `missing_share` count the rows
@@ -224,8 +224,8 @@ def profile_target(
         `ambiguous_row_ids` limitation flags row IDs that repeat. `masking`
         says whether masking was on and names the sensitive columns whose
         values the result shows; with masking on, their labels and row IDs
-        are placeholders in the printed text, `to_dict()`, `to_json()` and
-        `to_frame()` alike, while counts and shares stay.
+        are placeholders in the printed text, `to_dict`, `to_json` and
+        `to_frame` alike, while counts and shares stay.
 
         The findings:
 

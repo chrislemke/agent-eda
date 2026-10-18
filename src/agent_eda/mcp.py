@@ -19,7 +19,7 @@ agent-eda-mcp prints its install commands.
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from agent_eda.errors import AgentEDAError, MissingDependencyError
@@ -27,17 +27,33 @@ from agent_eda.errors import AgentEDAError, MissingDependencyError
 if TYPE_CHECKING:
     from mcp.server import Server
 
+    from agent_eda.results import AnalysisResult
+
 __all__ = ["create_server", "main"]
 
 # The packages of the mcp extra that the server imports.
 _EXTRA_MODULES = ("mcp", "mcp_types", "anyio")
 
 
-def create_server() -> "Server":
+def create_server(
+    *, analyses: "Sequence[Callable[..., AnalysisResult]] | None" = None
+) -> "Server":
     """Build the MCP server, ready to run over any MCP transport.
 
     agent-eda-mcp runs it over stdio. Tests and embedding code can connect an
-    in-memory MCP client to it instead.
+    in-memory MCP client to it instead. Each MCP tool is built when the server
+    starts, from the analysis's registry entry and docstring: its name, a
+    description, an input schema with data_path in place of data, and an
+    output schema of the analysis's to_dict() record.
+
+    Args:
+        analyses: The analysis functions to serve, such as
+            [ae.summarize_numeric]. None, the default, serves every analysis
+            that ae.list_analyses() lists. A function that agent_eda doesn't
+            register, such as a stand-in a test defines, is read the way the
+            registry reads an analysis (data first, options by keyword, a
+            docstring and an AnalysisResult subclass as the return type) and
+            is called as it is, without the registry's checks.
 
     Returns:
         mcp.server.Server: The low-level MCP server named 'agent-eda', which
@@ -46,11 +62,14 @@ def create_server() -> "Server":
     Raises:
         MissingDependencyError: The mcp extra isn't installed. The message gives
             the pip and uv install commands.
+        TypeError: An analysis can't be an MCP tool, such as one with a
+            parameter whose type has no JSON Schema. The message names the
+            analysis and the parameter.
     """
     _require_extra()
     from agent_eda._mcp_server import create_server as create
 
-    return create()
+    return create(analyses)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

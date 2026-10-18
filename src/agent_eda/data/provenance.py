@@ -95,7 +95,7 @@ def describe_dataset(
         DescribeDatasetResult: Read `row_count`, `column_count` and
         `memory_bytes` (columns plus index) for the size. `columns` has one
         entry per column in DataFrame order with its `dtype` as pandas reports
-        it, `non_missing_count`, `missing_count` (what pandas isna() counts),
+        it, `non_missing_count`, `missing_count` (what pandas' `isna` counts),
         `distinct_count` (distinct non-missing values; null, with an
         `unhashable_values` limitation, when values such as lists can't be
         hashed) and `memory_bytes`. `index` holds the index dtype, whether its
@@ -103,7 +103,7 @@ def describe_dataset(
         source and version as supplied, and `not_supplied` names what wasn't.
         Memory counts the values only, not pandas' lookup tables or the UTF-8
         copies Python caches inside strings, so earlier work on the data
-        doesn't change it. `to_frame()` returns the per-column table.
+        doesn't change it. `to_frame` returns the per-column table.
 
         Every finding is suspected:
 

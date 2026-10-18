@@ -107,7 +107,7 @@ def profile_missing_values(
         ProfileMissingValuesResult: `columns` maps each selected column name to
         its entry, such as res.columns["age"], which holds:
 
-        - `native_missing_count`, the values pandas isna() counts as missing:
+        - `native_missing_count`, the values pandas' `isna` counts as missing:
           None, NaN, NaT and pd.NA.
         - `sentinel_count`, the values equal to a declared sentinel value;
           null when the column has none declared.
@@ -120,14 +120,13 @@ def profile_missing_values(
         `complete_row_share` the rows that miss none, and `row_distribution`
         how many rows miss each number of values, fewest first. Shares lie
         between 0 and 1, and a share without rows is null. The printed table
-        shows the columns with the most missing values first. to_frame()
-        returns the per-column table in the selected order, and
-        to_frame(table='row_distribution') the rows per number of missing
-        values.
+        shows the columns with the most missing values first. `to_frame`
+        returns the per-column table in the selected order, and with
+        table='row_distribution' the rows per number of missing values.
 
         Limitations: `sentinel_values_not_declared` names the columns whose
         sentinel_count is null; `nan_not_counted_as_missing` the columns that
-        store NaN as a value, which isna() doesn't count; `too_few_values` the
+        store NaN as a value, which `isna` doesn't count; `too_few_values` the
         shares that are null for want of rows or columns.
 
         The findings:
@@ -528,7 +527,7 @@ def detect_missing_sentinels(
         its `evidence` codes; its `confirmation`, declared or suspected; and
         in `row_ids` the IDs of the first 10 rows that hold it. With index
         labels as row IDs, df.loc[row_ids] shows the rows. The record keeps the
-        first 100 candidates and adds candidates_total; to_frame() returns
+        first 100 candidates and adds candidates_total; `to_frame` returns
         every candidate, and the printed table shows the most frequent first.
         `columns_without_rules` names the checked columns whose values no
         rule reads, such as booleans and durations, where only declared values

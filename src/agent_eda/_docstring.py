@@ -35,8 +35,12 @@ class Docstring:
     # The meaning of each code defined in Returns: by a bullet such as
     # "- `constant_columns`: a column holds ...", finding codes among them.
     codes: dict[str, str]
+    # The whole of Returns:, dedented, with its line breaks and bullets.
+    returns: str
     # The doctest of Examples:, as it runs.
     examples: str
+    # Each related analysis in See Also:, with what it answers.
+    see_also: dict[str, str]
 
 
 def parse(doc: str) -> Docstring:
@@ -51,7 +55,9 @@ def parse(doc: str) -> Docstring:
         args=_entries(sections.get("Args:", [])),
         statuses=_entries(sections.get("Statuses:", [])),
         codes=_bullets(sections.get("Returns:", [])),
+        returns="\n".join(sections.get("Returns:", [])),
         examples="\n".join(sections.get("Examples:", [])),
+        see_also=_entries(sections.get("See Also:", [])),
     )
 
 

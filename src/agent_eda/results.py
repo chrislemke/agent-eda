@@ -218,6 +218,25 @@ def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
     return capped
 
 
+def _models_in(
+    annotation: object, found: dict[type[BaseModel], None]
+) -> dict[type[BaseModel], None]:
+    """Every pydantic model a field annotation reaches, in the order met."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation not in found:
+            found[annotation] = None
+            for field in annotation.model_fields.values():
+                _models_in(field.annotation, found)
+        return found
+    for argument in typing.get_args(annotation):
+        _models_in(argument, found)
+    return found
+
+
+def _is_optional(annotation: object) -> bool:
+    return type(None) in typing.get_args(annotation)
+
+
 # Nullable integers keep their type in to_frame() and null floats become NaN;
 # other fields use pandas' default.
 _FRAME_DTYPES: dict[Any, str] = {
@@ -631,6 +650,32 @@ class AnalysisResult(ResultModel):
         return json.dumps(
             self.to_dict(), allow_nan=False, ensure_ascii=False, separators=(",", ":")
         )
+
+    @classmethod
+    def record_schema(cls) -> dict[str, Any]:
+        """The JSON Schema of the record that to_dict() and to_json() give.
+
+        It describes the record as it is, with every capped list next to its
+        `<field>_total`, and allows no other field. The MCP server gives it to
+        each MCP tool as the output schema.
+        """
+        schema = cls.model_json_schema(mode="validation")
+        definitions = schema.get("$defs", {})
+        for model in _models_in(cls, {}):
+            target = schema if model is cls else definitions[model.__name__]
+            for name, field in model.model_fields.items():
+                cap = next((m for m in field.metadata if isinstance(m, _Cap)), None)
+                if cap is None or cap.each_list:
+                    continue
+                # The total is null when the list is null, or when the field it
+                # is taken from can be null.
+                counted = model.model_fields[cap.total] if cap.total else field
+                total: dict[str, Any] = {"type": "integer", "minimum": 0}
+                if _is_optional(field.annotation) or _is_optional(counted.annotation):
+                    total = {"anyOf": [total, {"type": "null"}]}
+                target["properties"][f"{name}_total"] = total
+                target.setdefault("required", []).append(f"{name}_total")
+        return schema
 
 
 class MaskableResult(AnalysisResult):
