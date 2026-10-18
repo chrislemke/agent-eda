@@ -28,6 +28,21 @@ Codes, with the class that raises each:
     unknown_analysis (UnknownAnalysisError): describe_analysis got a name that
         isn't an analysis; the message suggests the closest names and lists
         every analysis.
+    invalid_project_file (ProjectFileError): Project.load got a file that
+        isn't UTF-8 TOML, and the message gives the line at fault, that lacks
+        the [data_policy] table or one of its keys, or that holds a value a
+        Project can't take; or project.save got a project with text that TOML
+        can't hold, a lone surrogate.
+    unknown_project_key (ProjectFileError): Project.load got a file with a key
+        that is neither a field of the Project nor one of its data policy,
+        such as a misspelling; the message names the closest key and every
+        allowed one.
+    project_file_not_found (ProjectFileNotFoundError, also a
+        FileNotFoundError): Project.load found no file at the path; the
+        message shows where the path leads and how to save a project there.
+    project_file_exists (ProjectFileExistsError, also a FileExistsError):
+        project.save found a file at the path and overwrite was False; pass
+        overwrite=True to replace it.
 """
 
 
@@ -69,3 +84,27 @@ class UnknownAnalysisError(AgentEDAError, LookupError):
     """A name passed to describe_analysis isn't the name of an analysis."""
 
     code = "unknown_analysis"
+
+
+class ProjectFileError(AgentEDAError, ValueError):
+    """A project file can't become a Project, or a Project can't become one."""
+
+    code = "invalid_project_file"
+
+
+class ProjectFileNotFoundError(ProjectFileError, FileNotFoundError):
+    """Project.load found no file at its path.
+
+    It is also a FileNotFoundError, so handlers for a missing file catch it.
+    """
+
+    code = "project_file_not_found"
+
+
+class ProjectFileExistsError(ProjectFileError, FileExistsError):
+    """project.save found a file at its path and wasn't told to replace it.
+
+    It is also a FileExistsError, so handlers for an existing file catch it.
+    """
+
+    code = "project_file_exists"

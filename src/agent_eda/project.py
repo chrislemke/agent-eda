@@ -9,13 +9,16 @@ the data directly (ADR 0001).
 
 import inspect
 import json
+import os
 from collections.abc import Hashable, Iterable, Mapping, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import pandas as pd
 import pydantic
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from agent_eda import _project_file
 from agent_eda._registry import invalid_message, python_scalar, unknown_name_message
 from agent_eda._run import check_distinct
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
@@ -288,7 +291,9 @@ class Project(_Declaration):
     name and the data policy, which declares the sensitive columns and whether
     to mask them. Pass it as project= to the analyses whose results can show
     raw values; ae.list_analyses() marks them [supports masking]. Build it
-    once and pass the same Project to every call.
+    once and pass the same Project to every call. To use it in later scripts
+    too, save it once with project.save('project.toml') and load it in each
+    of them with ae.Project.load('project.toml'), whose help shows the file.
 
     The data policy is declared intent that the package checks to catch
     honest mistakes. Masking is a guardrail against accidental exposure, not
@@ -356,6 +361,138 @@ class Project(_Declaration):
             name: str | None = None,
             data_policy: DataPolicy | Mapping[str, Any] | None = None,
         ) -> None: ...
+
+    @classmethod
+    def load(cls, path: str | os.PathLike[str]) -> Self:
+        """Load a project from a TOML file, such as one that project.save() wrote.
+
+        An agent that runs each script in a new process saves its project once
+        and loads it at the start of each later script. The file holds the
+        project's name at the top level and its data policy in a [data_policy]
+        table, as project.save() writes it:
+
+            name = "churn"
+
+            [data_policy]
+            sensitive_columns = ["email", "customer name"]
+            mask_sensitive = true
+
+        Leave name out for an unnamed project. The [data_policy] table and both
+        of its keys are required, with sensitive_columns = [] for none, so that
+        a file cut short raises instead of loading with masking off. A key
+        that isn't one of these raises and names the closest one, so that a
+        typo such as mask_sensitve can't leave masking off quietly either.
+
+        Args:
+            path (str | os.PathLike[str]): The file to read, such as
+                'project.toml'. A leading ~ means the home directory.
+
+        Returns:
+            Project: The project the file declares. Loading the file that
+            project.save() wrote gives a project equal to the one saved.
+
+        Raises:
+            ProjectFileNotFoundError: No file is at path (code
+                project_file_not_found). It is a FileNotFoundError too.
+            ProjectFileError: The file isn't TOML, and the message gives the
+                line at fault; it lacks the [data_policy] table or one of its
+                keys; or it holds a value a field can't take (code
+                invalid_project_file). Or it holds a key that isn't a field,
+                and the message names the closest key (code
+                unknown_project_key).
+            InvalidArgumentError: path isn't a str or a path, is empty, or
+                names a directory (code invalid_argument).
+            OSError: The file can't be read, such as without permission.
+
+        Examples:
+            >>> import tempfile
+            >>> from pathlib import Path
+            >>> import agent_eda as ae
+            >>> with tempfile.TemporaryDirectory() as folder:
+            ...     path = Path(folder) / "project.toml"
+            ...     _ = path.write_text(
+            ...         'name = "churn"\\n'
+            ...         "[data_policy]\\n"
+            ...         'sensitive_columns = ["email"]\\n'
+            ...         "mask_sensitive = true\\n"
+            ...     )
+            ...     project = ae.Project.load(path)
+            >>> project
+            Project(name='churn', data_policy=DataPolicy(sensitive_columns=('email',), mask_sensitive=True))
+        """
+        fields = _project_file.read(
+            path,
+            keys=list(cls.model_fields),
+            table="data_policy",
+            table_keys=list(DataPolicy.model_fields),
+        )
+        try:
+            return cls.model_validate(fields)
+        except AgentEDAError as error:
+            raise _project_file.invalid(path, error) from None
+
+    def save(self, path: str | os.PathLike[str], *, overwrite: bool = False) -> Path:
+        """Save the project to a TOML file that Project.load() reads.
+
+        An agent that runs each script in a new process saves its project once
+        and loads it with ae.Project.load(path) at the start of each later
+        script, instead of building it again. The file holds the name at the
+        top level, left out when there is none, and the data policy in a
+        [data_policy] table. It is laid out the same way every time, so equal
+        projects give identical files on the same Python version. Column names
+        keep every character: quotes, backslashes and characters that print as
+        nothing are escaped.
+
+        Args:
+            path (str | os.PathLike[str]): Where to write the file, such as
+                'project.toml', in a directory that exists. A leading ~ means
+                the home directory.
+            overwrite (bool): Whether to replace a file that is already at
+                path. Defaults to False, which raises instead, so that a saved
+                project is never replaced by accident.
+
+        Returns:
+            Path: The file's absolute path, to pass to Project.load().
+
+        Raises:
+            ProjectFileExistsError: A file is already at path and overwrite is
+                False (code project_file_exists). It is a FileExistsError too.
+            ProjectFileError: The name or a column name holds a lone
+                surrogate, which TOML can't hold (code invalid_project_file).
+            InvalidArgumentError: path isn't a str or a path, is empty, names
+                a directory or lies in a directory that doesn't exist, or
+                overwrite isn't a bool (code invalid_argument).
+            OSError: The file can't be written, such as without permission.
+
+        Examples:
+            >>> import tempfile
+            >>> from pathlib import Path
+            >>> import agent_eda as ae
+            >>> project = ae.Project(
+            ...     name="churn",
+            ...     data_policy=ae.DataPolicy(
+            ...         sensitive_columns=["email"], mask_sensitive=True
+            ...     ),
+            ... )
+            >>> with tempfile.TemporaryDirectory() as folder:
+            ...     path = project.save(Path(folder) / "project.toml")
+            ...     print(path.read_text(encoding="utf-8"))
+            ...     loaded = ae.Project.load(path)
+            # An agent-eda Project. Load it with ae.Project.load(path).
+            name = "churn"
+            <BLANKLINE>
+            [data_policy]
+            sensitive_columns = [
+                "email",
+            ]
+            mask_sensitive = true
+            <BLANKLINE>
+            >>> loaded == project
+            True
+        """
+        return _project_file.write(
+            path, self.model_dump(mode="json"), overwrite=overwrite
+        )
 
     @field_validator("data_policy", mode="before")
     @classmethod

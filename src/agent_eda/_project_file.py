@@ -1,0 +1,459 @@
+"""Project files: a Project saved as TOML once and loaded in later scripts.
+
+project.save() calls write() and Project.load() calls read(). A file holds the
+project's `name` at the top level, left out when there is none, since TOML has
+no null, and a [data_policy] table with every field of the data policy.
+write() lays it out the same way every time, one array item per line, so
+equal projects give identical files on the same Python version. read() parses
+with the standard library's tomllib, and write() needs no TOML library: the
+values are only text, booleans and lists of text, which it writes itself.
+
+read() requires the [data_policy] table and each of its keys, so that a file
+cut short, such as by a full disk, raises instead of loading with masking off;
+only `name` may be left out. A caller's mistake raises before any file
+changes: InvalidArgumentError for a path or overwrite that can't work,
+ProjectFileNotFoundError for a missing file, ProjectFileExistsError for a file
+that save would replace unasked, and ProjectFileError for a file that isn't a
+project file, which names the line or the key at fault. Messages never quote
+the file's content, since a data file passed by mistake would put its values
+in front of the agent.
+"""
+
+import codecs
+import os
+import re
+import tomllib
+from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+from agent_eda._columns import closest_names
+from agent_eda._registry import _value_text, python_scalar
+from agent_eda._text import join_items
+from agent_eda.errors import (
+    AgentEDAError,
+    InvalidArgumentError,
+    ProjectFileError,
+    ProjectFileExistsError,
+    ProjectFileNotFoundError,
+)
+
+# The first line of every project file, for whoever opens one.
+_HEADER = "# An agent-eda Project. Load it with ae.Project.load(path)."
+
+# How to recover from a file that doesn't parse.
+_REWRITE = (
+    "Fix the file, or write it again with project.save(path, overwrite=True) from a "
+    "project built in code; help(ae.Project.load) shows the format."
+)
+# Why read() requires the whole data policy.
+_WHOLE_POLICY = (
+    "A project file states its whole data policy, so that a file cut short can't "
+    "leave masking off quietly"
+)
+# tomllib's messages end with where it stopped: "(at line 3, column 18)", or
+# "(at end of document)" when the file ended first.
+_AT_LINE = re.compile(
+    r"(?P<reason>.*) \(at line (?P<line>\d+), column (?P<column>\d+)\)"
+)
+_AT_END = re.compile(r"(?P<reason>.*) \(at end of document\)")
+
+# How a project file writes the value of each field, and the check that a
+# value has that form, for messages that say how to write it. The Project's
+# own validation still decides, so a field without an entry is checked there.
+_FORMS: dict[str, tuple[str, Callable[[object], bool]]] = {
+    "name": ('a string, such as name = "churn"', lambda value: isinstance(value, str)),
+    "sensitive_columns": (
+        'an array of strings, such as sensitive_columns = ["email", "name"]',
+        lambda value: isinstance(value, str),
+    ),
+    "mask_sensitive": (
+        "true or false, without quotes",
+        lambda value: isinstance(value, bool),
+    ),
+}
+# The fields whose value is an array of what their check accepts.
+_ARRAYS = {"sensitive_columns"}
+
+# The characters a TOML basic string writes with a short escape.
+_ESCAPES = {
+    '"': '\\"',
+    "\\": "\\\\",
+    "\b": "\\b",
+    "\t": "\\t",
+    "\n": "\\n",
+    "\f": "\\f",
+    "\r": "\\r",
+}
+
+
+def read(
+    path: object, *, keys: Sequence[str], table: str, table_keys: Sequence[str]
+) -> dict[str, Any]:
+    """The keys and values of a project file, laid out as a Project's fields.
+
+    `keys` are the keys the file may hold at the top level, among them the
+    required table named `table`, and `table_keys` the keys that table must
+    hold.
+    """
+    given = _file_path("Project.load", path)
+    try:
+        with open(os.path.expanduser(given), "rb") as file:
+            data = file.read()
+    except (FileNotFoundError, NotADirectoryError):
+        raise ProjectFileNotFoundError(
+            f"Project.load found no file at {_where(given)}. Save a project there "
+            f"first with project.save({given!r}), or pass the path of an existing "
+            "project file."
+        ) from None
+    fields = _parse(given, data)
+    _check_keys(fields, given, keys=keys, table=table, table_keys=table_keys)
+    _check_table(fields, given, table=table, table_keys=table_keys)
+    _check_forms(fields, given, table=table)
+    return fields
+
+
+def invalid(path: str | os.PathLike[str], error: AgentEDAError) -> ProjectFileError:
+    """The error for a file that holds values a Project can't take together.
+
+    `error` is the one building the Project raised, which names the field, the
+    value and what the field allows.
+    """
+    return ProjectFileError(
+        f"Project.load can't build a project from {os.fspath(path)!r}: {error} "
+        "help(ae.Project.load) shows how a project file writes each key."
+    )
+
+
+def write(path: object, fields: Mapping[str, Any], *, overwrite: object) -> Path:
+    """Write a project's fields, as model_dump(mode="json") gives them, to a file.
+
+    Returns the file's absolute path.
+    """
+    given = _file_path("Project.save", path)
+    overwrite = python_scalar(overwrite)
+    if not isinstance(overwrite, bool):
+        raise InvalidArgumentError(
+            f"Project.save got {_value_text(overwrite)} for overwrite, but overwrite "
+            "must be bool: True replaces an existing file, False leaves it. See "
+            "help(ae.Project.save) for every argument."
+        )
+    absolute = Path(os.path.abspath(os.path.expanduser(given)))
+    if absolute.parent.exists() and not absolute.parent.is_dir():
+        raise InvalidArgumentError(
+            f"Project.save got {given!r} for path, but {absolute.parent} is a file, "
+            "so it can't hold one. Pass a path in a directory."
+        )
+    if not absolute.parent.is_dir():
+        raise InvalidArgumentError(
+            f"Project.save got {given!r} for path, but its directory "
+            f"{absolute.parent} doesn't exist. Create it first, such as with "
+            f"os.makedirs({str(absolute.parent)!r}), or pass a path in an existing "
+            "directory."
+        )
+    content = _toml(fields).encode("utf-8")
+    try:
+        # "x" creates the file only if there is none, in one step.
+        with open(absolute, "wb" if overwrite else "xb") as file:
+            file.write(content)
+    except FileExistsError:
+        raise ProjectFileExistsError(
+            f"Project.save found a file at {_where(given)} already, and replaces a "
+            "file only when told to. Pass overwrite=True to replace it, or pass "
+            "another path."
+        ) from None
+    return absolute
+
+
+def _file_path(owner: str, path: object) -> str:
+    """The path a caller gave, as text; raise unless it can name a file.
+
+    A leading ~ means the home directory, as pandas reads it.
+    """
+    given = os.fspath(path) if isinstance(path, str | os.PathLike) else None
+    if not isinstance(given, str):
+        raise InvalidArgumentError(
+            f"{owner} got {_value_text(path)} for path, but path must be a str or a "
+            f"pathlib.Path, such as 'project.toml'. See help(ae.{owner}) for every "
+            "argument."
+        )
+    if not given:
+        raise InvalidArgumentError(
+            f"{owner} got an empty path, but path must name a file, such as "
+            "'project.toml'."
+        )
+    if "\x00" in given:
+        raise InvalidArgumentError(
+            f"{owner} got {given!r} for path, but a path can't hold a null "
+            "character. Pass the path of a file, such as 'project.toml'."
+        )
+    separators = tuple(sep for sep in (os.sep, os.altsep) if sep)
+    example = os.path.join(given, "project.toml")
+    if given.endswith(separators):
+        raise InvalidArgumentError(
+            f"{owner} got {given!r} for path, whose last {given[-1]!r} makes it name "
+            f"a directory, but path must name a file, such as {example!r}."
+        )
+    if os.path.isdir(os.path.abspath(os.path.expanduser(given))):
+        raise InvalidArgumentError(
+            f"{owner} got the directory {_where(given)} for path, but path must name "
+            f"a file in it, such as {example!r}."
+        )
+    return given
+
+
+def _where(given: str) -> str:
+    """A path as the caller gave it, and where it leads if that differs."""
+    absolute = os.path.abspath(os.path.expanduser(given))
+    return repr(given) if absolute == given else f"{given!r} ({absolute})"
+
+
+def _parse(given: str, data: bytes) -> dict[str, Any]:
+    """The keys and values of TOML text, given as UTF-8 bytes."""
+    # Editors on Windows may start UTF-8 text with a byte order mark.
+    data = data.removeprefix(codecs.BOM_UTF8)
+    try:
+        content = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        line = data[: error.start].count(b"\n") + 1
+        raise ProjectFileError(
+            f"Project.load found bytes that aren't UTF-8 text in {given!r} at line "
+            f"{line}. A project file is TOML, which is UTF-8 text. {_REWRITE}"
+        ) from None
+    try:
+        return tomllib.loads(content)
+    except tomllib.TOMLDecodeError as error:
+        raise ProjectFileError(_syntax_message(given, content, str(error))) from None
+
+
+def _syntax_message(given: str, content: str, error: str) -> str:
+    """Say where a file isn't TOML and how to fix it, without quoting the file."""
+    hint = ""
+    if match := _AT_LINE.fullmatch(error):
+        reason = match["reason"]
+        where = f" at line {match['line']}, column {match['column']}"
+        if reason == "Invalid value":
+            hint = (
+                " TOML puts text in quotes, writes true and false in lower case and "
+                "has no null, so leave out a key that has no value."
+            )
+    elif match := _AT_END.fullmatch(error):
+        reason = match["reason"]
+        lines = content.split("\n")
+        last = max((n for n, line in enumerate(lines, 1) if line.strip()), default=1)
+        where = f" at its end, after line {last}"
+        hint = (
+            " The file stops in the middle of its last key, value or table line, such "
+            "as an array without its closing ]."
+        )
+    else:
+        reason, where = error, ""
+    return f"Project.load found invalid TOML in {given!r}{where}: {reason}.{hint} {_REWRITE}"
+
+
+def _check_keys(
+    fields: Mapping[str, Any],
+    given: str,
+    *,
+    keys: Sequence[str],
+    table: str,
+    table_keys: Sequence[str],
+) -> None:
+    """Raise unless every key of the file is a field where it stands.
+
+    A misspelled key would otherwise be dropped quietly, so a typo could switch
+    masking off. Each unknown key is named with the closest field, which may
+    stand at the other level: in TOML, every key below a table's line belongs
+    to that table.
+    """
+    top, inside = "at the top level", f"in [{table}]"
+    unknown = [(key, top) for key in fields if key not in keys]
+    if isinstance(fields.get(table), Mapping):
+        unknown += [(key, inside) for key in fields[table] if key not in table_keys]
+    if not unknown:
+        return
+    fields_at = {top: keys, inside: table_keys}
+    hints = [_key_hint(key, place, fields_at) for key, place in unknown]
+    if len(unknown) == 1:
+        [(key, place)], [(hint, _)] = unknown, hints
+        where = f"in the [{table}] table" if place == inside else place
+        found = f"an unknown key {key!r} {where} of {given!r}."
+        if hint:
+            found += f" {hint[0].upper()}{hint[1:]}{'' if hint.endswith('?') else '.'}"
+    else:
+        described = [
+            f"{key!r} {place}" + (f" ({hint})" if hint else "")
+            for (key, place), (hint, _) in zip(unknown, hints, strict=True)
+        ]
+        found = f"{len(unknown):,} unknown keys in {given!r}: {join_items(described)}."
+    rule = (
+        f" Keys below a [{table}] line belong to that table, and keys above it to "
+        "the top level."
+        if any(moves for _, moves in hints)
+        else ""
+    )
+    raise ProjectFileError(
+        f"Project.load found {found}{rule} Allowed: {join_items(keys)} {top}; "
+        f"{join_items(table_keys)} {inside}.",
+        code="unknown_project_key",
+    )
+
+
+def _key_hint(
+    key: str, place: str, fields_at: Mapping[str, Sequence[str]]
+) -> tuple[str, bool]:
+    """How to fix an unknown key, and whether the fix moves it to the other level.
+
+    `fields_at` maps each level, such as "at the top level", to its fields.
+    """
+    [other] = [level for level in fields_at if level != place]
+    same = closest_names(key, fields_at[place])[:1]
+    if same:
+        return f"did you mean {same[0]!r}?", False
+    if key in fields_at[other]:
+        return f"it belongs {other}", True
+    close = closest_names(key, fields_at[other])[:1]
+    if close:
+        return f"did you mean {close[0]!r} {other}?", True
+    return "", False
+
+
+def _check_table(
+    fields: Mapping[str, Any], given: str, *, table: str, table_keys: Sequence[str]
+) -> None:
+    """Raise unless the file has the table, as a table, with each of its keys."""
+    form = (
+        f"a [{table}] line, with single brackets, followed by "
+        f"{join_items(table_keys)}, as help(ae.Project.load) shows"
+    )
+    if table not in fields:
+        raise ProjectFileError(
+            f"Project.load found no [{table}] table in {given!r}. {_WHOLE_POLICY}: "
+            f"add {form}."
+        )
+    if not isinstance(fields[table], Mapping):
+        raise ProjectFileError(
+            f"Project.load found {_kind(fields[table])} for {table} in {given!r}, but "
+            f"{table} is one table: {form}."
+        )
+    missing = [key for key in table_keys if key not in fields[table]]
+    if missing:
+        raise ProjectFileError(
+            f"Project.load found no {join_items(missing)} in the [{table}] table of "
+            f"{given!r}. {_WHOLE_POLICY}: add {join_items(missing)} below the "
+            f"[{table}] line, as help(ae.Project.load) shows."
+        )
+
+
+def _check_forms(fields: Mapping[str, Any], given: str, *, table: str) -> None:
+    """Raise unless each value has the form the file writes for its field."""
+    values = [
+        *((key, value, "at the top level") for key, value in fields.items()),
+        *(
+            (key, value, f"in the [{table}] table")
+            for key, value in fields[table].items()
+        ),
+    ]
+    for key, value, place in values:
+        if key not in _FORMS:
+            continue
+        form, fits = _FORMS[key]
+        items = value if key in _ARRAYS and isinstance(value, list) else None
+        if items is None and not fits(value):
+            raise ProjectFileError(
+                f"Project.load found {_kind(value)} for {key} {place} of {given!r}, "
+                f"but {key} takes {form}."
+            )
+        for index, item in enumerate(items or []):
+            if not fits(item):
+                raise ProjectFileError(
+                    f"Project.load found {_kind(item)} at {key}[{index}] {place} of "
+                    f"{given!r}, but {key} takes {form}."
+                )
+
+
+def _kind(value: object) -> str:
+    """What TOML calls the type of a value, with an article."""
+    if isinstance(value, bool):
+        return "a boolean"
+    if isinstance(value, int):
+        return "an integer"
+    if isinstance(value, float):
+        return "a float"
+    if isinstance(value, str):
+        return "a string"
+    if isinstance(value, dict):
+        return "a table"
+    if isinstance(value, list):
+        tables = value and all(isinstance(item, dict) for item in value)
+        return "an array of tables" if tables else "an array"
+    return "a date or time"
+
+
+def _toml(fields: Mapping[str, Any]) -> str:
+    """A project's fields as TOML: its values first, then a table per mapping.
+
+    TOML has no null, so a field that is None is left out.
+    """
+    lines = [_HEADER]
+    tables = []
+    for key, value in fields.items():
+        if isinstance(value, Mapping):
+            tables.append((key, value))
+        elif value is not None:
+            lines.append(f"{key} = {_value(value, key)}")
+    for name, table in tables:
+        lines.extend(["", f"[{name}]"])
+        lines.extend(
+            f"{key} = {_value(value, f'{name}.{key}')}"
+            for key, value in table.items()
+            if value is not None
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _value(value: object, field: str) -> str:
+    """A value as TOML writes it: a string, a boolean or an array of them.
+
+    `field` is where the value sits, such as "data_policy.sensitive_columns[1]".
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return _string(value, field)
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        items = (
+            f"    {_value(item, f'{field}[{i}]')},\n" for i, item in enumerate(value)
+        )
+        return "[\n" + "".join(items) + "]"
+    raise TypeError(f"a project file has no form for a {type(value).__name__}")
+
+
+def _string(text: str, field: str) -> str:
+    """Text as a TOML basic string, on one line.
+
+    Quotes, backslashes and control characters are escaped, as TOML requires,
+    and so is every other character that prints as nothing, such as a
+    zero-width space, so that whoever reads the file sees it. A lone
+    surrogate, which isn't Unicode text, raises.
+    """
+    surrogates = [ch for ch in text if 0xD800 <= ord(ch) <= 0xDFFF]
+    if surrogates:
+        raise ProjectFileError(
+            f"Project.save can't write {field}, {text!r}, to TOML, which holds only "
+            f"Unicode text: {surrogates[0]!r} is a lone surrogate, as left by "
+            "decoding bytes with errors='surrogateescape'. Use text without it, or "
+            "build the project in code in each script instead of saving it."
+        )
+    return '"' + "".join(_character(ch) for ch in text) + '"'
+
+
+def _character(ch: str) -> str:
+    if ch in _ESCAPES:
+        return _ESCAPES[ch]
+    if ch.isprintable():
+        return ch
+    code = ord(ch)
+    return f"\\u{code:04X}" if code <= 0xFFFF else f"\\U{code:08X}"
