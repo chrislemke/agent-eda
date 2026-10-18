@@ -1763,6 +1763,179 @@ class ProfileMissingValuesResult(AnalysisResult):
         return pd.DataFrame(columns, columns=list(columns))
 
 
+# Why a value is a sentinel value candidate.
+SentinelEvidence = Literal["declared", "builtin_list", "isolated_extreme"]
+
+
+class SentinelCandidate(ResultModel):
+    """A value of one column that looks like a stand-in for missing values."""
+
+    column: str = Field(description="The column that holds the value.")
+    value: bool | int | float | str = Field(
+        description="The value: a declared one as declared, a suspected one as "
+        "stored. Dates, datetimes and durations appear as ISO 8601 text and "
+        "decimals as floats; value_type names the type."
+    )
+    value_type: str = Field(
+        description="The Python type of the value, such as 'int', 'float', 'str', "
+        "'Timestamp' or 'date'; a NumPy scalar counts as the Python type it holds."
+    )
+    count: int = Field(
+        description="Values in the column equal to the value, among those pandas "
+        "doesn't count as missing."
+    )
+    share: float = Field(
+        description="count over all rows, from 0 to 1: declaring the value raises "
+        "the column's missing_share in profile_missing_values by this much."
+    )
+    evidence: list[SentinelEvidence] = Field(
+        description="Why the value is a candidate, in this order: declared, it is "
+        "declared in sentinel_values; builtin_list, it is on the built-in list of "
+        "stand-ins; isolated_extreme, it repeats at the column's minimum or "
+        "maximum, farther from the nearest other value than the others span."
+    )
+    confirmation: Literal["declared", "suspected"] = Field(
+        description="declared: you declared it in sentinel_values. suspected: a "
+        "built-in rule found it, and it stays a valid value until you declare it."
+    )
+    row_ids: Annotated[list[RowId], _Cap(10, total="count")] = Field(
+        description="The IDs of the first 10 rows that hold the value, in row "
+        "order: index labels, or values of id_column when it is given. The "
+        "record adds row_ids_total, which equals count."
+    )
+
+
+class DetectMissingSentinelsResult(MaskableResult):
+    """The result of detect_missing_sentinels."""
+
+    candidates: Annotated[list[SentinelCandidate], _ENTRIES] = Field(
+        description="The values that look like stand-ins for missing values."
+    )
+    columns_without_rules: Annotated[list[str], _ENTRIES] = Field(
+        description="Checked columns whose values no built-in rule reads, such as "
+        "booleans, durations or lists, in the order checked: only declared values "
+        "were looked for there. A column without values isn't listed."
+    )
+
+    def _text_facts(self) -> list[str]:
+        declared = sum(c.confirmation == "declared" for c in self.candidates)
+        counts = [
+            f"{count:,} {word}"
+            for count, word in (
+                (declared, "declared"),
+                (len(self.candidates) - declared, "suspected"),
+            )
+            if count
+        ]
+        found = (
+            f"{' and '.join(counts)} candidate{'' if len(self.candidates) == 1 else 's'}"
+            if counts
+            else "no candidates"
+        )
+        id_column = self.parameters.get("id_column")
+        source = (
+            f"values of id_column {id_column!r}"
+            if isinstance(id_column, str)
+            else "index labels"
+        )
+        checked = _text.plural(self.support.column_count, "column", "columns")
+        facts = _text.wrap(
+            f"Checked {checked}: {found}. Shares are of all rows; row IDs are "
+            f"{source}.",
+            first="",
+            indent="    ",
+        )
+        if self.columns_without_rules:
+            names = self.columns_without_rules
+            facts.extend(
+                _text.wrap(
+                    "No built-in rule reads "
+                    f"{_text.plural(len(names), 'column', 'columns')}, so only "
+                    f"declared values were looked for: {_text.join_labels(names)}.",
+                    first="",
+                    indent="    ",
+                )
+            )
+        if declared < len(self.candidates):
+            facts.extend(
+                _text.wrap(
+                    "Suspected values stay valid until declared in sentinel_values, "
+                    "which profile_missing_values counts as missing.",
+                    first="",
+                    indent="    ",
+                )
+            )
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        # Most frequent first, ties in the order of candidates.
+        order = sorted(
+            range(len(self.candidates)), key=lambda i: -self.candidates[i].count
+        )
+        id_column = self.parameters.get("id_column")
+        quote_ids = not (isinstance(id_column, str) and self._masked(id_column))
+        return _text.Table(
+            title="Candidates, most frequent first",
+            unit=("candidate", "candidates"),
+            headers=(
+                "column",
+                "value",
+                "count",
+                "share",
+                "confirmation",
+                "evidence",
+                "row_ids",
+            ),
+            rows=[
+                (
+                    c.column,
+                    _candidate_text(c, masked=self._masked(c.column)),
+                    c.count,
+                    c.share,
+                    c.confirmation,
+                    ", ".join(c.evidence),
+                    _row_ids_text(c, quote=quote_ids),
+                )
+                for c in (self.candidates[i] for i in order[: _text.MAX_TABLE_ROWS])
+            ],
+            total=len(self.candidates),
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """Every candidate, one row each, in the order of candidates.
+
+        The columns are the candidate's fields. value holds each value as the
+        result does, and evidence and row_ids hold lists.
+        """
+        frame = _entries_frame(self.candidates, SentinelCandidate)
+        frame["value"] = pd.Series([c.value for c in self.candidates], dtype=object)
+        return frame
+
+
+def _candidate_text(candidate: SentinelCandidate, *, masked: bool) -> str:
+    """A candidate's value as the text shows it: text quoted, so that empty and
+    whitespace-only text stay visible, and placeholders, numbers, dates and
+    times as they are."""
+    value = candidate.value
+    if candidate.value_type == "str" and not masked:
+        return repr(value)
+    return repr(value) if isinstance(value, float) else str(value)
+
+
+# The text names this many row IDs of a candidate and counts the rest.
+_ROW_IDS_NAMED = 3
+
+
+def _row_ids_text(candidate: SentinelCandidate, *, quote: bool) -> str:
+    """The first row IDs of a candidate, such as "'a', 'b', 'c' and 9 more"."""
+    show = _text.label_text if quote else str
+    named = [show(row_id) for row_id in candidate.row_ids[:_ROW_IDS_NAMED]]
+    rest = candidate.count - len(named)
+    if rest > 0:
+        return f"{', '.join(named)} and {rest:,} more"
+    return _text.join_items(named)
+
+
 class CandidateKey(ResultModel):
     """A column set the key search reports, with how well it identifies rows."""
 

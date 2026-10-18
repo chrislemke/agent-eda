@@ -18,6 +18,7 @@ TAGS = {info.name: info.tags for info in ae.list_analyses().analyses}
 SEARCH_ACCEPTANCE = [
     ("missing values", "profile_missing_values"),
     ("nulls per column", "profile_missing_values"),
+    ("-999 placeholder codes", "detect_missing_sentinels"),
     ("primary key", "find_candidate_keys"),
     ("dataset overview", "describe_dataset"),
     ("mean and standard deviation", "summarize_numeric"),

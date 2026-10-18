@@ -82,10 +82,11 @@ _ANY_COLUMN = ColumnRule(
 
 def family(value: object) -> Family:
     """The family of a value, such as "number" for 3, 3.0 and Decimal('3')."""
-    return _type_family(type(value))
+    return type_family(type(value))
 
 
-def _type_family(kind: type) -> Family:
+def type_family(kind: type) -> Family:
+    """The family of the values of a type, NumPy scalar types included."""
     if issubclass(kind, bool | np.bool_):
         return "boolean"
     # Before numbers: NumPy counts timedelta64 as an integer.
@@ -156,7 +157,7 @@ def holds(series: pd.Series) -> Holds:
 def _numbers(dtype: object, shown: str) -> Holds:
     kind = getattr(dtype, "kind", "O")
     if kind in "iu":
-        limits = np.iinfo(_numpy_dtype(dtype))
+        limits = np.iinfo(numpy_dtype(dtype))
         return Holds(
             shown,
             frozenset({"number"}),
@@ -164,12 +165,12 @@ def _numbers(dtype: object, shown: str) -> Holds:
             integers=(int(limits.min), int(limits.max)),
         )
     if kind == "f":
-        largest = float(np.finfo(_numpy_dtype(dtype)).max)
+        largest = float(np.finfo(numpy_dtype(dtype)).max)
         return Holds(shown, frozenset({"number"}), "numbers", float_max=largest)
     return Holds(shown, frozenset({"number"}), "numbers")  # pyarrow decimals
 
 
-def _numpy_dtype(dtype: object) -> np.dtype:
+def numpy_dtype(dtype: object) -> np.dtype:
     """The NumPy dtype behind a NumPy, nullable, pyarrow-backed or sparse dtype."""
     if isinstance(dtype, np.dtype):
         return dtype
@@ -216,7 +217,7 @@ def _families_present(series: pd.Series) -> set[Family]:
     if inferred in ("string", "empty"):
         return {"text"} if inferred == "string" else set()
     present = objects[~np.asarray(series.isna(), dtype=bool)]
-    return {_type_family(kind) for kind in set(map(type, present))}
+    return {type_family(kind) for kind in set(map(type, present))}
 
 
 @dataclass(frozen=True)
@@ -290,6 +291,11 @@ def _left_out_message(analysis: str, names: list[str]) -> str:
         f"leaves out: {join_labels(names)}. Add them to columns, or leave them out "
         "of sentinel_values."
     )
+
+
+def can_match(value: SentinelValue, column: Holds) -> bool:
+    """Whether the value can match a value of the column, as declared_values decides."""
+    return _check("", value, column) is None
 
 
 def _check(name: str, value: SentinelValue, column: Holds) -> _Problem | None:

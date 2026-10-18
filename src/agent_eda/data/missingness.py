@@ -1,29 +1,42 @@
 """Analyses of missing values and the stand-ins that mean missing."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
 
 from agent_eda._columns import ALL_KINDS, Column, ColumnRule, select_columns
+from agent_eda._levels import stored_label, type_name
+from agent_eda._masking import mask_values, resolve_masking
 from agent_eda._numeric import stored_nan_count
 from agent_eda._registry import analysis
-from agent_eda._run import data_shape, execution, overall_status
+from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
+from agent_eda._run import NO_ROWS, data_shape, execution, overall_status
+from agent_eda._sentinel_rules import read_by_rules, record_value, suspects
 from agent_eda._sentinels import (
+    JsonSentinel,
     SentinelValue,
     declared_values,
+    holds,
     json_value,
     matches,
 )
 from agent_eda._text import join_labels, plural
+from agent_eda.project import Project
 from agent_eda.results import (
     ColumnSupport,
     DeclaredSentinelValue,
+    DetectMissingSentinelsResult,
     Finding,
     Limitation,
     ProfileMissingValuesColumn,
     ProfileMissingValuesResult,
     ProfileMissingValuesRowCount,
+    SentinelCandidate,
+    SentinelEvidence,
+    Status,
     StatusReason,
     Support,
 )
@@ -59,9 +72,10 @@ def profile_missing_values(
         string, and counts no value twice. Shares are over all rows. Per row,
         it counts how many selected values each row misses, which shows whether
         gaps cluster in some rows, and how many rows are complete. Nothing
-        counts as a sentinel value unless you declare it. For how the values of
-        each numeric column are distributed, call `summarize_numeric`;
-        `list_analyses` lists the other analyses.
+        counts as a sentinel value unless you declare it: to find the values
+        that look like stand-ins, call `detect_missing_sentinels` first. For
+        how the values of each numeric column are distributed, call
+        `summarize_numeric`; `list_analyses` lists the other analyses.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -164,6 +178,8 @@ def profile_missing_values(
         1
 
     See Also:
+        detect_missing_sentinels: Values that look like stand-ins for missing
+            ones, such as -999 or 'N/A', to declare as sentinel values.
         describe_dataset: Dtypes, missing and distinct counts and memory of
             every column, whatever its dtype.
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
@@ -398,3 +414,482 @@ def _not_declared(
             fields=[f"{_entry_path(name)}.sentinel_count" for name in names],
         )
     ]
+
+
+# Sentinel values can hide in a column of any dtype.
+_ANY_COLUMN = ColumnRule(
+    default=ALL_KINDS,
+    default_text="every column except id_column",
+    accepted=ALL_KINDS,
+    accepted_text="columns of every dtype",
+    fixes={},
+)
+
+
+@analysis(
+    statuses=("completed", "insufficient_data", "not_applicable", "failed"),
+    finding_codes=("sentinel_values_present", "suspected_sentinel_values"),
+    tags=(
+        "sentinel",
+        "stand-ins",
+        "placeholder",
+        "-999",
+        "missing codes",
+        "magic number",
+    ),
+    masking=True,
+)
+def detect_missing_sentinels(
+    data: pd.DataFrame,
+    *,
+    columns: Sequence[str] | None = None,
+    sentinel_values: Mapping[str, Sequence[SentinelValue]] | None = None,
+    id_column: str | None = None,
+    project: Project | None = None,
+    mask_sensitive: bool | None = None,
+) -> DetectMissingSentinelsResult:
+    """Which values look like stand-ins for missing data?
+
+    When to use:
+        Call it after `profile_missing_values` to find values that may stand in
+        for missing ones, such as -999, 'N/A', empty text or 1900-01-01, before
+        they distort a summary or a model. Fixed rules without thresholds to
+        tune pick the candidates: values from a built-in list, and a number
+        that repeats at a column's minimum or maximum, far from all the others.
+        It only suspects values and never changes the data, so legitimate
+        zeros, negative numbers and rare codes stay valid until you confirm
+        otherwise. Declare the values you confirm in sentinel_values: they come
+        back as declared, apart from the suspected ones, and
+        `profile_missing_values` counts them as missing. Candidate values and
+        row IDs are raw values, so when a column holds personal data, such as
+        email addresses, declare it sensitive in a project and switch masking
+        on. Index labels are never masked: when the index holds sensitive
+        values, pass a non-sensitive id_column. For which values occur in a
+        column and how often, call `summarize_categorical`; for the extremes
+        and spread of numeric columns, `summarize_numeric`; `list_analyses`
+        lists the other analyses.
+
+    Args:
+        data (pd.DataFrame): The data. Column labels must be unique, distinct as
+            strings and a single level; describe_dataset reports labels that
+            aren't. It is never modified.
+        columns (Sequence[str] | None): Names of the columns to check, in the
+            order to report them: a list, a tuple, a pandas Index such as
+            df.columns[:3], or a single name. A label that isn't a string can
+            be given as itself, such as 0, or as its string form. Columns of
+            every dtype are accepted. None, the default, checks every column
+            except id_column, in DataFrame order.
+        sentinel_values (Mapping[str, Sequence[bool | int | float | str | datetime | date | timedelta]] | None):
+            The sentinel values you declare, by column name, such as
+            {'age': [-999], 'city': ['N/A', '']}, as profile_missing_values
+            takes them: one value or a list of values per column, each a bool,
+            int, float, str, datetime (pd.Timestamp too), date or timedelta
+            (pd.Timedelta too). A value matches exactly: text with its case and
+            surrounding spaces, numbers by value (-999 matches -999.0 but never
+            True), datetimes by the instant they name. Every column named must
+            be checked. A value that can never match its column raises
+            errors.InvalidArgumentError naming the value you likely meant, such
+            as -999 for the text '-999' in an integer column, and so do NaN,
+            NaT and infinite values. The declared values a column holds come
+            back with confirmation 'declared', and the rules read the column as
+            if they were missing. None, the default, declares none.
+        id_column (str | None): Name of a column whose values identify rows,
+            such as an order number; row IDs are then its values, and
+            columns=None leaves it out of the check. Its values must be
+            hashable, such as numbers or strings; a column of lists raises. A
+            label that isn't a string can be given as itself or as its string
+            form. None, the default, uses the index labels as row IDs.
+        project (Project | None): The project, whose data policy names the
+            sensitive columns and says whether to mask them. None, the
+            default, declares no sensitive column, so nothing is masked.
+        mask_sensitive (bool | None): True replaces each value of a sensitive
+            column that the result shows, its candidate values, its declared
+            values in parameters and its values as row IDs when it is
+            id_column, with a numbered placeholder, '<masked 1>' for the first
+            value in result order and so on, equal values alike, and needs a
+            project that declares sensitive columns; False shows the values as
+            stored. None, the default, follows the project's
+            data_policy.mask_sensitive, and masks nothing without a project.
+            Index labels are never masked. Masking is a guardrail against
+            accidental exposure, not anonymization or access control.
+
+    Returns:
+        DetectMissingSentinelsResult: `candidates` lists the values that may
+        stand in for missing ones, column by column in the order checked:
+        first the declared values a column holds, in the order given, then
+        the suspected ones, most frequent first. Each candidate has its
+        `column`; its `value`, with dates and times as ISO 8601 text and
+        `value_type` naming the type; its `count` and its `share` of all rows;
+        its `evidence` codes; its `confirmation`, declared or suspected; and
+        in `row_ids` the IDs of the first 10 rows that hold it. With index
+        labels as row IDs, df.loc[row_ids] shows the rows. The record keeps the
+        first 100 candidates and adds candidates_total; to_frame() returns
+        every candidate, and the printed table shows the most frequent first.
+        `columns_without_rules` names the checked columns whose values no
+        rule reads, such as booleans and durations, where only declared values
+        were looked for.
+
+        The evidence codes, and the rules behind them:
+
+        - `declared`: the value is declared in sentinel_values.
+        - `builtin_list`: the value is on the built-in list: the numbers -9,
+          -99, -999, -9999, 99, 999, 9999, 99999 and 999999 when they are the
+          column's minimum or maximum; the text '', whitespace only, 'NA',
+          'N/A', 'NULL', 'None', 'nan', '-', '?', 'unknown' and 'missing',
+          compared case-insensitively; and the dates 1900-01-01, 1970-01-01,
+          2099-12-31 and 9999-12-31, as dates or as datetimes at midnight in
+          their own time zone or in UTC.
+        - `isolated_extreme`: a number that occurs more than once as the
+          column's minimum or maximum and lies farther from the nearest other
+          value than the other values span; they must hold two distinct
+          values, so a column of 0 and 1 has none.
+
+        The rules read the finite values that are neither missing nor
+        declared, and a column of Python objects value by value: numbers as
+        numbers, text as text, dates as dates. A value that no rule matches,
+        such as a legitimate 0, a negative number or a rare code, is never a
+        candidate. When index labels or id_column values repeat, the
+        `ambiguous_row_ids` limitation names the candidates whose row IDs
+        repeat. `masking` says whether masking was on and names the sensitive
+        columns whose values the result shows.
+
+        - `sentinel_values_present`: descriptive; declared sentinel values
+          occur in a column.
+        - `suspected_sentinel_values`: suspected; the built-in rules found
+          values that may stand in for missing ones, which stay valid values
+          until you declare them.
+
+    Statuses:
+        completed: The data has rows and a column to check, whether or not a
+            candidate turns up.
+        insufficient_data: The data has no rows, so there is no value to
+            check.
+        not_applicable: There is no column to check: the data has no columns,
+            or only id_column, which columns=None leaves out.
+        failed: An anticipated failure stopped the check, and `status_reason`
+            gives its code and message. None is known today.
+
+    Examples:
+        >>> import pandas as pd
+        >>> import agent_eda as ae
+        >>> df = pd.DataFrame(
+        ...     {
+        ...         "age": [34, -999, 29, -999, 51, 0],
+        ...         "city": ["Lyon", "N/A", "", "Oslo", "n/a", "Rome"],
+        ...         "visits": [3, 0, 5, 0, 4, 2],
+        ...     }
+        ... )
+        >>> res = ae.detect_missing_sentinels(df)
+        >>> print(res)
+        detect_missing_sentinels: completed on 6 rows x 3 columns
+        Checked 3 columns: 4 suspected candidates. Shares are of all rows; row IDs are index labels.
+        Suspected values stay valid until declared in sentinel_values, which profile_missing_values counts as missing.
+        Candidates, most frequent first (4 of 4 shown):
+        column  value  count   share  confirmation  evidence                        row_ids
+        age     -999       2  0.3333  suspected     builtin_list, isolated_extreme  1 and 3
+        city    'N/A'      1  0.1667  suspected     builtin_list                    1
+        city    ''         1  0.1667  suspected     builtin_list                    2
+        city    'n/a'      1  0.1667  suspected     builtin_list                    4
+        Findings (1 of 1 shown):
+        - suspected suspected_sentinel_values: 4 values in 2 columns may stand in for missing values: 'age' and 'city'.
+        Limitations: none
+        More: res.to_frame() has all 4 candidates; res.findings, res.limitations and res.to_json() have the rest.
+        >>> declared = ae.detect_missing_sentinels(df, sentinel_values={"age": [-999]})
+        >>> [
+        ...     (c.value, c.confirmation)
+        ...     for c in declared.candidates
+        ...     if c.column == "age"
+        ... ]
+        [(-999, 'declared')]
+
+    See Also:
+        profile_missing_values: Missing values per column and per row, counting
+            declared sentinel values.
+        summarize_categorical: Each level's count and share of every text,
+            categorical and boolean column, where stand-ins show up as levels.
+        summarize_numeric: Counts, mean, spread, quantiles and shape of every
+            numeric column, which stand-ins such as -999 distort.
+        list_analyses: Every analysis, with the question each one answers.
+    """
+    masking = resolve_masking("detect_missing_sentinels", project, mask_sensitive)
+    row_ids = read_row_ids("detect_missing_sentinels", data, id_column)
+    selection = select_columns(
+        "detect_missing_sentinels",
+        data,
+        columns,
+        _ANY_COLUMN,
+        id_column=row_ids.id_column,
+    )
+    declared = declared_values(
+        "detect_missing_sentinels", data, selection.columns, sentinel_values
+    )
+    row_count = len(data)
+    checked = {
+        column.name: _check_column(
+            data.iloc[:, column.position], column, declared.get(column.name, [])
+        )
+        for column in selection.columns
+    }
+    found = [candidate for done in checked.values() for candidate in done.candidates]
+    shown = [candidate.positions[:_ROW_IDS] for candidate in found]
+    view = _View(
+        declared={
+            name: [json_value(value) for value in values]
+            for name, values in (sentinel_values or {}).items()
+        },
+        values=[candidate.record_value() for candidate in found],
+        row_ids=[row_ids.at(positions) for positions in shown],
+    )
+    for name in _shown_columns(found, sentinel_values, row_ids.id_column):
+        if masking.masks(name):
+            view = _masked(view, name, found, sentinel_values, row_ids.id_column)
+    candidates = [
+        SentinelCandidate(
+            column=candidate.column,
+            value=value,
+            value_type=type_name(stored_label(candidate.value)),
+            count=len(candidate.positions),
+            share=len(candidate.positions) / row_count,
+            evidence=list(candidate.evidence),
+            confirmation="declared" if candidate.declared else "suspected",
+            row_ids=ids,
+        )
+        for candidate, value, ids in zip(found, view.values, view.row_ids, strict=True)
+    ]
+    # The candidates showing a row ID that another row shares.
+    ambiguous = [
+        f"candidates[{number}].row_ids"
+        for number, positions in enumerate(shown)
+        if row_ids.repeated[positions].any()
+    ]
+    status, status_reason = _check_status(
+        row_count, selection.columns, row_ids.id_column
+    )
+    return DetectMissingSentinelsResult(
+        analysis="detect_missing_sentinels",
+        method=None,
+        status=status,
+        status_reason=status_reason,
+        parameters={
+            "data": data_shape(data),
+            "columns": [column.name for column in selection.columns],
+            "sentinel_values": None if sentinel_values is None else view.declared,
+            "id_column": row_ids.id_column,
+            "project": project.model_dump(mode="json") if project else None,
+            "mask_sensitive": mask_sensitive,
+        },
+        support=Support(
+            row_count=row_count,
+            column_count=len(checked),
+            columns=[
+                ColumnSupport(
+                    column=name,
+                    eligible_count=row_count,
+                    evaluated_count=row_count - done.missing_count,
+                    excluded_count=done.missing_count,
+                    excluded_by_reason=(
+                        {"missing": done.missing_count} if done.missing_count else {}
+                    ),
+                )
+                for name, done in checked.items()
+            ],
+        ),
+        findings=_candidate_findings(candidates),
+        limitations=ambiguous_row_ids(row_ids, ambiguous),
+        execution=execution(("numpy", "pandas")),
+        masking=masking.record(
+            [
+                *_shown_columns(found, sentinel_values, None),
+                *([row_ids.id_column] if found else []),
+            ],
+            data,
+        ),
+        candidates=candidates,
+        columns_without_rules=[
+            name for name, done in checked.items() if not done.ruled
+        ],
+    )
+
+
+# A candidate keeps the IDs of this many rows that hold it.
+_ROW_IDS = 10
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    """A value of a column that is declared or suspected, and where it occurs."""
+
+    column: str
+    # A declared value as declared, a suspected one as the column stores it.
+    value: object
+    # Every row that holds it, in row order.
+    positions: np.ndarray
+    evidence: tuple[SentinelEvidence, ...]
+    declared: bool
+
+    def record_value(self) -> JsonSentinel:
+        """The value as the record shows it, dates and times as ISO 8601 text."""
+        if self.declared:
+            return json_value(cast("SentinelValue", self.value))
+        return record_value(self.value)
+
+
+@dataclass(frozen=True)
+class _View:
+    """What the result shows of the data's values: declared ones by column, each
+    candidate's value and its row IDs, raw or masked."""
+
+    declared: dict[str, list[JsonSentinel]]
+    values: list[JsonSentinel]
+    row_ids: list[list[object]]
+
+
+def _shown_columns(
+    found: list[_Candidate],
+    sentinel_values: Mapping[str, Sequence[SentinelValue]] | None,
+    id_column: str | None,
+) -> list[str]:
+    """The columns whose values the result shows, in result order: those named
+    in sentinel_values, those with candidates and id_column when it gives the
+    candidates' row IDs."""
+    names = [
+        *(sentinel_values or {}),
+        *(candidate.column for candidate in found),
+        *([id_column] if id_column is not None and found else []),
+    ]
+    return list(dict.fromkeys(names))
+
+
+def _masked(
+    view: _View,
+    name: str,
+    found: list[_Candidate],
+    sentinel_values: Mapping[str, Sequence[SentinelValue]] | None,
+    id_column: str | None,
+) -> _View:
+    """The view with placeholders in place of the values of column `name`.
+
+    One call numbers every value of the column in result order: its declared
+    values, then each candidate's value and, when the column is id_column, its
+    row IDs, so a value shows as the same placeholder everywhere.
+    """
+    declared = list((sentinel_values or {}).get(name, []))
+    raw: list[object] = list(declared)
+    for candidate, ids in zip(found, view.row_ids, strict=True):
+        if candidate.column == name:
+            raw.append(candidate.value)
+        if id_column == name:
+            raw.extend(ids)
+    placeholders = iter(mask_values(raw))
+
+    def placeholder() -> str:
+        # Declared and candidate values are never missing, so never None.
+        return cast("str", next(placeholders))
+
+    masked_declared = dict(view.declared)
+    if name in masked_declared:
+        masked_declared[name] = [placeholder() for _ in declared]
+    values: list[JsonSentinel] = []
+    row_ids: list[list[object]] = []
+    for candidate, value, ids in zip(found, view.values, view.row_ids, strict=True):
+        values.append(placeholder() if candidate.column == name else value)
+        # A missing row ID stays None.
+        row_ids.append([next(placeholders) for _ in ids] if id_column == name else ids)
+    return _View(masked_declared, values, row_ids)
+
+
+@dataclass(frozen=True)
+class _Checked:
+    """What checking one column found."""
+
+    candidates: list[_Candidate]
+    # Values pandas counts as missing, which no rule reads.
+    missing_count: int
+    # Whether a built-in rule reads any of its values.
+    ruled: bool
+
+
+def _check_column(
+    series: pd.Series, column: Column, declared: list[SentinelValue]
+) -> _Checked:
+    """The declared values a column holds, in the order given, then the values
+    the rules suspect among the rest.
+
+    The rules read only values that are neither missing nor declared, so no
+    declared value is also suspected, and the rules look past declared values
+    as if they were missing.
+    """
+    native = np.asarray(series.isna(), dtype=bool)
+    remaining = ~native
+    found = []
+    for value in declared:
+        match = matches(series, value, native)
+        remaining &= ~match
+        positions = np.flatnonzero(match)
+        if positions.size:
+            found.append(_Candidate(column.name, value, positions, ("declared",), True))
+    holding = holds(series)
+    found.extend(
+        _Candidate(
+            column.name, suspect.value, suspect.positions, suspect.evidence, False
+        )
+        for suspect in suspects(series, column, holding, remaining)
+    )
+    return _Checked(found, int(native.sum()), read_by_rules(holding))
+
+
+def _check_status(
+    row_count: int, checked: list[Column], id_column: str | None
+) -> tuple[Status, StatusReason | None]:
+    """insufficient_data without rows, not_applicable without a column to check,
+    completed otherwise."""
+    if not row_count:
+        return "insufficient_data", NO_ROWS
+    if checked:
+        return "completed", None
+    # Only columns=None can select nothing; it leaves out id_column.
+    if id_column is None:
+        message = "The data has no columns to check."
+    else:
+        message = (
+            f"The data has no column to check besides id_column {id_column!r}, "
+            "which columns=None leaves out. Name the columns to check in columns."
+        )
+    return "not_applicable", StatusReason(code="no_columns_to_check", message=message)
+
+
+def _candidate_findings(candidates: list[SentinelCandidate]) -> list[Finding]:
+    """sentinel_values_present for declared candidates, suspected_sentinel_values
+    for the others."""
+    findings = []
+    for confirmation in ("declared", "suspected"):
+        paths = [
+            (f"candidates[{position}]", candidate.column)
+            for position, candidate in enumerate(candidates)
+            if candidate.confirmation == confirmation
+        ]
+        if not paths:
+            continue
+        names = list(dict.fromkeys(column for _, column in paths))
+        columns = plural(len(names), "column", "columns")
+        if confirmation == "declared":
+            code, assessment = "sentinel_values_present", "descriptive"
+            claim = (
+                f"Declared sentinel values occur in {columns}: {join_labels(names)}."
+            )
+        else:
+            code, assessment = "suspected_sentinel_values", "suspected"
+            claim = (
+                f"{plural(len(paths), 'value', 'values')} in {columns} may stand in "
+                f"for missing values: {join_labels(names)}."
+            )
+        findings.append(
+            Finding(
+                code=code,
+                claim=claim,
+                assessment=assessment,
+                columns=names,
+                fields=[path for path, _ in paths],
+            )
+        )
+    return findings

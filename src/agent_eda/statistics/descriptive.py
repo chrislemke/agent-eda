@@ -99,8 +99,10 @@ def summarize_numeric(
         instead; `describe_dataset` covers every dtype, and `list_analyses`
         lists the other analyses. For missing values in columns of every dtype
         and per row, counting stand-ins such as -999 that you declare, call
-        `profile_missing_values`. For how strongly pairs of columns move
-        together, call `compute_association_matrix`.
+        `profile_missing_values`. Stand-ins count here as values and distort
+        every statistic: `detect_missing_sentinels` finds the likely ones. For
+        how strongly pairs of columns move together, call
+        `compute_association_matrix`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -215,6 +217,8 @@ def summarize_numeric(
             stored as text rather than measurements.
         profile_missing_values: Missing values per column and per row, counting
             declared sentinel values.
+        detect_missing_sentinels: Values that look like stand-ins for missing
+            ones, such as -999 at a column's minimum.
         compute_association_matrix: How strongly every pair of numeric and
             categorical columns is associated, strongest first.
         list_analyses: Every analysis, with the question each one answers.
@@ -422,7 +426,9 @@ def summarize_categorical(
         never occur. Name a numeric column in columns to count its values, such
         as codes 1, 2 and 3. Levels are raw values, so for columns that hold
         personal data, such as names, declare them sensitive in a project and
-        switch masking on. For how numeric values are distributed, call
+        switch masking on. Labels that stand in for missing values, such as
+        'N/A' or 'unknown', count here as levels: `detect_missing_sentinels`
+        finds them. For how numeric values are distributed, call
         `summarize_numeric` instead; for how strongly categorical columns are
         associated with each other and with numeric ones, call
         `compute_association_matrix`. `describe_dataset` gives distinct
@@ -560,6 +566,8 @@ def summarize_categorical(
             numeric column.
         describe_dataset: Dtypes, missing and distinct counts and memory of every
             column, whatever its dtype.
+        detect_missing_sentinels: Values that look like stand-ins for missing
+            ones, such as 'N/A', 'unknown' or empty text.
         compute_association_matrix: How strongly every pair of numeric and
             categorical columns is associated, Cramér's V between categorical
             ones.

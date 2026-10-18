@@ -223,8 +223,16 @@ def _sentinel(value: Any) -> Any:
 def missing_value_arguments(draw: st.DrawFn, data: pd.DataFrame) -> Arguments:
     """Columns, and sentinel values for some of the selected ones."""
     arguments = draw(optional(columns=column_lists(names(data, any_dtype))))
+    selected = arguments.get("columns") or [str(label) for label in data.columns]
+    return arguments | draw(declared_sentinel_values(data, selected))
+
+
+@st.composite
+def declared_sentinel_values(
+    draw: st.DrawFn, data: pd.DataFrame, selected: list[str]
+) -> Arguments:
+    """sentinel_values for some of the selected columns, None, or left out."""
     labels = {str(label): label for label in data.columns}
-    selected = arguments.get("columns") or list(labels)
     candidates = {
         name: values
         for name in selected
@@ -232,20 +240,63 @@ def missing_value_arguments(draw: st.DrawFn, data: pd.DataFrame) -> Arguments:
     }
     if candidates and draw(st.booleans()):
         chosen = draw(st.lists(st.sampled_from(list(candidates)), unique=True))
-        arguments["sentinel_values"] = {
-            name: draw(
-                st.lists(
-                    st.sampled_from(candidates[name]),
-                    min_size=1,
-                    max_size=3,
-                    unique=True,
+        return {
+            "sentinel_values": {
+                name: draw(
+                    st.lists(
+                        st.sampled_from(candidates[name]),
+                        min_size=1,
+                        max_size=3,
+                        unique=True,
+                    )
                 )
-            )
-            for name in chosen
+                for name in chosen
+            }
         }
-    elif draw(st.booleans()):
-        arguments["sentinel_values"] = None
-    return arguments
+    if draw(st.booleans()):
+        return {"sentinel_values": None}
+    return {}
+
+
+@st.composite
+def sentinel_arguments(draw: st.DrawFn, data: pd.DataFrame) -> Arguments:
+    """id_column, columns, and sentinel values for some of the selected columns.
+
+    columns=None leaves id_column out, so no value is declared for it then.
+    """
+    arguments = draw(optional(id_column=column_names(hashable_names(data))))
+    arguments |= draw(optional(columns=column_lists(names(data, any_dtype))))
+    selected = arguments.get("columns") or [
+        name for name in names(data, any_dtype) if name != arguments.get("id_column")
+    ]
+    return arguments | draw(declared_sentinel_values(data, selected))
+
+
+@st.composite
+def sentinels_of_sensitive_columns(
+    draw: st.DrawFn, data: pd.DataFrame, sensitive: list[str]
+) -> Arguments:
+    """Arguments that make detect_missing_sentinels show sensitive values.
+
+    It checks the sensitive columns and declares some of their own values,
+    which become candidates, or takes row IDs from one of them, or both.
+    """
+    id_column = draw(st.none() | st.sampled_from(sensitive))
+    columns = draw(st.none() | st.permutations(sensitive).map(list))
+    selected = columns or [name for name in names(data, any_dtype) if name != id_column]
+    labels = {str(label): label for label in data.columns}
+    declared = {
+        name: draw(
+            st.lists(st.sampled_from(values), min_size=1, max_size=3, unique=True)
+        )
+        for name in sensitive
+        if name in selected and (values := sentinel_candidates(data[labels[name]]))
+    }
+    return {
+        "id_column": id_column,
+        "columns": columns,
+        "sentinel_values": declared or None,
+    }
 
 
 @st.composite
@@ -295,6 +346,12 @@ RECIPES: dict[str, Recipe] = {
             source=st.none() | TEXT, source_version=st.none() | TEXT
         ),
         any_column_labels=True,
+    ),
+    "detect_missing_sentinels": Recipe(
+        options=with_masking(sentinel_arguments),
+        # Candidates declared among the sensitive columns' own values, and row
+        # IDs from a sensitive id_column.
+        sensitive_options=sentinels_of_sensitive_columns,
     ),
     "find_candidate_keys": Recipe(
         options=lambda data: optional(

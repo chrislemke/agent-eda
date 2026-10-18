@@ -67,7 +67,8 @@ def describe_dataset(
         identifiers or numbers and dates stored as text, call
         `infer_column_semantics` next. For missing values per column and per
         row, counting stand-ins such as -999 that you declare, call
-        `profile_missing_values`; for how the values of each numeric column are
+        `profile_missing_values`, and to find such stand-ins,
+        `detect_missing_sentinels`; for how the values of each numeric column are
         distributed, call `summarize_numeric`, and for which values occur in
         each text, categorical and boolean column and how often,
         `summarize_categorical`. For rows that repeat, call
@@ -153,6 +154,8 @@ def describe_dataset(
             with flags for identifiers and numbers or dates stored as text.
         profile_missing_values: Missing values per column and per row, counting
             declared sentinel values.
+        detect_missing_sentinels: Values that look like stand-ins for missing
+            ones, such as -999, 'N/A' or 1900-01-01.
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
             numeric column.
         summarize_categorical: Each level's count and share, the most common

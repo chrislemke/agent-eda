@@ -23,6 +23,7 @@ Masking is a guardrail against accidental exposure, not anonymization and not
 access control (ADR 0001).
 """
 
+import itertools
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -174,5 +175,16 @@ def mask_values(values: Sequence[object]) -> list[str | None]:
     so values that repeat still show as repeating. Missing values (None, NaN,
     NaT, pd.NA) stay None. Pass the values of one column in result order.
     """
-    codes, _ = pd.factorize(pd.Series(list(values), dtype=object))
-    return [placeholder(int(code) + 1) if code >= 0 else None for code in codes]
+    # A value that isn't text keeps pandas off its hash table for text, which
+    # reads '\x00' as the end of the text, so '' and '\x00a' would be equal.
+    # fromiter keeps tuples whole, where np.array would make them a dimension.
+    marked = np.fromiter(
+        itertools.chain(values, [_NOT_TEXT]), dtype=object, count=len(values) + 1
+    )
+    codes, _ = pd.factorize(marked)
+    return [placeholder(int(code) + 1) if code >= 0 else None for code in codes[:-1]]
+
+
+# mask_values appends this to the values it numbers, so they are never all
+# text. It comes last, so no value gets its code.
+_NOT_TEXT = object()
