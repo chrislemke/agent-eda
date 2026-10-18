@@ -13,7 +13,7 @@ The order never follows hash or set iteration order.
 import heapq
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
 from typing import TYPE_CHECKING, cast
@@ -71,14 +71,64 @@ class Levels:
         """One label as Python holds it."""
         return stored_label(self.values[position])
 
+    def positions_of(self, values: pd.Series) -> np.ndarray:
+        """The positions of the labels equal to one of the values, ascending.
+
+        Values compare as pandas' isin() compares them.
+        """
+        return np.flatnonzero(self.values.isin(values))
+
     def objects(self, positions: np.ndarray | None = None) -> np.ndarray:
         """The labels, or those at the given positions, as Python objects."""
         values = self.values if positions is None else self.values[positions]
         return np.asarray(values, dtype=object)
 
+    def subset(self, positions: np.ndarray) -> "Levels":
+        """The levels at the given positions, in that order, without categories."""
+        return replace(
+            self,
+            values=self.values[positions],
+            counts=self.counts[positions],
+            sort_values=(
+                None if self.sort_values is None else self.sort_values[positions]
+            ),
+            unused_categories=[],
+        )
+
 
 def count_levels(series: pd.Series, kind: "ColumnKind") -> Levels | None:
     """Count the levels of a column; None when its values can't be hashed."""
+    counted = _count(series, kind)
+    return None if counted is None else counted[0]
+
+
+def count_levels_by_row(
+    series: pd.Series, kind: "ColumnKind"
+) -> tuple[Levels, np.ndarray] | None:
+    """Count the levels of a column, as count_levels does, and find each row's level.
+
+    The array gives each row's level as its position in Levels.values, or -1
+    where the value is missing. None when the values can't be hashed.
+    """
+    counted = _count(series, kind)
+    if counted is None:
+        return None
+    levels, codes, used = counted
+    if used is None:
+        return levels, codes
+    # A category code becomes the category's position among the used ones.
+    positions = np.cumsum(used) - 1
+    return levels, np.where(codes >= 0, positions[codes], -1)
+
+
+def _count(
+    series: pd.Series, kind: "ColumnKind"
+) -> tuple[Levels, np.ndarray, np.ndarray | None] | None:
+    """The levels, each row's code, and for a categorical which categories occur.
+
+    A code is the level's position for a column that isn't categorical, and the
+    category's position for a categorical; -1 marks a missing value.
+    """
     if kind == "categorical":
         return _count_categories(series)
     try:
@@ -94,7 +144,7 @@ def count_levels(series: pd.Series, kind: "ColumnKind") -> Levels | None:
     )
     # Code -1 marks a missing value, so the first count is the missing one.
     counts = np.bincount(codes + 1, minlength=len(values) + 1)
-    return Levels(
+    levels = Levels(
         values=values,
         counts=counts[1:],
         missing_count=int(counts[0]),
@@ -102,16 +152,33 @@ def count_levels(series: pd.Series, kind: "ColumnKind") -> Levels | None:
         text=kind == "text" or _all_text(values),
         unused_categories=[],
     )
+    return levels, codes, None
 
 
-def _count_categories(series: pd.Series) -> Levels:
+def levels_of(values: pd.Index, counts: np.ndarray) -> Levels:
+    """Levels with the given distinct values and counts.
+
+    Such as the values of a column that validate_column_types finds invalid,
+    which it orders, masks and tabulates as summarize_categorical does levels.
+    """
+    return Levels(
+        values=values,
+        counts=counts,
+        missing_count=0,
+        sort_values=_numpy_values(values),
+        text=_all_text(values),
+        unused_categories=[],
+    )
+
+
+def _count_categories(series: pd.Series) -> tuple[Levels, np.ndarray, np.ndarray]:
     categorical = cast("pd.Categorical", series.array)
     categories = categorical.categories
     codes = np.asarray(categorical.codes, dtype=np.intp)
     counts = np.bincount(codes + 1, minlength=len(categories) + 1)
     used = counts[1:] > 0
     values = categories[used]
-    return Levels(
+    levels = Levels(
         values=values,
         counts=counts[1:][used],
         missing_count=int(counts[0]),
@@ -119,6 +186,7 @@ def _count_categories(series: pd.Series) -> Levels:
         text=_all_text(values),
         unused_categories=categories[~used].tolist(),
     )
+    return levels, codes, used
 
 
 def _numpy_values(values: pd.Index) -> np.ndarray | None:
@@ -158,12 +226,51 @@ def ordered(levels: Levels, limit: int | None = None) -> np.ndarray:
     return np.asarray([*head, *tail], dtype=np.intp)
 
 
+def ordered_among(
+    levels: Levels, selected: np.ndarray, limit: int | None = None
+) -> np.ndarray:
+    """Positions of the selected levels in level order, only the first `limit` when given.
+
+    `selected` holds a bool per level. The selected levels keep the order they
+    have among all levels, so profile_target's classes and its labels outside
+    expected_labels follow the same order.
+    """
+    positions = np.flatnonzero(selected)
+    if len(positions) == len(levels.counts):
+        return ordered(levels, limit)
+    return positions[ordered(levels.subset(positions), limit)]
+
+
+def _datetime_keys(levels: Levels) -> list[np.ndarray] | None:
+    """Keys that np.lexsort orders datetime labels by, as label_key would.
+
+    label_key orders Timestamps by their string form. For datetimes without a
+    time zone that is the order in time. With a time zone it is the order of
+    the local times, then of the UTC offsets as text, plus before minus and
+    shorter before longer; it parts from the order in time only where clocks
+    go back. None for labels of any other dtype.
+    """
+    labels = cast("pd.DatetimeIndex", levels.values)
+    if isinstance(labels.dtype, np.dtype) and labels.dtype.kind == "M":
+        return [labels.asi8]
+    if isinstance(labels.dtype, pd.DatetimeTZDtype):
+        aware = labels
+        local = aware.tz_localize(None).asi8
+        offsets = local - aware.asi8
+        # np.lexsort sorts by the last key first.
+        return [np.abs(offsets), offsets < 0, local]
+    return None
+
+
 def _full_order(levels: Levels) -> np.ndarray:
     size = len(levels.counts)
+    datetime_keys = _datetime_keys(levels)
     if levels.sort_values is not None:
         by_label = np.argsort(levels.sort_values, kind="stable")
     elif levels.text:
         by_label = np.argsort(levels.objects(), kind="stable")
+    elif datetime_keys is not None:
+        by_label = np.lexsort(datetime_keys)
     else:
         keys = [label_key(label) for label in levels.objects()]
         by_label = np.asarray(sorted(range(size), key=keys.__getitem__), dtype=np.intp)
@@ -191,6 +298,16 @@ def _first_labels(levels: Levels, positions: np.ndarray, count: int) -> list[int
             first = np.argpartition(values, count - 1)[:count]
         first = first[np.argsort(values[first], kind="stable")]
         return positions[first].tolist()
+    datetime_keys = _datetime_keys(levels)
+    if datetime_keys is not None:
+        keys = [key[positions] for key in datetime_keys]
+        near = np.arange(len(positions))
+        if count < len(positions):
+            # Only labels up to the count-th smallest primary key can come first.
+            bound = np.partition(keys[-1], count - 1)[count - 1]
+            near = np.flatnonzero(keys[-1] <= bound)
+            keys = [key[near] for key in keys]
+        return positions[near[np.lexsort(keys)[:count]]].tolist()
     candidates = levels.objects(positions)
     if not levels.text:
         chosen = heapq.nsmallest(
@@ -304,18 +421,11 @@ def levels_frame(tables: Mapping[str, Levels]) -> pd.DataFrame:
     counts: list[np.ndarray] = []
     shares: list[np.ndarray] = []
     for name, levels in tables.items():
-        order = ordered(levels)
+        order, ordered_labels, ordered_types = level_rows(levels)
         ordered_counts = levels.counts[order].astype(np.int64)
-        if levels.masked_types is None:
-            ordered_labels = [stored_label(label) for label in levels.objects(order)]
-            types.extend(_type_names(levels, ordered_labels))
-        else:
-            # The values are the placeholders' numbers.
-            ordered_labels = [placeholder(int(n)) for n in levels.objects(order)]
-            masked = levels.masked_types
-            types.extend([masked] * len(order) if isinstance(masked, str) else masked)
         columns.extend([name] * len(order))
         labels.extend(ordered_labels)
+        types.extend(ordered_types)
         counts.append(ordered_counts)
         total = int(ordered_counts.sum())
         shares.append(ordered_counts / total if total else ordered_counts * 0.0)
@@ -330,25 +440,52 @@ def levels_frame(tables: Mapping[str, Levels]) -> pd.DataFrame:
     )
 
 
-def _type_names(levels: Levels, labels: list[object]) -> list[str]:
-    """The type name of each label, without asking each label when one name fits all."""
-    if levels.text:
-        return ["str"] * len(labels)
-    if levels.sort_values is not None:
-        return [_name_of(levels.sort_values.dtype.type)] * len(labels)
-    return [type_name(label) for label in labels]
+def level_rows(levels: Levels) -> tuple[np.ndarray, list[object], list[str]]:
+    """Every level in level order, as a table of levels lists them.
+
+    Returns the levels' positions, their labels as stored (NumPy scalars as the
+    Python scalars they hold, or with masking the placeholders) and the type
+    name of each label.
+    """
+    order = ordered(levels)
+    if levels.masked_types is None:
+        labels = [stored_label(label) for label in levels.objects(order)]
+        return order, labels, _type_names(levels, labels)
+    # The values are the placeholders' numbers.
+    placeholders: list[object] = [placeholder(int(n)) for n in levels.objects(order)]
+    masked = levels.masked_types
+    types = [masked] * len(order) if isinstance(masked, str) else list(masked)
+    return order, placeholders, types
 
 
-def label_types(levels: Levels, positions: np.ndarray) -> str | tuple[str, ...]:
-    """The type names of the labels at these positions, or one name they share.
+def _shared_type_name(levels: Levels) -> str | None:
+    """The type name every label has when its storage tells it, else None.
 
-    Text and numbers name their type without turning every label into a
-    Python object.
+    Text, numbers and datetimes name their type without turning every label
+    into a Python object.
     """
     if levels.text:
         return "str"
     if levels.sort_values is not None:
         return _name_of(levels.sort_values.dtype.type)
+    if _datetime_keys(levels) is not None:
+        return "Timestamp"
+    return None
+
+
+def _type_names(levels: Levels, labels: list[object]) -> list[str]:
+    """The type name of each label, without asking each label when one name fits all."""
+    shared = _shared_type_name(levels)
+    if shared is not None:
+        return [shared] * len(labels)
+    return [type_name(label) for label in labels]
+
+
+def label_types(levels: Levels, positions: np.ndarray) -> str | tuple[str, ...]:
+    """The type names of the labels at these positions, or one name they share."""
+    shared = _shared_type_name(levels)
+    if shared is not None:
+        return shared
     names = tuple(type_name(stored_label(label)) for label in levels.objects(positions))
     return names[0] if len(set(names)) == 1 else names
 

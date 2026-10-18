@@ -65,16 +65,18 @@ def describe_dataset(
         shows a raw data value. A dtype only tells how pandas stores a column:
         to learn each column's logical type from its values, such as
         identifiers or numbers and dates stored as text, call
-        `infer_column_semantics` next. For missing values per column and per
-        row, counting stand-ins such as -999 that you declare, call
-        `profile_missing_values`, and to find such stand-ins,
-        `detect_missing_sentinels`; for how the values of each numeric column are
-        distributed, call `summarize_numeric`, and for which values occur in
-        each text, categorical and boolean column and how often,
+        `infer_column_semantics` next, and to test the values against logical
+        types you declare, `validate_column_types`. For missing values per
+        column and per row, counting stand-ins such as -999 that you declare,
+        call `profile_missing_values`, and to find such stand-ins,
+        `detect_missing_sentinels`; for how the values of each numeric column
+        are distributed, call `summarize_numeric`, and for which values occur
+        in each text, categorical and boolean column and how often,
         `summarize_categorical`. For rows that repeat, call
         `find_duplicate_rows`; for which columns, alone or combined, identify
-        rows, call `find_candidate_keys`. Columns whose values, not labels,
-        duplicate or derive from another column show up as perfect
+        rows, call `find_candidate_keys`. For the column a model will
+        predict, call `profile_target` with the task. Columns whose values,
+        not labels, duplicate or derive from another column show up as perfect
         associations in `compute_association_matrix`. `list_analyses` lists
         the other analyses.
 
@@ -152,6 +154,9 @@ def describe_dataset(
     See Also:
         infer_column_semantics: The logical type of each column, from its values,
             with flags for identifiers and numbers or dates stored as text.
+        validate_column_types: How many values of each declared column have,
+            convert to or fail the logical type you declare, with the invalid
+            ones.
         profile_missing_values: Missing values per column and per row, counting
             declared sentinel values.
         detect_missing_sentinels: Values that look like stand-ins for missing
@@ -165,6 +170,8 @@ def describe_dataset(
             with their row IDs.
         find_candidate_keys: Which columns, alone or combined, uniquely identify
             rows, with duplicate and missing counts.
+        profile_target: The classes and imbalance, or the statistics, of the
+            column a model will predict, checked against the task.
         compute_association_matrix: How strongly pairs of columns are
             associated, with perfect associations flagged as possibly duplicated
             or derived columns.

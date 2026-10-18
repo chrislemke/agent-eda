@@ -73,9 +73,11 @@ def profile_missing_values(
         it counts how many selected values each row misses, which shows whether
         gaps cluster in some rows, and how many rows are complete. Nothing
         counts as a sentinel value unless you declare it: to find the values
-        that look like stand-ins, call `detect_missing_sentinels` first. For
-        how the values of each numeric column are distributed, call
-        `summarize_numeric`; `list_analyses` lists the other analyses.
+        that look like stand-ins, call `detect_missing_sentinels` first.
+        Missing values in columns you declare non-nullable are violations in
+        `validate_column_types`. For how the values of each numeric column are
+        distributed, call `summarize_numeric`; `list_analyses` lists the other
+        analyses.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -184,6 +186,9 @@ def profile_missing_values(
             every column, whatever its dtype.
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
             numeric column.
+        validate_column_types: The values of each declared column measured
+            against its logical type, with missing values in a column declared
+            non-nullable as violations.
         list_analyses: Every analysis, with the question each one answers.
     """
     selection = select_columns("profile_missing_values", data, columns, _EVERY_COLUMN)

@@ -4,17 +4,32 @@ import inspect
 import math
 import re
 import typing
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 import numpy as np
 import pandas as pd
 import pydantic
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agent_eda._columns import ColumnKind, ColumnRule, closest_names, select_columns
-from agent_eda._levels import Levels, count_levels, value_types
+from agent_eda._columns import (
+    ColumnKind,
+    ColumnRule,
+    closest_names,
+    column_kind,
+    select_columns,
+)
+from agent_eda._conversions import Check, check_column
+from agent_eda._levels import (
+    Levels,
+    count_levels,
+    ordered,
+    record_label,
+    type_name,
+    value_types,
+)
+from agent_eda._masking import MaskedLevels, mask_levels, resolve_masking
 from agent_eda._numeric import stored_nan_count
 from agent_eda._parse import (
     VALUE_KINDS,
@@ -30,9 +45,17 @@ from agent_eda._registry import (
     python_scalar,
     unknown_name_message,
 )
+from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import data_shape, execution, overall_status
-from agent_eda._text import join_alternatives, join_items, join_labels, plural
+from agent_eda._text import (
+    join_alternatives,
+    join_items,
+    join_labels,
+    placeholder,
+    plural,
+)
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
+from agent_eda.project import Project
 from agent_eda.results import (
     Assessment,
     ColumnEvidence,
@@ -41,11 +64,14 @@ from agent_eda.results import (
     Finding,
     InferColumnSemanticsColumn,
     InferColumnSemanticsResult,
+    InvalidValue,
     Limitation,
     LogicalType,
     LogicalTypeCandidate,
     StatusReason,
     Support,
+    ValidateColumnTypesColumn,
+    ValidateColumnTypesResult,
     ValueTypeCounts,
 )
 
@@ -288,7 +314,9 @@ def infer_column_semantics(
         a heuristic score, the evidence behind them and flags for what needs
         attention. Pass the logical types you expect as declared_schema to
         compare each with what the values show; a declaration is never
-        overwritten. For how the values of each numeric column are
+        overwritten. To test every value against the logical types you
+        declare, with the invalid ones and their row IDs, call
+        `validate_column_types`. For how the values of each numeric column are
         distributed, call `summarize_numeric` next; `list_analyses` lists the
         other analyses.
 
@@ -444,6 +472,9 @@ def infer_column_semantics(
     See Also:
         describe_dataset: Dtypes, missing and distinct counts and memory of every
             column, whatever its dtype.
+        validate_column_types: How many values of each declared column have,
+            convert to or fail the logical type you declare, with the invalid
+            ones.
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
             numeric column.
         list_analyses: Every analysis, with the question each one answers.
@@ -1115,25 +1146,35 @@ def _declared_findings(
             )
         )
     if missing:
-        described = join_items(
-            [
-                f"{name!r} (did you mean {join_alternatives([repr(c) for c in close])}?)"
-                if (close := closest_names(name, names))
-                else repr(name)
-                for name in missing
-            ]
-        )
         findings.append(
             Finding(
                 code="declared_columns_missing",
-                claim=f"{plural(len(missing), 'declared column is', 'declared columns are')} "
-                f"not in the data: {described}.",
+                claim=_missing_columns_claim(missing, names),
                 assessment="violation",
                 columns=missing,
                 fields=["missing_declared_columns"],
             )
         )
     return findings
+
+
+def _missing_columns_claim(missing: list[str], names: list[str]) -> str:
+    """The claim that declared columns aren't in the data, with the closest names.
+
+    infer_column_semantics and validate_column_types both make it.
+    """
+    described = join_items(
+        [
+            f"{name!r} (did you mean {join_alternatives([repr(c) for c in close])}?)"
+            if (close := closest_names(name, names))
+            else repr(name)
+            for name in missing
+        ]
+    )
+    return (
+        f"{plural(len(missing), 'declared column is', 'declared columns are')} "
+        f"not in the data: {described}."
+    )
 
 
 def _limitations(readings: dict[str, _Reading]) -> list[Limitation]:
@@ -1173,6 +1214,571 @@ def _limitations(readings: dict[str, _Reading]) -> list[Limitation]:
                 reason=f"{store} NaN as a value, which pandas isna() doesn't count "
                 f"as missing; non_missing_count leaves it out: {join_labels(stored)}.",
                 fields=[f"{_path(name)}.evidence.non_missing_count" for name in stored],
+            )
+        )
+    return limitations
+
+
+# The record keeps this many row IDs and example values, as the spec caps them.
+_ROW_ID_LIMIT = 10
+_EXAMPLE_LIMIT = 5
+
+# validate_column_types' findings in the order it reports them: violations
+# first, then what couldn't be checked, what converts and what held.
+_FINDING_CODES = (
+    "invalid_values",
+    "declared_columns_missing",
+    "non_nullable_missing_values",
+    "unchecked_columns",
+    "convertible_values",
+    "valid_columns",
+)
+
+
+@analysis(
+    statuses=("completed", "failed"),
+    finding_codes=_FINDING_CODES,
+    tags=(
+        "schema",
+        "data contract",
+        "validation",
+        "declared types",
+        "data types",
+        "expected types",
+        "invalid values",
+    ),
+    masking=True,
+)
+def validate_column_types(
+    data: pd.DataFrame,
+    *,
+    schema: Mapping[str, LogicalType | ColumnSpec],
+    id_column: str | None = None,
+    project: Project | None = None,
+    mask_sensitive: bool | None = None,
+) -> ValidateColumnTypesResult:
+    """Do the columns hold the logical types I declared?
+
+    When to use:
+        Call it once you know the logical type each column should hold, such
+        as from a data contract, to check every value against its declared
+        type without changing the data. Declare each type in schema, alone or
+        in a ColumnSpec that also says whether values may be missing and which
+        datetime format text uses. Each declared column gets counts of the
+        values already stored as its type, the values that convert to it
+        exactly, such as numbers or ISO 8601 dates stored as text, and the
+        invalid ones, with example row IDs and values. A declared column the
+        data lacks is reported, not raised, so a broken file still gets
+        checked. Example values and row IDs are raw values: when a column
+        holds personal data, declare it sensitive in a project and switch
+        masking on. Index labels are never masked, so pass a non-sensitive
+        id_column when the index holds sensitive values. To guess each
+        column's logical type from its values instead, call
+        `infer_column_semantics`; `describe_dataset` gives every dtype, and
+        `list_analyses` lists the other analyses.
+
+    Args:
+        data (pd.DataFrame): The data. Column labels must be unique, distinct as
+            strings and a single level; describe_dataset reports labels that
+            aren't. It is never modified, and no value is converted.
+        schema (Mapping[str, str | ColumnSpec]): The logical type each column
+            should hold, by column name, in the order to report them:
+            'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or
+            'timedelta', or a ColumnSpec (a dict of its fields works too).
+            A ColumnSpec with nullable=False makes missing values a violation,
+            and one with a datetime_format, a datetime.strptime format such as
+            '%d/%m/%Y', lets datetime text in that format convert as ISO 8601
+            text does; strptime reads each distinct text, which takes about 4
+            seconds per million. A declared column the data lacks is reported
+            as a violation. A label that isn't a string can be given as itself
+            or as its string form. It must declare at least one column; there
+            is no default.
+        id_column (str | None): Name of a column whose values identify rows,
+            such as an order number; row IDs are then its values. Its values
+            must be hashable, such as numbers or strings; a column of lists
+            raises. A label that isn't a string can be given as itself or as
+            its string form. None, the default, uses the index labels as row
+            IDs.
+        project (Project | None): The project, whose data policy names the
+            sensitive columns and says whether to mask them. None, the
+            default, declares no sensitive column, so nothing is masked.
+        mask_sensitive (bool | None): True replaces the invalid values of
+            sensitive columns, and row IDs taken from a sensitive id_column,
+            with numbered placeholders, '<masked 1>' and so on, equal values
+            alike, and needs a project that declares sensitive columns; False
+            shows them as stored. None, the default, follows the project's
+            data_policy.mask_sensitive, and masks nothing without a project.
+            Index labels are never masked. Masking is a guardrail against
+            accidental exposure, not anonymization or access control.
+
+    Returns:
+        ValidateColumnTypesResult: `columns` maps each declared column, in
+        declared order, to its entry, such as res.columns["qty"]. An entry
+        holds the declaration (`declared_logical_type`, `nullable`,
+        `datetime_format`), `present`, `dtype` and four counts that add up to
+        the rows:
+
+        - `compatible_count`: values already stored as the declared type,
+          such as integers in an int64 or Int64 column for 'integer'.
+        - `convertible_count`: values stored as another type that convert to
+          it exactly, without changing their meaning, such as '42' or 42.0
+          for 'integer'.
+        - `invalid_count`: values that neither are of the declared type nor
+          convert to it, with `invalid_row_ids`, the first 10 rows that hold
+          one, and `invalid_values`, the first 5 distinct ones with their
+          counts, most frequent first, then by value as summarize_categorical
+          orders levels; `invalid_distinct_count` counts them.
+        - `missing_count`: None, NaN, NaT and pd.NA, and NaN that a float
+          column stores as a value.
+
+        Each entry's `assessment` is violation, unknown or passed, as its
+        findings give it. `undeclared_columns` lists the columns schema leaves
+        out, which aren't checked. A declared column the data lacks has a null
+        dtype and null counts, with a `column_not_in_data` limitation.
+
+        What converts: to boolean, numbers equal to 0 or 1 and text such as
+        yes, no, true, false, t, f, y, n, 0 or 1 in any case; to integer, whole
+        floats and decimals and text that parses as a whole number; to float,
+        any other number and text that parses as a number; to datetime, text
+        in ISO 8601 (YYYY-MM-DD with an optional time and offset) or in the
+        declared datetime_format; to timedelta, nothing; to categorical, any
+        value that can be hashed; to text, booleans, numbers, datetimes and
+        durations. The values of a categorical dtype are compatible with
+        'categorical' and convert to the types their categories convert to.
+        A whole number written with a leading zero, such as 01234, is a code
+        that doesn't convert to a number, and no date format other than ISO
+        8601 and the declared one parses, so day and month order is never
+        guessed. Text is read after stripping surrounding whitespace, once
+        per distinct value, by the rules infer_column_semantics reads it with.
+        Values of different types count apart, so 1 and True are two values.
+        `to_frame()` returns one row per declared column and
+        to_frame("invalid_values") every distinct invalid value with its count.
+
+        `masking` says whether masking was on and names the sensitive columns
+        whose values the result shows. With masking on, their invalid values
+        and row IDs from a sensitive id_column are numbered placeholders in
+        the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
+
+        - `invalid_values`: violation. Columns that hold invalid values.
+        - `declared_columns_missing`: violation. Declared columns the data
+          doesn't have, each with the closest names.
+        - `non_nullable_missing_values`: violation. Columns declared with
+          nullable=False that have missing values.
+        - `unchecked_columns`: unknown. Columns without a value to check, as
+          when every value is missing.
+        - `convertible_values`: descriptive. Columns with values stored as
+          another type; convert them before you use them as the declared type.
+        - `valid_columns`: passed. Columns that pass every check: only
+          compatible and convertible values, and none missing when declared
+          non-nullable.
+
+    Statuses:
+        completed: Every declared column was checked, also when the data lacks
+            some of them or has no rows; the findings say what the checks
+            found.
+        failed: An anticipated computation failure stopped the analysis, and
+            `status_reason` gives its code and message. None is known today.
+
+    Examples:
+        >>> import pandas as pd
+        >>> import agent_eda as ae
+        >>> df = pd.DataFrame(
+        ...     {
+        ...         "order_id": ["A1", "A2", "A3", "A4", "A5"],
+        ...         "qty": ["2", "1", "n/a", "3", "n/a"],
+        ...         "ordered": [
+        ...             "2024-01-05",
+        ...             "2024-01-06",
+        ...             None,
+        ...             "05/01/2024",
+        ...             "2024-01-09",
+        ...         ],
+        ...         "paid": ["yes", "no", "yes", "yes", None],
+        ...     },
+        ...     dtype=object,
+        ... )
+        >>> res = ae.validate_column_types(
+        ...     df,
+        ...     schema={
+        ...         "qty": "integer",
+        ...         "ordered": ae.ColumnSpec("datetime", nullable=False),
+        ...         "paid": "boolean",
+        ...         "customer": "text",
+        ...     },
+        ...     id_column="order_id",
+        ... )
+        >>> print(res)
+        validate_column_types: completed on 5 rows x 4 columns
+        compatible: stored as the declared type; convertible: converts exactly; invalid: neither. Nothing was converted.
+        Row IDs: values of id_column 'order_id'.
+        Not declared in schema, so not checked: 'order_id'.
+        Declared columns, violations first (4 of 4 shown):
+        column    declared            dtype            compatible  convertible  invalid  missing  invalid_values
+        qty       integer             object                    0            3        2        0  'n/a': 2
+        ordered   datetime, not null  object                    0            3        1        1  '05/01/2024': 1
+        customer  text                not in the data        null         null     null     null
+        paid      boolean             object                    0            4        0        1
+        Findings (5 of 5 shown):
+        - violation invalid_values: 2 columns hold invalid values: 'qty' and 'ordered'.
+        - violation declared_columns_missing: 1 declared column is not in the data: 'customer'.
+        - violation non_nullable_missing_values: 1 column declared non-nullable has missing values: 'ordered'.
+        - descriptive convertible_values: 3 columns hold convertible values: 'qty', 'ordered' and 'paid'.
+        - passed valid_columns: 1 column passes every check: 'paid'.
+        Limitations (1 of 1 shown):
+        - column_not_in_data: 1 declared column isn't in the data, so its dtype and counts are null: 'customer'.
+        More: res.to_frame() has all 4 declared columns; res.to_frame(table='invalid_values') counts every distinct invalid
+            value; res.findings, res.limitations and res.to_json() have the rest.
+        >>> res.columns["qty"].invalid_row_ids
+        ['A3', 'A5']
+
+    See Also:
+        infer_column_semantics: What kind of values each column holds, ranked
+            by heuristic scores, compared with the logical types you declare.
+        describe_dataset: Dtypes, missing and distinct counts and memory of
+            every column.
+        profile_missing_values: How many values are missing per column and
+            per row, declared sentinel values included.
+        list_analyses: Every analysis, with the question each one answers.
+    """
+    if not schema:
+        raise InvalidArgumentError(
+            "validate_column_types got an empty schema, which declares no column to "
+            "check. Declare the logical type of at least one column, such as "
+            "schema={'age': 'integer'}."
+        )
+    masking = resolve_masking("validate_column_types", project, mask_sensitive)
+    row_ids = read_row_ids("validate_column_types", data, id_column)
+    declared = {
+        name: spec if isinstance(spec, ColumnSpec) else ColumnSpec(logical_type=spec)
+        for name, spec in schema.items()
+    }
+    names = [str(label) for label in data.columns]
+    positions = {name: position for position, name in enumerate(names)}
+    checks = {
+        name: check_column(
+            data.iloc[:, positions[name]],
+            column_kind(data.dtypes.iloc[positions[name]]),
+            spec.logical_type,
+            spec.datetime_format,
+            row_limit=_ROW_ID_LIMIT,
+        )
+        for name, spec in declared.items()
+        if name in positions
+    }
+    masked = {
+        name: mask_levels(check.invalid_values)
+        for name, check in checks.items()
+        if masking.masks(name) and len(check.invalid_values.values)
+    }
+    ids = _shown_row_ids(
+        checks, row_ids, masked, masked=masking.masks(row_ids.id_column)
+    )
+    entries = {
+        name: _checked_entry(
+            name,
+            spec,
+            str(data.dtypes.iloc[positions[name]]),
+            checks[name],
+            ids[name],
+            masked.get(name),
+        )
+        if name in checks
+        else _absent_entry(name, spec)
+        for name, spec in declared.items()
+    }
+    absent = [name for name, entry in entries.items() if not entry.present]
+    # The paths of the fields that hold a row ID another row shares.
+    ambiguous = [
+        f"{_path(name)}.invalid_row_ids"
+        for name, check in checks.items()
+        if row_ids.repeated[check.invalid_rows].any()
+    ]
+    result = ValidateColumnTypesResult(
+        analysis="validate_column_types",
+        method=None,
+        status="completed",
+        status_reason=None,
+        parameters={
+            "data": data_shape(data),
+            "schema": {
+                name: spec.model_dump(mode="json") for name, spec in declared.items()
+            },
+            "id_column": row_ids.id_column,
+            "project": project.model_dump(mode="json") if project else None,
+            "mask_sensitive": mask_sensitive,
+        },
+        support=Support(
+            row_count=len(data),
+            column_count=len(checks),
+            columns=[
+                ColumnSupport(
+                    column=name,
+                    eligible_count=len(data),
+                    evaluated_count=len(data) - check.missing,
+                    excluded_count=check.missing,
+                    excluded_by_reason={"missing": check.missing}
+                    if check.missing
+                    else {},
+                )
+                for name, check in checks.items()
+            ],
+        ),
+        findings=_validation_findings(entries, absent, names),
+        limitations=[
+            *ambiguous_row_ids(row_ids, ambiguous),
+            *_validation_limitations(checks, absent),
+        ],
+        execution=execution(("numpy", "pandas")),
+        masking=masking.record(_shown_columns(entries, row_ids.id_column), data),
+        columns=entries,
+        undeclared_columns=[name for name in names if name not in declared],
+    )
+    result._tables = {
+        name: masked[name].levels if name in masked else check.invalid_values
+        for name, check in checks.items()
+    }
+    return result
+
+
+def _shown_row_ids(
+    checks: dict[str, Check],
+    row_ids: RowIds,
+    masked_levels: dict[str, MaskedLevels],
+    *,
+    masked: bool,
+) -> dict[str, list[object]]:
+    """The row IDs each entry shows, as placeholders when id_column is masked.
+
+    A row ID equal to an invalid value of id_column that the result shows
+    takes that value's placeholder. The other IDs are numbered on from there,
+    in result order, and equal IDs share a placeholder.
+    """
+    shown = {name: row_ids.at(check.invalid_rows) for name, check in checks.items()}
+    if not masked:
+        return shown
+    id_column = typing.cast("str", row_ids.id_column)
+    known: dict[object, str] = {}
+    start = 1
+    if id_column in masked_levels:
+        levels = checks[id_column].invalid_values
+        flat = pd.Series([i for ids in shown.values() for i in ids], dtype=object)
+        for position in levels.positions_of(flat).tolist():
+            known[levels.label(position)] = masked_levels[id_column].label(position)
+        start += len(levels.values)
+    numbers: dict[object, str] = {}
+    for ids in shown.values():
+        for index, value in enumerate(ids):
+            if pd.api.types.is_scalar(value) and pd.isna(value):
+                ids[index] = None
+            elif value in known:
+                ids[index] = known[value]
+            else:
+                ids[index] = numbers.setdefault(
+                    value, placeholder(start + len(numbers))
+                )
+    return shown
+
+
+def _shown_columns(
+    entries: dict[str, ValidateColumnTypesColumn], id_column: str | None
+) -> list[str | None]:
+    """The columns whose values the result shows, in result order.
+
+    An entry shows its invalid values and their row IDs, which are values of
+    id_column, or index labels, None here, without one.
+    """
+    shown: list[str | None] = []
+    for name, entry in entries.items():
+        if entry.invalid_row_ids:
+            shown.extend([id_column, name])
+    return shown
+
+
+def _checked_entry(
+    name: str,
+    spec: ColumnSpec,
+    dtype: str,
+    check: Check,
+    row_ids: list[object],
+    masked: MaskedLevels | None,
+) -> ValidateColumnTypesColumn:
+    """A declared column of the data, its values checked against its spec."""
+    levels = check.invalid_values
+    if check.invalid or (spec.nullable is False and check.missing):
+        assessment: Literal["passed", "violation", "unknown"] = "violation"
+    elif not (check.compatible or check.convertible or check.invalid):
+        assessment = "unknown"
+    else:
+        assessment = "passed"
+    return ValidateColumnTypesColumn(
+        column=name,
+        declared_logical_type=spec.logical_type,
+        nullable=spec.nullable,
+        datetime_format=spec.datetime_format,
+        present=True,
+        dtype=dtype,
+        compatible_count=check.compatible,
+        convertible_count=check.convertible,
+        invalid_count=check.invalid,
+        missing_count=check.missing,
+        invalid_row_ids=row_ids,
+        invalid_distinct_count=len(levels.values),
+        invalid_values=[
+            InvalidValue(
+                value=masked.label(position)
+                if masked
+                else record_label(levels.label(position)),
+                value_type=type_name(levels.label(position)),
+                count=int(levels.counts[position]),
+            )
+            for position in ordered(levels, _EXAMPLE_LIMIT).tolist()
+        ],
+        assessment=assessment,
+    )
+
+
+def _absent_entry(name: str, spec: ColumnSpec) -> ValidateColumnTypesColumn:
+    """A declared column the data lacks: nothing to count."""
+    return ValidateColumnTypesColumn(
+        column=name,
+        declared_logical_type=spec.logical_type,
+        nullable=spec.nullable,
+        datetime_format=spec.datetime_format,
+        present=False,
+        dtype=None,
+        compatible_count=None,
+        convertible_count=None,
+        invalid_count=None,
+        missing_count=None,
+        invalid_row_ids=[],
+        invalid_distinct_count=None,
+        invalid_values=[],
+        assessment="violation",
+    )
+
+
+@dataclass(frozen=True)
+class _ColumnFinding:
+    """The finding that names the declared columns a check picks out."""
+
+    code: str
+    assessment: Assessment
+    # What the columns do, after "1 column" and after "2 columns".
+    singular: str
+    plural: str
+    # The entry field behind the claim.
+    field: str
+    picks: Callable[[ValidateColumnTypesColumn], bool]
+
+
+_COLUMN_FINDINGS = (
+    _ColumnFinding(
+        "invalid_values",
+        "violation",
+        "holds invalid values",
+        "hold invalid values",
+        "invalid_count",
+        lambda e: bool(e.invalid_count),
+    ),
+    _ColumnFinding(
+        "non_nullable_missing_values",
+        "violation",
+        "declared non-nullable has missing values",
+        "declared non-nullable have missing values",
+        "missing_count",
+        lambda e: e.nullable is False and bool(e.missing_count),
+    ),
+    _ColumnFinding(
+        "unchecked_columns",
+        "unknown",
+        "has no value to check",
+        "have no value to check",
+        "missing_count",
+        lambda e: (
+            e.present
+            and not (e.compatible_count or e.convertible_count or e.invalid_count)
+        ),
+    ),
+    _ColumnFinding(
+        "convertible_values",
+        "descriptive",
+        "holds convertible values",
+        "hold convertible values",
+        "convertible_count",
+        lambda e: bool(e.convertible_count),
+    ),
+    _ColumnFinding(
+        "valid_columns",
+        "passed",
+        "passes every check",
+        "pass every check",
+        "invalid_count",
+        lambda e: e.assessment == "passed",
+    ),
+)
+
+
+def _validation_findings(
+    entries: dict[str, ValidateColumnTypesColumn], absent: list[str], names: list[str]
+) -> list[Finding]:
+    """Violations first, then what couldn't be checked, what converts and what held."""
+    findings = {}
+    for finding in _COLUMN_FINDINGS:
+        picked = [name for name, entry in entries.items() if finding.picks(entry)]
+        if picked:
+            does = plural(
+                len(picked), f"column {finding.singular}", f"columns {finding.plural}"
+            )
+            findings[finding.code] = Finding(
+                code=finding.code,
+                claim=f"{does}: {join_labels(picked)}.",
+                assessment=finding.assessment,
+                columns=picked,
+                fields=[f"{_path(name)}.{finding.field}" for name in picked],
+            )
+    if absent:
+        findings["declared_columns_missing"] = Finding(
+            code="declared_columns_missing",
+            claim=_missing_columns_claim(absent, names),
+            assessment="violation",
+            columns=absent,
+            fields=[f"{_path(name)}.present" for name in absent],
+        )
+    return [findings[code] for code in _FINDING_CODES if code in findings]
+
+
+def _validation_limitations(
+    checks: dict[str, Check], absent: list[str]
+) -> list[Limitation]:
+    limitations = []
+    stored = [name for name, check in checks.items() if check.stored_nan]
+    if stored:
+        store = plural(len(stored), "column stores", "columns store")
+        limitations.append(
+            Limitation(
+                code="nan_counted_as_missing",
+                reason=(
+                    f"{store} NaN as a value, which pandas isna() doesn't count as "
+                    f"missing; missing_count counts it: {join_labels(stored)}."
+                ),
+                fields=[f"{_path(name)}.missing_count" for name in stored],
+            )
+        )
+    if absent:
+        if len(absent) == 1:
+            what = (
+                "1 declared column isn't in the data, so its dtype and counts are null"
+            )
+        else:
+            what = (
+                f"{len(absent):,} declared columns aren't in the data, so their "
+                "dtypes and counts are null"
+            )
+        limitations.append(
+            Limitation(
+                code="column_not_in_data",
+                reason=f"{what}: {join_labels(absent)}.",
+                fields=[_path(name) for name in absent],
             )
         )
     return limitations

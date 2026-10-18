@@ -97,20 +97,47 @@ def column_lists(candidates: list[str]) -> st.SearchStrategy[list[str] | None]:
     return st.none() | st.lists(st.sampled_from(candidates), min_size=1, unique=True)
 
 
+# Formats a ColumnSpec can declare for datetimes stored as text.
+DATETIME_FORMATS = ["%d/%m/%Y", "%Y%m%d", "%d.%m.%Y %H:%M", "%b %d, %Y"]
+
+
 def declared_schemas(
-    data: pd.DataFrame, analysis: str, parameter: str
+    data: pd.DataFrame, analysis: str, parameter: str, *, min_size: int = 0
 ) -> st.SearchStrategy[dict[str, Any]]:
     """Declarations for some columns, and for one the data lacks.
 
     Each declares a logical type, a ColumnSpec or a ColumnSpec as a dict.
     """
     logical_types = st.sampled_from(choices(analysis, parameter))
-    specs = st.builds(
-        ae.ColumnSpec, logical_type=logical_types, nullable=st.none() | st.booleans()
+    nullable = st.none() | st.booleans()
+    specs = st.builds(ae.ColumnSpec, logical_type=logical_types, nullable=nullable)
+    specs |= st.builds(
+        lambda datetime_format, nullable: ae.ColumnSpec(
+            "datetime", nullable=nullable, datetime_format=datetime_format
+        ),
+        st.sampled_from(DATETIME_FORMATS),
+        nullable,
     )
     declarations = logical_types | specs | specs.map(lambda spec: spec.model_dump())
     columns = st.sampled_from([*names(data, any_dtype), "not_a_column"])
-    return st.dictionaries(columns, declarations, max_size=4)
+    return st.dictionaries(columns, declarations, min_size=min_size, max_size=4)
+
+
+def every_column_declared(data: pd.DataFrame) -> Arguments:
+    """A schema declaring every column, the logical types in turn by position.
+
+    Data without columns gets a declaration for a column it lacks.
+    """
+    logical_types = choices("validate_column_types", "schema")
+    labels = names(data, any_dtype)
+    if not labels:
+        return {"schema": {"not_a_column": "integer"}}
+    return {
+        "schema": {
+            name: logical_types[position % len(logical_types)]
+            for position, name in enumerate(labels)
+        }
+    }
 
 
 def column_names(candidates: list[str]) -> st.SearchStrategy[str | None]:
@@ -336,6 +363,143 @@ def with_masking(
     )
 
 
+def is_number(dtype: Any) -> bool:
+    """Integers and floats, nullable and pyarrow-backed ones included, not booleans."""
+    return is_number_or_boolean(dtype) and dtype.kind != "b"
+
+
+def label_columns(data: pd.DataFrame) -> list[str]:
+    """The columns whose values can be class labels: numbers, booleans, text,
+    objects and categories that can all be hashed."""
+    hashable = set(hashable_names(data))
+    return [name for name in names(data, is_pairable) if name in hashable]
+
+
+def column_named(data: pd.DataFrame, name: str) -> pd.Series:
+    """The column whose label's string form is `name`."""
+    [position] = [i for i, label in enumerate(data.columns) if str(label) == name]
+    return data.iloc[:, position]
+
+
+def label_pool(column: pd.Series, stand_ins: dict[type, list[Any]]) -> list[Any]:
+    """Labels an agent could expect in the column: its own and stand-ins it lacks.
+
+    Each is a str, bool, int or finite float the column's values could equal,
+    and no two are equal, as Python's == decides, so 1 and True are one label.
+    """
+    values = (
+        column.cat.categories
+        if isinstance(column.dtype, pd.CategoricalDtype)
+        else column
+    )
+    pool: dict[Any, Any] = {}
+    for value in values.tolist():
+        if isinstance(value, Decimal):
+            value = float(value)
+        if isinstance(value, float) and not math.isfinite(value):
+            continue
+        if isinstance(value, bool | int | float | str):
+            pool.setdefault(value, value)
+    kinds = {bool if isinstance(v, bool) else type(v) for v in pool.values()}
+    for kind in sorted(kinds, key=lambda kind: kind.__name__):
+        for stand_in in stand_ins.get(kind, []):
+            pool.setdefault(stand_in, stand_in)
+    return list(pool.values())
+
+
+# Labels that may not occur in a column, by the type of the labels it holds.
+STAND_INS: dict[type, list[Any]] = {
+    str: ["stand-in a", "stand-in b"],
+    bool: [True, False],
+    int: [123_456_789, 987_654_321],
+    float: [0.125, 0.625],
+}
+
+
+@st.composite
+def expected_labels(draw: st.DrawFn, pool: list[Any], task: str) -> list[Any] | None:
+    """Labels for expected_labels: 2 for a binary task, 2 or more otherwise."""
+    if len(pool) < 2:
+        return None
+    size = 2 if task == "binary_classification" else draw(st.integers(2, len(pool)))
+    return draw(
+        st.lists(st.sampled_from(pool), min_size=size, max_size=size, unique=True)
+    )
+
+
+@st.composite
+def target_arguments(draw: st.DrawFn, data: pd.DataFrame) -> Arguments:
+    """A target and a task that fits it, the checks that need declared values,
+    and id_column."""
+    candidates = {"regression": names(data, is_number)}
+    labels = label_columns(data)
+    for task in ("binary_classification", "multiclass_classification"):
+        candidates[task] = labels
+    tasks = [task for task in choices("profile_target", "task") if candidates[task]]
+    if not tasks:
+        return {}
+    task = draw(st.sampled_from(tasks))
+    target = draw(st.sampled_from(candidates[task]))
+    arguments: Arguments = {"target_column": target, "task": task}
+    if task != "regression":
+        pool = label_pool(column_named(data, target), STAND_INS)
+        arguments |= draw(
+            optional(
+                expected_labels=expected_labels(pool, task),
+                rare_share=st.floats(0, 1, exclude_min=True, exclude_max=True),
+            )
+        )
+    return arguments | draw(optional(id_column=column_names(hashable_names(data))))
+
+
+# Stand-in labels that hold the markers of tests/strategies.py's secrets, so a
+# leaked expected label shows too.
+SECRET_STAND_INS: dict[type, list[Any]] = {
+    str: ["secret stand-in"],
+    int: [918_273_645_99],
+}
+
+
+@st.composite
+def sensitive_target_arguments(
+    draw: st.DrawFn, data: pd.DataFrame, sensitive: list[str]
+) -> Arguments:
+    """A sensitive column as the target, with labels outside expected_labels, and
+    a sensitive id_column for their row IDs."""
+    arguments: Arguments = {}
+    targets = [name for name in label_columns(data) if name in sensitive]
+    if targets:
+        target = draw(st.sampled_from(targets))
+        own = label_pool(column_named(data, target), {})
+        pool = label_pool(column_named(data, target), SECRET_STAND_INS)
+        # Some of its own labels and a stand-in, so others fall outside.
+        kept = (
+            draw(st.lists(st.sampled_from(own), max_size=len(own) - 1, unique=True))
+            if len(own) > 1
+            else []
+        )
+        stand_ins = [label for label in pool if label not in own]
+        expected = [*kept, *stand_ins][:5] if len(kept) + len(stand_ins) >= 2 else None
+        arguments = {
+            "target_column": target,
+            "task": "multiclass_classification",
+            "expected_labels": expected,
+            "rare_share": draw(
+                st.none() | st.floats(0, 1, exclude_min=True, exclude_max=True)
+            ),
+        }
+    ids = [name for name in hashable_names(data) if name in sensitive]
+    return arguments | draw(optional(id_column=st.sampled_from(ids or [None])))
+
+
+def first_label_target(data: pd.DataFrame) -> Arguments | None:
+    """The first column whose values can be class labels, for a multiclass task."""
+    labels = label_columns(data)
+    if not labels:
+        return None
+    return {"target_column": labels[0], "task": "multiclass_classification"}
+
+
 # Any text, sometimes longer than a printed line.
 TEXT = st.text() | st.text(min_size=121, max_size=130)
 
@@ -373,6 +537,12 @@ RECIPES: dict[str, Recipe] = {
         ),
     ),
     "profile_missing_values": Recipe(options=missing_value_arguments),
+    "profile_target": Recipe(
+        required=first_label_target,
+        options=with_masking(target_arguments),
+        # The labels of a sensitive target and row IDs from a sensitive column.
+        sensitive_options=sensitive_target_arguments,
+    ),
     "summarize_numeric": Recipe(
         options=lambda data: optional(
             columns=column_lists(names(data, is_number_or_boolean)),
@@ -402,6 +572,30 @@ RECIPES: dict[str, Recipe] = {
             columns=column_lists(names(data, any_dtype)),
             declared_schema=st.none()
             | declared_schemas(data, "infer_column_semantics", "declared_schema"),
+        ),
+    ),
+    "validate_column_types": Recipe(
+        required=every_column_declared,
+        options=with_masking(
+            lambda data: optional(
+                schema=declared_schemas(
+                    data, "validate_column_types", "schema", min_size=1
+                ),
+                id_column=column_names(hashable_names(data)),
+            )
+        ),
+        # Types that every sensitive value fails, text, number or datetime, so
+        # the result shows them as invalid values; and row IDs from them.
+        sensitive_options=lambda data, sensitive: st.fixed_dictionaries(
+            {
+                "schema": st.fixed_dictionaries(
+                    {
+                        name: st.sampled_from(["boolean", "timedelta"])
+                        for name in sensitive
+                    }
+                )
+            },
+            optional={"id_column": st.sampled_from(sensitive)},
         ),
     ),
 }

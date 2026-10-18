@@ -27,6 +27,10 @@ stripping surrounding whitespace, and only ASCII text parses:
   It is recognised, never parsed.
 - A boolean is one of the words true, false, t, f, yes, no, y and n in any
   case, or a number equal to 0 or 1, such as 0, 1 or 1.0.
+- A datetime in a declared format is text that datetime.strptime reads with
+  that format, such as 05/01/2024 with %d/%m/%Y. Only validate_column_types
+  reads it, for a ColumnSpec that declares a datetime_format; month and day
+  names read as strptime reads them, in the process's locale.
 """
 
 import calendar
@@ -211,6 +215,30 @@ def _exists(match: re.Match[str]) -> bool:
     if match["offset_hours"] is not None and abs(int(match["offset_hours"])) > 23:
         return False
     return match["offset_minutes"] is None or int(match["offset_minutes"]) <= 59
+
+
+def read_datetime_format(texts: np.ndarray, datetime_format: str) -> np.ndarray:
+    """Whether each string of an object array is a datetime in the given format.
+
+    The string is read as datetime.strptime(text.strip(), datetime_format)
+    reads it, and like every rule here, only ASCII text parses.
+    """
+    return np.fromiter(
+        (_in_format(text, datetime_format) for text in texts),
+        dtype=bool,
+        count=len(texts),
+    )
+
+
+def _in_format(text: str, datetime_format: str) -> bool:
+    stripped = text.strip()
+    if not stripped.isascii():
+        return False
+    try:
+        dt.datetime.strptime(stripped, datetime_format)
+    except (ValueError, OverflowError):
+        return False
+    return True
 
 
 def value_kind(value: object) -> ValueKind:

@@ -307,7 +307,7 @@ def _check(name: str, value: SentinelValue, column: Holds) -> _Problem | None:
     if column.families == {"other"}:
         return _Problem(name, value, "limit", column.what, column.dtype)
     if column.families is not None and family(value) not in column.families:
-        likely = _likely(value, column)
+        likely = likely_value(value, column)
         return _Problem(name, value, "type", column.what, column.dtype, likely)
     if isinstance(value, bool):
         return None
@@ -388,13 +388,14 @@ def _timestamp(value: dt.date) -> pd.Timestamp:
     return stamp
 
 
-def _likely(value: SentinelValue, column: Holds) -> SentinelValue | None:
+def likely_value(value: SentinelValue, column: Holds) -> SentinelValue | None:
     """The value of a type the column holds that the caller likely meant, or None.
 
     Text converts to a number, a boolean, an ISO 8601 date or datetime, or a
     duration; a number or boolean to text, 1 and 0 to True and False and back;
     a datetime at midnight to a date and a date to a datetime. A guess the
-    column couldn't hold either is no guess.
+    column couldn't hold either is no guess. profile_target guesses the labels
+    its expected_labels meant with it too, so the two parse text alike.
     """
     for target in _WORDS:
         if column.families is None or target not in column.families:

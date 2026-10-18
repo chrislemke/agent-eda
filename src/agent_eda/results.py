@@ -26,7 +26,7 @@ from pydantic import (
 
 from agent_eda import _text
 from agent_eda._annotations import TypeName, python_literal
-from agent_eda._levels import Levels, levels_frame
+from agent_eda._levels import Levels, level_rows, levels_frame
 from agent_eda.errors import InvalidArgumentError
 
 Status = Literal[
@@ -100,6 +100,16 @@ LimitationCode = Literal[
     # A ranking stopped at its work limit before bounds proved it, so a set it
     # didn't count could rank higher than one it lists.
     "ranking_not_proven",
+    # No expected labels were declared for a classification target, so labels
+    # outside the expected set weren't checked and the fields that list them are
+    # null.
+    "expected_labels_not_declared",
+    # No rare_share was declared for a classification target, so rare classes
+    # weren't checked and the fields that list them are null.
+    "rare_share_not_declared",
+    # A declared column isn't in the data, so the dtype and counts that describe
+    # its values are null.
+    "column_not_in_data",
 ]
 
 
@@ -272,7 +282,11 @@ class ResultModel(BaseModel):
         if not caps:
             return handler(self)
         limits = {name: cap.limit for name, cap in caps.items() if not cap.each_list}
-        lengths = {name: len(getattr(self, name)) for name in limits}
+        # A list that is null, such as a check that didn't run, has no length.
+        lengths = {
+            name: None if getattr(self, name) is None else len(getattr(self, name))
+            for name in limits
+        }
         # A cap with `total` names the field that holds the full count, since
         # the result object keeps only the first entries of that list.
         totals = {
@@ -284,7 +298,7 @@ class ResultModel(BaseModel):
         heads = {
             name: _head(getattr(self, name), limit)
             for name, limit in limits.items()
-            if lengths[name] > limit
+            if (length := lengths[name]) is not None and length > limit
         }
         data = handler(self.model_copy(update=heads) if heads else self)
         record: dict[str, Any] = {}
@@ -415,8 +429,14 @@ class Masking(ResultModel):
     )
 
 
-def _masking_text(masking: Masking) -> list[str]:
-    """The line on masking that a result prints, when it has something to say."""
+def _masking_text(
+    masking: Masking, statistics_columns: Sequence[str] = ()
+) -> list[str]:
+    """The line on masking that a result prints, when it has something to say.
+
+    `statistics_columns` are sensitive columns whose numeric statistics the
+    result shows, which masking never changes, such as a regression target.
+    """
     if masking.decided_by == "default":
         return []
     setting = (
@@ -439,6 +459,15 @@ def _masking_text(masking: Masking) -> list[str]:
                 f"Masked ({setting}): the values of {columns} {names} show as "
                 "<masked 1>, <masked 2> and so on; counts and shares are "
                 "unaffected."
+            )
+        elif statistics_columns:
+            listed = _text.join_labels(statistics_columns)
+            one = len(statistics_columns) == 1
+            text = (
+                f"Masking on ({setting}), but numeric statistics are never masked: "
+                f"those of sensitive {'column' if one else 'columns'} {listed}, such "
+                f"as {'its' if one else 'their'} minimum and maximum, show as "
+                "computed."
             )
         elif not masking.index_columns:
             text = (
@@ -1289,21 +1318,32 @@ class SummarizeNumericResult(AnalysisResult):
             for level in (recorded if isinstance(recorded, list) else [])
             if isinstance(level, int | float)
         ]
-        columns: dict[str, pd.Series] = {}
-        for name, field in SummarizeNumericColumn.model_fields.items():
-            values = [getattr(entry, name) for entry in self.columns.values()]
-            if name == "status_reason":
-                codes = [reason.code if reason else None for reason in values]
-                columns[name] = pd.Series(codes, dtype=object)
-            elif name == "quantiles":
-                for level in levels:
-                    columns[f"q{level!r}"] = pd.Series(
-                        [quantiles[level] for quantiles in values], dtype="float64"
-                    )
-            else:
-                dtype = _FRAME_DTYPES.get(field.annotation)
-                columns[name] = pd.Series(values, dtype=dtype)
-        return pd.DataFrame(columns, columns=list(columns))
+        return _numeric_frame(list(self.columns.values()), levels)
+
+
+def _numeric_frame(
+    entries: Sequence[SummarizeNumericColumn], levels: Sequence[float]
+) -> pd.DataFrame:
+    """summarize_numeric's entries as a table, one row per entry.
+
+    The quantiles become one column per level, named "q" and the level, such as
+    "q0.25"; status_reason holds the reason's code.
+    """
+    columns: dict[str, pd.Series] = {}
+    for name, field in SummarizeNumericColumn.model_fields.items():
+        values = [getattr(entry, name) for entry in entries]
+        if name == "status_reason":
+            codes = [reason.code if reason else None for reason in values]
+            columns[name] = pd.Series(codes, dtype=object)
+        elif name == "quantiles":
+            for level in levels:
+                columns[f"q{level!r}"] = pd.Series(
+                    [quantiles[level] for quantiles in values], dtype="float64"
+                )
+        else:
+            dtype = _FRAME_DTYPES.get(field.annotation)
+            columns[name] = pd.Series(values, dtype=dtype)
+    return pd.DataFrame(columns, columns=list(columns))
 
 
 class SummarizeCategoricalLevel(ResultModel):
@@ -1587,6 +1627,387 @@ class FindDuplicateRowsResult(MaskableResult):
                 "row_id": pd.Series(row_ids, dtype=object),
             }
         )
+
+
+class ProfileTargetClass(ResultModel):
+    """A class of a classification target: a valid label and how often it occurs."""
+
+    label: str | bool | int | float = Field(
+        description="The label exactly as stored, so 'Yes' and 'yes ' are two "
+        "classes. A label JSON can't hold, such as a Decimal or a non-finite "
+        "float, appears as its string form; label_type names its type. With "
+        "masking on and a sensitive target, a numbered placeholder, '<masked 1>' "
+        "for the target's first label in level order and so on."
+    )
+    label_type: str = Field(
+        description="The Python type of the stored label, such as 'str', 'int' or "
+        "'bool'; a NumPy scalar counts as the Python type it holds."
+    )
+    count: int = Field(description="Rows with this label.")
+    share: float = Field(
+        description="count / valid_label_count: the class's share of the valid "
+        "labels, from 0 to 1."
+    )
+
+
+class ProfileTargetUnexpectedLabel(ResultModel):
+    """A label of a classification target that expected_labels doesn't hold."""
+
+    label: str | bool | int | float = Field(
+        description="The label exactly as stored, written as a class's label is. "
+        "With masking on and a sensitive target, a numbered placeholder, numbered "
+        "together with the classes in level order."
+    )
+    label_type: str = Field(
+        description="The Python type of the stored label, such as 'str' or 'int'."
+    )
+    count: int = Field(description="Rows with this label.")
+    row_ids: Annotated[list[RowId], _Cap(10, total="count")] = Field(
+        description="The IDs of the first 10 rows with this label, in row order: "
+        "index labels, or values of id_column when it is given. count counts "
+        "every row, and the record adds it as row_ids_total. With masking on and "
+        "a sensitive id_column, numbered placeholders, '<masked 1>' for the first "
+        "ID the labels show and so on, equal IDs alike."
+    )
+
+
+class ProfileTargetStatistics(SummarizeNumericColumn):
+    """summarize_numeric's entry for a regression target, with its default options."""
+
+    quantiles: dict[float, float | None] = Field(
+        description="Quantiles of the finite values at summarize_numeric's default "
+        "levels 0.01, 0.05, 0.25, 0.5, 0.75, 0.95 and 0.99, keyed by level, as "
+        "numpy.quantile computes them with its default method, linear."
+    )
+    trimmed_mean: float | None = Field(
+        description="Mean of the finite values left after cutting int(0.1 * n) of "
+        "them from each end, summarize_numeric's default trim_fraction, as "
+        "scipy.stats.trim_mean(x, 0.1) does."
+    )
+
+
+class ProfileTargetResult(MaskableResult):
+    """The result of profile_target."""
+
+    non_missing_count: int = Field(description="Target values that aren't missing.")
+    missing_count: int = Field(
+        description="Target values that are missing, the rows without a label. "
+        "For classification: None, NaN, NaT and pd.NA, as pandas value_counts "
+        "leaves them out. For regression: as statistics.missing_count counts "
+        "them, NaN that a pyarrow-backed float column stores as a value included."
+    )
+    missing_share: float | None = Field(
+        description="missing_count over all rows, from 0 to 1; null when the data "
+        "has no rows."
+    )
+    valid_label_count: int | None = Field(
+        description="Classification: the labels the classes count, which every "
+        "share divides by: each label that isn't missing, or with "
+        "expected_labels, each one in it. Null for regression."
+    )
+    class_count: int | None = Field(
+        description="Classification: the classes, the distinct valid labels, as "
+        "pandas value_counts tells them apart, so 1, 1.0 and True are one class. "
+        "Null for regression."
+    )
+    classes: Annotated[
+        list[ProfileTargetClass] | None, _Cap(100, total="class_count")
+    ] = Field(
+        description="Classification: the first 100 classes, by count, descending, "
+        "then by label, as level_order states, each with its count and share. "
+        "class_count counts every class, the record adds it as classes_total, and "
+        "to_frame() has every label. Null for regression."
+    )
+    majority_share: float | None = Field(
+        description="Classification: the share of the most common class; null for "
+        "regression or without a valid label."
+    )
+    minority_share: float | None = Field(
+        description="Classification: the share of the least common class; null "
+        "for regression or without a valid label."
+    )
+    imbalance_ratio: float | None = Field(
+        description="Classification: the count of the most common class over the "
+        "count of the least common one, 1 for balanced classes and higher the "
+        "more imbalanced they are; null for regression or without a valid label."
+    )
+    unexpected_label_count: int | None = Field(
+        description="Classification with expected_labels: the distinct labels "
+        "outside expected_labels, which no class counts. Null without "
+        "expected_labels, which leaves the check out, and for regression."
+    )
+    unexpected_labels: Annotated[
+        list[ProfileTargetUnexpectedLabel] | None,
+        _Cap(100, total="unexpected_label_count"),
+    ] = Field(
+        description="Classification with expected_labels: the first 100 labels "
+        "outside expected_labels, in level order, each with its count and the IDs "
+        "of its first rows. unexpected_label_count counts every one, and the "
+        "record adds it as unexpected_labels_total. Null when the check didn't "
+        "run."
+    )
+    rare_class_count: int | None = Field(
+        description="Classification with rare_share: the classes whose share lies "
+        "below rare_share. Null without rare_share, which leaves the check out, "
+        "and for regression."
+    )
+    rare_classes: Annotated[
+        list[ProfileTargetClass] | None, _Cap(100, total="rare_class_count")
+    ] = Field(
+        description="Classification with rare_share: the first 100 classes whose "
+        "share lies below rare_share, in level order, as in classes. "
+        "rare_class_count counts every one, and the record adds it as "
+        "rare_classes_total. Null when the check didn't run."
+    )
+    statistics: ProfileTargetStatistics | None = Field(
+        description="Regression: summarize_numeric's entry for the target, from the "
+        "same implementation with summarize_numeric's defaults: counts, mean, std, "
+        "min, max, quantiles, median, trimmed_mean, mad, mad_scaled, skewness and "
+        "excess_kurtosis of the finite values. Null for classification."
+    )
+    non_finite_count: int | None = Field(
+        description="Regression: target values that aren't finite numbers, the "
+        "missing ones and inf or -inf, which a model can't learn from: "
+        "statistics.missing_count + statistics.infinite_count. Null for "
+        "classification."
+    )
+    level_order: str = Field(
+        description="How classes and labels are ordered. They go by count, "
+        "descending, then by label, and labels of different types follow a fixed "
+        "order that never depends on hashing."
+    )
+    # Every label of a classification target, outside the record, for
+    # to_frame(); with masking on, the placeholders' numbers instead.
+    _labels: Levels | None = PrivateAttr(default=None)
+    # Per label of _labels, whether expected_labels holds it; None without
+    # expected_labels.
+    _expected: np.ndarray | None = PrivateAttr(default=None)
+
+    def _target_text(self) -> str:
+        return _text.label_text(self.parameters.get("target_column"))
+
+    def _masking_facts(self) -> list[str]:
+        # A regression target's statistics show as computed, sensitive or not.
+        target = self.parameters.get("target_column")
+        project = self.parameters.get("project")
+        policy = project.get("data_policy") if isinstance(project, dict) else None
+        sensitive = (
+            policy.get("sensitive_columns") if isinstance(policy, dict) else None
+        )
+        statistics = (
+            [target]
+            if self.statistics is not None
+            and isinstance(target, str)
+            and isinstance(sensitive, list)
+            and target in sensitive
+            else []
+        )
+        return _masking_text(self.masking, statistics)
+
+    def _text_facts(self) -> list[str]:
+        if self.statistics is not None:
+            return self._regression_facts(self.statistics)
+        task = self.parameters.get("task")
+        missing = f"{self.missing_count:,} missing" + (
+            _percent(self.missing_share) if self.missing_count else ""
+        )
+        classes = _text.plural(self.class_count or 0, "class", "classes")
+        facts = [
+            f"Target {self._target_text()} for {task}: {classes} in "
+            f"{self.valid_label_count or 0:,} valid labels; {missing}."
+        ]
+        if self.majority_share is not None and self.minority_share is not None:
+            facts.append(
+                f"Majority share {_text.format_number(self.majority_share)}, minority "
+                f"share {_text.format_number(self.minority_share)}; imbalance ratio "
+                f"{_text.format_number(self.imbalance_ratio or 0)}, the majority "
+                "count over the minority count."
+            )
+        if self.unexpected_labels:
+            facts.extend(self._unexpected_text(self.unexpected_labels))
+        rare_share = self.parameters.get("rare_share")
+        if self.rare_class_count is not None and isinstance(rare_share, float):
+            facts.append(
+                "Rare classes, with a share below rare_share "
+                f"{_text.format_number(rare_share)}: {self.rare_class_count:,} of "
+                f"{self.class_count or 0:,}."
+            )
+        return facts
+
+    def _label_text(self, label: object, label_type: str) -> str:
+        """A label as the text shows it: text quoted, a placeholder as it is."""
+        column = self.parameters.get("target_column")
+        masked = isinstance(column, str) and self._masked(column)
+        return repr(label) if label_type == "str" and not masked else str(label)
+
+    def _unexpected_text(
+        self, unexpected: Sequence["ProfileTargetUnexpectedLabel"]
+    ) -> list[str]:
+        """The first unexpected labels, each with its first row IDs."""
+        id_column = self.parameters.get("id_column")
+        show = (
+            str
+            if isinstance(id_column, str) and self._masked(id_column)
+            else _text.label_text
+        )
+        items = []
+        for entry in unexpected[:_SHOWN_UNEXPECTED]:
+            ids = [show(row_id) for row_id in entry.row_ids[:_SHOWN_ROW_IDS]]
+            if entry.count > len(ids):
+                ids.append(f"{entry.count - len(ids):,} more")
+            rows = "row" if entry.count == 1 else "rows"
+            label = self._label_text(entry.label, entry.label_type)
+            items.append(f"{label} in {rows} {_text.join_items(ids)}")
+        labels = self.unexpected_label_count or len(unexpected)
+        if labels > len(items):
+            items.append(f"and {labels - len(items):,} more labels")
+        rows = self.non_missing_count - (self.valid_label_count or 0)
+        text = (
+            f"Outside expected_labels: {_text.plural(labels, 'label', 'labels')} in "
+            f"{_text.plural(rows, 'row', 'rows')}: {'; '.join(items)}."
+        )
+        return _text.wrap(text, first="", indent="    ")
+
+    def _regression_facts(self, statistics: "ProfileTargetStatistics") -> list[str]:
+        finite = statistics.count - statistics.infinite_count
+        non_finite = self.non_finite_count or 0
+        if non_finite:
+            others = (
+                f"{non_finite:,} aren't: {self.missing_count:,} missing"
+                f"{_percent(self.missing_share) if self.missing_count else ''} and "
+                f"{statistics.infinite_count:,} infinite"
+            )
+        else:
+            others = "none missing or infinite"
+        return [
+            f"Target {self._target_text()} for regression: "
+            f"{_text.plural(finite, 'finite value', 'finite values')}; {others}.",
+            "Statistics use the finite values, as in summarize_numeric: quantile "
+            "method linear; trimmed_mean cuts 10% from each end.",
+            "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
+            "skewness and excess_kurtosis.",
+        ]
+
+    def _text_table(self) -> _text.Table:
+        if self.statistics is not None:
+            entry = self.statistics
+            return _text.Table(
+                title="Statistics",
+                unit=("column", "columns"),
+                headers=(
+                    "column",
+                    "count",
+                    "missing_count",
+                    "mean",
+                    "std",
+                    "min",
+                    "median",
+                    "max",
+                ),
+                rows=[
+                    (
+                        entry.column,
+                        entry.count,
+                        entry.missing_count,
+                        entry.mean,
+                        entry.std,
+                        entry.min,
+                        entry.median,
+                        entry.max,
+                    )
+                ],
+                frame="every statistic in one row",
+            )
+        recorded = self.parameters.get("rare_share")
+        # The share below which a class is rare, when the check ran.
+        rare_share = (
+            recorded
+            if self.rare_classes is not None and isinstance(recorded, float)
+            else None
+        )
+        classes = self.classes or []
+        return _text.Table(
+            title="Classes",
+            unit=("class", "classes"),
+            headers=(
+                "label",
+                "count",
+                "share",
+                *(() if rare_share is None else ("rare",)),
+            ),
+            rows=[
+                (
+                    self._label_text(c.label, c.label_type),
+                    c.count,
+                    c.share,
+                    *(() if rare_share is None else (c.share < rare_share,)),
+                )
+                for c in classes[: _text.MAX_TABLE_ROWS]
+            ],
+            total=self.class_count or 0,
+            frame_rows=(self.class_count or 0) + (self.unexpected_label_count or 0),
+            frame_unit=("label", "labels"),
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """The target's table as a DataFrame.
+
+        Classification: every label, classes and labels outside expected_labels
+        alike, in level order, with label, label_type, count, share (null for a
+        label outside expected_labels), expected (null when expected_labels is
+        None) and rare (null when rare_share is None, and for labels outside
+        expected_labels). label holds each value exactly as stored, or with
+        masking on, a sensitive target's placeholder. Regression: one row of
+        statistics, as summarize_numeric's to_frame() gives it, with
+        non_finite_count.
+        """
+        if self.statistics is not None:
+            frame = _numeric_frame([self.statistics], list(self.statistics.quantiles))
+            frame["non_finite_count"] = pd.Series(
+                [self.non_finite_count], dtype="int64"
+            )
+            return frame
+        levels = self._labels
+        if levels is None:
+            order = np.zeros(0, dtype=np.intp)
+            labels: list[object] = []
+            types: list[str] = []
+            counts = np.zeros(0, dtype=np.int64)
+        else:
+            order, labels, types = level_rows(levels)
+            counts = levels.counts[order].astype(np.int64)
+        expected = None if self._expected is None else self._expected[order]
+        valid = np.ones(len(order), dtype=bool) if expected is None else expected
+        shares = counts / max(self.valid_label_count or 0, 1)
+        rare_share = self.parameters.get("rare_share")
+        return pd.DataFrame(
+            {
+                "label": pd.Series(labels, dtype=object),
+                "label_type": pd.Series(types, dtype=object),
+                "count": counts,
+                "share": np.where(valid, shares, np.nan),
+                "expected": pd.array(
+                    [pd.NA] * len(order) if expected is None else expected,
+                    dtype="boolean",
+                ),
+                "rare": pd.array(
+                    [
+                        bool(share < rare_share) if is_valid else pd.NA
+                        for share, is_valid in zip(
+                            shares.tolist(), valid.tolist(), strict=True
+                        )
+                    ]
+                    if isinstance(rare_share, float)
+                    else [pd.NA] * len(order),
+                    dtype="boolean",
+                ),
+            }
+        )
+
+
+# The labels outside expected_labels, and the row IDs of each, that the text shows.
+_SHOWN_UNEXPECTED = 3
+_SHOWN_ROW_IDS = 3
 
 
 class DeclaredSentinelValue(ResultModel):
@@ -2597,3 +3018,215 @@ class InferColumnSemanticsResult(AnalysisResult):
             },
             columns=names,
         )
+
+
+class InvalidValue(ResultModel):
+    """A distinct value that neither has nor converts to the declared logical type."""
+
+    value: str | bool | int | float = Field(
+        description="The value as stored. A value JSON can't hold, such as a "
+        "timestamp, a list or a non-finite float, appears as its string form; "
+        "value_type names its type. With masking on, a sensitive column's values "
+        "are numbered placeholders, '<masked 1>' for its first invalid value in "
+        "level order and so on."
+    )
+    value_type: str = Field(
+        description="The Python type of the stored value, such as 'str' or 'float'; "
+        "a NumPy scalar counts as the Python type it holds."
+    )
+    count: int = Field(
+        description="Values in the column equal to it and of the same type."
+    )
+
+
+class ValidateColumnTypesColumn(ResultModel):
+    """How the values of one declared column relate to its declared logical type."""
+
+    column: str = Field(description="The declared column name.")
+    declared_logical_type: LogicalType = Field(
+        description="The logical type schema declares for the column: the one its "
+        "values are checked against."
+    )
+    nullable: bool | None = Field(
+        description="Whether schema allows missing values in the column: false "
+        "makes them a violation; null declares nothing, so they aren't checked."
+    )
+    datetime_format: str | None = Field(
+        description="The datetime.strptime format declared for datetimes stored as "
+        "text, besides ISO 8601; null when none is declared."
+    )
+    present: bool = Field(description="Whether the data has the column.")
+    dtype: str | None = Field(
+        description="The dtype as pandas reports it, such as 'str'; null when the "
+        "column isn't in the data."
+    )
+    compatible_count: int | None = Field(
+        description="Values already stored as the declared logical type, such as "
+        "integers in an int64 or Int64 column for 'integer'."
+    )
+    convertible_count: int | None = Field(
+        description="Values stored as another type that convert to the declared "
+        "logical type exactly, without changing their meaning, such as '42' or "
+        "42.0 for 'integer'. Nothing is converted."
+    )
+    invalid_count: int | None = Field(
+        description="Values that neither have the declared logical type nor convert "
+        "to it exactly."
+    )
+    missing_count: int | None = Field(
+        description="Missing values: None, NaN, NaT and pd.NA, as pandas isna() "
+        "counts them, and NaN that a float column stores as a value."
+    )
+    invalid_row_ids: Annotated[list[RowId], _Cap(10, total="invalid_count")] = Field(
+        description="The IDs of the first 10 rows that hold an invalid value, in row "
+        "order: index labels, or values of id_column when it is given. "
+        "invalid_count counts them all, and the record adds it as "
+        "invalid_row_ids_total. With masking on and a sensitive id_column, "
+        "numbered placeholders, equal IDs alike."
+    )
+    invalid_distinct_count: int | None = Field(
+        description="Distinct invalid values; values of different types count "
+        "apart, so 1 and True are two."
+    )
+    invalid_values: Annotated[
+        list[InvalidValue], _Cap(5, total="invalid_distinct_count")
+    ] = Field(
+        description="The first 5 distinct invalid values with their counts, in level "
+        "order as summarize_categorical orders levels: most frequent first, then "
+        "by value. invalid_distinct_count counts them all, the record adds it as "
+        "invalid_values_total, and to_frame(table='invalid_values') has every one."
+    )
+    assessment: Literal["passed", "violation", "unknown"] = Field(
+        description="The verdict on the column, as its findings give it: violation "
+        "when the data lacks it, it holds invalid values, or it is declared "
+        "non-nullable and has missing values; unknown when it has no value to "
+        "check; passed otherwise."
+    )
+
+
+class ValidateColumnTypesResult(MaskableResult):
+    """The result of validate_column_types."""
+
+    columns: Annotated[dict[str, ValidateColumnTypesColumn], _ENTRIES] = Field(
+        description="One entry per declared column, keyed by column name, in "
+        "declared order. The record keeps the first 100 and adds columns_total; "
+        "to_frame() has every column."
+    )
+    undeclared_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="The data's columns that schema doesn't declare, in DataFrame "
+        "order; they weren't checked. The record keeps the first 100 and adds "
+        "undeclared_columns_total."
+    )
+    # Every distinct invalid value of every declared column in the data,
+    # outside the record; masked columns hold placeholders' numbers instead.
+    _tables: dict[str, Levels] = PrivateAttr(default_factory=dict)
+
+    def _text_facts(self) -> list[str]:
+        facts = [
+            "compatible: stored as the declared type; convertible: converts "
+            "exactly; invalid: neither. Nothing was converted."
+        ]
+        id_column = self.parameters.get("id_column")
+        source = (
+            f"values of id_column {id_column!r}"
+            if isinstance(id_column, str)
+            else "index labels"
+        )
+        facts.append(f"Row IDs: {source}.")
+        if self.undeclared_columns:
+            names = _text.join_labels(self.undeclared_columns)
+            facts.extend(
+                _text.wrap(
+                    f"Not declared in schema, so not checked: {names}.",
+                    first="",
+                    indent="    ",
+                )
+            )
+        else:
+            facts.append("schema declares every column of the data.")
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        # Violations first, then columns without a value to check; a stable
+        # sort keeps the declared order within each.
+        rank = {"violation": 0, "unknown": 1, "passed": 2}
+        entries = sorted(self.columns.values(), key=lambda e: rank[e.assessment])
+        return _text.Table(
+            title="Declared columns, violations first",
+            unit=("declared column", "declared columns"),
+            headers=(
+                "column",
+                "declared",
+                "dtype",
+                "compatible",
+                "convertible",
+                "invalid",
+                "missing",
+                "invalid_values",
+            ),
+            rows=[
+                (
+                    e.column,
+                    e.declared_logical_type
+                    + (", not null" if e.nullable is False else ""),
+                    e.dtype if e.present else "not in the data",
+                    e.compatible_count,
+                    e.convertible_count,
+                    e.invalid_count,
+                    e.missing_count,
+                    self._examples_text(e),
+                )
+                for e in entries[: _text.MAX_TABLE_ROWS]
+            ],
+            total=len(entries),
+        )
+
+    def _examples_text(self, entry: ValidateColumnTypesColumn) -> str:
+        """The invalid example values with their counts, such as "'n/a': 2".
+
+        Text is quoted, so surrounding spaces stay visible; placeholders aren't.
+        """
+        masked = self._masked(entry.column)
+        shown = [
+            f"{value.value!r}: {value.count:,}"
+            if value.value_type == "str" and not masked
+            else f"{value.value}: {value.count:,}"
+            for value in entry.invalid_values
+        ]
+        more = (entry.invalid_distinct_count or 0) - len(shown)
+        return ", ".join(shown) + (f" and {more:,} more" if more > 0 else "")
+
+    def _text_other_tables(self) -> list[str]:
+        return [
+            "res.to_frame(table='invalid_values') counts every distinct invalid value"
+        ]
+
+    def to_frame(
+        self, table: Literal["columns", "invalid_values"] = "columns"
+    ) -> pd.DataFrame:
+        """One of the result's two tables as a DataFrame.
+
+        Args:
+            table: 'columns', the default, gives one row per declared column in
+                declared order: its declaration, whether it is present, its
+                dtype, the four counts, the distinct invalid values, the IDs of
+                the first 10 rows with an invalid value, and the assessment.
+                'invalid_values' gives one row per distinct invalid value of
+                each column, by column in declared order, then by count,
+                descending, then by value: column, value as stored (or its
+                placeholder, with masking on), value_type and count.
+        """
+        _check_table(table, ("columns", "invalid_values"))
+        if table == "invalid_values":
+            frame = levels_frame(self._tables).drop(columns="share")
+            return frame.rename(columns={"label": "value", "label_type": "value_type"})
+        entries = list(self.columns.values())
+        columns: dict[str, pd.Series] = {}
+        for name, field in ValidateColumnTypesColumn.model_fields.items():
+            if name == "invalid_values":
+                continue  # table='invalid_values' has every one
+            columns[name] = pd.Series(
+                [getattr(entry, name) for entry in entries],
+                dtype=_FRAME_DTYPES.get(field.annotation, object),
+            )
+        return pd.DataFrame(columns, columns=list(columns))
