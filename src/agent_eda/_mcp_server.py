@@ -26,6 +26,7 @@ from agent_eda._registry import (
     spec_of,
     unknown_name_message,
 )
+from agent_eda._table_files import TableFile, table_file
 from agent_eda._version import __version__
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
@@ -61,6 +62,24 @@ _PROJECT_PATH = {
     "was started with (agent-eda-mcp --project), or no project, which masks "
     "nothing. A project_path replaces the server's project for this call. "
     f"{_GUARDRAIL}",
+}
+
+_TABLE_PATH = {
+    "anyOf": [{"type": "string"}, {"type": "null"}],
+    "default": None,
+    "description": "Path of a new file to write the result's complete table to, "
+    "the table a Python caller gets from to_frame, for when the capped lists of "
+    "the structured content aren't enough. The extension names the format: .csv "
+    "for CSV, or .parquet or .pq for Parquet, in any case. The path is absolute "
+    "or relative to the MCP server's working directory, and its directory must "
+    "exist. The server never overwrites: a path where a file already exists is an "
+    "error, raised before the analysis runs. The text of the response then ends "
+    "with the line 'Full table written to <absolute path> (<n> rows).' The index "
+    "becomes the first column only when it is more than the row numbers 0, 1, 2, "
+    "... A cell that holds a list or a mapping, such as row IDs, is written as "
+    "JSON text, and in Parquet a column whose values mix types, such as numbers "
+    "and text, is written as text, as in the CSV. null, the default, writes no "
+    "file.",
 }
 
 # Follows the docstring's mask_sensitive text, which speaks of the project
@@ -159,17 +178,21 @@ def _call(
     schema. The server checks what the MCP tool adds to the analysis's own
     arguments (unknown and missing names among the MCP tool's properties, and
     data_path); the analysis checks its options, with the message a Python
-    caller gets. A project_path replaces the server's project for the call;
-    a mask_sensitive goes to the analysis, where it wins over either.
+    caller gets. A table_path is checked before the data is read, so an
+    existing file or a missing directory stops the call before the analysis
+    runs. A project_path replaces the server's project for the call; a
+    mask_sensitive goes to the analysis, where it wins over either.
     """
     _check_arguments(served, arguments)
+    table_path = arguments.pop("table_path", None)
+    table = None if table_path is None else table_file(served.spec.name, table_path)
     if "project_path" in served.tool.input_schema["properties"]:
         project_path = arguments.pop("project_path", None)
         if project_path is not None:
             project = _load_project(served.spec.name, project_path)
         arguments["project"] = project
     data = reader.read(arguments.pop("data_path"))
-    return _response(served.function(data, **arguments))
+    return _response(served.function(data, **arguments), table)
 
 
 def _load_project(name: str, project_path: object) -> Project:
@@ -262,6 +285,7 @@ def _input_schema(spec: AnalysisSpec) -> dict[str, Any]:
             properties[name] = {**value, "description": description}
         else:
             properties[name] = value
+    properties["table_path"] = dict(_TABLE_PATH)
     schema["properties"] = properties
     schema["required"] = ["data_path", *schema.get("required", [])]
     definitions = schema.get("$defs", {})
@@ -312,10 +336,19 @@ def _description(spec: AnalysisSpec) -> str:
     )
 
 
-def _response(result: AnalysisResult) -> types.CallToolResult:
-    """The printed result as text, and its to_dict() record as structured content."""
+def _response(
+    result: AnalysisResult, table: TableFile | None = None
+) -> types.CallToolResult:
+    """The printed result as text, and its to_dict() record as structured content.
+
+    Given a table file, it writes the result's full table there first, and the
+    text gains a line that says where.
+    """
+    text = str(result)
+    if table is not None:
+        text = f"{text}\n{table.write(result.to_frame())}"
     return types.CallToolResult(
-        content=[types.TextContent(text=str(result))],
+        content=[types.TextContent(text=text)],
         structured_content=result.to_dict(),
     )
 

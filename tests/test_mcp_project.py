@@ -16,6 +16,7 @@ pytest.importorskip(
 import json
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import anyio
@@ -321,6 +322,41 @@ def test_masking_keeps_every_sensitive_value_out_of_the_response(tmp_path, name)
     assert shown(unmasked) != []
 
 
+@pytest.mark.parametrize("extension", [".csv", ".parquet"])
+@pytest.mark.parametrize("name", sorted(MASKING_CALLS))
+def test_masking_keeps_every_sensitive_value_out_of_the_written_table(
+    tmp_path, name, extension
+):
+    data_path = write(tmp_path / "people.csv", PEOPLE)
+    project_path = write(tmp_path / "project.toml", PEOPLE_POLICY)
+    options = MASKING_CALLS[name]
+    arguments = {"data_path": str(data_path), "project_path": str(project_path)}
+    masked_path = tmp_path / f"masked{extension}"
+    unmasked_path = tmp_path / f"unmasked{extension}"
+    expected = getattr(ae, name)(
+        read(data_path), project=ae.Project.load(project_path), **options
+    ).to_frame()
+
+    anyio.run(call, name, {**arguments, **options, "table_path": str(masked_path)})
+    anyio.run(
+        call,
+        name,
+        {
+            **arguments,
+            **options,
+            "mask_sensitive": False,
+            "table_path": str(unmasked_path),
+        },
+    )
+
+    masked = table_text(masked_path)
+    assert len(read_table(masked_path)) == len(expected)
+    assert [value for value in SENSITIVE if value in masked] == []
+    # The values the table would hold without masking.
+    unmasked = table_text(unmasked_path)
+    assert [value for value in SENSITIVE if value in unmasked] != []
+
+
 def test_agent_eda_mcp_with_project_masks_every_call_over_stdio(tmp_path):
     data_path = write(tmp_path / "shop.csv", CSV)
     project_path = write(tmp_path / "project.toml", MASKED)
@@ -413,6 +449,25 @@ async def call_over_stdio(cwd, args, name, arguments):
     server = StdioServerParameters(command=AGENT_EDA_MCP, args=args, cwd=str(cwd))
     async with Client(server, mode="legacy") as client:
         return await client.call_tool(name, arguments)
+
+
+def read_table(path):
+    """A written table, read as CSV or Parquet by its extension."""
+    if path.suffix == ".csv":
+        return pd.read_csv(path, keep_default_na=False, na_values=[""])
+    with warnings.catch_warnings():
+        # pandas 2.2 deprecates the internals pyarrow 14 builds DataFrames from.
+        warnings.filterwarnings(
+            "ignore",
+            message="Passing a BlockManager to DataFrame is deprecated",
+            category=DeprecationWarning,
+        )
+        return pd.read_parquet(path)
+
+
+def table_text(path):
+    """Every column name and cell of a written table, as CSV text."""
+    return read_table(path).to_csv()
 
 
 def shown(response):

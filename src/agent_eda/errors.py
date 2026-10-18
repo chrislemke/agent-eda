@@ -57,6 +57,12 @@ Codes, with the class that raises each:
     unreadable_data_file (DataFileError): an MCP tool's data path names a file
         the parser can't read, such as a CSV that isn't UTF-8; the message
         quotes the parser.
+    table_file_exists (TableFileExistsError, also a FileExistsError): an MCP
+        tool's table_path leads to a file that already exists, which the MCP
+        server never overwrites; the message suggests a free path. A table_path
+        with an extension other than .csv, .parquet or .pq, or in a directory
+        that doesn't exist, raises invalid_argument. Both come before the
+        analysis runs.
 """
 
 
@@ -152,3 +158,13 @@ class DataFileNotFoundError(DataFileError, FileNotFoundError):
     """
 
     code = "data_file_not_found"
+
+
+class TableFileExistsError(AgentEDAError, FileExistsError):
+    """An MCP tool's table_path leads to a file that already exists.
+
+    The MCP server never overwrites a file. It is also a FileExistsError, so
+    handlers for an existing file catch it.
+    """
+
+    code = "table_file_exists"

@@ -96,6 +96,8 @@ def test_the_input_schema_is_the_arguments_schema_with_a_required_data_path(
     schema = dict(tools[name].input_schema)
     properties = dict(schema.pop("properties"))
     data_path = properties.pop("data_path")
+    # The server's own property, checked in the test below.
+    properties.pop("table_path")
     expected = ae.describe_analysis(name).to_dict()["parameters_schema"]
     # project becomes project_path (tests/test_mcp_project.py), and the
     # Project's definitions go with it.
@@ -128,6 +130,30 @@ def test_the_input_schema_is_the_arguments_schema_with_a_required_data_path(
     assert properties == expected_properties
     assert [p for p in properties if not properties[p]["description"]] == []
     assert tools[name].input_schema["required"][1:] == expected.get("required", [])
+
+
+def test_every_mcp_tool_takes_an_optional_table_path_with_the_server_text(tools):
+    table_paths = [
+        tool.input_schema["properties"]["table_path"] for tool in tools.values()
+    ]
+
+    assert [
+        n for n, t in tools.items() if "table_path" in t.input_schema["required"]
+    ] == []
+    # The same server text on every MCP tool, not text from a docstring.
+    assert all(table_path == table_paths[0] for table_path in table_paths)
+    table_path = table_paths[0]
+    assert table_path["anyOf"] == [{"type": "string"}, {"type": "null"}]
+    assert table_path["default"] is None
+    description = table_path["description"]
+    for fact in (
+        ".csv",
+        ".parquet",
+        ".pq",
+        "never overwrites",
+        "Full table written to",
+    ):
+        assert fact in description, fact
 
 
 def test_the_summarize_numeric_schema_lists_methods_and_the_trim_range(tools):
