@@ -11,6 +11,7 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
+    PrivateAttr,
     SerializationInfo,
     SerializerFunctionWrapHandler,
     model_serializer,
@@ -19,6 +20,7 @@ from pydantic import (
 
 from agent_eda import _text
 from agent_eda._annotations import python_literal
+from agent_eda._levels import Levels, levels_frame
 
 Status = Literal[
     "completed",
@@ -63,12 +65,17 @@ class _Cap:
     The record (to_dict and to_json) keeps the first `limit` entries and adds
     `<field>_total` with the full count. The result object keeps every entry.
     With `each_list`, a dict field stays whole and every list inside it is
-    capped instead, with `<key>_total` next to it.
+    capped instead, with `<key>_total` next to it. With `total`, the field
+    holds only the first entries even on the result object, and
+    `<field>_total` takes the full count from the field that `total` names.
     """
 
-    def __init__(self, limit: int, *, each_list: bool = False) -> None:
+    def __init__(
+        self, limit: int, *, each_list: bool = False, total: str | None = None
+    ) -> None:
         self.limit = limit
         self.each_list = each_list
+        self.total = total
 
 
 # The caps the spec sets for every list in the record that grows with the data.
@@ -80,8 +87,15 @@ _LISTS_INSIDE = _Cap(100, each_list=True)
 _RECORD = "agent_eda_record"
 
 
-def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
-    """Keep the first entries of each named list or dict and add its total."""
+def _capped(
+    values: dict[str, Any],
+    limits: dict[str, int],
+    totals: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Keep the first entries of each named list or dict and add its total.
+
+    A list named in `totals` takes its total from the field named there.
+    """
     capped: dict[str, Any] = {}
     for name, value in values.items():
         limit = limits.get(name)
@@ -92,7 +106,8 @@ def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
             capped[name] = dict(itertools.islice(value.items(), limit))
         else:
             capped[name] = value[:limit]
-        capped[f"{name}_total"] = len(value)
+        total = (totals or {}).get(name)
+        capped[f"{name}_total"] = values[total] if total else len(value)
     return capped
 
 
@@ -143,6 +158,7 @@ class ResultModel(BaseModel):
         record = _capped(
             data,
             {name: cap.limit for name, cap in caps.items() if not cap.each_list},
+            {name: cap.total for name, cap in caps.items() if cap.total},
         )
         for name, cap in caps.items():
             inner = record.get(name)
@@ -1016,3 +1032,171 @@ class SummarizeNumericResult(AnalysisResult):
                 dtype = _FRAME_DTYPES.get(field.annotation)
                 columns[name] = pd.Series(values, dtype=dtype)
         return pd.DataFrame(columns, columns=list(columns))
+
+
+class SummarizeCategoricalLevel(ResultModel):
+    """A level of a column: a distinct non-missing value and how often it occurs."""
+
+    label: str | bool | int | float = Field(
+        description="The value exactly as stored, so 'Yes' and 'yes ' are two "
+        "levels. A value JSON can't hold, such as a Decimal, a timestamp or a "
+        "non-finite float, appears as its string form; label_type names its type."
+    )
+    label_type: str = Field(
+        description="The Python type of the stored value, such as 'str', 'int' or "
+        "'bool'; a NumPy scalar counts as the Python type it holds."
+    )
+    count: int = Field(description="Values equal to the label.")
+    share: float = Field(
+        description="count / non_missing_count of the column: the share of its "
+        "non-missing values, so missing values never dilute it."
+    )
+
+
+def _level_text(level: SummarizeCategoricalLevel) -> str:
+    """A level as the text shows it, such as "'basic': 3 (60%)".
+
+    Text labels are quoted, so surrounding spaces stay visible.
+    """
+    label = repr(level.label) if level.label_type == "str" else str(level.label)
+    share = _text.format_number(level.share * 100)
+    return f"{label}: {level.count:,} ({share}%)"
+
+
+class SummarizeCategoricalVariants(ResultModel):
+    """Labels of one column that differ only by case or surrounding whitespace."""
+
+    levels: Annotated[list[SummarizeCategoricalLevel], _ENTRIES] = Field(
+        description="The labels of the group as levels, each with its count and "
+        "share, in level order."
+    )
+
+
+class SummarizeCategoricalColumn(ColumnResult):
+    """What summarize_categorical found in one column."""
+
+    non_missing_count: int = Field(description="Values that aren't missing.")
+    missing_count: int = Field(
+        description="Missing values: None, NaN, NaT and pd.NA, the ones pandas "
+        "value_counts leaves out. NaN that a pyarrow-backed float column stores "
+        "as a value is a level, as in value_counts."
+    )
+    cardinality: int | None = Field(
+        description="Levels: the distinct non-missing values, as pandas "
+        "value_counts tells them apart, so 1, 1.0 and True are one level. Null "
+        "when the values can't be hashed."
+    )
+    levels: Annotated[
+        list[SummarizeCategoricalLevel], _Cap(100, total="cardinality")
+    ] = Field(
+        description="The first 100 levels, ordered by count, descending, then by "
+        "label, as level_order states. cardinality counts every level, the "
+        "record adds it as levels_total, and to_frame() has every level."
+    )
+    most_common_levels: list[SummarizeCategoricalLevel] = Field(
+        description="The first top_n levels: the ones the printed text shows."
+    )
+    left_out_level_count: int | None = Field(
+        description="Levels beyond the first top_n, which most_common_levels and "
+        "the printed text leave out. Null when the values can't be hashed."
+    )
+    seen_once_count: int | None = Field(
+        description="Levels that occur exactly once. Null when the values can't "
+        "be hashed."
+    )
+    unused_categories: Annotated[list[str | bool | int | float], _ENTRIES] = Field(
+        description="Categories of a categorical dtype that no value takes, in "
+        "category order, each written as a level's label is; empty for other "
+        "dtypes."
+    )
+    value_types: Annotated[list[str], _ENTRIES] = Field(
+        description="The Python types of the non-missing values by name, sorted, "
+        "such as ['int', 'str']; a NumPy scalar counts as the Python type it holds."
+    )
+    mixed_value_types: bool = Field(
+        description="Whether the non-missing values have more than one Python "
+        "type, such as 1 and '1'. Values pandas counts as one level, such as 1 "
+        "and True, can still differ in type."
+    )
+    case_or_space_variants: Annotated[list[SummarizeCategoricalVariants], _ENTRIES] = (
+        Field(
+            description="Groups of text labels that become equal once str.strip "
+            "removes surrounding whitespace and str.casefold folds case, such as "
+            "'Yes', 'yes ' and 'YES'. Each group is in level order, and the groups "
+            "follow the level order of their first label. Empty when there are none."
+        )
+    )
+
+
+class SummarizeCategoricalResult(AnalysisResult):
+    """The result of summarize_categorical."""
+
+    columns: Annotated[dict[str, SummarizeCategoricalColumn], _ENTRIES] = Field(
+        description="One entry per selected column, keyed by column name, in the "
+        "selected order. The record keeps the first 100 and adds columns_total."
+    )
+    left_out_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Columns that columns=None left out because they aren't text, "
+        "object, categorical or boolean columns, in DataFrame order; empty when "
+        "columns names the columns."
+    )
+    share_denominator: Literal["non_missing_count"] = Field(
+        description="The entry field every share divides by: non_missing_count, "
+        "the column's values that aren't missing. Missing values get no share; "
+        "missing_count counts them."
+    )
+    level_order: str = Field(
+        description="How levels are ordered. They go by count, descending, then by "
+        "label, and labels of different types follow a fixed order that never "
+        "depends on hashing."
+    )
+    # Every level of every counted column, outside the record; to_frame() sorts
+    # them when asked, since sorting a million labels is slow.
+    _tables: dict[str, Levels] = PrivateAttr(default_factory=dict)
+
+    def _text_facts(self) -> list[str]:
+        facts = [
+            "Shares are of each column's non-missing values. Levels go by count, "
+            f"then label; most_common_levels has the top {self.parameters.get('top_n')}."
+        ]
+        if self.left_out_columns:
+            names = _text.join_labels(self.left_out_columns)
+            facts.append(
+                f"Left out, not text, object, categorical or boolean: {names}."
+            )
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        return _text.Table(
+            title="Columns",
+            unit=("column", "columns"),
+            headers=(
+                "column",
+                "non_missing_count",
+                "missing_count",
+                "cardinality",
+                "most_common_levels",
+            ),
+            rows=[
+                (
+                    e.column,
+                    e.non_missing_count,
+                    e.missing_count,
+                    e.cardinality,
+                    ", ".join(_level_text(level) for level in e.most_common_levels),
+                )
+                for e in self.columns.values()
+            ],
+            frame_rows=sum(e.cardinality or 0 for e in self.columns.values()),
+            frame_unit=("level", "levels"),
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """Every level of every column, one row per level.
+
+        Rows follow the selected column order, then level order. The columns
+        are column, label, label_type, count and share, and label holds each
+        value exactly as stored. Columns whose values can't be hashed have no
+        rows.
+        """
+        return levels_frame(self._tables)

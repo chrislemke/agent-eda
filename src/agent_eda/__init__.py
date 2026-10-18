@@ -29,7 +29,10 @@ if TYPE_CHECKING:
         search_analyses,
     )
     from agent_eda.results import AnalysisResult
-    from agent_eda.statistics.descriptive import summarize_numeric
+    from agent_eda.statistics.descriptive import (
+        summarize_categorical,
+        summarize_numeric,
+    )
 
 __all__ = [
     "AnalysisResult",
@@ -39,6 +42,7 @@ __all__ = [
     "guide",
     "list_analyses",
     "search_analyses",
+    "summarize_categorical",
     "summarize_numeric",
 ]
 
@@ -52,6 +56,7 @@ _EXPORTS: dict[str, str] = {
     "guide": "agent_eda.discovery",
     "list_analyses": "agent_eda.discovery",
     "search_analyses": "agent_eda.discovery",
+    "summarize_categorical": "agent_eda.statistics.descriptive",
     "summarize_numeric": "agent_eda.statistics.descriptive",
 }
 
