@@ -22,6 +22,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.170.1",
     "ipython>=9.0",
     "polars>=1.0",
     "pre-commit>=4.7.0",
@@ -29,6 +30,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.17.1",
+    "threadpoolctl>=3.7.0",
     "ty>=0.0.89",
     "uv-build>=0.10.11,<0.11.0",
 ]
@@ -66,7 +68,11 @@ docstring-code-format = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers", "--strict-config"]
+# The benchmark only runs on request: uv run pytest -m benchmark
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not benchmark"]
+markers = [
+    "benchmark: times every analysis on 1,000,000 rows x 100 columns; run with -m benchmark",
+]
 # Deprecation and future warnings fail the suite, so code changes before the
 # behaviour it relies on goes away.
 filterwarnings = ["error::DeprecationWarning", "error::FutureWarning"]

@@ -5,7 +5,8 @@ from pathlib import Path
 
 import agent_eda as ae
 
-TESTS = sorted(Path(__file__).parent.glob("test_*.py"))
+# Test modules and the helpers they share, such as the recipes.
+TESTS = sorted(Path(__file__).parent.glob("*.py"))
 
 
 def test_tests_import_only_public_agent_eda_modules():

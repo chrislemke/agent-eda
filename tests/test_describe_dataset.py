@@ -182,6 +182,49 @@ def test_memory_ignores_lookup_tables_built_by_earlier_lookups():
     ]
 
 
+def fresh(text):
+    """A new str object, so that nothing has encoded it yet."""
+    return text.encode().decode()
+
+
+def test_identical_calls_agree_when_columns_share_a_non_ascii_string():
+    # Found by the property tests: counting the distinct values of the second
+    # column made Python cache the string's UTF-8 form, which grew the first
+    # column's memory on the next call.
+    shared = fresh("|û¤q[")
+    df = pd.DataFrame(
+        {
+            "mixed": pd.Series([None, shared, "a"], dtype=object),
+            "same": pd.Series([shared] * 3, dtype=object),
+        }
+    )
+
+    first = ae.describe_dataset(df).to_json()
+    second = ae.describe_dataset(df).to_json()
+
+    assert second == first
+
+
+@pytest.mark.parametrize(
+    "texts",
+    [["été", "café"], ["日本", "ŝtono"], ["🙂", "a🙂b"]],
+    ids=["1-byte", "2-byte", "4-byte"],
+)
+def test_memory_of_text_ignores_the_utf8_copy_python_caches(texts):
+    # Python keeps a UTF-8 copy inside a non-ASCII str once something encodes
+    # it, as pyarrow does here, and sys.getsizeof counts that copy.
+    values = [fresh(text) for text in texts] + [None]
+    df = pd.DataFrame({"t": pd.Series(values, dtype=object)})
+    stored = df["t"].memory_usage(deep=True, index=False)
+    before = ae.describe_dataset(df).columns[0].memory_bytes
+
+    pa.array(values)
+    after = ae.describe_dataset(df).columns[0].memory_bytes
+
+    assert df["t"].memory_usage(deep=True, index=False) > stored
+    assert before == after == stored
+
+
 def test_records_supplied_provenance():
     df = pd.DataFrame({"x": [1, 2]})
 

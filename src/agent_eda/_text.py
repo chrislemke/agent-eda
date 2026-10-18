@@ -123,7 +123,8 @@ def wrap(text: str, *, indent: str = "", first: str | None = None) -> list[str]:
     """Wrap text into lines of at most MAX_WIDTH characters.
 
     The first line starts with `first`, by default the indent, and the others
-    with `indent`. Words longer than a line are split.
+    with `indent`. Words longer than a line are split, and no line ends in a
+    space, which textwrap leaves when a line fills up right before a long word.
     """
     lead = indent if first is None else first
     lines = textwrap.wrap(
@@ -133,7 +134,7 @@ def wrap(text: str, *, indent: str = "", first: str | None = None) -> list[str]:
         subsequent_indent=indent,
         break_on_hyphens=False,
     )
-    return lines or [lead.rstrip()]
+    return [line.rstrip() for line in lines] or [lead.rstrip()]
 
 
 def plural(count: int, singular: str, plural_form: str) -> str:

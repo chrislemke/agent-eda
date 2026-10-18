@@ -1,6 +1,9 @@
 import inspect
+import json
 
 import pytest
+from hypothesis import example, given
+from hypothesis import strategies as st
 
 import agent_eda as ae
 from agent_eda.errors import InvalidArgumentError
@@ -24,6 +27,45 @@ SEARCH_ACCEPTANCE = [
 )
 def test_an_agents_wording_finds_the_right_analysis_first(query, expected):
     assert ae.search_analyses(query).matches[0].name == expected
+
+
+@given(query=st.text() | st.text(min_size=100), limit=st.integers(1, 10))
+# The first line once filled up to 120 characters right before a long word, and
+# ended in a space.
+@example(
+    query="0" * 26
+    + "\x1f" * 3
+    + "\U000107bb" * 2
+    + "\U0001239a\U00012544"
+    + "\U00018cd6" * 2
+    + " "
+    + "0" * 23
+    + "\x1f" * 7
+    + "\x08" * 2
+    + "\U0001239a" * 3
+    + "\U00014647\U00018cd6\U0002ebe1",
+    limit=1,
+)
+def test_any_query_gives_the_same_strict_listing_within_the_text_caps(query, limit):
+    found = ae.search_analyses(query, limit=limit)
+
+    record = found.to_json()
+    assert ae.search_analyses(query, limit=limit).to_json() == record
+    json.loads(record, parse_constant=reject_constant)
+    lines = str(found).split("\n")
+    assert max(len(line) for line in lines) <= 120
+    assert lines == [line.rstrip() for line in lines]
+    assert len(found.matches) <= min(limit, found.match_count)
+    searched = [term.term for term in found.terms]
+    for match in found.matches:
+        assert match.matched_terms == [t for t in searched if t in match.matched_terms]
+    # An analysis named by the query may lead; the rest go by score, then name.
+    keys = [(-match.score, match.name) for match in found.matches[1:]]
+    assert keys == sorted(keys)
+
+
+def reject_constant(name):
+    raise AssertionError(f"to_json() isn't strict JSON: it holds {name}")
 
 
 @pytest.mark.parametrize(

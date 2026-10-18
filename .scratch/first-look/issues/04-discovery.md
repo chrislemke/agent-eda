@@ -47,6 +47,11 @@ For the analysis tickets that follow:
 - Write fixed choices as `Literal[...]` and ranges as `Annotated[..., Ge(...), Lt(...)]`, as summarize_numeric does. A contract test checks that every choice and range in an option's type hints reaches `allowed_values` and `valid_range`; an alias made with `type X = ...`, `Interval(...)` or `Field(ge=...)` fails it until `_annotations.py` reads that form, for the error messages too.
 - `model_json_schema()` fails for a parameter typed as a DataFrame or any other arbitrary type. None of the 11 has one, but a later slice with `before=` and `after=` needs a schema fallback.
 
+Merged with ticket 03:
+
+- The recipes in `tests/recipes.py` take a parameter's choices from `ae.describe_analysis()`, so the property suite exercises discovery and keeps working for annotations written as strings.
+- Hypothesis properties check that any query gives the same strict-JSON listing within the text caps, ranked by score, then name, and that any name gives a description or an `UnknownAnalysisError`. They found a trailing space that textwrap leaves when a line fills up right before a long word; `_text.wrap` now strips it, and an `@example` keeps the case.
+
 Checks:
 
 - `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass. The minimum-versions run passed with numpy 1.26.0, pandas 2.2.0 and pydantic 2.7.0 and left `uv.lock` unchanged. `uv run --isolated --python 3.13 pytest` and the same on 3.14 passed.

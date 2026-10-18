@@ -4,6 +4,8 @@ import json
 import textwrap
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 import agent_eda as ae
 from agent_eda.errors import AgentEDAError, InvalidArgumentError, UnknownAnalysisError
@@ -83,6 +85,26 @@ def test_an_unknown_name_raises_with_the_closest_analysis_names(name, closest):
     )
     assert all(repr(analysis) in message for analysis in ANALYSES)
     assert "ae.search_analyses(" in message
+
+
+@given(name=st.text() | st.sampled_from(ANALYSES))
+def test_any_name_gives_a_description_or_an_unknown_analysis_error(name):
+    outcome = description_or_error(name)
+
+    if isinstance(outcome, UnknownAnalysisError):
+        assert outcome.code == "unknown_analysis"
+        assert str(outcome).startswith(
+            f"describe_analysis got an unknown analysis {name!r}."
+        )
+    else:
+        assert outcome.name in ANALYSES
+
+
+def description_or_error(name):
+    try:
+        return ae.describe_analysis(name)
+    except UnknownAnalysisError as error:
+        return error
 
 
 def test_a_name_without_a_close_match_lists_every_analysis():
