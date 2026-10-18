@@ -68,6 +68,10 @@ _Avoid_: placeholder, missing code, magic number
 The optional declaration of a data science project's dataset roles and data policy, given to analyses where roles or the data policy matter.
 _Avoid_: context, session, config
 
+**Project file**:
+A TOML file that holds a Project, so that scripts running in new processes can load the same Project instead of building it again.
+_Avoid_: config file, settings file
+
 **Dataset role**:
 The part a dataset plays in a project: train, validation, test, holdout or reference.
 _Avoid_: split (when you mean the role)
