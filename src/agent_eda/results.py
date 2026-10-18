@@ -54,6 +54,9 @@ LimitationCode = Literal[
     # A computation overflowed float64 or failed numerically (division by zero,
     # an invalid value, precision loss), so the values it affects are null.
     "numerical_warning",
+    # A ranking stopped at its work limit before bounds proved it, so a set it
+    # didn't count could rank higher than one it lists.
+    "ranking_not_proven",
 ]
 
 
@@ -295,7 +298,14 @@ class AnalysisResult(ResultModel):
 
     def __str__(self) -> str:
         reason = self.status_reason
-        facts = [f"Reason: {reason.code}: {reason.message}"] if reason else []
+        # Wrapped, not cut: a reason ends with how to fix the call.
+        facts = (
+            _text.wrap(
+                f"Reason: {reason.code}: {reason.message}", indent="    ", first=""
+            )
+            if reason
+            else []
+        )
         return _text.render(
             heading=self._heading(),
             facts=[*facts, *self._text_facts()],
@@ -1016,3 +1026,171 @@ class SummarizeNumericResult(AnalysisResult):
                 dtype = _FRAME_DTYPES.get(field.annotation)
                 columns[name] = pd.Series(values, dtype=dtype)
         return pd.DataFrame(columns, columns=list(columns))
+
+
+class CandidateKey(ResultModel):
+    """A column set the key search reports, with how well it identifies rows."""
+
+    columns: Annotated[list[str], _ENTRIES] = Field(
+        description="The columns of the set, in the order of the searched columns."
+    )
+    distinct_count: int = Field(
+        description="Distinct combinations of values in these columns, with missing "
+        "values compared equal: the rows df.drop_duplicates(subset=columns) keeps."
+    )
+    duplicate_row_count: int = Field(
+        description="Rows whose combination another row shares, the rows "
+        "df.duplicated(subset=columns, keep=False) marks; 0 for a key."
+    )
+    missing_row_count: int = Field(
+        description="Rows with a missing value in at least one of these columns."
+    )
+    uniqueness_share: float = Field(
+        description="distinct_count divided by the rows of the data; 1 for a key."
+    )
+    is_minimal: bool = Field(
+        description="Whether no smaller set of these columns identifies rows as "
+        "well, so every column is needed."
+    )
+
+
+class KeySearch(ResultModel):
+    """How far the key search went."""
+
+    column_count: int = Field(
+        description="Columns searched: the selected ones whose values can be hashed."
+    )
+    combination_count: int = Field(
+        description="Column sets of 1 to max_key_size searched columns: the most "
+        "the complete search examines, and the max_combinations that always "
+        "suffices."
+    )
+    examined_count: int = Field(
+        description="Column sets the search examined. Supersets of keys aren't "
+        "examined."
+    )
+    rejected_on_subset_count: int = Field(
+        description="Examined sets that repeated a combination within an evenly "
+        "spaced subset of rows, which proves they aren't keys."
+    )
+    checked_on_all_rows_count: int = Field(
+        description="Examined sets checked on all rows because no subset showed "
+        "a repeat. Only a check on all rows confirms a key."
+    )
+    subset_row_count: int = Field(
+        description="Rows in the evenly spaced subset each set is checked on "
+        "first: row i * rows // 16,384 for each i below 16,384, or every row of "
+        "smaller data. In data of more than 65,536 rows, a set without a repeat "
+        "there is checked on every 4th row next."
+    )
+
+
+class FindCandidateKeysResult(AnalysisResult):
+    """The result of find_candidate_keys."""
+
+    keys: Annotated[list[CandidateKey], _ENTRIES] = Field(
+        description="Minimal keys without missing values, each fit to serve as a "
+        "primary key: column sets whose combination of values no two rows share. "
+        "Fewest columns first, then in column order. The record keeps the first "
+        "100 and adds keys_total; to_frame() has every one."
+    )
+    keys_with_missing_values: Annotated[list[CandidateKey], _ENTRIES] = Field(
+        description="Minimal keys with a missing value in some rows, which can't "
+        "serve as primary keys, in the same order as keys."
+    )
+    most_unique_column_sets: Annotated[list[CandidateKey], _ENTRIES] = Field(
+        description="When the search found no key: the 10 minimal column sets "
+        "with the most distinct combinations, most first, then fewest columns, "
+        "then in column order. Empty when it found a key."
+    )
+    exhaustive: bool = Field(
+        description="Whether the search examined every set of up to max_key_size "
+        "columns, apart from supersets of keys. False when max_combinations "
+        "stopped it, or when no search ran."
+    )
+    search: KeySearch = Field(description="How far the search went.")
+    left_out_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Selected columns the search left out because their values "
+        "can't be hashed, such as lists or dicts, in the selected order; empty "
+        "when it searched every selected column."
+    )
+
+    def _candidates(self) -> list[tuple[str, CandidateKey]]:
+        """Every reported column set with its kind, in the order of the lists."""
+        return [
+            *(("key", key) for key in self.keys),
+            *(
+                ("key_with_missing_values", key)
+                for key in self.keys_with_missing_values
+            ),
+            *(("not_a_key", key) for key in self.most_unique_column_sets),
+        ]
+
+    def _text_facts(self) -> list[str]:
+        search = self.search
+        if not search.examined_count:
+            return []
+        size = self.parameters.get("max_key_size")
+        largest = min(size, search.column_count) if isinstance(size, int) else 0
+        keys = f"keys of up to {_text.plural(largest, 'column', 'columns')}"
+        if self.exhaustive:
+            columns = _text.plural(search.column_count, "column", "columns")
+            examined = _text.plural(search.examined_count, "set", "sets")
+            skipped = search.combination_count - search.examined_count
+            searched = (
+                f"Exhaustive search for {keys} among {columns}: examined {examined}"
+            )
+            searched += f", skipped {skipped:,} supersets of keys." if skipped else "."
+        else:
+            searched = (
+                f"Not exhaustive: max_combinations stopped the search for {keys} after "
+                f"{search.examined_count:,} of up to {search.combination_count:,} sets."
+            )
+        facts = [
+            searched,
+            "Missing values compare equal; a key with missing values can't serve as a "
+            "primary key.",
+        ]
+        if self.left_out_columns:
+            names = _text.join_labels(self.left_out_columns)
+            facts.append(f"Left out, values can't be hashed: {names}.")
+        return facts
+
+    def _text_table(self) -> _text.Table | None:
+        if not self.search.examined_count:
+            return None
+        found = self.keys or self.keys_with_missing_values
+        return _text.Table(
+            title="Keys" if found else "Most unique column sets",
+            unit=("column set", "column sets"),
+            headers=(
+                "columns",
+                "kind",
+                "distinct_count",
+                "duplicate_row_count",
+                "missing_row_count",
+                "uniqueness_share",
+            ),
+            rows=[
+                (
+                    ", ".join(_text.label_text(name) for name in candidate.columns),
+                    kind,
+                    candidate.distinct_count,
+                    candidate.duplicate_row_count,
+                    candidate.missing_row_count,
+                    candidate.uniqueness_share,
+                )
+                for kind, candidate in self._candidates()
+            ],
+        )
+
+    def to_frame(self) -> pd.DataFrame:
+        """Every reported column set, one row each: keys, keys with missing values,
+        then the most unique sets, with `kind` naming the list each comes from.
+        """
+        candidates = self._candidates()
+        frame = _entries_frame([candidate for _, candidate in candidates], CandidateKey)
+        frame.insert(
+            1, "kind", pd.Series([kind for kind, _ in candidates], dtype=object)
+        )
+        return frame

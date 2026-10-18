@@ -15,6 +15,7 @@ TAGS = {info.name: info.tags for info in ae.list_analyses().analyses}
 # package's, and the analysis it must find first. Each analysis ticket adds its
 # rows when the analysis ships, and every earlier row keeps passing.
 SEARCH_ACCEPTANCE = [
+    ("primary key", "find_candidate_keys"),
     ("dataset overview", "describe_dataset"),
     ("mean and standard deviation", "summarize_numeric"),
 ]

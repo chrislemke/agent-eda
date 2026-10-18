@@ -62,8 +62,9 @@ def describe_dataset(
         index, all-missing columns and constant columns. Every other analysis
         raises on bad column labels, so run this one to find them. It never
         shows a raw data value. For how the values of each numeric column are
-        distributed, call `summarize_numeric` next. `list_analyses` lists the
-        other analyses.
+        distributed, call `summarize_numeric` next; for which columns, alone or
+        combined, identify rows, call `find_candidate_keys`. `list_analyses`
+        lists the other analyses.
 
     Args:
         data (pd.DataFrame): The data to describe. Any column labels are
@@ -139,6 +140,8 @@ def describe_dataset(
     See Also:
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
             numeric column.
+        find_candidate_keys: Which columns, alone or combined, uniquely identify
+            rows, with duplicate and missing counts.
         list_analyses: Every analysis, with the question each one answers.
     """
     row_count = len(data)

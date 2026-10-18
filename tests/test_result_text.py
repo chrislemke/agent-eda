@@ -38,6 +38,28 @@ def test_text_follows_the_fixed_template():
     )
 
 
+def test_a_long_status_reason_wraps_instead_of_losing_its_end():
+    # How to fix the call comes last in a reason, so cutting it would hide it.
+    res = ae.describe_dataset(pd.DataFrame({"x": [1, 2]}))
+    message = "The run needs more work than its limit allows. " * 3 + "Raise the limit."
+    failed = type(res).model_validate(
+        {
+            **res.model_dump(),
+            "status": "failed",
+            "status_reason": {"code": "too_much_work", "message": message},
+        }
+    )
+
+    lines = str(failed).splitlines()
+
+    assert lines[1:3] == [
+        "Reason: too_much_work: The run needs more work than its limit allows. The run "
+        "needs more work than its limit allows. The",
+        "    run needs more work than its limit allows. Raise the limit.",
+    ]
+    assert max(len(line) for line in lines) <= 120
+
+
 def test_footer_names_a_single_column_in_the_singular():
     text = str(ae.describe_dataset(pd.DataFrame({"x": [1, 2]})))
 

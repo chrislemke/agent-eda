@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from pydantic import JsonValue
 
-from agent_eda._text import join_items, join_labels
+from agent_eda._text import join_items, join_labels, plural
 from agent_eda._version import __version__
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.results import ColumnResult, Execution, Status, StatusReason
@@ -101,6 +101,34 @@ def watch_warnings() -> Generator[list[str], None, None]:
             warnings.warn_explicit(
                 warning.message, warning.category, warning.filename, warning.lineno
             )
+
+
+def budget_exceeded_reason(
+    *,
+    code: str,
+    needs: str,
+    required: int,
+    unit: tuple[str, str],
+    parameter: str,
+    limit: int,
+    outcome: str,
+    narrow: str,
+) -> StatusReason:
+    """Why a run hit its work limit: the work it needs, the limit and both fixes.
+
+    The message reads "<needs> <required> <unit>, more than <parameter>=<limit>
+    allows; <outcome>. Raise <parameter> to <required>, or <narrow>.", such as
+    "The complete search covers up to 10 column sets, more than
+    max_combinations=5 allows; it stopped after examining 5 and kept what it
+    found. Raise max_combinations to 10, or pass fewer columns."
+    """
+    return StatusReason(
+        code=code,
+        message=(
+            f"{needs} {plural(required, *unit)}, more than {parameter}={limit:,} "
+            f"allows; {outcome}. Raise {parameter} to {required:,}, or {narrow}."
+        ),
+    )
 
 
 def check_distinct(

@@ -101,6 +101,13 @@ RECIPES: dict[str, Recipe] = {
         ),
         any_column_labels=True,
     ),
+    "find_candidate_keys": Recipe(
+        options=lambda data: optional(
+            columns=column_lists(names(data, lambda dtype: True)),
+            max_key_size=st.integers(1, 4),
+            max_combinations=st.integers(1, 64),
+        ),
+    ),
     "summarize_numeric": Recipe(
         options=lambda data: optional(
             columns=column_lists(names(data, is_number_or_boolean)),
