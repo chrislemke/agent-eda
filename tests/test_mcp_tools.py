@@ -28,6 +28,8 @@ from agent_eda.mcp import create_server
 from agent_eda.results import AnalysisResult
 
 ANALYSES = [info.name for info in ae.list_analyses().analyses]
+# The MCP tools every server lists before the analyses.
+DISCOVERY = ["search_analyses", "list_analyses"]
 # The sections of an MCP tool's description, in order, after the summary line.
 DESCRIBED = ["When to use:", "Returns:", "Statuses:", "See Also:"]
 # Python call syntax, such as to_frame() or ae.guide(): a name and a bracket.
@@ -52,7 +54,8 @@ def tools():
 
 
 def test_the_server_lists_one_mcp_tool_per_analysis(tools):
-    assert sorted(tools) == sorted(ANALYSES)
+    # Next to the discovery MCP tools (tests/test_mcp_discovery.py).
+    assert sorted(set(tools) - set(DISCOVERY)) == sorted(ANALYSES)
 
 
 @pytest.fixture(params=ANALYSES)
@@ -205,7 +208,7 @@ def test_a_parameter_without_a_json_schema_stops_the_server_from_starting():
 def test_the_server_serves_the_analyses_it_is_given():
     tools = anyio.run(list_tools, create_server(analyses=[ae.describe_dataset]))
 
-    assert [tool.name for tool in tools] == ["describe_dataset"]
+    assert [tool.name for tool in tools] == [*DISCOVERY, "describe_dataset"]
 
 
 def check_rule(data: pd.DataFrame, *, rule: Callable[[float], bool]) -> AnalysisResult:

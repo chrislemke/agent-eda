@@ -58,7 +58,11 @@ def create_server(
     in-memory MCP client to it instead. Each MCP tool is built when the server
     starts, from the analysis's registry entry and docstring: its name, a
     description, an input schema with data_path in place of data, and an
-    output schema of the analysis's to_dict() record.
+    output schema of the analysis's to_dict() record. The search_analyses and
+    list_analyses MCP tools return the Python listings, and the server's
+    instructions are the guide for an MCP caller: what the package does, data
+    paths, results and statuses, masking, every analysis and the first-look
+    order. describe_analysis and guide are not MCP tools.
 
     Args:
         analyses: The analysis functions to serve, such as
@@ -67,7 +71,9 @@ def create_server(
             register, such as a stand-in a test defines, is read the way the
             registry reads an analysis (data first, options by keyword, a
             docstring and an AnalysisResult subclass as the return type) and
-            is called as it is, without the registry's checks.
+            is called as it is, without the registry's checks. The
+            discovery MCP tools and the instructions always cover every
+            registered analysis, as their Python counterparts do.
         project: The server's Project, such as ae.Project.load('project.toml'),
             which agent-eda-mcp --project loads. Every call of an MCP tool
             that has project_path uses it, unless the call passes its own
@@ -78,7 +84,9 @@ def create_server(
 
     Returns:
         mcp.server.Server: The low-level MCP server named 'agent-eda', which
-        reports the package version and serves one MCP tool per analysis.
+        reports the package version and its instructions, and serves the
+        search_analyses and list_analyses MCP tools and one MCP tool per
+        analysis.
 
     Raises:
         MissingDependencyError: The mcp extra isn't installed. The message gives
