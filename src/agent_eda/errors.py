@@ -47,6 +47,16 @@ Codes, with the class that raises each:
         feature needs an optional extra that isn't installed, such as the MCP
         server without the mcp extra; the message gives the pip and uv install
         commands.
+    unsupported_data_format (UnsupportedDataFormatError): an MCP tool got a
+        data path whose extension it can't read; the message lists the
+        supported extensions.
+    data_file_not_found (DataFileNotFoundError, also a FileNotFoundError): an
+        MCP tool found no file at its data path; the message gives the
+        absolute path tried, whether its directory exists and the closest file
+        names in it.
+    unreadable_data_file (DataFileError): an MCP tool's data path names a file
+        the parser can't read, such as a CSV that isn't UTF-8; the message
+        quotes the parser.
 """
 
 
@@ -121,3 +131,24 @@ class MissingDependencyError(AgentEDAError, ImportError):
     """
 
     code = "missing_dependency"
+
+
+class UnsupportedDataFormatError(InvalidArgumentError):
+    """An MCP tool got a data path whose extension it can't read."""
+
+    code = "unsupported_data_format"
+
+
+class DataFileError(InvalidArgumentError):
+    """An MCP tool can't read the file its data path names."""
+
+    code = "unreadable_data_file"
+
+
+class DataFileNotFoundError(DataFileError, FileNotFoundError):
+    """An MCP tool found no file at its data path.
+
+    It is also a FileNotFoundError, so handlers for a missing file catch it.
+    """
+
+    code = "data_file_not_found"
