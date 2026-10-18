@@ -9,8 +9,9 @@ never raise: they come back in the result's status, findings and limitations.
 
 Codes, with the class that raises each:
     invalid_argument (InvalidArgumentError): an argument has the wrong type or
-        value, such as a number outside its range, an unknown choice or a list
-        that repeats a value.
+        value, such as a number outside its range, an unknown choice, a list
+        that repeats a value, or a declared sentinel value that can never match
+        its column; that message names the value the caller likely meant.
     invalid_call (InvalidArgumentError): the call itself is malformed, such as
         an option passed by position, an unknown keyword or a missing DataFrame.
     unsupported_data_type (InvalidArgumentError): data isn't a pandas

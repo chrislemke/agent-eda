@@ -5,6 +5,7 @@ form of each label, which is also how results show columns.
 """
 
 import difflib
+import typing
 from collections import Counter
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
@@ -32,6 +33,8 @@ ColumnKind = Literal[
     "object",
     "other",
 ]
+# Every kind of column, for an analysis that takes columns of any dtype.
+EVERY_KIND: frozenset[ColumnKind] = frozenset(typing.get_args(ColumnKind))
 
 
 class Labels:

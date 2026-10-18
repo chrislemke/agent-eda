@@ -1,5 +1,6 @@
 """Result classes returned by agent-eda analyses."""
 
+import difflib
 import itertools
 import json
 from collections.abc import Sequence
@@ -19,6 +20,7 @@ from pydantic import (
 
 from agent_eda import _text
 from agent_eda._annotations import python_literal
+from agent_eda.errors import InvalidArgumentError
 
 Status = Literal[
     "completed",
@@ -51,9 +53,15 @@ LimitationCode = Literal[
     # A column stores NaN as a value, which pandas' isna() doesn't count as
     # missing; a numeric summary counts it as missing all the same.
     "nan_counted_as_missing",
+    # A column stores NaN as a value, which pandas' isna() doesn't count as
+    # missing, and neither does a count of native missing values.
+    "nan_not_counted_as_missing",
     # A computation overflowed float64 or failed numerically (division by zero,
     # an invalid value, precision loss), so the values it affects are null.
     "numerical_warning",
+    # No sentinel values were declared for a column, so its sentinel count is
+    # null and stand-ins such as -999 don't count as missing.
+    "sentinel_values_not_declared",
 ]
 
 
@@ -62,8 +70,8 @@ class _Cap:
 
     The record (to_dict and to_json) keeps the first `limit` entries and adds
     `<field>_total` with the full count. The result object keeps every entry.
-    With `each_list`, a dict field stays whole and every list inside it is
-    capped instead, with `<key>_total` next to it.
+    With `each_list`, a dict field stays whole and every list or dict inside it
+    is capped instead, with `<key>_total` next to it.
     """
 
     def __init__(self, limit: int, *, each_list: bool = False) -> None:
@@ -101,9 +109,29 @@ def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
 _FRAME_DTYPES: dict[Any, str] = {
     int: "int64",
     int | None: "Int64",
+    float: "float64",
     float | None: "float64",
     bool: "bool",
 }
+
+
+def _check_table(table: object, tables: Sequence[str]) -> None:
+    """Raise unless `table` names one of a result's tables; the first is the default.
+
+    Results with more than one table take the name in to_frame(table=...).
+    """
+    if isinstance(table, str) and table in tables:
+        return
+    shown = repr(table) if isinstance(table, str) else f"a {type(table).__name__}"
+    closest = (
+        difflib.get_close_matches(table, tables, n=1) if isinstance(table, str) else []
+    )
+    hint = f" Did you mean {closest[0]!r}?" if closest else ""
+    allowed = _text.join_alternatives([repr(name) for name in tables])
+    raise InvalidArgumentError(
+        f"to_frame got {shown} for table, but table must be one of {allowed}.{hint} "
+        f"res.to_frame() returns the {tables[0]} table."
+    )
 
 
 def _entries_frame(
@@ -148,7 +176,9 @@ class ResultModel(BaseModel):
             inner = record.get(name)
             if cap.each_list and isinstance(inner, dict):
                 lists = {
-                    key: cap.limit for key, v in inner.items() if isinstance(v, list)
+                    key: cap.limit
+                    for key, v in inner.items()
+                    if isinstance(v, list | dict)
                 }
                 record[name] = _capped(inner, lists)
         return record
@@ -277,7 +307,7 @@ class AnalysisResult(ResultModel):
     parameters: Annotated[dict[str, JsonValue], _LISTS_INSIDE] = Field(
         description="The resolved arguments by name, defaults included. data "
         "appears only as its row_count and column_count. In the record, a list "
-        "argument keeps its first 100 entries and gains <name>_total."
+        "or mapping argument keeps its first 100 entries and gains <name>_total."
     )
     support: Support = Field(description="The counts behind the result.")
     findings: Annotated[list[Finding], _ENTRIES] = Field(
@@ -304,6 +334,7 @@ class AnalysisResult(ResultModel):
                 _text.Item(f"{f.assessment} {f.code}", f.claim) for f in self.findings
             ],
             limitations=[_text.Item(lim.code, lim.reason) for lim in self.limitations],
+            other_tables=self._text_other_tables(),
         )
 
     def __repr__(self) -> str:
@@ -334,6 +365,11 @@ class AnalysisResult(ResultModel):
     def _text_table(self) -> _text.Table | None:
         """The key table; analyses override this."""
         return None
+
+    def _text_other_tables(self) -> list[str]:
+        """What to_frame(table=...) returns besides the key table, as clauses for
+        the footer; analyses with more than one table override this."""
+        return []
 
     def to_dict(self) -> dict[str, Any]:
         """The result record as JSON-compatible Python objects.
@@ -1012,6 +1048,180 @@ class SummarizeNumericResult(AnalysisResult):
                     columns[f"q{level!r}"] = pd.Series(
                         [quantiles[level] for quantiles in values], dtype="float64"
                     )
+            else:
+                dtype = _FRAME_DTYPES.get(field.annotation)
+                columns[name] = pd.Series(values, dtype=dtype)
+        return pd.DataFrame(columns, columns=list(columns))
+
+
+class DeclaredSentinelValue(ResultModel):
+    """A sentinel value declared for a column, and how often it occurs there."""
+
+    value: bool | int | float | str = Field(
+        description="The value as declared; dates, datetimes and timedeltas as ISO "
+        "8601 text."
+    )
+    count: int = Field(
+        description="Values in the column equal to it, among those pandas doesn't "
+        "count as missing."
+    )
+
+
+class ProfileMissingValuesColumn(ColumnResult):
+    """What profile_missing_values found in one column."""
+
+    native_missing_count: int = Field(
+        description="Values pandas isna() counts as missing: None, NaN, NaT and pd.NA."
+    )
+    sentinel_count: int | None = Field(
+        description="Values equal to a sentinel value declared for the column; null "
+        "when none was declared."
+    )
+    missing_count: int = Field(
+        description="native_missing_count plus sentinel_count: every value that is "
+        "missing or a declared sentinel value, each counted once."
+    )
+    missing_share: float | None = Field(
+        description="missing_count over all rows, from 0 to 1; null when the data "
+        "has no rows."
+    )
+    sentinel_values: Annotated[list[DeclaredSentinelValue], _ENTRIES] = Field(
+        description="The sentinel values declared for the column, in the order "
+        "given, each with its count; empty when none was declared. The record "
+        "keeps the first 100 and adds sentinel_values_total."
+    )
+
+
+class ProfileMissingValuesRowCount(ResultModel):
+    """How many rows miss a given number of the selected values."""
+
+    missing_count: int = Field(
+        description="Selected values a row misses, counting declared sentinel values."
+    )
+    row_count: int = Field(description="Rows that miss exactly that many values.")
+    row_share: float = Field(description="row_count over all rows, from 0 to 1.")
+
+
+def _percent(share: float | None) -> str:
+    """A share as " (33.33%)" with 4 significant digits; "" when it is null."""
+    return "" if share is None else f" ({_text.format_number(share * 100)}%)"
+
+
+class ProfileMissingValuesResult(AnalysisResult):
+    """The result of profile_missing_values."""
+
+    columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES] = Field(
+        description="One entry per selected column, keyed by column name, in the "
+        "selected order. The record keeps the first 100 and adds columns_total; "
+        "to_frame() has every column."
+    )
+    missing_count: int = Field(
+        description="Selected values that are missing or a declared sentinel value, "
+        "over every selected column."
+    )
+    missing_share: float | None = Field(
+        description="missing_count over all selected values (rows times selected "
+        "columns), from 0 to 1; null when there are none."
+    )
+    complete_row_count: int = Field(
+        description="Rows that miss none of the selected values, counting declared "
+        "sentinel values as missing."
+    )
+    complete_row_share: float | None = Field(
+        description="complete_row_count over all rows, from 0 to 1; null when the "
+        "data has no rows."
+    )
+    row_distribution: Annotated[list[ProfileMissingValuesRowCount], _ENTRIES] = Field(
+        description="How many rows miss each number of selected values, one entry "
+        "per number that occurs, fewest missing first. The record keeps the first "
+        "100 and adds row_distribution_total; to_frame(table='row_distribution') "
+        "has every entry."
+    )
+
+    def _text_facts(self) -> list[str]:
+        entries = self.columns.values()
+        rows = self.support.row_count
+        declared = any(entry.sentinel_count is not None for entry in entries)
+        missing = (
+            f"Missing: {self.missing_count:,} of {rows * len(self.columns):,} "
+            f"selected values{_percent(self.missing_share)}"
+            f"{', counting declared sentinel values' if declared else ''}. "
+            f"Complete rows: {self.complete_row_count:,} of {rows:,}"
+            f"{_percent(self.complete_row_share)}."
+        )
+        facts = _text.wrap(missing, first="", indent="    ")
+        if self.row_distribution:
+            per_row = [
+                f"{entry.missing_count:,} in "
+                f"{_text.plural(entry.row_count, 'row', 'rows')}"
+                for entry in self.row_distribution
+            ]
+            facts.extend(
+                _text.wrap(
+                    f"Missing values per row: {_text.join_items(per_row, limit=8)}.",
+                    first="",
+                    indent="    ",
+                )
+            )
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        # Most missing first, so a long table shows where data is missing.
+        entries = sorted(self.columns.values(), key=lambda e: -e.missing_count)
+        return _text.Table(
+            title="Columns, most missing first",
+            unit=("column", "columns"),
+            headers=(
+                "column",
+                "native_missing_count",
+                "sentinel_count",
+                "missing_count",
+                "missing_share",
+            ),
+            rows=[
+                (
+                    e.column,
+                    e.native_missing_count,
+                    e.sentinel_count,
+                    e.missing_count,
+                    e.missing_share,
+                )
+                for e in entries
+            ],
+        )
+
+    def _text_other_tables(self) -> list[str]:
+        return [
+            "res.to_frame(table='row_distribution') has the rows per number of "
+            "missing values"
+        ]
+
+    def to_frame(
+        self, table: Literal["columns", "row_distribution"] = "columns"
+    ) -> pd.DataFrame:
+        """One of the result's two tables as a DataFrame.
+
+        Args:
+            table: 'columns', the default, gives one row per selected column in
+                the selected order, with its counts and share; status_reason
+                holds the reason's code, and sentinel_values maps each declared
+                value to its count. 'row_distribution' gives one row per number
+                of missing values that occurs: missing_count, row_count and
+                row_share.
+        """
+        _check_table(table, ("columns", "row_distribution"))
+        if table == "row_distribution":
+            return _entries_frame(self.row_distribution, ProfileMissingValuesRowCount)
+        columns: dict[str, pd.Series] = {}
+        entries = list(self.columns.values())
+        for name, field in ProfileMissingValuesColumn.model_fields.items():
+            values = [getattr(entry, name) for entry in entries]
+            if name == "status_reason":
+                codes = [reason.code if reason else None for reason in values]
+                columns[name] = pd.Series(codes, dtype=object)
+            elif name == "sentinel_values":
+                counts = [{v.value: v.count for v in declared} for declared in values]
+                columns[name] = pd.Series(counts, dtype=object)
             else:
                 dtype = _FRAME_DTYPES.get(field.annotation)
                 columns[name] = pd.Series(values, dtype=dtype)

@@ -73,7 +73,9 @@ def summarize_numeric(
         defined. Booleans are left out unless named in columns. A text,
         categorical or datetime column named in columns raises
         `errors.ColumnTypeError`; `describe_dataset` covers every dtype, and
-        `list_analyses` lists the other analyses.
+        `list_analyses` lists the other analyses. For missing values in columns
+        of every dtype and per row, counting stand-ins such as -999 that you
+        declare, call `profile_missing_values`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -182,6 +184,8 @@ def summarize_numeric(
     See Also:
         describe_dataset: Dtypes, missing and distinct counts and memory of every
             column, whatever its dtype.
+        profile_missing_values: Missing values per column and per row, counting
+            declared sentinel values.
         list_analyses: Every analysis, with the question each one answers.
     """
     levels = list(quantiles)

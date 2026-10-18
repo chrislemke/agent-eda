@@ -1,5 +1,6 @@
 """Every registered analysis meets the docstring and registration contract."""
 
+import collections.abc
 import doctest
 import inspect
 import re
@@ -18,6 +19,9 @@ SECTIONS = ["When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See 
 # Parameters that take text other than column names. A new one joins this list
 # only if it takes no column names; otherwise its name ends in column(s).
 NOT_COLUMN_NAMES = {"source", "source_version"}
+# Parameters that map column names to a setting for each column, named after
+# the setting as the spec names them. They must take a mapping keyed by str.
+KEYED_BY_COLUMN = {"sentinel_values"}
 ENTRY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?: \([^)]*\))?:(?: |$)")
 REFERENCE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(\))?`")
 SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
@@ -170,13 +174,24 @@ def test_examples_run_and_print_a_result(name):
 def test_parameters_that_take_names_end_in_column_or_columns(name):
     parameters = list(inspect.signature(getattr(ae, name)).parameters.values())[1:]
 
-    textual = [p.name for p in parameters if takes_text(p.annotation)]
+    textual = [p for p in parameters if takes_text(p.annotation)]
     misnamed = [
-        p
+        p.name
         for p in textual
-        if not p.endswith(("column", "columns")) and p not in NOT_COLUMN_NAMES
+        if not p.name.endswith(("column", "columns"))
+        and p.name not in NOT_COLUMN_NAMES
+        and not (p.name in KEYED_BY_COLUMN and keyed_by_str(p.annotation))
     ]
     assert misnamed == []
+
+
+def keyed_by_str(annotation):
+    """Whether an annotation takes a mapping keyed by str, alone or with None."""
+    return any(
+        typing.get_origin(member) in (collections.abc.Mapping, dict)
+        and typing.get_args(member)[0] is str
+        for member in typing.get_args(annotation) or (annotation,)
+    )
 
 
 def test_analysis_is_hidden_from_pytest(name):

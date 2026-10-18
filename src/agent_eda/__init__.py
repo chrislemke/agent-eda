@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from agent_eda import errors as errors
     from agent_eda import results as results
     from agent_eda._version import __version__
+    from agent_eda.data.missingness import profile_missing_values
     from agent_eda.data.provenance import describe_dataset
     from agent_eda.discovery import (
         describe_analysis,
@@ -38,6 +39,7 @@ __all__ = [
     "describe_dataset",
     "guide",
     "list_analyses",
+    "profile_missing_values",
     "search_analyses",
     "summarize_numeric",
 ]
@@ -51,6 +53,7 @@ _EXPORTS: dict[str, str] = {
     "describe_dataset": "agent_eda.data.provenance",
     "guide": "agent_eda.discovery",
     "list_analyses": "agent_eda.discovery",
+    "profile_missing_values": "agent_eda.data.missingness",
     "search_analyses": "agent_eda.discovery",
     "summarize_numeric": "agent_eda.statistics.descriptive",
 }

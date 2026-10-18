@@ -61,9 +61,11 @@ def describe_dataset(
         duplicated or colliding column labels, MultiIndex columns, a non-unique
         index, all-missing columns and constant columns. Every other analysis
         raises on bad column labels, so run this one to find them. It never
-        shows a raw data value. For how the values of each numeric column are
-        distributed, call `summarize_numeric` next. `list_analyses` lists the
-        other analyses.
+        shows a raw data value. For missing values per column and per row,
+        counting stand-ins such as -999 that you declare, call
+        `profile_missing_values` next; for how the values of each numeric
+        column are distributed, call `summarize_numeric`. `list_analyses` lists
+        the other analyses.
 
     Args:
         data (pd.DataFrame): The data to describe. Any column labels are
@@ -137,6 +139,8 @@ def describe_dataset(
         1
 
     See Also:
+        profile_missing_values: Missing values per column and per row, counting
+            declared sentinel values.
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
             numeric column.
         list_analyses: Every analysis, with the question each one answers.
