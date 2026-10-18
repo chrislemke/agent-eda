@@ -12,30 +12,22 @@ import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 import pandas as pd
 import pyarrow as pa
 
-from agent_eda._data_files import resolve
-from agent_eda._text import join_items, plural
+from agent_eda._local_files import (
+    WRITABLE,
+    FileFormat,
+    extension_text,
+    extensions,
+    format_of,
+    path_argument,
+    resolve,
+)
+from agent_eda._text import plural
 from agent_eda.errors import InvalidArgumentError, TableFileExistsError
 from agent_eda.results import row_id_json
-
-
-@dataclass(frozen=True)
-class _Format:
-    """How to write the files with one extension."""
-
-    extension: str
-    kind: Literal["CSV", "Parquet"]
-
-
-FORMATS = (
-    _Format(".csv", "CSV"),
-    _Format(".parquet", "Parquet"),
-    _Format(".pq", "Parquet"),
-)
 
 # What pyarrow raises for a column it can't store as one Arrow type, such as
 # numbers mixed with text.
@@ -47,7 +39,7 @@ class TableFile:
     """A checked table path: the absolute path and the format to write."""
 
     path: Path
-    file_format: _Format
+    file_format: FileFormat
 
     def write(self, table: pd.DataFrame) -> str:
         """Write the table and return the line the response text gains.
@@ -81,12 +73,13 @@ def table_file(name: str, table_path: object) -> TableFile:
             doesn't exist, or to a directory.
         TableFileExistsError: a file already exists at the path.
     """
-    if not isinstance(table_path, str):
-        raise InvalidArgumentError(
-            f"{name} got {table_path!r} for table_path, but table_path must be a "
-            f"string or null: the path of a new {_extensions()} file, absolute "
-            "or relative to the MCP server's working directory."
-        )
+    table_path = path_argument(
+        name,
+        "table_path",
+        table_path,
+        what=f"the path of a new {extensions(WRITABLE)} file",
+        nullable=True,
+    )
     file_format = _format_of(table_path)
     path = resolve(table_path)
     if path.is_dir():
@@ -101,22 +94,16 @@ def table_file(name: str, table_path: object) -> TableFile:
     return TableFile(path, file_format)
 
 
-def _format_of(table_path: str) -> _Format:
-    name = Path(table_path).name.lower()
-    for file_format in FORMATS:
-        if name.endswith(file_format.extension):
-            return file_format
-    suffixes = "".join(Path(table_path).suffixes[-2:])
-    got = f"the extension {suffixes!r}" if suffixes else "no extension"
+def _format_of(table_path: str) -> FileFormat:
+    file_format = format_of(table_path, WRITABLE)
+    if file_format is not None:
+        return file_format
     raise InvalidArgumentError(
-        f"table_path {table_path!r} has {got}, which the MCP server can't write. "
-        f"It writes {_extensions()} files, in upper or lower case: CSV for any "
-        "reader, Parquet to keep the dtypes. Pass a path that ends in one of them."
+        f"table_path {table_path!r} has {extension_text(table_path)}, which the MCP "
+        f"server can't write. It writes {extensions(WRITABLE)} files, in upper or "
+        "lower case: CSV for any reader, Parquet to keep the dtypes. Pass a path "
+        "that ends in one of them."
     )
-
-
-def _extensions() -> str:
-    return join_items([f.extension for f in FORMATS], limit=len(FORMATS))
 
 
 def _cells(table: pd.DataFrame) -> pd.DataFrame:
@@ -156,7 +143,7 @@ def _json_text(value: object) -> object:
     return json.dumps(row_id_json(value), ensure_ascii=False, allow_nan=False)
 
 
-def _encode(table: pd.DataFrame, file_format: _Format) -> bytes:
+def _encode(table: pd.DataFrame, file_format: FileFormat) -> bytes:
     """The file's content. A missing value is an empty CSV field, which the MCP
     server reads back as missing, and a Parquet null."""
     if file_format.kind == "CSV":
@@ -198,7 +185,7 @@ def _free_path(path: Path) -> Path:
     """The first of name-2, name-3, ... with the same extension that is free."""
     name = path.name
     lower = name.lower()
-    extension = next(f.extension for f in FORMATS if lower.endswith(f.extension))
+    extension = next(f.extension for f in WRITABLE if lower.endswith(f.extension))
     stem, suffix = name[: -len(extension)], name[-len(extension) :]
     number = 2
     while (path.parent / f"{stem}-{number}{suffix}").exists():

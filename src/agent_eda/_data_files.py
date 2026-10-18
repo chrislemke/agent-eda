@@ -9,14 +9,21 @@ can't start a network read.
 import warnings
 import zlib
 from collections import OrderedDict
-from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import BinaryIO
 
 import pandas as pd
 
 from agent_eda._columns import closest_names
-from agent_eda._text import join_alternatives, join_items
+from agent_eda._local_files import (
+    READABLE,
+    FileFormat,
+    extension_text,
+    extensions,
+    format_of,
+    resolve,
+)
+from agent_eda._text import join_alternatives
 from agent_eda.errors import (
     DataFileError,
     DataFileNotFoundError,
@@ -26,24 +33,6 @@ from agent_eda.errors import (
 # The DataFrames a DataReader keeps, the most recently read ones.
 CACHED_FILES = 2
 
-
-@dataclass(frozen=True)
-class _Format:
-    """How to read the files with one extension."""
-
-    extension: str
-    kind: Literal["CSV", "TSV", "Parquet"]
-    gzip: bool = False
-
-
-FORMATS = (
-    _Format(".csv", "CSV"),
-    _Format(".tsv", "TSV"),
-    _Format(".csv.gz", "CSV", gzip=True),
-    _Format(".tsv.gz", "TSV", gzip=True),
-    _Format(".parquet", "Parquet"),
-    _Format(".pq", "Parquet"),
-)
 
 # What the parsers raise on a file they can't read: pandas' ParserError,
 # EmptyDataError and UnicodeDecodeError, pyarrow's ArrowInvalid (all
@@ -92,32 +81,23 @@ class DataReader:
         return data
 
 
-def resolve(data_path: str) -> Path:
-    """The absolute local path data_path names, relative ones resolved
-    against the working directory."""
-    return (Path.cwd() / Path(data_path)).resolve()
-
-
 def supported_extensions() -> str:
-    """The supported extensions, as text for a message."""
-    return join_items([f.extension for f in FORMATS], limit=len(FORMATS))
+    """The extensions the reader reads, as text for a message."""
+    return extensions(READABLE)
 
 
-def _format_of(data_path: str) -> _Format:
-    name = Path(data_path).name.lower()
-    for file_format in FORMATS:
-        if name.endswith(file_format.extension):
-            return file_format
-    suffixes = "".join(Path(data_path).suffixes[-2:])
-    got = f"the extension {suffixes!r}" if suffixes else "no extension"
+def _format_of(data_path: str) -> FileFormat:
+    file_format = format_of(data_path, READABLE)
+    if file_format is not None:
+        return file_format
     raise UnsupportedDataFormatError(
-        f"data_path {data_path!r} has {got}, which the MCP server can't read. "
-        f"It reads {supported_extensions()} files, in upper or lower case. "
-        "Save the data as CSV, TSV or Parquet and pass that file's path."
+        f"data_path {data_path!r} has {extension_text(data_path)}, which the MCP "
+        f"server can't read. It reads {supported_extensions()} files, in upper or "
+        "lower case. Save the data as CSV, TSV or Parquet and pass that file's path."
     )
 
 
-def _read(path: Path, file_format: _Format) -> pd.DataFrame:
+def _read(path: Path, file_format: FileFormat) -> pd.DataFrame:
     try:
         with path.open("rb") as handle:
             if file_format.kind == "Parquet":
@@ -154,7 +134,7 @@ def _read_parquet(handle: BinaryIO) -> pd.DataFrame:
         return pd.read_parquet(handle)
 
 
-def _expected(file_format: _Format) -> str:
+def _expected(file_format: FileFormat) -> str:
     if file_format.kind == "Parquet":
         return "a Parquet file"
     separator = "tabs" if file_format.kind == "TSV" else "commas"

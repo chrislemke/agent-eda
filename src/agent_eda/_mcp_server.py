@@ -20,6 +20,7 @@ from mcp.server.stdio import stdio_server
 import agent_eda
 from agent_eda._annotations import type_text
 from agent_eda._data_files import DataReader, supported_extensions
+from agent_eda._local_files import path_argument
 from agent_eda._mcp_instructions import instructions
 from agent_eda._registry import (
     AnalysisSpec,
@@ -311,30 +312,15 @@ def _discover(
     The server checks the argument names; the function checks the values, with
     the message a Python caller gets.
     """
-    name = served.tool.name
-    properties = list(served.tool.input_schema["properties"])
-    unknown = [key for key in arguments if key not in properties]
-    if unknown and not properties:
-        raise InvalidArgumentError(
-            f"{name} takes no arguments, but got {unknown[0]!r}. Call it with {{}}.",
-            code="invalid_call",
-        )
-    if unknown:
-        raise InvalidArgumentError(
-            unknown_name_message(name, "argument", unknown[0], properties),
-            code="invalid_call",
-        )
-    missing = [
-        key
-        for key in served.tool.input_schema.get("required", [])
-        if key not in arguments
-    ]
-    if missing:
-        raise InvalidArgumentError(
-            f"{name} is missing the required argument {missing[0]}. Pass what you "
-            'want to know in your own words, such as {"query": "nulls per column"}.',
-            code="invalid_call",
-        )
+    _check_names(
+        served.tool,
+        arguments,
+        missing=lambda names: (
+            f"{served.tool.name} is missing the required "
+            f"argument {names[0]}. Pass what you want to know in your own words, such "
+            'as {"query": "nulls per column"}.'
+        ),
+    )
     listing = served.function(**arguments)
     return types.CallToolResult(
         content=[types.TextContent(text=str(listing))],
@@ -348,46 +334,66 @@ def _load_project(name: str, project_path: object) -> Project:
     Project.load raises the errors a Python caller gets, such as
     ProjectFileNotFoundError, so they reach the MCP caller as tool errors.
     """
-    if not isinstance(project_path, str):
-        raise InvalidArgumentError(
-            f"{name} got {project_path!r} for project_path, but project_path must "
-            "be a string or null: the path to a project TOML file, absolute or "
-            "relative to the MCP server's working directory."
-        )
-    return Project.load(project_path)
+    path = path_argument(
+        name,
+        "project_path",
+        project_path,
+        what="the path to a project TOML file",
+        nullable=True,
+    )
+    return Project.load(path)
 
 
 def _check_arguments(served: _AnalysisTool, arguments: dict[str, Any]) -> None:
     """Raise InvalidArgumentError for an argument the MCP tool doesn't take, a
     required one left out, or a data path that isn't a string."""
-    name = served.spec.name
-    schema = served.tool.input_schema
-    properties = list(schema["properties"])
+
+    def missing(names: list[str]) -> str:
+        example = ", ".join(f'"{key}": ...' for key in names)
+        return missing_message(
+            served.spec,
+            names,
+            fix=f"in the MCP tool's arguments, such as {{{example}}}",
+            see="The MCP tool's input schema describes every argument.",
+        )
+
+    _check_names(served.tool, arguments, missing=missing)
+    path_argument(
+        served.spec.name,
+        "data_path",
+        arguments["data_path"],
+        what="the path to the data file",
+        nullable=False,
+    )
+
+
+def _check_names(
+    tool: types.Tool,
+    arguments: dict[str, Any],
+    *,
+    missing: Callable[[list[str]], str],
+) -> None:
+    """Raise invalid_call for an argument the MCP tool doesn't take, naming the
+    closest property, or for required ones left out, with the message
+    `missing` gives for their names.
+
+    The SDK passes the arguments on without checking them against the input
+    schema, so every MCP tool checks the names here.
+    """
+    properties = list(tool.input_schema["properties"])
     unknown = [key for key in arguments if key not in properties]
     if unknown:
         raise InvalidArgumentError(
-            unknown_name_message(name, "argument", unknown[0], properties),
+            unknown_name_message(tool.name, "argument", unknown[0], properties)
+            if properties
+            else f"{tool.name} takes no arguments, but got {unknown[0]!r}. Call it "
+            "with {}.",
             code="invalid_call",
         )
-    missing = [key for key in schema["required"] if key not in arguments]
-    if missing:
-        example = ", ".join(f'"{key}": ...' for key in missing)
-        raise InvalidArgumentError(
-            missing_message(
-                served.spec,
-                missing,
-                fix=f"in the MCP tool's arguments, such as {{{example}}}",
-                see="The MCP tool's input schema describes every argument.",
-            ),
-            code="invalid_call",
-        )
-    data_path = arguments["data_path"]
-    if not isinstance(data_path, str):
-        raise InvalidArgumentError(
-            f"{name} got {data_path!r} for data_path, but data_path must be a "
-            "string: the path to the data file, absolute or relative to the MCP "
-            "server's working directory."
-        )
+    required = tool.input_schema.get("required", [])
+    absent = [key for key in required if key not in arguments]
+    if absent:
+        raise InvalidArgumentError(missing(absent), code="invalid_call")
 
 
 def run_stdio(server: Server) -> None:
