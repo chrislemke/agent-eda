@@ -2,7 +2,7 @@
 
 It imports the mcp extra at the top, so only agent_eda.mcp imports it, after
 checking that the extra is installed. Every analysis call goes through one data
-reader, read_data, and one response builder, _response.
+reader, the server's DataReader, and one response builder, _response.
 """
 
 from collections.abc import Callable, Sequence
@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import anyio
-import pandas as pd
 import pydantic
 from mcp import MCPError, types
 from mcp.server import Server, ServerRequestContext
@@ -18,16 +17,20 @@ from mcp.server.stdio import stdio_server
 
 import agent_eda
 from agent_eda._annotations import type_text
+from agent_eda._data_files import DataReader, supported_extensions
 from agent_eda._registry import AnalysisSpec, registered, spec_of
 from agent_eda._version import __version__
 from agent_eda.results import AnalysisResult
 
 _DATA_PATH = {
     "type": "string",
-    "description": "Path to the CSV file that holds the data, absolute or relative "
-    "to the MCP server's working directory. Only an empty field counts as "
-    "missing, so values such as 'N/A' or -999 reach the analysis as values. "
-    "Row IDs in the result are 0-based data-row numbers.",
+    "description": "Path to the CSV, TSV or Parquet file that holds the data, "
+    "absolute or relative to the MCP server's working directory. The extension "
+    f"names the format: {supported_extensions()}, in any case. In a CSV or TSV "
+    "only an empty field counts as missing, so values such as 'N/A' or -999 "
+    "reach the analysis as values, and row IDs in the result are 0-based "
+    "data-row numbers. Parquet keeps its dtypes, and row IDs follow the index "
+    "stored in the file.",
 }
 
 # Every analysis MCP tool may write a file (table_path), never overwrites one,
@@ -56,8 +59,11 @@ def create_server(
     """The MCP server named 'agent-eda', with one MCP tool per analysis.
 
     The MCP tools are built here, when the server starts, from the registry
-    entry of each analysis: every registered one when analyses is None.
+    entry of each analysis: every registered one when analyses is None. The
+    server reads data paths through one DataReader, which keeps the most
+    recently read files.
     """
+    reader = DataReader()
     if analyses is None:
         analyses = [getattr(agent_eda, spec.name) for spec in registered()]
     tools: dict[str, _AnalysisTool] = {}
@@ -80,7 +86,7 @@ def create_server(
                 message=f"There is no MCP tool named {params.name!r}.",
             )
         arguments: dict[str, Any] = dict(params.arguments or {})
-        data = read_data(arguments.pop("data_path"))
+        data = reader.read(arguments.pop("data_path"))
         return _response(served.function(data, **arguments))
 
     return Server(
@@ -99,15 +105,6 @@ def run_stdio(server: Server) -> None:
             await server.run(read, write, server.create_initialization_options())
 
     anyio.run(serve)
-
-
-def read_data(data_path: str) -> pd.DataFrame:
-    """Read the DataFrame an MCP tool's data path names.
-
-    Only an empty field is missing, so stand-ins such as 'N/A' stay values. The
-    index is a RangeIndex, so row IDs are 0-based data-row numbers.
-    """
-    return pd.read_csv(data_path, keep_default_na=False, na_values=[""])
 
 
 def _analysis_tool(
