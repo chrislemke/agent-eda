@@ -28,11 +28,16 @@ STRICT_WARNINGS = ("-W", "error::DeprecationWarning", "-W", "error::FutureWarnin
 
 @pytest.fixture(scope="module")
 def wheel(tmp_path_factory):
-    """The wheel that `uv build` makes, built offline by the same uv_build backend.
+    """The wheel file that AGENT_EDA_WHEEL names, or else one built here.
 
-    uv_build is a dev dependency pinned to the range in [build-system], so the
-    build needs no network and works whatever uv version runs the tests.
+    CI's packaging job builds the wheel with `uv build` and names it, so these
+    tests check the file the job then installs. A wheel built here comes from
+    the backend that [build-system] declares: uv_build is a dev dependency
+    pinned to that range, so the build needs no network and works whatever uv
+    version runs the tests.
     """
+    if os.environ.get("AGENT_EDA_WHEEL"):
+        return Path(os.environ["AGENT_EDA_WHEEL"]).resolve()
     out = tmp_path_factory.mktemp("dist")
     bin_dir = str(Path(sys.executable).parent)  # the hook runs uv-build from PATH
     built = subprocess.run(

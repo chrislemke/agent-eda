@@ -3,9 +3,9 @@
 Run it with `uv run pytest -m benchmark`; the default run skips it. Each analysis
 gets the arguments its recipe requires, so every option keeps its default, and
 must finish in under 5 seconds, the target on a 2-vCPU, 8 GB AgentCore session.
-NumPy's BLAS and pyarrow use 2 threads here to match. A call on the first 1,000
-rows loads what the analysis imports before the timed call. The timings print
-at the end of the run.
+NumPy's BLAS and pyarrow use 2 threads here to match, and CI also keeps the
+process on 2 CPUs with taskset. A call on the first 1,000 rows loads what the
+analysis imports before the timed call. The timings print at the end of the run.
 """
 
 import os
@@ -142,7 +142,7 @@ def frame(benchmark_report):
         f"built in {built:.1f} s; Python {platform.python_version()}, numpy "
         f"{np.__version__}, pandas {pd.__version__}, pyarrow {pa.__version__}; "
         f"{THREADS} threads; {platform.system()} {platform.machine()}, "
-        f"{os.cpu_count()} CPUs"
+        f"{_usable_cpus()} of {os.cpu_count()} CPUs"
     )
     yield data
     benchmark_report.append(f"Peak memory: {_peak_memory_gib():.2f} GiB")
@@ -197,6 +197,13 @@ def test_every_analysis_finishes_in_under_5_seconds(name, frame, benchmark_repor
 
     benchmark_report.append(f"{name}: {seconds:.2f} s, {res.status}")
     assert seconds < LIMIT_SECONDS
+
+
+def _usable_cpus() -> int | None:
+    """The CPUs this process may run on, which CI limits to 2 with taskset."""
+    if sys.platform == "linux":
+        return len(os.sched_getaffinity(0))
+    return os.cpu_count()
 
 
 def _peak_memory_gib() -> float:
