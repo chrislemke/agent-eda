@@ -2,7 +2,7 @@
 
 Deterministic exploratory data analysis (EDA) functions for LLM agents.
 
-> Status: in development. `describe_dataset`, `infer_column_semantics`, `profile_missing_values`, `summarize_numeric`, `summarize_categorical`, `find_duplicate_rows`, `find_candidate_keys`, `compute_association_matrix` and the discovery functions `guide`, `search_analyses`, `describe_analysis` and `list_analyses` work, and so do `Project` and `DataPolicy` with opt-in masking of sensitive columns; the rest of the code below shows the planned interface.
+> Status: in development. `describe_dataset`, `infer_column_semantics`, `validate_column_types`, `profile_missing_values`, `summarize_numeric`, `summarize_categorical`, `find_duplicate_rows`, `find_candidate_keys`, `compute_association_matrix` and the discovery functions `guide`, `search_analyses`, `describe_analysis` and `list_analyses` work, and so do `Project` and `DataPolicy` with opt-in masking of sensitive columns; the rest of the code below shows the planned interface.
 
 agent-eda is a Python library for the EDA phase of a data science project: data quality, missing values, duplicates, distributions, associations, leakage checks and more. Each analysis is a plain function. It takes a pandas DataFrame and typed arguments and returns a typed result. The library never calls an LLM or the network, so the same data, arguments and seed always give the same result.
 

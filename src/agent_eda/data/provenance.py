@@ -65,11 +65,12 @@ def describe_dataset(
         shows a raw data value. A dtype only tells how pandas stores a column:
         to learn each column's logical type from its values, such as
         identifiers or numbers and dates stored as text, call
-        `infer_column_semantics` next. For missing values per column and per
-        row, counting stand-ins such as -999 that you declare, call
-        `profile_missing_values`; for how the values of each numeric column are
-        distributed, call `summarize_numeric`, and for which values occur in
-        each text, categorical and boolean column and how often,
+        `infer_column_semantics` next, and to test the values against logical
+        types you declare, `validate_column_types`. For missing values per
+        column and per row, counting stand-ins such as -999 that you declare,
+        call `profile_missing_values`; for how the values of each numeric
+        column are distributed, call `summarize_numeric`, and for which values
+        occur in each text, categorical and boolean column and how often,
         `summarize_categorical`. For rows that repeat, call
         `find_duplicate_rows`; for which columns, alone or combined, identify
         rows, call `find_candidate_keys`. Columns whose values, not labels,
@@ -151,6 +152,9 @@ def describe_dataset(
     See Also:
         infer_column_semantics: The logical type of each column, from its values,
             with flags for identifiers and numbers or dates stored as text.
+        validate_column_types: How many values of each declared column have,
+            convert to or fail the logical type you declare, with the invalid
+            ones.
         profile_missing_values: Missing values per column and per row, counting
             declared sentinel values.
         summarize_numeric: Counts, mean, spread, quantiles and shape of every

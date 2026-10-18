@@ -97,20 +97,47 @@ def column_lists(candidates: list[str]) -> st.SearchStrategy[list[str] | None]:
     return st.none() | st.lists(st.sampled_from(candidates), min_size=1, unique=True)
 
 
+# Formats a ColumnSpec can declare for datetimes stored as text.
+DATETIME_FORMATS = ["%d/%m/%Y", "%Y%m%d", "%d.%m.%Y %H:%M", "%b %d, %Y"]
+
+
 def declared_schemas(
-    data: pd.DataFrame, analysis: str, parameter: str
+    data: pd.DataFrame, analysis: str, parameter: str, *, min_size: int = 0
 ) -> st.SearchStrategy[dict[str, Any]]:
     """Declarations for some columns, and for one the data lacks.
 
     Each declares a logical type, a ColumnSpec or a ColumnSpec as a dict.
     """
     logical_types = st.sampled_from(choices(analysis, parameter))
-    specs = st.builds(
-        ae.ColumnSpec, logical_type=logical_types, nullable=st.none() | st.booleans()
+    nullable = st.none() | st.booleans()
+    specs = st.builds(ae.ColumnSpec, logical_type=logical_types, nullable=nullable)
+    specs |= st.builds(
+        lambda datetime_format, nullable: ae.ColumnSpec(
+            "datetime", nullable=nullable, datetime_format=datetime_format
+        ),
+        st.sampled_from(DATETIME_FORMATS),
+        nullable,
     )
     declarations = logical_types | specs | specs.map(lambda spec: spec.model_dump())
     columns = st.sampled_from([*names(data, any_dtype), "not_a_column"])
-    return st.dictionaries(columns, declarations, max_size=4)
+    return st.dictionaries(columns, declarations, min_size=min_size, max_size=4)
+
+
+def every_column_declared(data: pd.DataFrame) -> Arguments:
+    """A schema declaring every column, the logical types in turn by position.
+
+    Data without columns gets a declaration for a column it lacks.
+    """
+    logical_types = choices("validate_column_types", "schema")
+    labels = names(data, any_dtype)
+    if not labels:
+        return {"schema": {"not_a_column": "integer"}}
+    return {
+        "schema": {
+            name: logical_types[position % len(logical_types)]
+            for position, name in enumerate(labels)
+        }
+    }
 
 
 def column_names(candidates: list[str]) -> st.SearchStrategy[str | None]:
@@ -345,6 +372,30 @@ RECIPES: dict[str, Recipe] = {
             columns=column_lists(names(data, any_dtype)),
             declared_schema=st.none()
             | declared_schemas(data, "infer_column_semantics", "declared_schema"),
+        ),
+    ),
+    "validate_column_types": Recipe(
+        required=every_column_declared,
+        options=with_masking(
+            lambda data: optional(
+                schema=declared_schemas(
+                    data, "validate_column_types", "schema", min_size=1
+                ),
+                id_column=column_names(hashable_names(data)),
+            )
+        ),
+        # Types that every sensitive value fails, text, number or datetime, so
+        # the result shows them as invalid values; and row IDs from them.
+        sensitive_options=lambda data, sensitive: st.fixed_dictionaries(
+            {
+                "schema": st.fixed_dictionaries(
+                    {
+                        name: st.sampled_from(["boolean", "timedelta"])
+                        for name in sensitive
+                    }
+                )
+            },
+            optional={"id_column": st.sampled_from(sensitive)},
         ),
     ),
 }

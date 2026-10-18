@@ -25,7 +25,11 @@ if TYPE_CHECKING:
     from agent_eda.data.missingness import profile_missing_values
     from agent_eda.data.provenance import describe_dataset
     from agent_eda.data.structure import find_candidate_keys
-    from agent_eda.data.validation import ColumnSpec, infer_column_semantics
+    from agent_eda.data.validation import (
+        ColumnSpec,
+        infer_column_semantics,
+        validate_column_types,
+    )
     from agent_eda.discovery import (
         describe_analysis,
         guide,
@@ -59,6 +63,7 @@ __all__ = [
     "search_analyses",
     "summarize_categorical",
     "summarize_numeric",
+    "validate_column_types",
 ]
 
 # Each top-level export and the module that defines it. Every analysis is listed
@@ -82,6 +87,7 @@ _EXPORTS: dict[str, str] = {
     "search_analyses": "agent_eda.discovery",
     "summarize_categorical": "agent_eda.statistics.descriptive",
     "summarize_numeric": "agent_eda.statistics.descriptive",
+    "validate_column_types": "agent_eda.data.validation",
 }
 
 # Public submodules, also reachable as attributes such as ae.errors.

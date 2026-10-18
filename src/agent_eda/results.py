@@ -100,6 +100,9 @@ LimitationCode = Literal[
     # A ranking stopped at its work limit before bounds proved it, so a set it
     # didn't count could rank higher than one it lists.
     "ranking_not_proven",
+    # A declared column isn't in the data, so the dtype and counts that describe
+    # its values are null.
+    "column_not_in_data",
 ]
 
 
@@ -2424,3 +2427,215 @@ class InferColumnSemanticsResult(AnalysisResult):
             },
             columns=names,
         )
+
+
+class InvalidValue(ResultModel):
+    """A distinct value that neither has nor converts to the declared logical type."""
+
+    value: str | bool | int | float = Field(
+        description="The value as stored. A value JSON can't hold, such as a "
+        "timestamp, a list or a non-finite float, appears as its string form; "
+        "value_type names its type. With masking on, a sensitive column's values "
+        "are numbered placeholders, '<masked 1>' for its first invalid value in "
+        "level order and so on."
+    )
+    value_type: str = Field(
+        description="The Python type of the stored value, such as 'str' or 'float'; "
+        "a NumPy scalar counts as the Python type it holds."
+    )
+    count: int = Field(
+        description="Values in the column equal to it and of the same type."
+    )
+
+
+class ValidateColumnTypesColumn(ResultModel):
+    """How the values of one declared column relate to its declared logical type."""
+
+    column: str = Field(description="The declared column name.")
+    declared_logical_type: LogicalType = Field(
+        description="The logical type schema declares for the column: the one its "
+        "values are checked against."
+    )
+    nullable: bool | None = Field(
+        description="Whether schema allows missing values in the column: false "
+        "makes them a violation; null declares nothing, so they aren't checked."
+    )
+    datetime_format: str | None = Field(
+        description="The datetime.strptime format declared for datetimes stored as "
+        "text, besides ISO 8601; null when none is declared."
+    )
+    present: bool = Field(description="Whether the data has the column.")
+    dtype: str | None = Field(
+        description="The dtype as pandas reports it, such as 'str'; null when the "
+        "column isn't in the data."
+    )
+    compatible_count: int | None = Field(
+        description="Values already stored as the declared logical type, such as "
+        "integers in an int64 or Int64 column for 'integer'."
+    )
+    convertible_count: int | None = Field(
+        description="Values stored as another type that convert to the declared "
+        "logical type exactly, without changing their meaning, such as '42' or "
+        "42.0 for 'integer'. Nothing is converted."
+    )
+    invalid_count: int | None = Field(
+        description="Values that neither have the declared logical type nor convert "
+        "to it exactly."
+    )
+    missing_count: int | None = Field(
+        description="Missing values: None, NaN, NaT and pd.NA, as pandas isna() "
+        "counts them, and NaN that a float column stores as a value."
+    )
+    invalid_row_ids: Annotated[list[RowId], _Cap(10, total="invalid_count")] = Field(
+        description="The IDs of the first 10 rows that hold an invalid value, in row "
+        "order: index labels, or values of id_column when it is given. "
+        "invalid_count counts them all, and the record adds it as "
+        "invalid_row_ids_total. With masking on and a sensitive id_column, "
+        "numbered placeholders, equal IDs alike."
+    )
+    invalid_distinct_count: int | None = Field(
+        description="Distinct invalid values; values of different types count "
+        "apart, so 1 and True are two."
+    )
+    invalid_values: Annotated[
+        list[InvalidValue], _Cap(5, total="invalid_distinct_count")
+    ] = Field(
+        description="The first 5 distinct invalid values with their counts, in level "
+        "order as summarize_categorical orders levels: most frequent first, then "
+        "by value. invalid_distinct_count counts them all, the record adds it as "
+        "invalid_values_total, and to_frame(table='invalid_values') has every one."
+    )
+    assessment: Literal["passed", "violation", "unknown"] = Field(
+        description="The verdict on the column, as its findings give it: violation "
+        "when the data lacks it, it holds invalid values, or it is declared "
+        "non-nullable and has missing values; unknown when it has no value to "
+        "check; passed otherwise."
+    )
+
+
+class ValidateColumnTypesResult(MaskableResult):
+    """The result of validate_column_types."""
+
+    columns: Annotated[dict[str, ValidateColumnTypesColumn], _ENTRIES] = Field(
+        description="One entry per declared column, keyed by column name, in "
+        "declared order. The record keeps the first 100 and adds columns_total; "
+        "to_frame() has every column."
+    )
+    undeclared_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="The data's columns that schema doesn't declare, in DataFrame "
+        "order; they weren't checked. The record keeps the first 100 and adds "
+        "undeclared_columns_total."
+    )
+    # Every distinct invalid value of every declared column in the data,
+    # outside the record; masked columns hold placeholders' numbers instead.
+    _tables: dict[str, Levels] = PrivateAttr(default_factory=dict)
+
+    def _text_facts(self) -> list[str]:
+        facts = [
+            "compatible: stored as the declared type; convertible: converts "
+            "exactly; invalid: neither. Nothing was converted."
+        ]
+        id_column = self.parameters.get("id_column")
+        source = (
+            f"values of id_column {id_column!r}"
+            if isinstance(id_column, str)
+            else "index labels"
+        )
+        facts.append(f"Row IDs: {source}.")
+        if self.undeclared_columns:
+            names = _text.join_labels(self.undeclared_columns)
+            facts.extend(
+                _text.wrap(
+                    f"Not declared in schema, so not checked: {names}.",
+                    first="",
+                    indent="    ",
+                )
+            )
+        else:
+            facts.append("schema declares every column of the data.")
+        return facts
+
+    def _text_table(self) -> _text.Table:
+        # Violations first, then columns without a value to check; a stable
+        # sort keeps the declared order within each.
+        rank = {"violation": 0, "unknown": 1, "passed": 2}
+        entries = sorted(self.columns.values(), key=lambda e: rank[e.assessment])
+        return _text.Table(
+            title="Declared columns, violations first",
+            unit=("declared column", "declared columns"),
+            headers=(
+                "column",
+                "declared",
+                "dtype",
+                "compatible",
+                "convertible",
+                "invalid",
+                "missing",
+                "invalid_values",
+            ),
+            rows=[
+                (
+                    e.column,
+                    e.declared_logical_type
+                    + (", not null" if e.nullable is False else ""),
+                    e.dtype if e.present else "not in the data",
+                    e.compatible_count,
+                    e.convertible_count,
+                    e.invalid_count,
+                    e.missing_count,
+                    self._examples_text(e),
+                )
+                for e in entries[: _text.MAX_TABLE_ROWS]
+            ],
+            total=len(entries),
+        )
+
+    def _examples_text(self, entry: ValidateColumnTypesColumn) -> str:
+        """The invalid example values with their counts, such as "'n/a': 2".
+
+        Text is quoted, so surrounding spaces stay visible; placeholders aren't.
+        """
+        masked = self._masked(entry.column)
+        shown = [
+            f"{value.value!r}: {value.count:,}"
+            if value.value_type == "str" and not masked
+            else f"{value.value}: {value.count:,}"
+            for value in entry.invalid_values
+        ]
+        more = (entry.invalid_distinct_count or 0) - len(shown)
+        return ", ".join(shown) + (f" and {more:,} more" if more > 0 else "")
+
+    def _text_other_tables(self) -> list[str]:
+        return [
+            "res.to_frame(table='invalid_values') counts every distinct invalid value"
+        ]
+
+    def to_frame(
+        self, table: Literal["columns", "invalid_values"] = "columns"
+    ) -> pd.DataFrame:
+        """One of the result's two tables as a DataFrame.
+
+        Args:
+            table: 'columns', the default, gives one row per declared column in
+                declared order: its declaration, whether it is present, its
+                dtype, the four counts, the distinct invalid values, the IDs of
+                the first 10 rows with an invalid value, and the assessment.
+                'invalid_values' gives one row per distinct invalid value of
+                each column, by column in declared order, then by count,
+                descending, then by value: column, value as stored (or its
+                placeholder, with masking on), value_type and count.
+        """
+        _check_table(table, ("columns", "invalid_values"))
+        if table == "invalid_values":
+            frame = levels_frame(self._tables).drop(columns="share")
+            return frame.rename(columns={"label": "value", "label_type": "value_type"})
+        entries = list(self.columns.values())
+        columns: dict[str, pd.Series] = {}
+        for name, field in ValidateColumnTypesColumn.model_fields.items():
+            if name == "invalid_values":
+                continue  # table='invalid_values' has every one
+            columns[name] = pd.Series(
+                [getattr(entry, name) for entry in entries],
+                dtype=_FRAME_DTYPES.get(field.annotation, object),
+            )
+        return pd.DataFrame(columns, columns=list(columns))

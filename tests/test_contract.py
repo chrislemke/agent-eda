@@ -4,6 +4,7 @@ import collections.abc
 import doctest
 import inspect
 import re
+import types
 import typing
 
 import annotated_types
@@ -21,7 +22,7 @@ SECTIONS = ["When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See 
 NOT_COLUMN_NAMES = {"source", "source_version"}
 # Parameters that map column names to a setting for each column, named after
 # the setting as the spec names them. They must take a mapping keyed by str.
-KEYED_BY_COLUMN = {"declared_schema", "sentinel_values"}
+KEYED_BY_COLUMN = {"declared_schema", "schema", "sentinel_values"}
 ENTRY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?: \([^)]*\))?:(?: |$)")
 REFERENCE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(\))?`")
 SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
@@ -187,10 +188,11 @@ def test_parameters_that_take_names_end_in_column_or_columns(name):
 
 def keyed_by_str(annotation):
     """Whether an annotation takes a mapping keyed by str, alone or with None."""
+    union = typing.get_origin(annotation) in (typing.Union, types.UnionType)
     return any(
         typing.get_origin(member) in (collections.abc.Mapping, dict)
         and typing.get_args(member)[0] is str
-        for member in typing.get_args(annotation) or (annotation,)
+        for member in (typing.get_args(annotation) if union else (annotation,))
     )
 
 

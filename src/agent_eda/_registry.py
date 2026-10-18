@@ -192,17 +192,29 @@ def _spec(
     bad_limits = [p for p in work_limits if p not in names or not p.startswith("max_")]
     if bad_limits:
         raise TypeError(f"analysis {name!r} has unknown work limits {bad_limits}")
+    # An option without a default is required: pydantic marks that with `...`.
     options = {
-        p.name: (hints[p.name], p.default)
+        p.name: (
+            hints[p.name],
+            ... if p.default is inspect.Parameter.empty else p.default,
+        )
         for p in list(signature.parameters.values())[1:]
     }
-    arguments = pydantic.create_model(
-        f"{result_class.__name__.removesuffix('Result')}Arguments",
-        __config__=pydantic.ConfigDict(
-            strict=True, extra="forbid", arbitrary_types_allowed=True
-        ),
-        **cast("dict[str, Any]", options),
-    )
+    with warnings.catch_warnings():
+        # An option may share a name with a BaseModel attribute, such as
+        # validate_column_types' schema; the arguments model never uses it.
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Field name .* shadows an attribute",
+            category=UserWarning,
+        )
+        arguments = pydantic.create_model(
+            f"{result_class.__name__.removesuffix('Result')}Arguments",
+            __config__=pydantic.ConfigDict(
+                strict=True, extra="forbid", arbitrary_types_allowed=True
+            ),
+            **cast("dict[str, Any]", options),
+        )
     docstring = parse_docstring(doc)
     return AnalysisSpec(
         name=name,
@@ -252,6 +264,20 @@ def _bind(
     if not args and "data" not in kwargs:
         raise InvalidArgumentError(
             f"{spec.name} needs data, a pandas DataFrame: {spec.name}(df).",
+            code="invalid_call",
+        )
+    missing = [
+        name
+        for name in options
+        if spec.signature.parameters[name].default is inspect.Parameter.empty
+        and name not in kwargs
+    ]
+    if missing:
+        name = missing[0]
+        allowed = _allowed(spec.annotations[name], name)
+        raise InvalidArgumentError(
+            f"{spec.name} needs {name}, which has no default; pass it by keyword. "
+            f"{name} must be {allowed}. See help(ae.{spec.name}) for every argument.",
             code="invalid_call",
         )
     data = args[0] if args else kwargs["data"]
