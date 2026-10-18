@@ -5,6 +5,7 @@ form of each label, which is also how results show columns.
 """
 
 import difflib
+import typing
 from collections import Counter
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -32,6 +33,8 @@ ColumnKind = Literal[
     "object",
     "other",
 ]
+# Every kind of column, for analyses that take any column.
+ALL_KINDS: frozenset[ColumnKind] = frozenset(typing.get_args(ColumnKind))
 
 
 class Labels:
@@ -198,8 +201,8 @@ class Selection:
     """The columns an analysis works on, and the ones its default left out."""
 
     columns: list[Column]
-    # Names of the columns that columns=None left out, in DataFrame order;
-    # empty when the call named the columns.
+    # Names of the columns that columns=None left out for their kind, in
+    # DataFrame order, without id_column; empty when the call named the columns.
     left_out: list[str]
 
 
@@ -210,11 +213,14 @@ def select_columns(
     rule: ColumnRule,
     *,
     parameter: str = "columns",
+    id_column: str | None = None,
 ) -> Selection:
     """The columns to analyse: the requested ones in their order, or the defaults.
 
-    Raises before any computation when the request is empty, names a column
-    twice, names an unknown column or names one the analysis can't handle.
+    The defaults also leave out `id_column`, the column that identifies rows,
+    without listing it in `left_out`, while a request may name it. Raises before
+    any computation when the request is empty, names a column twice, names an
+    unknown column or names one the analysis can't handle.
     """
     columns = [
         Column(position, label, str(label), str(dtype), column_kind(dtype))
@@ -222,7 +228,9 @@ def select_columns(
     ]
     if requested is None:
         return Selection(
-            columns=[c for c in columns if c.kind in rule.default],
+            columns=[
+                c for c in columns if c.kind in rule.default and c.name != id_column
+            ],
             left_out=[c.name for c in columns if c.kind not in rule.default],
         )
     if not requested:

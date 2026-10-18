@@ -81,6 +81,25 @@ def column_lists(candidates: list[str]) -> st.SearchStrategy[list[str] | None]:
     return st.none() | st.lists(st.sampled_from(candidates), min_size=1, unique=True)
 
 
+def column_names(candidates: list[str]) -> st.SearchStrategy[str | None]:
+    """None, or one of the candidates."""
+    if not candidates:
+        return st.none()
+    return st.none() | st.sampled_from(candidates)
+
+
+def hashable_names(data: pd.DataFrame) -> list[str]:
+    """The names of the columns whose values can all be hashed, as row IDs must."""
+    found = []
+    for label, column in data.items():
+        try:
+            pd.factorize(column)
+        except (TypeError, NotImplementedError):  # lists, dicts, nested Arrow types
+            continue
+        found.append(str(label))
+    return found
+
+
 def is_number_or_boolean(dtype: Any) -> bool:
     """Integers, floats and booleans, nullable and pyarrow-backed ones included."""
     if isinstance(dtype, pd.CategoricalDtype):
@@ -109,6 +128,12 @@ RECIPES: dict[str, Recipe] = {
             source=st.none() | TEXT, source_version=st.none() | TEXT
         ),
         any_column_labels=True,
+    ),
+    "find_duplicate_rows": Recipe(
+        options=lambda data: optional(
+            columns=column_lists(names(data, lambda dtype: True)),
+            id_column=column_names(hashable_names(data)),
+        ),
     ),
     "summarize_numeric": Recipe(
         options=lambda data: optional(

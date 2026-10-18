@@ -20,6 +20,9 @@ from agent_eda.results import ColumnResult, Execution, Status, StatusReason
 # occurs is the result's status.
 _PRECEDENCE: tuple[Status, ...] = ("failed", "insufficient_data", "not_applicable")
 
+# Why an analysis of data without rows ends with insufficient_data.
+NO_ROWS = StatusReason(code="no_rows", message="The data has no rows.")
+
 
 def overall_status(
     row_count: int, entries: Sequence[ColumnResult], *, no_columns: StatusReason
@@ -33,9 +36,7 @@ def overall_status(
     of failed, insufficient_data and not_applicable that occurs.
     """
     if row_count == 0:
-        return "insufficient_data", StatusReason(
-            code="no_rows", message="The data has no rows."
-        )
+        return "insufficient_data", NO_ROWS
     if not entries:
         return "not_applicable", no_columns
     incomplete = [entry for entry in entries if entry.status != "completed"]

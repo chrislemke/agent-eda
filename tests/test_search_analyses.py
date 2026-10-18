@@ -18,6 +18,7 @@ SEARCH_ACCEPTANCE = [
     ("dataset overview", "describe_dataset"),
     ("mean and standard deviation", "summarize_numeric"),
     ("value counts", "summarize_categorical"),
+    ("duplicate rows", "find_duplicate_rows"),
 ]
 
 

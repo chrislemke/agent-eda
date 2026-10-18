@@ -367,15 +367,19 @@ def _normalize(spec: AnalysisSpec, name: str, value: object) -> object:
 
     A list option takes any ordered list-like, such as a tuple, a pandas Index
     or Series, a 1-D NumPy array or a generator, and a single value as a
-    one-item list. NumPy scalars become Python scalars. A column option also
-    takes labels that aren't strings and names them by their string form, the
-    way results show them. Validation then stays strict about everything else.
+    one-item list. NumPy scalars become Python scalars. A column option, such
+    as columns or id_column, also takes labels that aren't strings and names
+    them by their string form, the way results show them. Validation then stays
+    strict about everything else.
     """
     if not any(
         typing.get_origin(member) in LIST_TYPES
         for member in members(spec.annotations[name])
     ):
-        return _python_scalar(value)
+        value = _python_scalar(value)
+        if name.endswith("column") and value is not None:
+            return _column_name(value)
+        return value
     items = _as_list(spec, name, value)
     if isinstance(items, list) and name.endswith("columns"):
         return [_column_name(item) for item in items]
