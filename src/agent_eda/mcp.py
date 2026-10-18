@@ -10,7 +10,11 @@ client, which starts it as a subprocess and talks to it over stdio:
 Each MCP tool takes a data path in place of the DataFrame. The server reads a
 CSV file counting only an empty field as missing, so stand-ins such as 'N/A'
 reach the analyses as values. A call returns the printed result as text and the
-result's to_dict() record as structured content.
+result's to_dict() record as structured content, also when the run doesn't
+complete, such as with status insufficient_data. A caller mistake, an
+AgentEDAError, comes back as a tool error (isError true) whose text is the
+exception's message and whose structured content is {"code", "message"}. Any
+other exception is a bug and becomes a JSON-RPC internal error.
 
 The package never imports this module, so `import agent_eda` stays free of the
 mcp extra. Without the extra, create_server() raises MissingDependencyError and

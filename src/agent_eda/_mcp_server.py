@@ -5,6 +5,7 @@ checking that the extra is installed. Every analysis call goes through one data
 reader, read_data, and one response builder, _response.
 """
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -18,9 +19,18 @@ from mcp.server.stdio import stdio_server
 
 import agent_eda
 from agent_eda._annotations import type_text
-from agent_eda._registry import AnalysisSpec, registered, spec_of
+from agent_eda._registry import (
+    AnalysisSpec,
+    missing_message,
+    registered,
+    spec_of,
+    unknown_name_message,
+)
 from agent_eda._version import __version__
+from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.results import AnalysisResult
+
+_log = logging.getLogger("agent_eda.mcp")
 
 _DATA_PATH = {
     "type": "string",
@@ -79,9 +89,20 @@ def create_server(
                 code=types.INVALID_PARAMS,
                 message=f"There is no MCP tool named {params.name!r}.",
             )
-        arguments: dict[str, Any] = dict(params.arguments or {})
-        data = read_data(arguments.pop("data_path"))
-        return _response(served.function(data, **arguments))
+        try:
+            return _call(served, dict(params.arguments or {}))
+        except AgentEDAError as error:
+            return _error_response(error)
+        except Exception as error:
+            # A bug. Without this, the SDK answers a client that did the
+            # initialize handshake with error code 0, not an internal error.
+            _log.exception("%s failed with an unexpected error", params.name)
+            raise MCPError(
+                code=types.INTERNAL_ERROR,
+                message=f"{params.name} failed with an unexpected error, which is "
+                f"a bug in agent-eda, not in the call: {type(error).__name__}: "
+                f"{error}. The MCP server's log on stderr has the traceback.",
+            ) from error
 
     return Server(
         "agent-eda",
@@ -89,6 +110,53 @@ def create_server(
         on_list_tools=list_tools,
         on_call_tool=call_tool,
     )
+
+
+def _call(served: _AnalysisTool, arguments: dict[str, Any]) -> types.CallToolResult:
+    """Check the arguments, read the data, run the analysis and build the response.
+
+    The SDK passes the arguments on without checking them against the input
+    schema. The server checks what the MCP tool adds to the analysis's own
+    arguments (unknown and missing names among the MCP tool's properties, and
+    data_path); the analysis checks its options, with the message a Python
+    caller gets.
+    """
+    _check_arguments(served, arguments)
+    data = read_data(arguments.pop("data_path"))
+    return _response(served.function(data, **arguments))
+
+
+def _check_arguments(served: _AnalysisTool, arguments: dict[str, Any]) -> None:
+    """Raise InvalidArgumentError for an argument the MCP tool doesn't take, a
+    required one left out, or a data path that isn't a string."""
+    name = served.spec.name
+    schema = served.tool.input_schema
+    properties = list(schema["properties"])
+    unknown = [key for key in arguments if key not in properties]
+    if unknown:
+        raise InvalidArgumentError(
+            unknown_name_message(name, "argument", unknown[0], properties),
+            code="invalid_call",
+        )
+    missing = [key for key in schema["required"] if key not in arguments]
+    if missing:
+        example = ", ".join(f'"{key}": ...' for key in missing)
+        raise InvalidArgumentError(
+            missing_message(
+                served.spec,
+                missing,
+                fix=f"in the MCP tool's arguments, such as {{{example}}}",
+                see="The MCP tool's input schema describes every argument.",
+            ),
+            code="invalid_call",
+        )
+    data_path = arguments["data_path"]
+    if not isinstance(data_path, str):
+        raise InvalidArgumentError(
+            f"{name} got {data_path!r} for data_path, but data_path must be a "
+            "string: the path to the data file, absolute or relative to the MCP "
+            "server's working directory."
+        )
 
 
 def run_stdio(server: Server) -> None:
@@ -183,4 +251,15 @@ def _response(result: AnalysisResult) -> types.CallToolResult:
     return types.CallToolResult(
         content=[types.TextContent(text=str(result))],
         structured_content=result.to_dict(),
+    )
+
+
+def _error_response(error: AgentEDAError) -> types.CallToolResult:
+    """A caller mistake as a tool error: the message as text, and the stable
+    code and the message as structured content."""
+    message = str(error)
+    return types.CallToolResult(
+        content=[types.TextContent(text=message)],
+        structured_content={"code": error.code, "message": message},
+        is_error=True,
     )

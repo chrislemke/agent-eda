@@ -315,16 +315,32 @@ def _bind(
 
 
 def _missing_message(spec: AnalysisSpec, missing: list[str]) -> str:
-    """Name the options without a default that a call left out, and the fix.
+    """Name the options without a default that a call left out, and the fix."""
+    example = ", ".join(f"{name}=..." for name in missing)
+    return missing_message(
+        spec,
+        missing,
+        fix=f"by keyword, such as ae.{spec.name}(df, {example})",
+        see=f"See help(ae.{spec.name}) for every argument.",
+    )
+
+
+def missing_message(
+    spec: AnalysisSpec, missing: list[str], *, fix: str, see: str
+) -> str:
+    """Name the required arguments a call left out, how to pass them, and where
+    to read about every argument.
 
     The choices of an option that takes fixed values are listed too, and so
     are those of the values inside a mapping or list option, such as a schema.
+    A name that isn't an option, such as an MCP tool's data_path, has none.
     """
     arguments = plural(len(missing), "required argument", "required arguments")
     them = "it" if len(missing) == 1 else "them"
-    example = ", ".join(f"{name}=..." for name in missing)
     choices = []
     for name in missing:
+        if name not in spec.annotations:
+            continue
         annotation = strip_optional(spec.annotations[name])
         item = item_annotation(annotation)
         if typing.get_origin(annotation) is typing.Literal:
@@ -335,9 +351,8 @@ def _missing_message(spec: AnalysisSpec, missing: list[str]) -> str:
             choices.append(f"each value in {name} is {_allowed(item, 'value')}")
     where = f", where {join_items(choices)}" if choices else ""
     return (
-        f"{spec.name} is missing {arguments}: {join_items(missing)}. Pass {them} by "
-        f"keyword, such as ae.{spec.name}(df, {example}){where}. See "
-        f"help(ae.{spec.name}) for every argument."
+        f"{spec.name} is missing {arguments}: {join_items(missing)}. Pass {them} "
+        f"{fix}{where}. {see}"
     )
 
 
