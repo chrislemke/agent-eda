@@ -14,6 +14,7 @@ pytest.importorskip(
 )
 
 import json
+import os
 import subprocess
 import sys
 import warnings
@@ -152,6 +153,36 @@ def test_a_bad_project_file_is_a_tool_error_with_the_python_code_and_message(
         "message": str(raised.value),
     }
     assert [block.text for block in response.content] == [str(raised.value)]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs named pipes and POSIX permissions that bind the user",
+)
+@pytest.mark.parametrize("kind", ["named-pipe", "unreadable"])
+def test_a_project_file_that_cannot_be_read_is_a_tool_error_not_a_bug(tmp_path, kind):
+    data_path = write(tmp_path / "shop.csv", CSV)
+    project_path = tmp_path / "project.toml"
+    if kind == "named-pipe":
+        os.mkfifo(project_path)
+    else:
+        write(project_path, MASKED).chmod(0)
+    try:
+        with pytest.raises(AgentEDAError) as raised:
+            ae.Project.load(project_path)
+        response = anyio.run(
+            call,
+            "summarize_categorical",
+            {"data_path": str(data_path), "project_path": str(project_path)},
+        )
+    finally:
+        project_path.chmod(0o600)
+
+    assert response.is_error
+    assert response.structured_content == {
+        "code": "invalid_project_file",
+        "message": str(raised.value),
+    }
 
 
 def test_a_project_path_that_is_not_a_string_is_a_tool_error(tmp_path):

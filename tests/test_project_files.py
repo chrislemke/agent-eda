@@ -971,3 +971,77 @@ def test_help_on_a_project_says_how_to_use_it_in_later_scripts():
 
     assert "project.save('project.toml')" in text
     assert "ae.Project.load('project.toml')" in text
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_a_named_pipe_raises_instead_of_waiting_for_a_writer(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    os.mkfifo(tmp_path / "project.toml")
+
+    with pytest.raises(ProjectFileError) as caught:
+        ae.Project.load("project.toml")
+
+    assert caught.value.code == "invalid_project_file"
+    assert str(caught.value) == (
+        f"Project.load found 'project.toml' ({tmp_path / 'project.toml'}), but it "
+        "isn't a regular file, such as a named pipe or a device, so it can't be a "
+        "project file. Pass the path of a project TOML file, such as one "
+        "project.save wrote."
+    )
+    assert stands_alone(caught.value)
+
+
+@pytest.mark.skipif(not os.path.exists("/dev/zero"), reason="needs /dev/zero")
+def test_a_device_raises_instead_of_reading_without_end():
+    with pytest.raises(ProjectFileError) as caught:
+        ae.Project.load("/dev/zero")
+
+    assert caught.value.code == "invalid_project_file"
+    assert "isn't a regular file" in str(caught.value)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permissions that bind the user",
+)
+def test_a_file_without_read_permission_raises_with_the_fix(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    path = write(tmp_path / "project.toml", EMAIL_MASKED_TEXT)
+    path.chmod(0)
+    try:
+        with pytest.raises(ProjectFileError) as caught:
+            ae.Project.load("project.toml")
+    finally:
+        path.chmod(0o600)
+
+    assert caught.value.code == "invalid_project_file"
+    assert str(caught.value) == (
+        f"Project.load can't read 'project.toml' ({tmp_path / 'project.toml'}): "
+        "Permission denied. Give the user that runs this process read permission "
+        "on the file, or pass the path of a project file it can read."
+    )
+    assert stands_alone(caught.value)
+
+
+def test_a_file_too_large_for_a_project_raises_without_reading_it_all(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    with (tmp_path / "project.toml").open("wb") as file:
+        file.truncate(1024 * 1024 + 1)
+
+    with pytest.raises(ProjectFileError) as caught:
+        ae.Project.load("project.toml")
+
+    assert caught.value.code == "invalid_project_file"
+    assert str(caught.value) == (
+        f"Project.load found more than 1 MiB in 'project.toml' "
+        f"({tmp_path / 'project.toml'}), but a project file holds only a name and "
+        "a data policy, which take a few KiB at most. Check that the path names a "
+        "project file, not a data file."
+    )
+
+
+EMAIL_MASKED_TEXT = (
+    '[data_policy]\nsensitive_columns = ["email"]\nmask_sensitive = true\n'
+)

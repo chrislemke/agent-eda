@@ -397,12 +397,14 @@ class Project(_Declaration):
             ProjectFileError: The file isn't TOML, and the message gives the
                 line at fault; it lacks the [data_policy] table or one of its
                 keys; or it holds a value a field can't take (code
-                invalid_project_file). Or it holds a key that isn't a field,
-                and the message names the closest key (code
+                invalid_project_file). Or it can't be read: it isn't a regular
+                file, such as a named pipe or a device; the operating system
+                refuses it, such as without read permission; or it holds more
+                than 1 MiB (code invalid_project_file). Or it holds a key that
+                isn't a field, and the message names the closest key (code
                 unknown_project_key).
             InvalidArgumentError: path isn't a str or a path, is empty, or
                 names a directory (code invalid_argument).
-            OSError: The file can't be read, such as without permission.
 
         Examples:
             >>> import tempfile

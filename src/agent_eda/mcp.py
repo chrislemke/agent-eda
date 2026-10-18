@@ -120,8 +120,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         _require_extra()
         project = None if options.project is None else Project.load(options.project)
         server = create_server(project=project)
-    except (AgentEDAError, OSError) as error:
-        # OSError: the project file can't be read, such as without permission.
+    except AgentEDAError as error:
         print(error, file=sys.stderr)
         raise SystemExit(1) from None
     from agent_eda._mcp_server import run_stdio

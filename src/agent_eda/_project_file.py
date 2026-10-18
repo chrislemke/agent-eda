@@ -14,7 +14,10 @@ only `name` may be left out. A caller's mistake raises before any file
 changes: InvalidArgumentError for a path or overwrite that can't work,
 ProjectFileNotFoundError for a missing file, ProjectFileExistsError for a file
 that save would replace unasked, and ProjectFileError for a file that isn't a
-project file, which names the line or the key at fault. Messages never quote
+project file, which names the line or the key at fault, or that read() can't
+read: not a regular file (a named pipe or a device would block or never end),
+refused by the operating system, such as without read permission, or larger
+than MAX_BYTES. Messages never quote
 the file's content, since a data file passed by mistake would put its values
 in front of the agent.
 """
@@ -22,6 +25,7 @@ in front of the agent.
 import codecs
 import os
 import re
+import stat
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -37,6 +41,10 @@ from agent_eda.errors import (
     ProjectFileExistsError,
     ProjectFileNotFoundError,
 )
+
+# The most a project file may hold. A name and a data policy take a few KiB;
+# a larger file is a data file passed by mistake.
+MAX_BYTES = 1024 * 1024
 
 # The first line of every project file, for whoever opens one.
 _HEADER = "# An agent-eda Project. Load it with ae.Project.load(path)."
@@ -97,20 +105,58 @@ def read(
     hold.
     """
     given = _file_path("Project.load", path)
+    fields = _parse(given, _read_bytes(given))
+    _check_keys(fields, given, keys=keys, table=table, table_keys=table_keys)
+    _check_table(fields, given, table=table, table_keys=table_keys)
+    _check_forms(fields, given, table=table)
+    return fields
+
+
+def _read_bytes(given: str) -> bytes:
+    """The content of the regular file at the path, at most MAX_BYTES of it.
+
+    A named pipe or a device, such as /dev/zero, would block or never end, so
+    only a regular file is opened; one larger than MAX_BYTES isn't read past it.
+    """
     try:
-        with open(os.path.expanduser(given), "rb") as file:
-            data = file.read()
+        status = os.stat(os.path.expanduser(given))
     except (FileNotFoundError, NotADirectoryError):
         raise ProjectFileNotFoundError(
             f"Project.load found no file at {_where(given)}. Save a project there "
             f"first with project.save({given!r}), or pass the path of an existing "
             "project file."
         ) from None
-    fields = _parse(given, data)
-    _check_keys(fields, given, keys=keys, table=table, table_keys=table_keys)
-    _check_table(fields, given, table=table, table_keys=table_keys)
-    _check_forms(fields, given, table=table)
-    return fields
+    except OSError as error:
+        raise ProjectFileError(_unreadable(given, error)) from None
+    if not stat.S_ISREG(status.st_mode):
+        raise ProjectFileError(
+            f"Project.load found {_where(given)}, but it isn't a regular file, such "
+            "as a named pipe or a device, so it can't be a project file. Pass the "
+            "path of a project TOML file, such as one project.save wrote."
+        )
+    try:
+        with open(os.path.expanduser(given), "rb") as file:
+            data = file.read(MAX_BYTES + 1)
+    except OSError as error:
+        raise ProjectFileError(_unreadable(given, error)) from None
+    if len(data) > MAX_BYTES:
+        raise ProjectFileError(
+            f"Project.load found more than {MAX_BYTES // 1024 // 1024} MiB in "
+            f"{_where(given)}, but a project file holds only a name and a data "
+            "policy, which take a few KiB at most. Check that the path names a "
+            "project file, not a data file."
+        )
+    return data
+
+
+def _unreadable(given: str, error: OSError) -> str:
+    """Say why the operating system refused the file, and how to fix it."""
+    reason = error.strerror or type(error).__name__
+    return (
+        f"Project.load can't read {_where(given)}: {reason}. Give the user that "
+        "runs this process read permission on the file, or pass the path of a "
+        "project file it can read."
+    )
 
 
 def invalid(path: str | os.PathLike[str], error: AgentEDAError) -> ProjectFileError:
