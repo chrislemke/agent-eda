@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from agent_eda.data.missingness import profile_missing_values
     from agent_eda.data.provenance import describe_dataset
     from agent_eda.data.structure import find_candidate_keys
+    from agent_eda.data.targets import profile_target
     from agent_eda.data.validation import (
         ColumnSpec,
         infer_column_semantics,
@@ -60,6 +61,7 @@ __all__ = [
     "infer_column_semantics",
     "list_analyses",
     "profile_missing_values",
+    "profile_target",
     "search_analyses",
     "summarize_categorical",
     "summarize_numeric",
@@ -84,6 +86,7 @@ _EXPORTS: dict[str, str] = {
     "infer_column_semantics": "agent_eda.data.validation",
     "list_analyses": "agent_eda.discovery",
     "profile_missing_values": "agent_eda.data.missingness",
+    "profile_target": "agent_eda.data.targets",
     "search_analyses": "agent_eda.discovery",
     "summarize_categorical": "agent_eda.statistics.descriptive",
     "summarize_numeric": "agent_eda.statistics.descriptive",

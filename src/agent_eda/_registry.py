@@ -37,7 +37,7 @@ from agent_eda._columns import check_column_labels, closest_names
 from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
 from agent_eda._run import watch_all_warnings
-from agent_eda._text import join_alternatives, plural
+from agent_eda._text import join_alternatives, join_items, plural
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.results import AnalysisResult, Limitation, Status
 
@@ -192,12 +192,10 @@ def _spec(
     bad_limits = [p for p in work_limits if p not in names or not p.startswith("max_")]
     if bad_limits:
         raise TypeError(f"analysis {name!r} has unknown work limits {bad_limits}")
-    # An option without a default is required: pydantic marks that with `...`.
+    # pydantic marks a field required with ..., where inspect marks a parameter
+    # without a default with Parameter.empty.
     options = {
-        p.name: (
-            hints[p.name],
-            ... if p.default is inspect.Parameter.empty else p.default,
-        )
+        p.name: (hints[p.name], ... if p.default is p.empty else p.default)
         for p in list(signature.parameters.values())[1:]
     }
     with warnings.catch_warnings():
@@ -268,20 +266,42 @@ def _bind(
         )
     missing = [
         name
-        for name in options
-        if spec.signature.parameters[name].default is inspect.Parameter.empty
+        for name, parameter in spec.signature.parameters.items()
+        if name != "data"
+        and parameter.default is parameter.empty
         and name not in kwargs
     ]
     if missing:
-        name = missing[0]
-        allowed = _allowed(spec.annotations[name], name)
-        raise InvalidArgumentError(
-            f"{spec.name} needs {name}, which has no default; pass it by keyword. "
-            f"{name} must be {allowed}. See help(ae.{spec.name}) for every argument.",
-            code="invalid_call",
-        )
+        raise InvalidArgumentError(_missing_message(spec, missing), code="invalid_call")
     data = args[0] if args else kwargs["data"]
     return data, {key: value for key, value in kwargs.items() if key != "data"}
+
+
+def _missing_message(spec: AnalysisSpec, missing: list[str]) -> str:
+    """Name the options without a default that a call left out, and the fix.
+
+    The choices of an option that takes fixed values are listed too, and so
+    are those of the values inside a mapping or list option, such as a schema.
+    """
+    arguments = plural(len(missing), "required argument", "required arguments")
+    them = "it" if len(missing) == 1 else "them"
+    example = ", ".join(f"{name}=..." for name in missing)
+    choices = []
+    for name in missing:
+        annotation = strip_optional(spec.annotations[name])
+        item = item_annotation(annotation)
+        if typing.get_origin(annotation) is typing.Literal:
+            choices.append(f"{name} is {_allowed(annotation, name)}")
+        elif item is not annotation and any(
+            typing.get_origin(member) is typing.Literal for member in members(item)
+        ):
+            choices.append(f"each value in {name} is {_allowed(item, 'value')}")
+    where = f", where {join_items(choices)}" if choices else ""
+    return (
+        f"{spec.name} is missing {arguments}: {join_items(missing)}. Pass {them} by "
+        f"keyword, such as ae.{spec.name}(df, {example}){where}. See "
+        f"help(ae.{spec.name}) for every argument."
+    )
 
 
 def _check_data(name: str, data: object) -> None:
@@ -446,6 +466,13 @@ def _allowed(annotation: object, subject: str) -> str:
         return f"{_allowed(inner, subject)} with {limits}" if limits else _plain(inner)
     if origin in (typing.Union, types.UnionType):
         options = typing.get_args(annotation)
+        optional = strip_optional(annotation)
+        if optional is not annotation and typing.get_origin(optional) in (
+            typing.Annotated,
+            typing.Literal,
+        ):
+            # Such as "float with 0 < rare_share < 1, or None".
+            return f"{_allowed(optional, subject)}, or None"
         literals = [o for o in options if typing.get_origin(o) is typing.Literal]
         if literals:
             others = [_plain(o) for o in options if o not in literals]

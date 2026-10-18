@@ -19,7 +19,8 @@ INFO = {info.name: info for info in ae.list_analyses().analyses}
 SECTIONS = ["When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See Also:"]
 # Parameters that take text other than column names. A new one joins this list
 # only if it takes no column names; otherwise its name ends in column(s).
-NOT_COLUMN_NAMES = {"source", "source_version"}
+# expected_labels takes the class labels of a target, which can be text.
+NOT_COLUMN_NAMES = {"source", "source_version", "expected_labels"}
 # Parameters that map column names to a setting for each column, named after
 # the setting as the spec names them. They must take a mapping keyed by str.
 KEYED_BY_COLUMN = {"declared_schema", "schema", "sentinel_values"}

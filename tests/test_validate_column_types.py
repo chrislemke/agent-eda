@@ -277,10 +277,12 @@ def test_leaving_out_schema_raises_with_what_it_takes():
         ae.validate_column_types(pd.DataFrame({"a": [1]}))  # ty: ignore[missing-argument]  # leaving schema out is the test
 
     assert caught.value.code == "invalid_call"
-    assert str(caught.value).startswith(
-        "validate_column_types needs schema, which has no default; pass it by "
-        "keyword. schema must be Mapping[str, Literal['boolean', 'integer', 'float', "
-        "'categorical', 'text', 'datetime', 'timedelta'] | ColumnSpec]."
+    assert str(caught.value) == (
+        "validate_column_types is missing 1 required argument: schema. Pass it by "
+        "keyword, such as ae.validate_column_types(df, schema=...), where each value "
+        "in schema is one of 'boolean', 'integer', 'float', 'categorical', 'text', "
+        "'datetime' or 'timedelta', or a ColumnSpec. See "
+        "help(ae.validate_column_types) for every argument."
     )
 
 
