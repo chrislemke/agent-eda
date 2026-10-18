@@ -251,7 +251,7 @@ uv run pre-commit install
 
 Notes on the less obvious commands:
 
-- **Minimum versions.** The run installs every dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1) into a throwaway environment on Python 3.12, without the mcp extra, whose tests skip. The second run adds the extra at its floors (mcp 2.3 and pyarrow 14), and with them the pydantic 2.12 that mcp needs, so it runs the whole suite. Keep `--isolated`; without it, uv rewrites `uv.lock`.
+- **Minimum versions.** The run installs every dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1) into a throwaway environment on Python 3.12, without the mcp extra, whose tests skip. The second run adds the extra at its floors (mcp 2.3 and pyarrow 14.0.1), and with them the pydantic 2.12 that mcp needs, so it runs the whole suite. Keep `--isolated`; without it, uv rewrites `uv.lock`.
 - **The mcp extra.** `uv sync` and `uv run` install it, so `uv run pytest` runs the MCP server tests. This needs uv 0.13 or later, the version CI and the hooks use; uv 0.10 leaves the extra out unless you pass `--extra mcp`.
 - **Property tests.** Hypothesis calls every analysis on generated DataFrames full of edge cases. It runs derandomized: 50 examples per analysis, or 1,000 with the `thorough` profile.
 - **Benchmark.** It times every analysis with default arguments on a deterministic DataFrame of 1,000,000 rows and 100 mixed columns, with BLAS and pyarrow limited to 2 threads, and fails any analysis that takes 5 seconds or more. The default test run skips it.

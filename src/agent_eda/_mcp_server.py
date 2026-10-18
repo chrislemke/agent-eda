@@ -28,6 +28,7 @@ from agent_eda._registry import (
 )
 from agent_eda._version import __version__
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
+from agent_eda.project import Project
 from agent_eda.results import AnalysisResult
 
 _log = logging.getLogger("agent_eda.mcp")
@@ -42,6 +43,32 @@ _DATA_PATH = {
     "data-row numbers. Parquet keeps its dtypes, and row IDs follow the index "
     "stored in the file.",
 }
+
+_GUARDRAIL = (
+    "Masking is a guardrail against accidental exposure, not anonymization or "
+    "access control: whoever can call the MCP server can usually read the data "
+    "file too."
+)
+
+_PROJECT_PATH = {
+    "anyOf": [{"type": "string"}, {"type": "null"}],
+    "default": None,
+    "description": "Path to a project TOML file, absolute or relative to the MCP "
+    "server's working directory, whose data policy names the sensitive columns "
+    "and says whether to mask them. The file has a [data_policy] table with "
+    'sensitive_columns = ["email"] and mask_sensitive = true or false, and an '
+    "optional top-level name. null, the default, uses the project the server "
+    "was started with (agent-eda-mcp --project), or no project, which masks "
+    "nothing. A project_path replaces the server's project for this call. "
+    f"{_GUARDRAIL}",
+}
+
+# Follows the docstring's mask_sensitive text, which speaks of the project
+# argument a Python caller passes.
+_MCP_PROJECT = (
+    "Over MCP, the project is the file at project_path, or else the one the "
+    "server was started with (agent-eda-mcp --project)."
+)
 
 # Every analysis MCP tool may write a file (table_path), never overwrites one,
 # gives the same result for the same call and reaches nothing outside the
@@ -65,13 +92,15 @@ class _AnalysisTool:
 
 def create_server(
     analyses: Sequence[Callable[..., AnalysisResult]] | None = None,
+    project: Project | None = None,
 ) -> Server:
     """The MCP server named 'agent-eda', with one MCP tool per analysis.
 
     The MCP tools are built here, when the server starts, from the registry
     entry of each analysis: every registered one when analyses is None. The
     server reads data paths through one DataReader, which keeps the most
-    recently read files.
+    recently read files. project is the server's Project, which every call of
+    an MCP tool with project_path uses unless the call names its own.
     """
     reader = DataReader()
     if analyses is None:
@@ -96,7 +125,7 @@ def create_server(
                 message=f"There is no MCP tool named {params.name!r}.",
             )
         try:
-            return _call(served, reader, dict(params.arguments or {}))
+            return _call(served, reader, project, dict(params.arguments or {}))
         except AgentEDAError as error:
             return _error_response(error)
         except Exception as error:
@@ -119,7 +148,10 @@ def create_server(
 
 
 def _call(
-    served: _AnalysisTool, reader: DataReader, arguments: dict[str, Any]
+    served: _AnalysisTool,
+    reader: DataReader,
+    project: Project | None,
+    arguments: dict[str, Any],
 ) -> types.CallToolResult:
     """Check the arguments, read the data, run the analysis and build the response.
 
@@ -127,11 +159,32 @@ def _call(
     schema. The server checks what the MCP tool adds to the analysis's own
     arguments (unknown and missing names among the MCP tool's properties, and
     data_path); the analysis checks its options, with the message a Python
-    caller gets.
+    caller gets. A project_path replaces the server's project for the call;
+    a mask_sensitive goes to the analysis, where it wins over either.
     """
     _check_arguments(served, arguments)
+    if "project_path" in served.tool.input_schema["properties"]:
+        project_path = arguments.pop("project_path", None)
+        if project_path is not None:
+            project = _load_project(served.spec.name, project_path)
+        arguments["project"] = project
     data = reader.read(arguments.pop("data_path"))
     return _response(served.function(data, **arguments))
+
+
+def _load_project(name: str, project_path: object) -> Project:
+    """The Project in the file at project_path.
+
+    Project.load raises the errors a Python caller gets, such as
+    ProjectFileNotFoundError, so they reach the MCP caller as tool errors.
+    """
+    if not isinstance(project_path, str):
+        raise InvalidArgumentError(
+            f"{name} got {project_path!r} for project_path, but project_path must "
+            "be a string or null: the path to a project TOML file, absolute or "
+            "relative to the MCP server's working directory."
+        )
+    return Project.load(project_path)
 
 
 def _check_arguments(served: _AnalysisTool, arguments: dict[str, Any]) -> None:
@@ -200,8 +253,22 @@ def _input_schema(spec: AnalysisSpec) -> dict[str, Any]:
         schema = spec.parameters_schema()
     except pydantic.errors.PydanticInvalidForJsonSchema:
         raise TypeError(_no_json_schema(spec)) from None
-    schema["properties"] = {"data_path": _DATA_PATH, **schema.get("properties", {})}
+    properties = {"data_path": _DATA_PATH}
+    for name, value in schema.get("properties", {}).items():
+        if name == "project":
+            properties["project_path"] = dict(_PROJECT_PATH)
+        elif name == "mask_sensitive":
+            description = f"{value['description']} {_MCP_PROJECT}"
+            properties[name] = {**value, "description": description}
+        else:
+            properties[name] = value
+    schema["properties"] = properties
     schema["required"] = ["data_path", *schema.get("required", [])]
+    definitions = schema.get("$defs", {})
+    for name in ("Project", "DataPolicy"):
+        definitions.pop(name, None)
+    if "$defs" in schema and not definitions:
+        del schema["$defs"]
     return schema
 
 

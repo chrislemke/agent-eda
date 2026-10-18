@@ -97,12 +97,35 @@ def test_the_input_schema_is_the_arguments_schema_with_a_required_data_path(
     properties = dict(schema.pop("properties"))
     data_path = properties.pop("data_path")
     expected = ae.describe_analysis(name).to_dict()["parameters_schema"]
+    # project becomes project_path (tests/test_mcp_project.py), and the
+    # Project's definitions go with it.
+    expected_properties = dict(expected["properties"])
+    if expected_properties.pop("project", None) is not None:
+        assert list(properties).index("project_path") == list(
+            expected["properties"]
+        ).index("project")
+        properties.pop("project_path")
+        mask_sensitive = dict(properties.pop("mask_sensitive"))
+        expected_mask = dict(expected_properties.pop("mask_sensitive"))
+        assert mask_sensitive.pop("description").startswith(
+            expected_mask.pop("description")
+        )
+        assert mask_sensitive == expected_mask
+    definitions = {
+        key: value
+        for key, value in expected.get("$defs", {}).items()
+        if key not in ("Project", "DataPolicy")
+    }
 
     assert data_path["type"] == "string"
     assert schema.pop("required")[0] == "data_path"
-    assert {**schema, "properties": properties} == {
-        key: value for key, value in expected.items() if key != "required"
+    assert schema.pop("$defs", {}) == definitions
+    assert schema == {
+        key: value
+        for key, value in expected.items()
+        if key not in ("required", "properties", "$defs")
     }
+    assert properties == expected_properties
     assert [p for p in properties if not properties[p]["description"]] == []
     assert tools[name].input_schema["required"][1:] == expected.get("required", [])
 

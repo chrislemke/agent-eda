@@ -21,7 +21,7 @@ REQUIRED_DEPENDENCIES = [
     "scipy>=1.11.2",
     "statsmodels>=0.14.1",
 ]
-MCP_EXTRA = ["mcp>=2.3 ; extra == 'mcp'", "pyarrow>=14 ; extra == 'mcp'"]
+MCP_EXTRA = ["mcp>=2.3 ; extra == 'mcp'", "pyarrow>=14.0.1 ; extra == 'mcp'"]
 
 # Fails the subprocess on a DeprecationWarning or FutureWarning, like the suite.
 STRICT_WARNINGS = ("-W", "error::DeprecationWarning", "-W", "error::FutureWarning")

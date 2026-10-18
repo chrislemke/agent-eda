@@ -78,7 +78,7 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 ### Package and dependencies
 
 - The server lives in the public module `agent_eda.mcp`, which the package does not import. `import agent_eda` and the discovery functions still import no MCP code, which the packaging tests check.
-- The optional extra `mcp` requires `mcp>=2.3` (the official MCP Python SDK) and `pyarrow>=14`. `mcp` 2.3 needs pydantic 2.12 or later, which is fine for an optional extra; the core minimum stays at 2.7.
+- The optional extra `mcp` requires `mcp>=2.3` (the official MCP Python SDK) and `pyarrow>=14.0.1` (14.0.0 and earlier have CVE-2023-47248). `mcp` 2.3 needs pydantic 2.12 or later, which is fine for an optional extra; the core minimum stays at 2.7.
 - The console script `agent-eda-mcp` points at `agent_eda.mcp:main`. Without the extra, `main` raises the new `MissingDependencyError` (code `missing_dependency`, in `agent_eda.errors`), whose message names `pip install 'agent-eda[mcp]'` and the uv equivalent. The console script prints that message to stderr and exits with status 1, without a traceback.
 - `MissingDependencyError` is general: later optional extras (lifelines and others, ADR 0005) reuse it.
 
@@ -172,7 +172,7 @@ The rules of the main suite apply: small hand-built data with obvious answers, n
 
 - `uv run pytest` installs the extra and runs the MCP tests, so every test job with the latest versions covers them.
 - The existing minimum-versions run stays without the extra, because `mcp` needs pydantic 2.12 and the core must keep being tested on pydantic 2.7. In that run the MCP test modules skip with a reason naming the missing extra.
-- A second minimum-versions run installs the extra at its floors (`mcp` 2.3, pyarrow 14, and the pydantic 2.12 that `mcp` needs) and runs the whole suite. The README's Development table gets its command.
+- A second minimum-versions run installs the extra at its floors (`mcp` 2.3, pyarrow 14.0.1, and the pydantic 2.12 that `mcp` needs) and runs the whole suite. The README's Development table gets its command.
 - The stdio smoke test runs on Python 3.12 and 3.14.
 - The packaging job's offline install without extras stays as it is, which shows the core doesn't need them.
 

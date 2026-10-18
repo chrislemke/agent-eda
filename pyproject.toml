@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # The MCP server (ADR 0006). mcp 2.3 needs pydantic 2.12; the core keeps 2.7.
-mcp = ["mcp>=2.3", "pyarrow>=14"]
+mcp = ["mcp>=2.3", "pyarrow>=14.0.1"]
 
 [project.scripts]
 agent-eda-mcp = "agent_eda.mcp:main"

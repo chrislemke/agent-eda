@@ -16,6 +16,13 @@ AgentEDAError, comes back as a tool error (isError true) whose text is the
 exception's message and whose structured content is {"code", "message"}. Any
 other exception is a bug and becomes a JSON-RPC internal error.
 
+The MCP tools of analyses that take a project have project_path in its place:
+the path to a project TOML file, as ae.Project.save writes it. Started as
+agent-eda-mcp --project project.toml, the server uses that Project for every
+such call that passes no project_path; a call's mask_sensitive wins over both,
+as in Python. Masking is a guardrail against accidental exposure, not
+anonymization or access control (ADR 0001).
+
 The package never imports this module, so `import agent_eda` stays free of the
 mcp extra. Without the extra, create_server() raises MissingDependencyError and
 agent-eda-mcp prints its install commands.
@@ -27,6 +34,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from agent_eda.errors import AgentEDAError, MissingDependencyError
+from agent_eda.project import Project
 
 if TYPE_CHECKING:
     from mcp.server import Server
@@ -40,7 +48,9 @@ _EXTRA_MODULES = ("mcp", "mcp_types", "anyio")
 
 
 def create_server(
-    *, analyses: "Sequence[Callable[..., AnalysisResult]] | None" = None
+    *,
+    analyses: "Sequence[Callable[..., AnalysisResult]] | None" = None,
+    project: Project | None = None,
 ) -> "Server":
     """Build the MCP server, ready to run over any MCP transport.
 
@@ -58,6 +68,13 @@ def create_server(
             registry reads an analysis (data first, options by keyword, a
             docstring and an AnalysisResult subclass as the return type) and
             is called as it is, without the registry's checks.
+        project: The server's Project, such as ae.Project.load('project.toml'),
+            which agent-eda-mcp --project loads. Every call of an MCP tool
+            that has project_path uses it, unless the call passes its own
+            project_path; a call's mask_sensitive wins over both, as in
+            Python. MCP tools of analyses that don't take a project ignore
+            it. None, the default, gives no Project. Masking is a guardrail
+            against accidental exposure, not anonymization or access control.
 
     Returns:
         mcp.server.Server: The low-level MCP server named 'agent-eda', which
@@ -73,24 +90,29 @@ def create_server(
     _require_extra()
     from agent_eda._mcp_server import create_server as create
 
-    return create(analyses)
+    return create(analyses, project)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Run the MCP server over stdio until the client closes the connection.
 
-    This is the agent-eda-mcp console script. A mistake that stops the server
-    from starting, such as a missing mcp extra, prints its message to stderr
-    and exits with status 1, without a traceback.
+    This is the agent-eda-mcp console script. --project PATH loads the
+    server's Project once, at start. A mistake that stops the server from
+    starting, such as a missing mcp extra or a project file that
+    ae.Project.load refuses, prints its message to stderr and exits with
+    status 1, without a traceback.
 
     Args:
         argv: The command-line arguments after the program name; None reads
             them from sys.argv.
     """
-    _parser().parse_args(argv)
+    options = _parser().parse_args(argv)
     try:
-        server = create_server()
-    except AgentEDAError as error:
+        _require_extra()
+        project = None if options.project is None else Project.load(options.project)
+        server = create_server(project=project)
+    except (AgentEDAError, OSError) as error:
+        # OSError: the project file can't be read, such as without permission.
         print(error, file=sys.stderr)
         raise SystemExit(1) from None
     from agent_eda._mcp_server import run_stdio
@@ -99,12 +121,24 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 def _parser() -> argparse.ArgumentParser:
-    return argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         prog="agent-eda-mcp",
         description="Serve the agent-eda analyses as MCP tools over stdio. An MCP "
         "client starts this command as a subprocess; register it with, for "
         "example, claude mcp add agent-eda -- agent-eda-mcp.",
     )
+    parser.add_argument(
+        "--project",
+        metavar="PATH",
+        help="A project TOML file, as ae.Project.save writes it, whose data policy "
+        "names the sensitive columns and says whether to mask them. The server "
+        "loads it once, at start, and every call of an MCP tool that takes "
+        "project_path uses it unless the call passes its own project_path; a "
+        "call's mask_sensitive wins over both. An invalid file stops the server "
+        "with its message. Masking is a guardrail against accidental exposure, "
+        "not anonymization or access control.",
+    )
+    return parser
 
 
 def _require_extra() -> None:
