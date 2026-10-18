@@ -423,7 +423,9 @@ class DescribeDatasetColumn(ResultModel):
     )
     memory_bytes: int = Field(
         description="Bytes the values use, counting each object a text or object "
-        "column holds. Excludes pandas' lookup tables."
+        "column holds. Excludes pandas' lookup tables and the UTF-8 copy Python "
+        "caches inside a string once something has encoded it, so earlier work on "
+        "the data doesn't change it."
     )
 
 
@@ -438,7 +440,8 @@ class DescribeDatasetIndex(ResultModel):
         description="Missing labels; in a MultiIndex, labels with any level missing."
     )
     memory_bytes: int = Field(
-        description="Bytes the index labels use. Excludes pandas' lookup tables."
+        description="Bytes the index labels use. Excludes pandas' lookup tables and "
+        "the UTF-8 copies Python caches inside strings."
     )
 
 

@@ -64,12 +64,16 @@ uv run pre-commit install
 | Type check | `uv run ty check` |
 | Test | `uv run pytest` |
 | Test on the minimum versions | `uv run --isolated --resolution lowest-direct --python 3.12 pytest` |
+| Test with more generated examples | `uv run pytest --hypothesis-profile=thorough` |
 | Test with coverage | `uv run pytest --cov` |
+| Benchmark | `uv run pytest -m benchmark` |
 | Run all hooks | `uv run pre-commit run --all-files` |
 
 The minimum-versions run installs every direct dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1, and the dev tools' lower bounds) into a throwaway environment on Python 3.12, the newest Python with numpy 1.26 wheels. It leaves `uv.lock` and `.venv` unchanged. Keep `--isolated`: without it, uv rewrites `uv.lock` for the new resolution mode.
 
 The packaging tests build the wheel offline with the `uv_build` backend from the dev dependencies, pinned to the range in `[build-system]`, so they need no network and work with any uv version.
+
+The property tests call every analysis in `ae.list_analyses()` on DataFrames that Hypothesis generates full of edge cases, and on fixed ones such as a column of every dtype. Hypothesis runs derandomized, so every run tests the same 50 examples per analysis, or 1,000 with the `thorough` profile. The benchmark times every analysis with its default arguments on a deterministic DataFrame of 1,000,000 rows and 100 mixed columns, fails one that takes 5 seconds or more, and prints the timings at the end. It limits NumPy's BLAS and pyarrow to 2 threads, like the 2-vCPU AgentCore session it targets. The default test run skips it. Both call each analysis through its recipe in `tests/recipes.py`, so a new analysis needs one there, or the suite fails and says so.
 
 On every commit, pre-commit checks the files (whitespace, line endings, YAML/TOML/JSON syntax, merge conflict markers, private keys, files over 1 MB), keeps `uv.lock` in sync, and runs ruff and ty. The tests run on `git push`.
 
