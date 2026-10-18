@@ -7,6 +7,7 @@ while the analysis runs never reach the caller, and the result is checked
 against what the analysis declared.
 """
 
+import collections.abc
 import difflib
 import functools
 import importlib
@@ -302,21 +303,20 @@ def _invalid_message(spec: AnalysisSpec, options: dict[str, Any], problem: Any) 
     location = problem["loc"]
     name = str(location[0]) if location else "?"
     annotation = spec.annotations.get(name)
-    value = options.get(name)
-    if len(location) > 1 and isinstance(location[1], int) and isinstance(value, list):
-        # A value inside a list option.
-        value = value[location[1]]
-        where = f"at {name}[{location[1]}]"
-        each = _allowed(item_annotation(annotation), "value")
-        rule = f"each value in {name} must be {each}"
+    value, path, inner = _locate(options.get(name), annotation, location[1:])
+    if path:
+        # A value inside a list option, or inside a mapping's lists.
+        where = f"at {name}{path}"
+        rule = f"each value in {name} must be {_allowed(inner, 'value')}"
     else:
         where = f"for {name}"
         rule = f"{name} must be {_allowed(annotation, name)}"
     if problem["type"] == "literal_error":
-        choices = [str(c) for c in typing.get_args(strip_optional(annotation))]
+        choices = [str(c) for c in typing.get_args(strip_optional(inner))]
         closest = closest_names(value, choices)[:1] if isinstance(value, str) else []
         detail = f" Did you mean {closest[0]!r}?" if closest else ""
-    elif problem["type"] in _OUT_OF_RANGE:
+    elif problem["type"] in _OUT_OF_RANGE or len(members(strip_optional(inner))) > 1:
+        # pydantic's message for a union names only its first type.
         detail = ""
     else:
         detail = f" {problem['msg']}."
@@ -324,6 +324,28 @@ def _invalid_message(spec: AnalysisSpec, options: dict[str, Any], problem: Any) 
         f"{spec.name} got {_value_text(value)} {where}, but {rule}.{detail} "
         f"See help(ae.{spec.name}) for every argument."
     )
+
+
+def _locate(
+    value: object, annotation: object, steps: tuple[object, ...]
+) -> tuple[object, str, object]:
+    """The value at a validation error's location inside an option.
+
+    Follows list positions and mapping keys as far as they lead and returns the
+    value found, its path such as "['age'][1]" ("" for the option itself) and
+    its annotation.
+    """
+    path = ""
+    for step in steps:
+        if isinstance(value, list) and isinstance(step, int) and step < len(value):
+            value, path = value[step], f"{path}[{step}]"
+            annotation = item_annotation(annotation)
+        elif isinstance(value, dict) and step in value:
+            value, path = value[step], f"{path}[{step!r}]"
+            annotation = _mapping_values(annotation) or annotation
+        else:
+            break  # such as the name of a union's member
+    return value, path, annotation
 
 
 # pydantic's error types for a value outside a declared range; the message
@@ -367,15 +389,18 @@ def _normalize(spec: AnalysisSpec, name: str, value: object) -> object:
 
     A list option takes any ordered list-like, such as a tuple, a pandas Index
     or Series, a 1-D NumPy array or a generator, and a single value as a
-    one-item list. NumPy scalars become Python scalars. A column option, such
-    as columns or id_column, also takes labels that aren't strings and names
-    them by their string form, the way results show them. Validation then stays
-    strict about everything else.
+    one-item list. NumPy scalars become Python scalars, and NumPy datetimes and
+    timedeltas pandas ones. A column option, such as columns or id_column, also
+    takes labels that aren't strings and names them by their string form, the
+    way results show them. A mapping option is keyed by column names, which
+    follow the same rule, and each of its values is read like an option of the
+    value's type. Validation then stays strict about everything else.
     """
-    if not any(
-        typing.get_origin(member) in LIST_TYPES
-        for member in members(spec.annotations[name])
-    ):
+    annotation = spec.annotations[name]
+    values = _mapping_values(annotation)
+    if values is not None:
+        return _normalize_mapping(spec, name, value, values)
+    if not _takes_list(annotation):
         value = _python_scalar(value)
         if name.endswith("column") and value is not None:
             return _column_name(value)
@@ -386,11 +411,47 @@ def _normalize(spec: AnalysisSpec, name: str, value: object) -> object:
     return items
 
 
+def _takes_list(annotation: object) -> bool:
+    return any(
+        typing.get_origin(member) in LIST_TYPES for member in members(annotation)
+    )
+
+
+def _mapping_values(annotation: object) -> object:
+    """The annotation of a mapping option's values, or None if it takes no mapping."""
+    for member in members(annotation):
+        if typing.get_origin(member) in (collections.abc.Mapping, dict):
+            return typing.get_args(member)[1]
+    return None
+
+
+def _normalize_mapping(
+    spec: AnalysisSpec, name: str, value: object, values: object
+) -> object:
+    """A mapping keyed by column names, each value read as `values` declares it."""
+    if not isinstance(value, Mapping):
+        return value  # None, or something validation rejects, naming its type
+    normalized: dict[object, object] = {}
+    given: dict[object, object] = {}
+    for key, item in value.items():
+        column = _column_name(key)
+        if column in normalized:
+            raise InvalidArgumentError(
+                f"{spec.name} got column {column!r} more than once in {name}, as "
+                f"{given[column]!r} and {key!r}. Name each column once."
+            )
+        given[column] = key
+        normalized[column] = (
+            _as_list(spec, name, item) if _takes_list(values) else _python_scalar(item)
+        )
+    return normalized
+
+
 def _as_list(spec: AnalysisSpec, name: str, value: object) -> object:
     if value is None:
         return None
     if isinstance(value, np.generic):
-        return [value.item()]
+        return [_python_scalar(value)]
     if isinstance(value, str | bytes) or not isinstance(value, Iterable):
         return [value]
     if isinstance(value, set | frozenset):
@@ -402,12 +463,21 @@ def _as_list(spec: AnalysisSpec, name: str, value: object) -> object:
         isinstance(value, np.ndarray) and value.ndim != 1
     ):
         return value  # validation rejects it, naming its type
-    if isinstance(value, pd.Index | pd.Series | np.ndarray):
-        return value.tolist()
+    if isinstance(value, pd.Index | pd.Series):
+        return value.tolist()  # pandas gives Timestamps for datetimes
     return [_python_scalar(item) for item in value]
 
 
 def _python_scalar(value: object) -> object:
+    """A NumPy scalar as Python's or pandas' own; anything else as it is.
+
+    NumPy datetimes and timedeltas become pandas ones: their item() is an int
+    for nanoseconds.
+    """
+    if isinstance(value, np.datetime64):
+        return pd.Timestamp(value)
+    if isinstance(value, np.timedelta64):
+        return pd.Timedelta(value)
     return value.item() if isinstance(value, np.generic) else value
 
 
