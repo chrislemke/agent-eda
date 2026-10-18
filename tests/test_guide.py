@@ -14,10 +14,11 @@ STATUSES = [
     "blocked_by_policy",
     "failed",
 ]
-# The spec's order for a first look at a new dataset; a step can name two.
+# The order for a first look at a new dataset, which names all 11 first-look
+# analyses; a step can name two.
 FIRST_LOOK = [
     ["describe_dataset"],
-    ["infer_column_semantics"],
+    ["infer_column_semantics", "validate_column_types"],
     ["profile_missing_values"],
     ["detect_missing_sentinels"],
     ["summarize_numeric", "summarize_categorical"],
@@ -87,7 +88,7 @@ def test_says_what_the_package_is_how_to_call_it_and_how_to_read_results(capsys)
         assert call in text
 
 
-def test_suggests_the_first_look_order_for_the_analyses_registered_so_far(capsys):
+def test_names_all_eleven_analyses_in_the_first_look_order(capsys):
     lines = guide_lines(capsys)
 
     start = lines.index("A first look at a new dataset, in this order:")
@@ -98,9 +99,8 @@ def test_suggests_the_first_look_order_for_the_analyses_registered_so_far(capsys
             break
         assert int(step[1]) == len(steps) + 1
         steps.append(step[2].split(" and "))
-    registered = {info.name for info in ANALYSES}
-    expected = [[n for n in step if n in registered] for step in FIRST_LOOK]
-    assert steps == [step for step in expected if step]
+    assert steps == FIRST_LOOK
+    assert sum(len(step) for step in steps) == 11
 
 
 def test_explains_how_to_mask_the_values_of_sensitive_columns(capsys):
@@ -115,3 +115,11 @@ def test_explains_how_to_mask_the_values_of_sensitive_columns(capsys):
     assert (
         "guardrail against accidental exposure, not anonymization or access control"
     ) in text
+
+
+def test_explains_how_to_keep_a_project_for_later_scripts(capsys):
+    text = " ".join(" ".join(guide_lines(capsys)).split())
+
+    assert 'project.save("project.toml")' in text
+    assert 'ae.Project.load("project.toml")' in text
+    assert "later script" in text

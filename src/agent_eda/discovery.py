@@ -39,7 +39,10 @@ from agent_eda.results import (
 # analyses that cover it. The guide shows the analyses registered so far.
 FIRST_LOOK: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("structure", ("describe_dataset",)),
-    ("logical types", ("infer_column_semantics",)),
+    (
+        "logical types, inferred and checked against your schema",
+        ("infer_column_semantics", "validate_column_types"),
+    ),
     ("missing values", ("profile_missing_values",)),
     ("stand-ins for missing values", ("detect_missing_sentinels",)),
     ("distributions", ("summarize_numeric", "summarize_categorical")),
@@ -75,7 +78,8 @@ Read the result:
 _GUIDE_MASKING = """\
 Masking: analyses marked [supports masking] can show raw values, such as labels or row IDs. Pass
     project=ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"], mask_sensitive=True))
-to show <masked 1> and so on instead, a guardrail against accidental exposure, not anonymization or access control."""
+to show <masked 1> and so on instead, a guardrail against accidental exposure, not anonymization or access control.
+Save it once with project.save("project.toml") and load it in each later script with ae.Project.load("project.toml")."""
 
 _GUIDE_MORE = """\
 Find more:
@@ -90,9 +94,10 @@ def guide() -> None:
 
     The page covers what the package is, the call pattern, how to read a result
     and its status, every analysis grouped by module with the question it
-    answers, how to mask the values of sensitive columns, and an order for a
-    first look at a new dataset. It stays within about 60 lines of at most 120
-    characters. Start here when you are new to the package; then find an
+    answers, how to mask the values of sensitive columns and keep the project
+    for later scripts, and an order for a first look at a new dataset that
+    names every first-look analysis. It stays within about 60 lines of at most
+    120 characters. Start here when you are new to the package; then find an
     analysis with search_analyses() and learn how to call it with
     describe_analysis().
 
