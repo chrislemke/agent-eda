@@ -5,6 +5,7 @@ checking that the extra is installed. Every analysis call goes through one data
 reader, the server's DataReader, and one response builder, _response.
 """
 
+import inspect
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from mcp.server.stdio import stdio_server
 import agent_eda
 from agent_eda._annotations import type_text
 from agent_eda._data_files import DataReader, supported_extensions
+from agent_eda._mcp_instructions import instructions
 from agent_eda._registry import (
     AnalysisSpec,
     missing_message,
@@ -28,9 +30,10 @@ from agent_eda._registry import (
 )
 from agent_eda._table_files import TableFile, table_file
 from agent_eda._version import __version__
+from agent_eda.discovery import list_analyses, search_analyses
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
-from agent_eda.results import AnalysisResult
+from agent_eda.results import AnalysisListing, AnalysisResult, SearchListing
 
 _log = logging.getLogger("agent_eda.mcp")
 
@@ -109,6 +112,101 @@ class _AnalysisTool:
     tool: types.Tool
 
 
+# search_analyses and list_analyses only read the registry.
+_DISCOVERY_ANNOTATIONS = types.ToolAnnotations(
+    read_only_hint=True,
+    destructive_hint=False,
+    idempotent_hint=True,
+    open_world_hint=False,
+)
+
+_SEARCH_DESCRIPTION = """\
+{summary}
+
+The query's words, without common ones such as 'the' and 'of', are matched against each analysis's name, tags, \
+summary and When to use: text. A few synonyms help: nulls and NaN find missing values, dupes find duplicates, \
+correlation finds association and label finds target. The search is keyword based, so the same query always gives \
+the same ranking.
+
+Returns:
+The text lists the best matches, best first, as name: summary with the words each matched. The structured content \
+holds matches, each with its name, module, summary, score and matched_terms; match_count, which counts every match, \
+also those beyond limit; and terms, the words searched for with their synonyms. Each name is an MCP tool name."""
+
+_LIST_DESCRIPTION = """\
+{summary}
+
+Returns:
+The text lists one line per analysis, name: summary, grouped under its module; the summary is the question the \
+analysis answers, and [supports masking] marks the MCP tools that take project_path. The structured content's \
+analyses hold what each analysis declares: parameters, methods, statuses, finding_codes, result_class and \
+work_limit_parameters. Each name is an MCP tool name; parameters gives the Python names, in which data is data_path \
+and project is project_path over MCP."""
+
+
+@dataclass(frozen=True)
+class _DiscoveryTool:
+    """A discovery function served as an MCP tool: it takes JSON arguments and
+    returns a listing whose text and record make the response."""
+
+    function: Callable[..., AnalysisListing | SearchListing]
+    tool: types.Tool
+
+
+def _discovery_tools() -> dict[str, _DiscoveryTool]:
+    """The search_analyses and list_analyses MCP tools, by name.
+
+    describe_analysis and guide are not MCP tools: each analysis MCP tool's
+    description and input schema carry what describe_analysis says, and the
+    server's instructions carry the guide.
+    """
+    search = types.Tool(
+        name="search_analyses",
+        description=_SEARCH_DESCRIPTION.format(summary=_summary(search_analyses)),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What you want to know, in your own words, "
+                    "such as 'nulls per column'.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 5,
+                    "description": "The most matches to return, at least 1; "
+                    "defaults to 5.",
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        output_schema=SearchListing.model_json_schema(),
+        annotations=_DISCOVERY_ANNOTATIONS,
+    )
+    listing = types.Tool(
+        name="list_analyses",
+        description=_LIST_DESCRIPTION.format(summary=_summary(list_analyses)),
+        input_schema={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        output_schema=AnalysisListing.model_json_schema(),
+        annotations=_DISCOVERY_ANNOTATIONS,
+    )
+    return {
+        "search_analyses": _DiscoveryTool(function=search_analyses, tool=search),
+        "list_analyses": _DiscoveryTool(function=list_analyses, tool=listing),
+    }
+
+
+def _summary(function: Callable[..., object]) -> str:
+    """The first line of a function's docstring."""
+    return (inspect.getdoc(function) or "").split("\n")[0]
+
+
 def create_server(
     analyses: Sequence[Callable[..., AnalysisResult]] | None = None,
     project: Project | None = None,
@@ -119,7 +217,9 @@ def create_server(
     entry of each analysis: every registered one when analyses is None. The
     server reads data paths through one DataReader, which keeps the most
     recently read files. project is the server's Project, which every call of
-    an MCP tool with project_path uses unless the call names its own.
+    an MCP tool with project_path uses unless the call names its own. The
+    discovery MCP tools and the instructions read the registry, as their
+    Python counterparts do.
     """
     reader = DataReader()
     if analyses is None:
@@ -128,23 +228,29 @@ def create_server(
     for function in analyses:
         served = _analysis_tool(spec_of(function), function)
         tools[served.tool.name] = served
+    discovery = _discovery_tools()
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[served.tool for served in tools.values()])
+        return types.ListToolsResult(
+            tools=[served.tool for served in [*discovery.values(), *tools.values()]]
+        )
 
     async def call_tool(
         ctx: ServerRequestContext, params: types.CallToolRequestParams
     ) -> types.CallToolResult:
-        served = tools.get(params.name)
+        served = tools.get(params.name) or discovery.get(params.name)
         if served is None:
             raise MCPError(
                 code=types.INVALID_PARAMS,
                 message=f"There is no MCP tool named {params.name!r}.",
             )
+        arguments = dict(params.arguments or {})
         try:
-            return _call(served, reader, project, dict(params.arguments or {}))
+            if isinstance(served, _DiscoveryTool):
+                return _discover(served, arguments)
+            return _call(served, reader, project, arguments)
         except AgentEDAError as error:
             return _error_response(error)
         except Exception as error:
@@ -161,6 +267,7 @@ def create_server(
     return Server(
         "agent-eda",
         version=__version__,
+        instructions=instructions(),
         on_list_tools=list_tools,
         on_call_tool=call_tool,
     )
@@ -193,6 +300,45 @@ def _call(
         arguments["project"] = project
     data = reader.read(arguments.pop("data_path"))
     return _response(served.function(data, **arguments), table)
+
+
+def _discover(
+    served: _DiscoveryTool, arguments: dict[str, Any]
+) -> types.CallToolResult:
+    """Run search_analyses or list_analyses: the listing's text and record.
+
+    The server checks the argument names; the function checks the values, with
+    the message a Python caller gets.
+    """
+    name = served.tool.name
+    properties = list(served.tool.input_schema["properties"])
+    unknown = [key for key in arguments if key not in properties]
+    if unknown and not properties:
+        raise InvalidArgumentError(
+            f"{name} takes no arguments, but got {unknown[0]!r}. Call it with {{}}.",
+            code="invalid_call",
+        )
+    if unknown:
+        raise InvalidArgumentError(
+            unknown_name_message(name, "argument", unknown[0], properties),
+            code="invalid_call",
+        )
+    missing = [
+        key
+        for key in served.tool.input_schema.get("required", [])
+        if key not in arguments
+    ]
+    if missing:
+        raise InvalidArgumentError(
+            f"{name} is missing the required argument {missing[0]}. Pass what you "
+            'want to know in your own words, such as {"query": "nulls per column"}.',
+            code="invalid_call",
+        )
+    listing = served.function(**arguments)
+    return types.CallToolResult(
+        content=[types.TextContent(text=str(listing))],
+        structured_content=listing.to_dict(),
+    )
 
 
 def _load_project(name: str, project_path: object) -> Project:

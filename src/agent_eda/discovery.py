@@ -119,17 +119,7 @@ def guide() -> None:
 
 def _guide_text() -> str:
     listing = list_analyses()
-    registered = {info.name for info in listing.analyses}
-    steps = [
-        (covers, [name for name in names if name in registered])
-        for covers, names in FIRST_LOOK
-    ]
-    first_look = [
-        f"  {number}. {' and '.join(names)}: {covers}"
-        for number, (covers, names) in enumerate(
-            [(covers, names) for covers, names in steps if names], start=1
-        )
-    ]
+    first_look = _first_look_lines(listing)
     return "\n".join(
         [
             _GUIDE_INTRO.format(version=__version__),
@@ -148,6 +138,24 @@ def _guide_text() -> str:
             _GUIDE_MORE,
         ]
     )
+
+
+def _first_look_lines(listing: AnalysisListing) -> list[str]:
+    """The first-look order as numbered lines, limited to the listed analyses.
+
+    The guide and the MCP server's instructions both show these lines.
+    """
+    listed = {info.name for info in listing.analyses}
+    steps = [
+        (covers, [name for name in names if name in listed])
+        for covers, names in FIRST_LOOK
+    ]
+    return [
+        f"  {number}. {' and '.join(names)}: {covers}"
+        for number, (covers, names) in enumerate(
+            [(covers, names) for covers, names in steps if names], start=1
+        )
+    ]
 
 
 def list_analyses() -> AnalysisListing:
