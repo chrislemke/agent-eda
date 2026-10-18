@@ -29,11 +29,13 @@ if TYPE_CHECKING:
         search_analyses,
     )
     from agent_eda.results import AnalysisResult
+    from agent_eda.statistics.association import compute_association_matrix
     from agent_eda.statistics.descriptive import summarize_numeric
 
 __all__ = [
     "AnalysisResult",
     "__version__",
+    "compute_association_matrix",
     "describe_analysis",
     "describe_dataset",
     "guide",
@@ -47,6 +49,7 @@ __all__ = [
 _EXPORTS: dict[str, str] = {
     "AnalysisResult": "agent_eda.results",
     "__version__": "agent_eda._version",
+    "compute_association_matrix": "agent_eda.statistics.association",
     "describe_analysis": "agent_eda.discovery",
     "describe_dataset": "agent_eda.data.provenance",
     "guide": "agent_eda.discovery",

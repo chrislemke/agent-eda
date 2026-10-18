@@ -62,7 +62,9 @@ def describe_dataset(
         index, all-missing columns and constant columns. Every other analysis
         raises on bad column labels, so run this one to find them. It never
         shows a raw data value. For how the values of each numeric column are
-        distributed, call `summarize_numeric` next. `list_analyses` lists the
+        distributed, call `summarize_numeric` next. Columns whose values, not
+        labels, duplicate or derive from another column show up as perfect
+        associations in `compute_association_matrix`. `list_analyses` lists the
         other analyses.
 
     Args:
@@ -139,6 +141,9 @@ def describe_dataset(
     See Also:
         summarize_numeric: Counts, mean, spread, quantiles and shape of every
             numeric column.
+        compute_association_matrix: How strongly pairs of columns are
+            associated, with perfect associations flagged as possibly duplicated
+            or derived columns.
         list_analyses: Every analysis, with the question each one answers.
     """
     row_count = len(data)

@@ -12,7 +12,6 @@ import functools
 import importlib
 import inspect
 import re
-import reprlib
 import types
 import typing
 import warnings
@@ -36,7 +35,7 @@ from agent_eda._columns import check_column_labels, closest_names
 from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
 from agent_eda._run import watch_all_warnings
-from agent_eda._text import join_alternatives, plural
+from agent_eda._text import join_alternatives, value_text
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.results import AnalysisResult, Limitation, Status
 
@@ -321,7 +320,7 @@ def _invalid_message(spec: AnalysisSpec, options: dict[str, Any], problem: Any) 
     else:
         detail = f" {problem['msg']}."
     return (
-        f"{spec.name} got {_value_text(value)} {where}, but {rule}.{detail} "
+        f"{spec.name} got {value_text(value)} {where}, but {rule}.{detail} "
         f"See help(ae.{spec.name}) for every argument."
     )
 
@@ -412,29 +411,6 @@ def _column_name(item: object) -> object:
     if isinstance(item, str) or not isinstance(item, Hashable):
         return item
     return str(item)
-
-
-_SCALAR_REPR = reprlib.Repr(maxstring=40, maxother=40)
-
-
-def _value_text(value: object) -> str:
-    """Show a scalar argument; describe anything larger by its type and size.
-
-    A container passed by mistake, such as a column of a DataFrame, would
-    otherwise put raw data values into the message.
-    """
-    if value is None or isinstance(value, bool | int | float | str | np.generic):
-        return _SCALAR_REPR.repr(value)
-    if isinstance(value, pd.DataFrame):
-        rows = plural(value.shape[0], "row", "rows")
-        return f"a pandas DataFrame with {rows} and {plural(value.shape[1], 'column', 'columns')}"
-    if isinstance(value, pd.Series | pd.Index):
-        return f"a pandas {type(value).__name__} of {plural(len(value), 'value', 'values')}"
-    if isinstance(value, np.ndarray):
-        return f"a NumPy array of shape {value.shape}"
-    if isinstance(value, list | tuple | set | frozenset | dict):
-        return f"a {type(value).__name__} of {plural(len(value), 'item', 'items')}"
-    return f"a {type(value).__name__}"
 
 
 def _absorb_warnings(result: object, caught: list[warnings.WarningMessage]) -> object:

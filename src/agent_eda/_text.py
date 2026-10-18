@@ -7,10 +7,14 @@ the rest is. The text never exceeds 40 lines or 120 characters per line, and
 every section counts what it leaves out.
 """
 
+import reprlib
 import textwrap
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
 
 MAX_LINES = 40
 MAX_WIDTH = 120
@@ -233,3 +237,26 @@ def _fit(line: str) -> str:
     if len(line) <= MAX_WIDTH:
         return line
     return line[: MAX_WIDTH - len(ELLIPSIS)] + ELLIPSIS
+
+
+_SCALAR_REPR = reprlib.Repr(maxstring=40, maxother=40)
+
+
+def value_text(value: object) -> str:
+    """Show a scalar value; describe anything larger by its type and size.
+
+    A container passed by mistake, such as a column of a DataFrame, would
+    otherwise put raw data values into the message.
+    """
+    if value is None or isinstance(value, bool | int | float | str | np.generic):
+        return _SCALAR_REPR.repr(value)
+    if isinstance(value, pd.DataFrame):
+        rows = plural(value.shape[0], "row", "rows")
+        return f"a pandas DataFrame with {rows} and {plural(value.shape[1], 'column', 'columns')}"
+    if isinstance(value, pd.Series | pd.Index):
+        return f"a pandas {type(value).__name__} of {plural(len(value), 'value', 'values')}"
+    if isinstance(value, np.ndarray):
+        return f"a NumPy array of shape {value.shape}"
+    if isinstance(value, list | tuple | set | frozenset | dict):
+        return f"a {type(value).__name__} of {plural(len(value), 'item', 'items')}"
+    return f"a {type(value).__name__}"

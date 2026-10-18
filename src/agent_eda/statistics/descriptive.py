@@ -72,8 +72,10 @@ def summarize_numeric(
         skewness and excess kurtosis. The result states how each statistic is
         defined. Booleans are left out unless named in columns. A text,
         categorical or datetime column named in columns raises
-        `errors.ColumnTypeError`; `describe_dataset` covers every dtype, and
-        `list_analyses` lists the other analyses.
+        `errors.ColumnTypeError`; `describe_dataset` covers every dtype. For how
+        strongly pairs of columns move together, call
+        `compute_association_matrix`, and `list_analyses` lists the other
+        analyses.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -182,6 +184,8 @@ def summarize_numeric(
     See Also:
         describe_dataset: Dtypes, missing and distinct counts and memory of every
             column, whatever its dtype.
+        compute_association_matrix: How strongly every pair of numeric and
+            categorical columns is associated, strongest first.
         list_analyses: Every analysis, with the question each one answers.
     """
     levels = list(quantiles)

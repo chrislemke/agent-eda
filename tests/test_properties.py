@@ -104,7 +104,10 @@ FRAME_FEATURES: dict[str, Callable[[pd.DataFrame], bool]] = {
 def test_generated_frames_cover_every_dtype_family_and_shape():
     seen = set()
 
-    @settings(max_examples=200)
+    # Hypothesis also draws constants it finds in the package's own modules, so
+    # any new module changes which frames come up, derandomized or not. In 500
+    # frames the rarest feature comes up about a dozen times.
+    @settings(max_examples=500)
     @given(data_frames())
     def collect(df):
         seen.update(name for name, has in FRAME_FEATURES.items() if has(df))

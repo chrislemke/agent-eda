@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 from hypothesis import strategies as st
@@ -91,10 +92,42 @@ def is_number_or_boolean(dtype: Any) -> bool:
     return isinstance(dtype, pd.ArrowDtype) and pd.api.types.is_numeric_dtype(dtype)
 
 
+def is_pairable(dtype: Any) -> bool:
+    """Numbers, booleans, text, objects and categoricals, whatever their storage."""
+    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype):
+        return True
+    if is_number_or_boolean(dtype):
+        return True
+    if isinstance(dtype, pd.ArrowDtype):
+        return dtype.kind == "U"  # strings; lists, dates and durations aren't
+    # Object columns; periods and intervals, also of kind "O", aren't.
+    return isinstance(dtype, np.dtype) and dtype.kind == "O"
+
+
+def association_options(data: pd.DataFrame) -> st.SearchStrategy[Arguments]:
+    """Columns to pair, some of them read as categorical, and any other option."""
+    pairable = names(data, is_pairable)
+    return column_lists(pairable).flatmap(
+        lambda chosen: optional(
+            columns=st.just(chosen),
+            categorical_columns=column_lists(pairable if chosen is None else chosen),
+            numeric_method=st.sampled_from(
+                choices("compute_association_matrix", "numeric_method")
+            ),
+            categorical_method=st.sampled_from(
+                choices("compute_association_matrix", "categorical_method")
+            ),
+            max_categories=st.integers(2, 60),
+            max_pairs=st.integers(1, 6_000),
+        )
+    )
+
+
 # Any text, sometimes longer than a printed line.
 TEXT = st.text() | st.text(min_size=121, max_size=130)
 
 RECIPES: dict[str, Recipe] = {
+    "compute_association_matrix": Recipe(options=association_options),
     "describe_dataset": Recipe(
         options=lambda data: optional(
             source=st.none() | TEXT, source_version=st.none() | TEXT
