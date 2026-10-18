@@ -24,6 +24,9 @@ Codes, with the class that raises each:
     unsupported_column_type (ColumnTypeError): a named column has a dtype the
         analysis can't use; the message names the dtype, the accepted dtypes
         and a fix.
+    unknown_analysis (UnknownAnalysisError): describe_analysis got a name that
+        isn't an analysis; the message suggests the closest names and lists
+        every analysis.
 """
 
 
@@ -59,3 +62,9 @@ class ColumnTypeError(AgentEDAError, TypeError):
     """A column named in the call has a dtype the analysis can't use."""
 
     code = "unsupported_column_type"
+
+
+class UnknownAnalysisError(AgentEDAError, LookupError):
+    """A name passed to describe_analysis isn't the name of an analysis."""
+
+    code = "unknown_analysis"

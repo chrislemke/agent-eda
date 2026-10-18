@@ -1,6 +1,9 @@
 import doctest
+import json
 import subprocess
 import sys
+
+import pytest
 
 import agent_eda as ae
 
@@ -81,15 +84,27 @@ def test_reloading_an_analysis_module_keeps_one_entry_per_analysis():
     assert completed.stdout.strip() == "1"
 
 
-def test_docstring_example_runs():
+@pytest.mark.parametrize(
+    "function", ["list_analyses", "guide", "search_analyses", "describe_analysis"]
+)
+def test_docstring_examples_of_the_discovery_functions_run(function):
     runner = doctest.DocTestRunner()
     report = []
     finder = doctest.DocTestFinder(recurse=False)
-    for test in finder.find(ae.list_analyses, name="list_analyses", globs={}):
+    for test in finder.find(getattr(ae, function), name=function, globs={}):
         runner.run(test, out=report.append)
 
     assert runner.tries > 0
     assert runner.failures == 0, "".join(report)
+
+
+def test_to_json_gives_the_listing_as_strict_json():
+    listing = ae.list_analyses()
+
+    record = json.loads(listing.to_json())
+
+    assert record == listing.to_dict()
+    assert [a["name"] for a in record["analyses"]] == [a.name for a in listing.analyses]
 
 
 def test_to_frame_has_one_row_per_analysis():

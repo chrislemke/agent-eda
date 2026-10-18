@@ -7,7 +7,6 @@ while the analysis runs never reach the caller, and the result is checked
 against what the analysis declared.
 """
 
-import collections.abc
 import difflib
 import functools
 import importlib
@@ -22,12 +21,20 @@ from dataclasses import dataclass
 from types import FunctionType
 from typing import Any, cast
 
-import annotated_types
 import numpy as np
 import pandas as pd
 import pydantic
 
+from agent_eda._annotations import (
+    LIST_TYPES,
+    bounds,
+    item_annotation,
+    members,
+    strip_optional,
+)
 from agent_eda._columns import check_column_labels, closest_names
+from agent_eda._docstring import Docstring
+from agent_eda._docstring import parse as parse_docstring
 from agent_eda._run import watch_all_warnings
 from agent_eda._text import join_alternatives, plural
 from agent_eda.errors import InvalidArgumentError
@@ -43,6 +50,7 @@ class AnalysisSpec:
     name: str
     module: str
     summary: str
+    docstring: Docstring
     tags: tuple[str, ...]
     signature: inspect.Signature
     methods: tuple[str, ...]
@@ -52,7 +60,8 @@ class AnalysisSpec:
     supports_masking: bool
     work_limits: tuple[str, ...]
     arguments: type[pydantic.BaseModel]
-    # Each option's annotation as written, Annotated ranges included.
+    # Each parameter's annotation, data's included, resolved from the type hints
+    # with Annotated ranges kept.
     annotations: dict[str, object]
     any_column_labels: bool
 
@@ -156,8 +165,10 @@ def _spec(
     # include_extras keeps the ranges declared with Annotated.
     hints = typing.get_type_hints(func, include_extras=True)
     names = list(signature.parameters)
-    if not names or names[0] != "data":
-        raise TypeError(f"analysis {name!r} must take data as its first parameter")
+    if not names or names[0] != "data" or "data" not in hints:
+        raise TypeError(
+            f"analysis {name!r} must take data: pd.DataFrame as its first parameter"
+        )
     if any(
         p.kind is not inspect.Parameter.KEYWORD_ONLY
         for p in list(signature.parameters.values())[1:]
@@ -185,10 +196,12 @@ def _spec(
         ),
         **cast("dict[str, Any]", options),
     )
+    docstring = parse_docstring(doc)
     return AnalysisSpec(
         name=name,
         module=func.__module__,
-        summary=doc.splitlines()[0].strip(),
+        summary=docstring.summary,
+        docstring=docstring,
         tags=tags,
         signature=signature,
         methods=methods,
@@ -198,7 +211,10 @@ def _spec(
         supports_masking=masking,
         work_limits=work_limits,
         arguments=arguments,
-        annotations={name: annotation for name, (annotation, _) in options.items()},
+        annotations={
+            "data": hints["data"],
+            **{option: annotation for option, (annotation, _) in options.items()},
+        },
         any_column_labels=any_column_labels,
     )
 
@@ -291,12 +307,13 @@ def _invalid_message(spec: AnalysisSpec, options: dict[str, Any], problem: Any) 
         # A value inside a list option.
         value = value[location[1]]
         where = f"at {name}[{location[1]}]"
-        rule = f"each value in {name} must be {_allowed(_item(annotation), 'value')}"
+        each = _allowed(item_annotation(annotation), "value")
+        rule = f"each value in {name} must be {each}"
     else:
         where = f"for {name}"
         rule = f"{name} must be {_allowed(annotation, name)}"
     if problem["type"] == "literal_error":
-        choices = [str(c) for c in typing.get_args(_strip_optional(annotation))]
+        choices = [str(c) for c in typing.get_args(strip_optional(annotation))]
         closest = closest_names(value, choices)[:1] if isinstance(value, str) else []
         detail = f" Did you mean {closest[0]!r}?" if closest else ""
     elif problem["type"] in _OUT_OF_RANGE:
@@ -322,23 +339,9 @@ def _allowed(annotation: object, subject: str) -> str:
         return f"one of {join_alternatives(choices)}"
     if origin is typing.Annotated:
         inner, *metadata = typing.get_args(annotation)
-        bounds = _bounds(metadata, subject)
-        return f"{_allowed(inner, subject)} with {bounds}" if bounds else _plain(inner)
+        limits = bounds(metadata, subject)
+        return f"{_allowed(inner, subject)} with {limits}" if limits else _plain(inner)
     return _plain(annotation)
-
-
-def _bounds(metadata: list[object], subject: str) -> str:
-    lower = upper = ""
-    for item in metadata:
-        if isinstance(item, annotated_types.Ge):
-            lower = f"{item.ge:g} <= "
-        elif isinstance(item, annotated_types.Gt):
-            lower = f"{item.gt:g} < "
-        elif isinstance(item, annotated_types.Le):
-            upper = f" <= {item.le:g}"
-        elif isinstance(item, annotated_types.Lt):
-            upper = f" < {item.lt:g}"
-    return f"{lower}{subject}{upper}" if lower or upper else ""
 
 
 def _plain(annotation: object) -> str:
@@ -359,35 +362,6 @@ def _plain(annotation: object) -> str:
     return getattr(annotation, "__name__", str(annotation))
 
 
-def _strip_optional(annotation: object) -> object:
-    """The annotation without `| None` when it is a union with None."""
-    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
-        members = [a for a in typing.get_args(annotation) if a is not type(None)]
-        if len(members) == 1:
-            return members[0]
-    return annotation
-
-
-def _item(annotation: object) -> object:
-    """The annotation of the values inside a list option."""
-    for member in _members(annotation):
-        if typing.get_origin(member) in _LIST_TYPES:
-            return typing.get_args(member)[0]
-    return annotation
-
-
-def _members(annotation: object) -> tuple[object, ...]:
-    """The members of a union, the annotation alone otherwise; Annotated unwrapped."""
-    if typing.get_origin(annotation) is typing.Annotated:
-        annotation = typing.get_args(annotation)[0]
-    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
-        return typing.get_args(annotation)
-    return (annotation,)
-
-
-_LIST_TYPES = (list, tuple, collections.abc.Sequence)
-
-
 def _normalize(spec: AnalysisSpec, name: str, value: object) -> object:
     """Turn what agents commonly pass into the plain Python an option declares.
 
@@ -398,8 +372,8 @@ def _normalize(spec: AnalysisSpec, name: str, value: object) -> object:
     way results show them. Validation then stays strict about everything else.
     """
     if not any(
-        typing.get_origin(member) in _LIST_TYPES
-        for member in _members(spec.annotations[name])
+        typing.get_origin(member) in LIST_TYPES
+        for member in members(spec.annotations[name])
     ):
         return _python_scalar(value)
     items = _as_list(spec, name, value)

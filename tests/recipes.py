@@ -7,8 +7,6 @@ every option keeps its default; `options` draws further arguments, which the
 property tests add.
 """
 
-import inspect
-import typing
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -63,10 +61,12 @@ def optional(**options: st.SearchStrategy[Any]) -> st.SearchStrategy[Arguments]:
 
 
 def choices(analysis: str, parameter: str) -> list[Any]:
-    """The values a Literal parameter allows, read from the signature."""
-    signature = inspect.signature(getattr(ae, analysis))
-    annotation = signature.parameters[parameter].annotation
-    return list(typing.get_args(annotation))
+    """The values a parameter allows, as ae.describe_analysis() tells an agent."""
+    [described] = [
+        p for p in ae.describe_analysis(analysis).parameters if p.name == parameter
+    ]
+    assert described.allowed_values, f"{analysis}'s {parameter} has no fixed values"
+    return list(described.allowed_values)
 
 
 def names(data: pd.DataFrame, keep: Callable[[Any], bool]) -> list[str]:

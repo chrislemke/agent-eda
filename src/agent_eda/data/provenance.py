@@ -33,7 +33,17 @@ from agent_eda.results import (
         "all_missing_columns",
         "constant_columns",
     ),
-    tags=("overview", "shape", "size", "dtypes", "memory", "index", "provenance"),
+    tags=(
+        "overview",
+        "shape",
+        "size",
+        "dtypes",
+        "memory",
+        "index",
+        "provenance",
+        "column labels",
+        "duplicated column labels",
+    ),
     any_column_labels=True,
 )
 def describe_dataset(
