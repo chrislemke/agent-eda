@@ -237,6 +237,12 @@ def _is_optional(annotation: object) -> bool:
     return type(None) in typing.get_args(annotation)
 
 
+# What the full table has besides the statistics the text shows, for
+# summarize_numeric and a regression target.
+_MORE_STATISTICS = (
+    "the quantiles, trimmed_mean, mad, mad_scaled, skewness and excess_kurtosis"
+)
+
 # Nullable integers keep their type in to_frame() and null floats become NaN;
 # other fields use pandas' default.
 _FRAME_DTYPES: dict[Any, str] = {
@@ -449,20 +455,22 @@ class Masking(ResultModel):
 
 
 def _masking_text(
-    masking: Masking, statistics_columns: Sequence[str] = ()
+    masking: Masking, surface: _text.Surface, statistics_columns: Sequence[str] = ()
 ) -> list[str]:
     """The line on masking that a result prints, when it has something to say.
 
     `statistics_columns` are sensitive columns whose numeric statistics the
     result shows, which masking never changes, such as a regression target.
+    Python text spells settings as Python; MCP text as the MCP tool's JSON
+    arguments and the project file's TOML.
     """
     if masking.decided_by == "default":
         return []
-    setting = (
-        f"mask_sensitive={masking.applied}"
-        if masking.decided_by == "mask_sensitive"
-        else f"data_policy.mask_sensitive={masking.applied}"
-    )
+    python = surface == "python"
+    if masking.decided_by == "mask_sensitive":
+        setting = _setting("mask_sensitive", masking.applied, python, ": ")
+    else:
+        setting = _setting("data_policy.mask_sensitive", masking.applied, python, " = ")
     names = _text.join_labels(masking.columns)
     columns = "column" if len(masking.columns) == 1 else "columns"
     if not masking.applied:
@@ -470,7 +478,9 @@ def _masking_text(
             return []
         text = (
             f"Not masked ({setting}): the values of sensitive {columns} {names} "
-            "show as stored. Pass mask_sensitive=True to mask them."
+            "show as stored. Pass "
+            f"{'mask_sensitive=True' if python else 'mask_sensitive: true'} to "
+            "mask them."
         )
     else:
         if masking.columns:
@@ -501,13 +511,21 @@ def _masking_text(
             text += (
                 f"{' And' if masking.columns else ''} index labels are never "
                 f"masked, and the index holds sensitive {held} {index}, whose "
-                "values show as row IDs. Pass a non-sensitive id_column, such as "
-                "after df.reset_index()."
+                "values show as row IDs. Pass a non-sensitive id_column"
+                f"{', such as after df.reset_index()' if python else ''}."
             )
         if masking.absent_columns:
             absent = _text.join_labels(masking.absent_columns)
             text += f" Sensitive columns the data lacks: {absent}."
     return _text.wrap(text, first="", indent="    ")
+
+
+def _setting(name: str, value: bool, python: bool, mcp_separator: str) -> str:
+    """A setting as the caller writes it: name=True in Python; over MCP, the
+    JSON argument (name: true) or the project file's TOML (name = true)."""
+    if python:
+        return f"{name}={value}"
+    return f"{name}{mcp_separator}{str(value).lower()}"
 
 
 def _check_status_reason(status: Status, reason: StatusReason | None) -> None:
@@ -577,6 +595,11 @@ class AnalysisResult(ResultModel):
         return self
 
     def __str__(self) -> str:
+        return self._render("python")
+
+    def _render(self, surface: _text.Surface) -> str:
+        """The printed result, worded for the surface the caller reads it on;
+        print(res) shows the Python one, an MCP tool's response the MCP one."""
         reason = self.status_reason
         # Wrapped, not cut: a reason ends with how to fix the call.
         facts = (
@@ -588,13 +611,18 @@ class AnalysisResult(ResultModel):
         )
         return _text.render(
             heading=self._heading(),
-            facts=[*facts, *self._masking_facts(), *self._text_facts()],
+            facts=[
+                *facts,
+                *self._masking_facts(surface),
+                *self._text_facts(surface),
+            ],
             table=self._text_table(),
             findings=[
                 _text.Item(f"{f.assessment} {f.code}", f.claim) for f in self.findings
             ],
             limitations=[_text.Item(lim.code, lim.reason) for lim in self.limitations],
             other_tables=self._text_other_tables(),
+            surface=surface,
         )
 
     def __repr__(self) -> str:
@@ -618,11 +646,11 @@ class AnalysisResult(ResultModel):
         """The complete main table of the result as a DataFrame."""
         raise NotImplementedError(f"{type(self).__name__} has no table")
 
-    def _masking_facts(self) -> list[str]:
+    def _masking_facts(self, surface: _text.Surface) -> list[str]:
         """The line on masking, for results that support it."""
         return []
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         """Lines of key facts under the first line; analyses override this."""
         return []
 
@@ -693,8 +721,8 @@ class MaskableResult(AnalysisResult):
         "control."
     )
 
-    def _masking_facts(self) -> list[str]:
-        return _masking_text(self.masking)
+    def _masking_facts(self, surface: _text.Surface) -> list[str]:
+        return _masking_text(self.masking, surface)
 
     def _masked(self, column: str) -> bool:
         """Whether placeholders stand for this column's values in the result."""
@@ -704,8 +732,15 @@ class MaskableResult(AnalysisResult):
 class _DiscoveryRecord(ResultModel):
     """What a discovery function returns: plain text to print and a JSON record."""
 
+    def __str__(self) -> str:
+        return self._render("python")
+
     def __repr__(self) -> str:
         return self.__str__()
+
+    def _render(self, surface: _text.Surface) -> str:
+        """The text, worded for the surface the caller reads it on."""
+        raise NotImplementedError(f"{type(self).__name__} has no text")
 
     def to_dict(self) -> dict[str, Any]:
         """The record as JSON-compatible Python objects."""
@@ -749,7 +784,7 @@ class AnalysisListing(_DiscoveryRecord):
 
     analyses: list[AnalysisInfo] = Field(description="One entry per analysis.")
 
-    def __str__(self) -> str:
+    def _render(self, surface: _text.Surface) -> str:
         count = len(self.analyses)
         lines = [f"{_text.plural(count, 'analysis', 'analyses')}, by module:"]
         module = None
@@ -811,7 +846,8 @@ class SearchListing(_DiscoveryRecord):
         "when nothing matched."
     )
 
-    def __str__(self) -> str:
+    def _render(self, surface: _text.Surface) -> str:
+        python = surface == "python"
         searched = (
             ", ".join(
                 f"{term.term} (also {', '.join(term.synonyms)})"
@@ -830,7 +866,10 @@ class SearchListing(_DiscoveryRecord):
                     indent="    ",
                 ),
                 "Try other words, or call ae.guide() for every analysis and where "
-                "to start.",
+                "to start."
+                if python
+                else "Try other words, or call list_analyses for every analysis; "
+                "the MCP server's instructions say where to start.",
             ]
             return "\n".join(lines)
         lines = _text.wrap(
@@ -854,14 +893,24 @@ class SearchListing(_DiscoveryRecord):
                 _text.wrap(
                     f"More: ae.search_analyses({self.query!r}, "
                     f"limit={self.match_count}) shows all {self.match_count:,} "
-                    "matches.",
+                    "matches."
+                    if python
+                    else f"More: search_analyses with limit {self.match_count} "
+                    f"shows all {self.match_count:,} matches.",
                     first="",
                     indent="    ",
                 )
             )
-        lines.append(
-            f"Next: print(ae.describe_analysis({self.matches[0].name!r})) shows how "
-            "to call it."
+        lines.extend(
+            _text.wrap(
+                f"Next: print(ae.describe_analysis({self.matches[0].name!r})) shows "
+                "how to call it."
+                if python
+                else f"Next: the {self.matches[0].name} MCP tool's description and "
+                "input schema say how to call it.",
+                first="",
+                indent="    ",
+            )
         )
         return "\n".join(lines)
 
@@ -990,7 +1039,7 @@ class AnalysisDescription(_DiscoveryRecord):
         "lines after '>>> ' and '... ' prompts, each followed by what it prints."
     )
 
-    def __str__(self) -> str:
+    def _render(self, surface: _text.Surface) -> str:
         masking = (
             "Masking: supported (project=, mask_sensitive=). Its results can show "
             "raw values, such as labels or row IDs, and masking replaces those of "
@@ -1182,12 +1231,12 @@ class DescribeDatasetResult(AnalysisResult):
     )
     columns: Annotated[list[DescribeDatasetColumn], _ENTRIES] = Field(
         description="One entry per column, in DataFrame order. The record keeps "
-        "the first 100 and adds columns_total; to_frame() has every column."
+        "the first 100 and adds columns_total; the full table (to_frame, or table_path over MCP) has every column."
     )
     index: DescribeDatasetIndex = Field(description="Facts about the row index.")
     provenance: Provenance = Field(description="The provenance as supplied.")
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         index = self.index
         levels = f" with {index.level_count} levels" if index.level_count > 1 else ""
         repeats = _text.plural(
@@ -1301,7 +1350,7 @@ class SummarizeNumericResult(AnalysisResult):
     columns: Annotated[dict[str, SummarizeNumericColumn], _ENTRIES] = Field(
         description="One entry per selected column, keyed by column name, in the "
         "selected order. The record keeps the first 100 and adds columns_total; "
-        "to_frame() has every column."
+        "the full table (to_frame, or table_path over MCP) has every column."
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns that columns=None left out because they aren't "
@@ -1313,7 +1362,7 @@ class SummarizeNumericResult(AnalysisResult):
         "field name."
     )
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         trim = self.parameters.get("trim_fraction")
         percent = f"{trim * 100:.4g}%" if isinstance(trim, int | float) else "?"
         facts = [
@@ -1324,10 +1373,7 @@ class SummarizeNumericResult(AnalysisResult):
         if self.left_out_columns:
             names = _text.join_labels(self.left_out_columns)
             facts.append(f"Left out, not numeric or boolean: {names}.")
-        facts.append(
-            "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
-            "skewness and excess_kurtosis."
-        )
+        facts.append(_text.also_in_table(_MORE_STATISTICS, surface))
         return facts
 
     def _text_table(self) -> _text.Table:
@@ -1452,7 +1498,8 @@ class SummarizeCategoricalColumn(ColumnResult):
     ] = Field(
         description="The first 100 levels, ordered by count, descending, then by "
         "label, as level_order states. cardinality counts every level, the "
-        "record adds it as levels_total, and to_frame() has every level."
+        "record adds it as levels_total, and the full table (to_frame, or "
+        "table_path over MCP) has every level."
     )
     most_common_levels: list[SummarizeCategoricalLevel] = Field(
         description="The first top_n levels: the ones the printed text shows."
@@ -1516,7 +1563,7 @@ class SummarizeCategoricalResult(MaskableResult):
     # them when asked, since sorting a million labels is slow.
     _tables: dict[str, Levels] = PrivateAttr(default_factory=dict)
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
             "Shares are of each column's non-missing values. Levels go by count, "
             f"then label; most_common_levels has the top {self.parameters.get('top_n')}."
@@ -1598,8 +1645,8 @@ class FindDuplicateRowsResult(MaskableResult):
     duplicate_groups: Annotated[list[DuplicateGroup], _ENTRIES] = Field(
         description="Each group of rows equal in every compared column, ordered "
         "by first occurrence; a group's number is its position here. The record "
-        "keeps the first 100 and adds duplicate_groups_total; to_frame() has "
-        "every row of every group."
+        "keeps the first 100 and adds duplicate_groups_total; the full table "
+        "(to_frame, or table_path over MCP) has every row of every group."
     )
     duplicate_group_count: int = Field(description="Groups of duplicate rows.")
     duplicate_group_row_count: int = Field(
@@ -1615,7 +1662,7 @@ class FindDuplicateRowsResult(MaskableResult):
         "null when the data has no rows."
     )
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = []
         if self.compared_columns:
             compared = _text.plural(len(self.compared_columns), "column", "columns")
@@ -1761,7 +1808,8 @@ class ProfileTargetResult(MaskableResult):
         description="Classification: the first 100 classes, by count, descending, "
         "then by label, as level_order states, each with its count and share. "
         "class_count counts every class, the record adds it as classes_total, and "
-        "to_frame() has every label. Null for regression."
+        "the full table (to_frame, or table_path over MCP) has every label. Null "
+        "for regression."
     )
     majority_share: float | None = Field(
         description="Classification: the share of the most common class; null for "
@@ -1831,7 +1879,7 @@ class ProfileTargetResult(MaskableResult):
     def _target_text(self) -> str:
         return _text.label_text(self.parameters.get("target_column"))
 
-    def _masking_facts(self) -> list[str]:
+    def _masking_facts(self, surface: _text.Surface) -> list[str]:
         # A regression target's statistics show as computed, sensitive or not.
         target = self.parameters.get("target_column")
         project = self.parameters.get("project")
@@ -1847,11 +1895,11 @@ class ProfileTargetResult(MaskableResult):
             and target in sensitive
             else []
         )
-        return _masking_text(self.masking, statistics)
+        return _masking_text(self.masking, surface, statistics)
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         if self.statistics is not None:
-            return self._regression_facts(self.statistics)
+            return self._regression_facts(self.statistics, surface)
         task = self.parameters.get("task")
         missing = f"{self.missing_count:,} missing" + (
             _percent(self.missing_share) if self.missing_count else ""
@@ -1913,7 +1961,9 @@ class ProfileTargetResult(MaskableResult):
         )
         return _text.wrap(text, first="", indent="    ")
 
-    def _regression_facts(self, statistics: "ProfileTargetStatistics") -> list[str]:
+    def _regression_facts(
+        self, statistics: "ProfileTargetStatistics", surface: _text.Surface
+    ) -> list[str]:
         finite = statistics.count - statistics.infinite_count
         non_finite = self.non_finite_count or 0
         if non_finite:
@@ -1929,8 +1979,7 @@ class ProfileTargetResult(MaskableResult):
             f"{_text.plural(finite, 'finite value', 'finite values')}; {others}.",
             "Statistics use the finite values, as in summarize_numeric: quantile "
             "method linear; trimmed_mean cuts 10% from each end.",
-            "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
-            "skewness and excess_kurtosis.",
+            _text.also_in_table(_MORE_STATISTICS, surface),
         ]
 
     def _text_table(self) -> _text.Table:
@@ -2114,7 +2163,7 @@ class ProfileMissingValuesResult(AnalysisResult):
     columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES] = Field(
         description="One entry per selected column, keyed by column name, in the "
         "selected order. The record keeps the first 100 and adds columns_total; "
-        "to_frame() has every column."
+        "the full table (to_frame, or table_path over MCP) has every column."
     )
     missing_count: int = Field(
         description="Selected values that are missing or a declared sentinel value, "
@@ -2135,11 +2184,11 @@ class ProfileMissingValuesResult(AnalysisResult):
     row_distribution: Annotated[list[ProfileMissingValuesRowCount], _ENTRIES] = Field(
         description="How many rows miss each number of selected values, one entry "
         "per number that occurs, fewest missing first. The record keeps the first "
-        "100 and adds row_distribution_total; to_frame(table='row_distribution') "
-        "has every entry."
+        "100 and adds row_distribution_total; in Python, to_frame with "
+        "table='row_distribution' has every entry."
     )
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         entries = self.columns.values()
         rows = self.support.row_count
         declared = any(entry.sentinel_count is not None for entry in entries)
@@ -2283,7 +2332,7 @@ class DetectMissingSentinelsResult(MaskableResult):
         "were looked for there. A column without values isn't listed."
     )
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         declared = sum(c.confirmation == "declared" for c in self.candidates)
         counts = [
             f"{count:,} {word}"
@@ -2466,7 +2515,8 @@ class FindCandidateKeysResult(AnalysisResult):
         description="Minimal keys without missing values, each fit to serve as a "
         "primary key: column sets whose combination of values no two rows share. "
         "Fewest columns first, then in column order. The record keeps the first "
-        "100 and adds keys_total; to_frame() has every one."
+        "100 and adds keys_total; the full table (to_frame, or table_path over "
+        "MCP) has every one."
     )
     keys_with_missing_values: Annotated[list[CandidateKey], _ENTRIES] = Field(
         description="Minimal keys with a missing value in some rows, which can't "
@@ -2500,7 +2550,7 @@ class FindCandidateKeysResult(AnalysisResult):
             *(("not_a_key", key) for key in self.most_unique_column_sets),
         ]
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         search = self.search
         if not search.examined_count:
             return []
@@ -2691,7 +2741,7 @@ class ComputeAssociationMatrixResult(AnalysisResult):
         description="One entry per pair of paired columns, strongest first: by "
         "absolute value, descending, then in the selected column order, with null "
         "values last. The record keeps the 100 strongest and adds pairs_total; "
-        "to_frame() has every pair."
+        "the full table (to_frame, or table_path over MCP) has every pair."
     )
     columns: Annotated[dict[str, AssociationColumn], _ENTRIES] = Field(
         description="The paired columns, keyed by column name, in the selected "
@@ -2731,7 +2781,7 @@ class ComputeAssociationMatrixResult(AnalysisResult):
             columns=pd.Index(names, name="y_column"),
         )
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = []
         if self.pairs:
             counts = dict.fromkeys(("numeric", "categorical", "mixed"), 0)
@@ -2755,7 +2805,8 @@ class ComputeAssociationMatrixResult(AnalysisResult):
                 _text.wrap(
                     "Skipped "
                     f"{_text.plural(len(skipped), 'column', 'columns')}, see "
-                    f"res.skipped_columns: {_text.join_items(skipped)}.",
+                    f"{_text.field_name('skipped_columns', surface)}: "
+                    f"{_text.join_items(skipped)}.",
                     first="",
                     indent="    ",
                 )
@@ -2931,14 +2982,14 @@ class InferColumnSemanticsResult(AnalysisResult):
     columns: Annotated[dict[str, InferColumnSemanticsColumn], _ENTRIES] = Field(
         description="One entry per selected column, keyed by column name, in the "
         "selected order. The record keeps the first 100 and adds columns_total; "
-        "to_frame() has every column."
+        "the full table (to_frame, or table_path over MCP) has every column."
     )
     missing_declared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns declared_schema names that the data doesn't have, in "
         "declared order; empty without declared_schema."
     )
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
             "Scores rank logical types by fixed rules and aren't probabilities. "
             "Dates parse as ISO 8601 only."
@@ -3139,7 +3190,8 @@ class ValidateColumnTypesColumn(ResultModel):
         description="The first 5 distinct invalid values with their counts, in level "
         "order as summarize_categorical orders levels: most frequent first, then "
         "by value. invalid_distinct_count counts them all, the record adds it as "
-        "invalid_values_total, and to_frame(table='invalid_values') has every one."
+        "invalid_values_total, and in Python, to_frame with table='invalid_values' "
+        "has every one."
     )
     assessment: Literal["passed", "violation", "unknown"] = Field(
         description="The verdict on the column, as its findings give it: violation "
@@ -3155,7 +3207,7 @@ class ValidateColumnTypesResult(MaskableResult):
     columns: Annotated[dict[str, ValidateColumnTypesColumn], _ENTRIES] = Field(
         description="One entry per declared column, keyed by column name, in "
         "declared order. The record keeps the first 100 and adds columns_total; "
-        "to_frame() has every column."
+        "the full table (to_frame, or table_path over MCP) has every column."
     )
     undeclared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="The data's columns that schema doesn't declare, in DataFrame "
@@ -3166,7 +3218,7 @@ class ValidateColumnTypesResult(MaskableResult):
     # outside the record; masked columns hold placeholders' numbers instead.
     _tables: dict[str, Levels] = PrivateAttr(default_factory=dict)
 
-    def _text_facts(self) -> list[str]:
+    def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
             "compatible: stored as the declared type; convertible: converts "
             "exactly; invalid: neither. Nothing was converted."

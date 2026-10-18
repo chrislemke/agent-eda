@@ -21,7 +21,7 @@ import agent_eda
 from agent_eda._annotations import type_text
 from agent_eda._data_files import DataReader, supported_extensions
 from agent_eda._local_files import path_argument
-from agent_eda._mcp_instructions import instructions
+from agent_eda._mcp_instructions import GUARDRAIL, PRECEDENCE, instructions
 from agent_eda._registry import (
     AnalysisSpec,
     missing_message,
@@ -29,7 +29,7 @@ from agent_eda._registry import (
     spec_of,
     unknown_name_message,
 )
-from agent_eda._table_files import TableFile, table_file
+from agent_eda._table_files import RECORD_KEY, RECORD_SCHEMA, TableFile, table_file
 from agent_eda._version import __version__
 from agent_eda.discovery import list_analyses, search_analyses
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
@@ -49,11 +49,8 @@ _DATA_PATH = {
     "stored in the file.",
 }
 
-_GUARDRAIL = (
-    "Masking is a guardrail against accidental exposure, not anonymization or "
-    "access control: whoever can call the MCP server can usually read the data "
-    "file too."
-)
+# Why the MCP server makes no enforcement claim (ADR 0006).
+_NO_ENFORCEMENT = "Whoever can call the MCP server can usually read the data file too."
 
 _PROJECT_PATH = {
     "anyOf": [{"type": "string"}, {"type": "null"}],
@@ -64,22 +61,25 @@ _PROJECT_PATH = {
     'sensitive_columns = ["email"] and mask_sensitive = true or false, and an '
     "optional top-level name. null, the default, uses the project the MCP "
     "server was started with (agent-eda-mcp --project), or no project, which "
-    "masks nothing. A project_path replaces the MCP server's project for this "
-    "call. "
-    f"{_GUARDRAIL}",
+    f"masks nothing. {PRECEDENCE} {GUARDRAIL} {_NO_ENFORCEMENT}",
 }
 
 _TABLE_PATH = {
     "anyOf": [{"type": "string"}, {"type": "null"}],
     "default": None,
-    "description": "Path of a new file to write the result's complete table to, "
-    "the table a Python caller gets from to_frame, for when the capped lists of "
-    "the structured content aren't enough. The extension names the format: .csv "
+    "description": "Path of a new file to write the result's full table to, for "
+    "when the capped lists of the structured content aren't enough. It writes "
+    "only the main table, the one a Python caller gets from to_frame without "
+    "arguments; the other tables some results have, such as "
+    "compute_association_matrix's matrix, are for Python callers. The extension "
+    "names the format: .csv "
     "for CSV, or .parquet or .pq for Parquet, in any case. The path is absolute "
     "or relative to the MCP server's working directory, and its directory must "
     "exist. The MCP server never overwrites: a path where a file already exists "
-    "is an error, raised before the analysis runs. The text of the response then ends "
-    "with the line 'Full table written to <absolute path> (<n> rows).' The index "
+    "is an error, raised before the analysis runs. The text of the response then "
+    "ends with the line 'Full table written to <absolute path> (<n> rows).', and "
+    "the structured content gains table_file with the same path and row_count. "
+    "The index "
     "becomes the first column only when it is more than the row numbers 0, 1, 2, "
     "... A cell that holds a list or a mapping, such as row IDs, is written as "
     "JSON text, and in Parquet a column whose values mix types, such as numbers "
@@ -89,10 +89,7 @@ _TABLE_PATH = {
 
 # Follows the docstring's mask_sensitive text, which speaks of the project
 # argument a Python caller passes.
-_MCP_PROJECT = (
-    "Over MCP, the project is the file at project_path, or else the one the "
-    "MCP server was started with (agent-eda-mcp --project)."
-)
+_MCP_PROJECT = f"Over MCP: {PRECEDENCE}"
 
 # Every analysis MCP tool may write a file (table_path), never overwrites one,
 # gives the same result for the same call and reaches nothing outside the
@@ -216,7 +213,8 @@ def create_server(
     """The MCP server named 'agent-eda', with one MCP tool per analysis.
 
     The MCP tools are built here, when the server starts, from the registry
-    entry of each analysis: every registered one when analyses is None. The
+    entry of each analysis: every registered one when analyses is None, and
+    otherwise the ones a test passes (a test seam, unsupported for serving). The
     server reads data paths through one DataReader, which keeps the most
     recently read files. project is the server's Project, which every call of
     an MCP tool with project_path uses unless the call names its own. The
@@ -307,7 +305,8 @@ def _call(
 def _discover(
     served: _DiscoveryTool, arguments: dict[str, Any]
 ) -> types.CallToolResult:
-    """Run search_analyses or list_analyses: the listing's text and record.
+    """Run search_analyses or list_analyses: the listing's text, in MCP wording,
+    and its record.
 
     The server checks the argument names; the function checks the values, with
     the message a Python caller gets.
@@ -323,7 +322,7 @@ def _discover(
     )
     listing = served.function(**arguments)
     return types.CallToolResult(
-        content=[types.TextContent(text=str(listing))],
+        content=[types.TextContent(text=listing._render("mcp"))],
         structured_content=listing.to_dict(),
     )
 
@@ -413,10 +412,18 @@ def _analysis_tool(
         name=spec.name,
         description=_description(spec),
         input_schema=_input_schema(spec),
-        output_schema=spec.result_class.record_schema(),
+        output_schema=_output_schema(spec),
         annotations=_ANNOTATIONS,
     )
     return _AnalysisTool(spec=spec, function=function, tool=tool)
+
+
+def _output_schema(spec: AnalysisSpec) -> dict[str, Any]:
+    """The JSON Schema of the record, with the optional table_file that a call
+    with table_path adds."""
+    schema = spec.result_class.record_schema()
+    schema["properties"][RECORD_KEY] = RECORD_SCHEMA
+    return schema
 
 
 def _input_schema(spec: AnalysisSpec) -> dict[str, Any]:
@@ -492,17 +499,23 @@ def _description(spec: AnalysisSpec) -> str:
 def _response(
     result: AnalysisResult, table: TableFile | None = None
 ) -> types.CallToolResult:
-    """The printed result as text, and its to_dict() record as structured content.
+    """The printed result in MCP wording as text, and its to_dict() record as
+    structured content.
 
-    Given a table file, it writes the result's full table there first, and the
-    text gains a line that says where.
+    Given a table file, it writes the result's full table there first. The
+    text gains a line that says where, and the record gains table_file with
+    the same facts, since some clients show the model only the structured
+    content.
     """
-    text = str(result)
+    text = result._render("mcp")
+    record = result.to_dict()
     if table is not None:
-        text = f"{text}\n{table.write(result.to_frame())}"
+        written = table.write(result.to_frame())
+        text = f"{text}\n{written.line()}"
+        record[RECORD_KEY] = written.record()
     return types.CallToolResult(
         content=[types.TextContent(text=text)],
-        structured_content=result.to_dict(),
+        structured_content=record,
     )
 
 

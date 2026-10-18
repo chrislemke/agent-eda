@@ -41,8 +41,8 @@ class TableFile:
     path: Path
     file_format: FileFormat
 
-    def write(self, table: pd.DataFrame) -> str:
-        """Write the table and return the line the response text gains.
+    def write(self, table: pd.DataFrame) -> "WrittenTable":
+        """Write the table and say where and how many rows.
 
         Raises:
             TableFileExistsError: a file appeared at the path after the check.
@@ -59,9 +59,49 @@ class TableFile:
             raise InvalidArgumentError(_no_directory(self.path)) from None
         except PermissionError:
             raise InvalidArgumentError(_not_allowed(self.path)) from None
-        return (
-            f"Full table written to {self.path} ({plural(len(table), 'row', 'rows')})."
-        )
+        return WrittenTable(self.path, len(table))
+
+
+@dataclass(frozen=True)
+class WrittenTable:
+    """A table written to a file: what the response's text and record gain."""
+
+    path: Path
+    row_count: int
+
+    def line(self) -> str:
+        """The line the text gains."""
+        rows = plural(self.row_count, "row", "rows")
+        return f"Full table written to {self.path} ({rows})."
+
+    def record(self) -> dict[str, object]:
+        """What the record gains under RECORD_KEY, as RECORD_SCHEMA describes."""
+        return {"path": str(self.path), "row_count": self.row_count}
+
+
+# The key the record of a call with table_path gains, and its JSON Schema. A
+# client that shows the model only the structured content, such as Claude
+# Code, shows it this way where the table went.
+RECORD_KEY = "table_file"
+RECORD_SCHEMA = {
+    "type": "object",
+    "description": "Only in the response of a call with table_path: the file the "
+    "full table was written to and its row count. The record a Python caller gets "
+    "has no such field.",
+    "properties": {
+        "path": {
+            "type": "string",
+            "description": "The absolute path of the file written.",
+        },
+        "row_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The rows written, every row of the full table.",
+        },
+    },
+    "required": ["path", "row_count"],
+    "additionalProperties": False,
+}
 
 
 def table_file(name: str, table_path: object) -> TableFile:

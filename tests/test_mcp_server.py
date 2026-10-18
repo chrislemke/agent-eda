@@ -47,7 +47,7 @@ def test_describe_dataset_is_an_mcp_tool_that_requires_a_data_path():
     assert tool.input_schema["properties"]["data_path"]["type"] == "string"
 
 
-def test_a_call_returns_the_printed_result_and_the_record(tmp_path):
+def test_a_call_returns_the_printed_result_in_mcp_wording_and_the_record(tmp_path):
     path = tmp_path / "shop.csv"
     path.write_text(CSV)
     # The server reads a CSV counting only an empty field as missing.
@@ -58,8 +58,76 @@ def test_a_call_returns_the_printed_result_and_the_record(tmp_path):
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
     assert not response.is_error
-    assert [block.text for block in response.content] == [str(expected)]
     assert response.structured_content == expected.to_dict()
+    (text,) = [block.text for block in response.content]
+    # The Python text, whose dtypes and memory differ between pandas 2 and 3,
+    # with a footer that names what an MCP caller can reach.
+    assert text.splitlines()[:-1] == str(expected).splitlines()[:-1]
+    assert text.splitlines()[-1] == (
+        "More: the full table, which table_path writes to a file, has all 3 "
+        "columns; the structured content has the rest."
+    )
+
+
+def test_the_printed_result_names_what_an_mcp_caller_can_reach(tmp_path):
+    path = tmp_path / "shop.csv"
+    path.write_text(CSV)
+
+    response = anyio.run(call, "summarize_numeric", {"data_path": str(path)})
+
+    lines = response.content[0].text.splitlines()
+    assert lines[3] == (
+        "The full table (table_path) also has the quantiles, "
+        "trimmed_mean, mad, mad_scaled, skewness and excess_kurtosis."
+    )
+    assert lines[-1] == (
+        "More: the full table, which table_path writes to a file, has the 1 "
+        "column; the structured content has the rest."
+    )
+
+
+def test_the_printed_result_names_record_fields_without_python(tmp_path):
+    path = tmp_path / "shop.parquet"
+    # Parquet keeps the dates' dtype, which the association matrix skips.
+    pd.DataFrame(
+        {
+            "plan": ["pro", "team", "pro", "team"],
+            "spend": [10, 20, 30, 25],
+            "joined": pd.to_datetime(["2024-01-01"] * 4),
+        }
+    ).to_parquet(path)
+
+    response = anyio.run(call, "compute_association_matrix", {"data_path": str(path)})
+
+    text = response.content[0].text
+    assert "Skipped 1 column, see skipped_columns: 'joined' (" in text
+    # Over MCP, table_path writes only the default table, so the footer names no
+    # other one.
+    assert text.splitlines()[-1] == (
+        "More: the full table, which table_path writes to a file, has the 1 pair; "
+        "the structured content has the rest."
+    )
+
+
+def test_the_masking_line_says_how_to_mask_in_json(tmp_path):
+    path = tmp_path / "shop.csv"
+    path.write_text("customer,plan\nann@example.org,pro\nbo@example.org,team\n")
+    project_path = tmp_path / "project.toml"
+    project_path.write_text(
+        '[data_policy]\nsensitive_columns = ["customer"]\nmask_sensitive = false\n'
+    )
+
+    response = anyio.run(
+        call,
+        "summarize_categorical",
+        {"data_path": str(path), "project_path": str(project_path)},
+    )
+
+    text = " ".join(response.content[0].text.split())
+    assert (
+        "Not masked (data_policy.mask_sensitive = false): the values of sensitive "
+        "column 'customer' show as stored. Pass mask_sensitive: true to mask them."
+    ) in text
 
 
 def test_a_stand_in_such_as_n_a_reaches_the_analysis_as_a_value(tmp_path):

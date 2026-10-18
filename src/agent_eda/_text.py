@@ -5,12 +5,18 @@ optional status reason; a few fact lines; the key table (at most 10 rows); the
 findings (at most 5); the limitations (at most 5); and a footer that says where
 the rest is. The text never exceeds 40 lines or 120 characters per line, and
 every section counts what it leaves out.
+
+The text names what the caller can reach on its surface: a Python caller reads
+res.to_frame() and res.to_json(), an MCP caller the full table that table_path
+writes and the structured content. Only those phrases differ; the rest of the
+text is the same on both surfaces.
 """
 
 import textwrap
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 MAX_LINES = 40
 MAX_WIDTH = 120
@@ -26,6 +32,10 @@ COLUMN_GAP = "  "
 MIN_TEXT_WIDTH = 8
 
 type Cell = str | int | float | bool | None
+
+# Where the caller reads the text: print(res) in Python, or the text of an MCP
+# tool's response.
+type Surface = Literal["python", "mcp"]
 
 
 @dataclass(frozen=True)
@@ -66,27 +76,48 @@ def render(
     findings: Sequence[Item],
     limitations: Sequence[Item],
     other_tables: Sequence[str] = (),
+    surface: Surface = "python",
 ) -> str:
     """Render a result with the fixed template, within the line and width caps.
 
     `other_tables` names the tables besides the key table that to_frame()
     returns, each as a clause for the footer, such as "res.to_frame(table='x')
-    has ...".
+    has ...". Only Python can ask for them, so the MCP text leaves them out.
     """
     lines = [heading, *facts]
     if table is not None:
         lines.extend(_table_lines(table))
     lines.extend(_item_lines("Findings", findings, MAX_FINDINGS))
     lines.extend(_item_lines("Limitations", limitations, MAX_LIMITATIONS))
-    lines.extend(_footer(table, other_tables))
+    lines.extend(_footer(table, other_tables if surface == "python" else (), surface))
     lines = [_fit(_printable(line)) for line in lines]
     if len(lines) > MAX_LINES:
         hidden = len(lines) - MAX_LINES + 1
         lines = [
             *lines[: MAX_LINES - 1],
-            f"... {hidden:,} more lines; see res.to_json().",
+            f"... {hidden:,} more lines; see {_RECORD[surface]}.",
         ]
     return "\n".join(lines)
+
+
+# Where the whole record is, on each surface.
+_RECORD: dict[Surface, str] = {
+    "python": "res.to_json()",
+    "mcp": "the structured content",
+}
+
+
+def also_in_table(what: str, surface: Surface) -> str:
+    """The fact line saying the full table has more than the text shows."""
+    if surface == "python":
+        return f"res.to_frame() also has {what}."
+    return f"The full table (table_path) also has {what}."
+
+
+def field_name(name: str, surface: Surface) -> str:
+    """A field of the result as the caller reaches it: res.name in Python, the
+    record's key over MCP."""
+    return f"res.{name}" if surface == "python" else name
 
 
 def format_cell(value: Cell) -> str:
@@ -243,12 +274,19 @@ def _item_lines(title: str, items: Sequence[Item], limit: int) -> list[str]:
     return lines
 
 
-def _footer(table: Table | None, other_tables: Sequence[str]) -> list[str]:
-    rest = "res.findings, res.limitations and res.to_json() have the rest."
+def _footer(
+    table: Table | None, other_tables: Sequence[str], surface: Surface
+) -> list[str]:
+    if surface == "python":
+        rest = "res.findings, res.limitations and res.to_json() have the rest."
+        full_table = "res.to_frame()"
+    else:
+        rest = "the structured content has the rest."
+        full_table = "the full table, which table_path writes to a file,"
     if table is None:
         return [f"More: {rest}"]
     if table.frame is not None:
-        frame = f"res.to_frame() has {table.frame}"
+        frame = f"{full_table} has {table.frame}"
     else:
         if table.frame_rows is not None:
             count = table.frame_rows
@@ -257,7 +295,7 @@ def _footer(table: Table | None, other_tables: Sequence[str]) -> list[str]:
         else:
             count = len(table.rows)
         rows = plural(count, *(table.frame_unit or table.unit))
-        frame = f"res.to_frame() has {'the' if count == 1 else 'all'} {rows}"
+        frame = f"{full_table} has {'the' if count == 1 else 'all'} {rows}"
     return wrap(
         f"More: {'; '.join([frame, *other_tables])}; {rest}", first="", indent="    "
     )

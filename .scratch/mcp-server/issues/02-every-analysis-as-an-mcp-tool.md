@@ -31,3 +31,5 @@ What this ticket settled that the spec left open:
 - `type_text` now shows a `Callable`'s parameters, as in `Callable[[float], bool]`.
 
 Checks: ruff, ty and pytest pass on the latest versions (run with `--extra mcp`, since the local uv 0.10.11 skips the extra otherwise) and in both minimum-versions runs (core: MCP modules skip; with the extra: whole suite passes). CI wasn't run.
+
+**Code review follow-up (2026-10-18).** The output schemas' field descriptions no longer say `to_frame()`: they name "the full table (to_frame, or table_path over MCP)", or "in Python, to_frame with table='...'" for a table only Python can ask for. This follows the user's decision that nothing an MCP caller reads holds `ae.` or call syntax. Formulas such as `sqrt(...)` stay. `tests/test_mcp_tools.py` checks every output schema for `to_frame(`, `to_dict(`, `to_json(`, `res.` and `ae.`. The output schema also gains the optional `table_file` property (ticket 06's follow-up). `create_server(analyses=...)` stays as the test seam; its docstring now says that serving a subset or an unregistered function is unsupported outside tests.

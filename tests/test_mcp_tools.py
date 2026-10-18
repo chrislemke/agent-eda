@@ -34,6 +34,8 @@ DISCOVERY = ["search_analyses", "list_analyses"]
 DESCRIBED = ["When to use:", "Returns:", "Statuses:", "See Also:"]
 # Python call syntax, such as to_frame() or ae.guide(): a name and a bracket.
 CALL = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\(")
+# What only a Python caller can call: the result's methods, res and ae.
+PYTHON_ONLY = re.compile(r"\bto_(frame|dict|json)\(|\bres\.|\bae\.")
 # "server" without "MCP " before it, which GLOSSARY.md asks to avoid.
 BARE_SERVER = re.compile(r"(?<!MCP )\bserver\b", flags=re.IGNORECASE)
 
@@ -162,6 +164,9 @@ def test_every_mcp_tool_takes_an_optional_table_path_with_the_server_text(tools)
         ".pq",
         "never overwrites",
         "Full table written to",
+        "table_file",
+        # Over MCP only the main table, the default one, is written.
+        "only the main table",
     ):
         assert fact in description, fact
 
@@ -235,7 +240,28 @@ def test_a_call_with_valid_arguments_returns_the_python_record(tmp_path, name):
     statuses = [s.status for s in ae.describe_analysis(name).statuses]
     assert response.structured_content["status"] in statuses
     assert response.structured_content == expected.to_dict()
-    assert [block.text for block in response.content] == [str(expected)]
+    (text,) = [block.text for block in response.content]
+    assert text.splitlines()[0] == str(expected).splitlines()[0]
+    assert len(text.splitlines()) <= 40
+
+
+def test_the_printed_result_over_mcp_holds_no_python(tmp_path, name):
+    data_path, data = mixed_csv(tmp_path)
+    arguments = valid_arguments(name, data)
+
+    response = anyio.run(call, name, {"data_path": str(data_path), **arguments})
+
+    (text,) = [block.text for block in response.content]
+    assert CALL.findall(text) == []
+    assert "ae." not in text
+    assert "res." not in text
+
+
+def test_the_output_schema_names_no_python_method_of_the_result(tools, name):
+    descriptions = list(schema_descriptions(tools[name].output_schema))
+
+    # Formulas such as sqrt(n) stay; calls only a Python caller can make go.
+    assert [d for d in descriptions if PYTHON_ONLY.search(d)] == []
 
 
 def test_a_parameter_without_a_json_schema_stops_the_server_from_starting():
@@ -254,6 +280,19 @@ def test_the_server_serves_the_analyses_it_is_given():
     tools = anyio.run(list_tools, create_server(analyses=[ae.describe_dataset]))
 
     assert [tool.name for tool in tools] == [*DISCOVERY, "describe_dataset"]
+
+
+def schema_descriptions(schema):
+    """Every description in a JSON Schema, however deep."""
+    if isinstance(schema, dict):
+        for key, value in schema.items():
+            if key == "description" and isinstance(value, str):
+                yield value
+            else:
+                yield from schema_descriptions(value)
+    elif isinstance(schema, list):
+        for value in schema:
+            yield from schema_descriptions(value)
 
 
 def check_rule(data: pd.DataFrame, *, rule: Callable[[float], bool]) -> AnalysisResult:

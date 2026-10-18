@@ -14,7 +14,7 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 
 - Every registered analysis is an MCP tool with the analysis's name. Its description and JSON Schema come from the analysis's docstring and registry entry, so an MCP caller gets the same documentation a Python caller gets, and nothing is maintained twice.
 - An MCP tool takes a data path to a CSV, TSV or Parquet file in place of the DataFrame. The server reads it, counting only empty CSV fields as missing so that sentinel values reach the analyses.
-- A call returns the printed result as text and the full strict-JSON record as structured content. An optional `table_path` writes the complete table to a file.
+- A call returns the printed result as text, worded for an MCP caller, and the full strict-JSON record as structured content. An optional `table_path` writes the result's main table to a file.
 - A caller mistake comes back as a tool error whose message says how to fix the call, the same message a Python caller gets.
 - A project file passed per call, or once when the server starts, gives masking to MCP callers.
 - The server's instructions tell an MCP caller where to start, and `search_analyses` and `list_analyses` are MCP tools too.
@@ -95,13 +95,14 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 - **Name**: the analysis's name, such as `summarize_numeric`.
 - **Description**: built from the parsed docstring, in this order: the summary line, `When to use:`, `Returns:` (including the finding codes), `Statuses:` and `See Also:`. `Examples:` is left out because it is Python. See Also names are analysis names, which are also MCP tool names.
 - **Input schema**: the analysis's registry `arguments` model's JSON Schema, with each property's `Args:` text as its description, as `describe_analysis()` already builds it. The server then makes these changes:
-  - `data` becomes the required `data_path` (string). Later analyses that take DataFrames by role get one `<role>_path` per role, such as `before_path` and `after_path`.
+  - `data` becomes the required `data_path` (string).
+  - `<role>_path` is deferred. Later analyses that take DataFrames by role, such as `before=` and `after=`, will get one `<role>_path` per role, such as `before_path` and `after_path`. v1 doesn't build it, because no analysis takes a role yet: today a DataFrame parameter other than `data` has no JSON Schema, so the server raises at start. The first role-taking analysis must extend the server with the rule, its reader calls and its tests.
   - `project` becomes `project_path` (string or null), on the analyses that take `project`. `mask_sensitive` stays as it is.
   - Every analysis MCP tool gets an optional `table_path` (string or null).
   - The descriptions of these three properties are fixed server text, not the docstring's.
 - **Annotations**: `readOnlyHint: false`, because `table_path` writes a file; `destructiveHint: false`, because it never overwrites; `idempotentHint: true`; `openWorldHint: false`.
 - **Output schema**: the JSON Schema of the result class in the shape `to_dict()` produces, with capped lists and their totals. A test validates real `to_dict()` output against it for every analysis.
-- A parameter whose type has no JSON Schema (an arbitrary type such as a DataFrame) raises at server start, naming the analysis and parameter, unless it is a role DataFrame that the `<role>_path` rule covers. None of today's 11 analyses has one.
+- A parameter whose type has no JSON Schema (an arbitrary type such as a DataFrame) raises at server start, naming the analysis and parameter. That includes a role DataFrame until the deferred `<role>_path` rule is built. None of today's 11 analyses has one.
 
 ### Reading data
 
@@ -116,9 +117,10 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 
 ### Responses
 
-- Text content: `str(res)`, exactly what `print(res)` shows. When `table_path` is given, one more line follows: `Full table written to <absolute path> (<n> rows).`
-- Structured content: `res.to_dict()`.
-- `table_path` writes `res.to_frame()`, format by extension (`.csv`, `.parquet`, `.pq`). An existing file raises `TableFileExistsError` (code `table_file_exists`, a `FileExistsError` and `AgentEDAError`) before the analysis runs, as does an unsupported extension or a missing parent directory. The index is written as a column when it carries information (not a default `RangeIndex`).
+- Text content: the printed result from the same template as `print(res)`, worded for an MCP caller. The footer names the full table that `table_path` writes and the structured content where Python names `res.to_frame()` and `res.to_json()`; it leaves out the tables only Python can ask for by name; record fields are named without `res.`, and settings are spelled as JSON arguments and TOML (`mask_sensitive: true`). Everything else in the text is the same as in Python. When `table_path` is given, one more line follows: `Full table written to <absolute path> (<n> rows).` This overrides the earlier "text equal to `print(res)`", by the user's decision on 2026-10-18.
+- Structured content: `res.to_dict()`. When `table_path` is given, the record gains `table_file`, an object with the written file's absolute `path` and its `row_count`, and the output schema allows it without requiring it. Without `table_path` the structured content equals `res.to_dict()` exactly.
+- Some clients show the model only one part of the response. Claude Code shows it only the structured content. Records measured 26 to 78 KB on 1,000 rows x 100 columns, where the printed text is about 1.2 KB. Keeping both parts costs that size in Claude Code's context, but dropping the record would lose the fields an agent reads, and dropping the text would lose the summary that clients showing text rely on. So both stay, `table_file` repeats the text's last line in the record, and the instructions don't promise that the caller sees the text.
+- `table_path` writes `res.to_frame()` without arguments: the result's main table, format by extension (`.csv`, `.parquet`, `.pq`). Results with more tables, such as `compute_association_matrix`'s `table="matrix"`, keep the others for Python callers. An existing file raises `TableFileExistsError` (code `table_file_exists`, a `FileExistsError` and `AgentEDAError`) before the analysis runs, as does an unsupported extension or a missing parent directory. The index is written as a column when it carries information (not a default `RangeIndex`).
 
 ### Errors
 
@@ -129,7 +131,7 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 
 ### Project and masking
 
-- `project_path` is loaded with `Project.load`, so its errors (`ProjectFileError`, `ProjectFileNotFoundError`) and messages are the Python ones.
+- `project_path` is loaded with `Project.load`, so its errors (`ProjectFileError`, `ProjectFileNotFoundError`) and messages are the Python ones. `Project.load` opens only a regular file, reads at most 1 MiB, and turns an operating-system refusal such as a missing read permission into `ProjectFileError`, so a named pipe, `/dev/zero` or an unreadable file gives a tool error instead of hanging the server or becoming an internal error.
 - `--project` is loaded once when the server starts. An invalid file stops the server with the same message on stderr and exit status 1.
 - Precedence: per-call `project_path`, then `--project`, then no Project. A per-call `mask_sensitive` wins over the Project's setting, as in Python.
 - An analysis that doesn't take `project` has no `project_path`. `--project` doesn't apply to it.
@@ -138,7 +140,8 @@ An optional MCP server ships with the package. `pip install 'agent-eda[mcp]'` ad
 ### Discovery
 
 - The server's `instructions` are an MCP version of `ae.guide()`, built from the same parts: what the package does, how to pass data (data path, supported formats, the empty-field rule, relative paths, row IDs), how to read results and statuses, masking with `project_path` and `--project`, and the first-look order from `discovery.FIRST_LOOK` limited to registered analyses. They contain no Python. The guide's 60-line, 120-character limits apply.
-- The `search_analyses` MCP tool takes `query` and `limit` (default 5) and returns the `SearchListing`'s text and record. The `list_analyses` MCP tool takes nothing and returns the `AnalysisListing`'s text and record. Their names are MCP tool names.
+- The `search_analyses` MCP tool takes `query` and `limit` (default 5) and returns the `SearchListing`'s text and record. The `list_analyses` MCP tool takes nothing and returns the `AnalysisListing`'s text and record. Their names are MCP tool names. The records equal Python's. The text is worded for an MCP caller: where Python suggests `ae.search_analyses(...)`, `ae.describe_analysis(...)` or `ae.guide()`, it points to the `limit` argument, the MCP tool's description and input schema, and `list_analyses` (user's decision, 2026-10-18).
+- Nothing an MCP caller reads holds `ae.` or Python call syntax: the instructions, the printed results, the listings, the MCP tool descriptions, and the output schemas' field descriptions, which name the full table as "to_frame, or table_path over MCP".
 - `describe_analysis` and `guide` are not MCP tools: each analysis MCP tool's description and schema carry the same docstring content, and the instructions carry the guide.
 
 ### Docs and records
@@ -165,7 +168,7 @@ The rules of the main suite apply: small hand-built data with obvious answers, n
 4. **Errors and statuses.** Each new error code; an `AgentEDAError` from an analysis (a misspelled column) arrives with its code and message; schema validation errors; a non-completed status is a normal result.
 5. **Project.** `project_path`, `--project`, precedence, `mask_sensitive` override, an invalid project file at start and per call; with masking on, no raw sensitive value appears in text, structured content or the written table.
 6. **table_path.** CSV and Parquet; the rows equal `to_frame()`; existing file refused before the analysis runs; the response line.
-7. **Discovery.** The instructions name every registered analysis, contain no Python call syntax and keep within the guide's limits; `search_analyses` and `list_analyses` return the Python listings.
+7. **Discovery.** The instructions name every registered analysis, contain no Python call syntax and keep within the guide's limits; `search_analyses` and `list_analyses` return the Python records with the text in MCP wording.
 8. **Determinism.** Two identical calls in two server processes with different `PYTHONHASHSEED` values give identical structured content.
 
 ### CI

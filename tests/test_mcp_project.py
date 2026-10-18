@@ -15,6 +15,7 @@ pytest.importorskip(
 
 import json
 import os
+import re
 import subprocess
 import sys
 import warnings
@@ -35,6 +36,16 @@ CSV = (
     "ann@example.org,pro,10\n"
     "bo@example.org,pro,20\n"
     "ann@example.org,team,30\n"
+)
+
+# Which project a call uses, and what masking is, as every MCP text says it.
+PRECEDENCE = (
+    "A call's project_path replaces the MCP server's project (agent-eda-mcp "
+    "--project) for that call, and a call's mask_sensitive wins over both."
+)
+GUARDRAIL = (
+    "Masking is a guardrail against accidental exposure, not anonymization or "
+    "access control."
 )
 
 MASKED = '[data_policy]\nsensitive_columns = ["customer"]\nmask_sensitive = true\n'
@@ -76,6 +87,27 @@ def test_project_path_and_mask_sensitive_say_masking_is_only_a_guardrail():
         assert "--project" in properties["mask_sensitive"]["description"]
 
 
+def test_the_precedence_and_the_guardrail_read_the_same_wherever_they_appear():
+    async def scenario():
+        async with Client(create_server(), mode="legacy") as client:
+            return client.instructions, (await client.list_tools()).tools
+
+    instructions, tools = anyio.run(scenario)
+    properties = [
+        tool.input_schema["properties"][name]["description"]
+        for tool in tools
+        if tool.name in MASKING
+        for name in ("project_path", "mask_sensitive")
+    ]
+    finished = run_agent_eda_mcp("--help")
+
+    for text in [*properties, instructions, finished.stdout]:
+        # argparse breaks lines after a hyphen, as in agent-eda-|mcp.
+        unwrapped = " ".join(re.sub(r"(?<=\w)-\n\s*", "-", text).split())
+        assert PRECEDENCE in unwrapped, text
+        assert GUARDRAIL in unwrapped, text
+
+
 def test_no_masking_mcp_tool_schema_keeps_the_project_definitions():
     tools = anyio.run(list_tools)
 
@@ -100,7 +132,7 @@ def test_a_call_with_project_path_equals_the_python_call_with_that_project(tmp_p
 
     assert not response.is_error
     assert response.structured_content == expected.to_dict()
-    assert [block.text for block in response.content] == [str(expected)]
+    assert response.content[0].text.splitlines()[0] == str(expected).splitlines()[0]
     assert response.structured_content["masking"]["applied"] is True
     assert "ann@example.org" not in response.content[0].text
 
@@ -347,7 +379,7 @@ def test_masking_keeps_every_sensitive_value_out_of_the_response(tmp_path, name)
     unmasked = anyio.run(call, name, {**arguments, **options, "mask_sensitive": False})
 
     assert masked.structured_content == expected.to_dict()
-    assert [block.text for block in masked.content] == [str(expected)]
+    assert masked.content[0].text.splitlines()[0] == str(expected).splitlines()[0]
     assert shown(masked) == []
     # The values the response would show without masking.
     assert shown(unmasked) != []

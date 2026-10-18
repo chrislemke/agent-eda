@@ -76,9 +76,9 @@ def test_a_parquet_table_path_keeps_the_full_table_and_its_dtypes(tmp_path, file
 def test_the_text_gains_one_line_with_the_absolute_path_and_nothing_else_changes(
     tmp_path, monkeypatch
 ):
-    data_path = write(tmp_path / "shop.csv", CSV)
-    expected = ae.summarize_categorical(read(data_path))
+    write(tmp_path / "shop.csv", CSV)
     monkeypatch.chdir(tmp_path)
+    without = anyio.run(call, "summarize_categorical", {"data_path": "shop.csv"})
 
     # A relative path, resolved against the server's working directory.
     response = anyio.run(
@@ -89,10 +89,42 @@ def test_the_text_gains_one_line_with_the_absolute_path_and_nothing_else_changes
 
     assert not response.is_error
     assert [block.text for block in response.content] == [
-        f"{expected}\nFull table written to {tmp_path.resolve() / 'levels.csv'} "
-        "(3 rows)."
+        f"{without.content[0].text}\nFull table written to "
+        f"{tmp_path.resolve() / 'levels.csv'} (3 rows)."
     ]
-    assert response.structured_content == expected.to_dict()
+
+
+def test_the_record_gains_the_written_tables_path_and_row_count(tmp_path, monkeypatch):
+    data_path = write(tmp_path / "shop.csv", CSV)
+    expected = ae.summarize_categorical(read(data_path))
+    monkeypatch.chdir(tmp_path)
+
+    # The client validates the structured content against the output schema,
+    # so the schema covers table_file too.
+    response = anyio.run(
+        call,
+        "summarize_categorical",
+        {"data_path": "shop.csv", "table_path": "levels.csv"},
+    )
+
+    assert not response.is_error
+    assert response.structured_content == {
+        **expected.to_dict(),
+        "table_file": {
+            "path": str(tmp_path.resolve() / "levels.csv"),
+            "row_count": 3,
+        },
+    }
+
+
+def test_the_output_schema_allows_table_file_without_requiring_it():
+    tools = anyio.run(list_tools)
+
+    for tool in tools:
+        if tool.name in ANALYSES:
+            schema = tool.output_schema
+            assert "table_file" in schema["properties"], tool.name
+            assert "table_file" not in schema["required"], tool.name
 
 
 def test_a_table_of_one_row_says_1_row(tmp_path):
@@ -115,11 +147,13 @@ def test_a_null_table_path_writes_nothing(tmp_path, monkeypatch):
     expected = ae.summarize_numeric(read(data_path))
     monkeypatch.chdir(tmp_path)
 
+    without = anyio.run(call, "summarize_numeric", {"data_path": "shop.csv"})
     response = anyio.run(
         call, "summarize_numeric", {"data_path": "shop.csv", "table_path": None}
     )
 
-    assert [block.text for block in response.content] == [str(expected)]
+    assert response.content == without.content
+    assert response.structured_content == expected.to_dict()
     assert sorted(path.name for path in tmp_path.iterdir()) == ["shop.csv"]
 
 
@@ -370,6 +404,11 @@ def read_parquet(path):
             category=DeprecationWarning,
         )
         return pd.read_parquet(path)
+
+
+async def list_tools():
+    async with Client(create_server(), mode="legacy") as client:
+        return (await client.list_tools()).tools
 
 
 async def call(name, arguments, server=None):

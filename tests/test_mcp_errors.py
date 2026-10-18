@@ -171,7 +171,9 @@ def test_a_run_that_does_not_complete_is_a_normal_result_with_its_status(tmp_pat
     assert response.structured_content["status"] == "insufficient_data"
     assert response.structured_content["status_reason"]
     assert response.structured_content == expected.to_dict()
-    assert [block.text for block in response.content] == [str(expected)]
+    # The heading and the reason, as Python prints them.
+    lines = response.content[0].text.splitlines()
+    assert lines[:2] == str(expected).splitlines()[:2]
 
 
 def test_a_bug_in_an_analysis_is_a_json_rpc_internal_error(tmp_path, caplog):

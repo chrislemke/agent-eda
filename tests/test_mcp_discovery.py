@@ -128,6 +128,16 @@ def test_the_instructions_explain_results_and_statuses(instructions):
     assert "isError" in text
 
 
+def test_the_instructions_promise_no_part_of_the_response_over_the_other(
+    instructions,
+):
+    # Some clients show the model only the structured content, others the text.
+    text = unwrapped(instructions)
+
+    assert "may show you its text, its structured content or both" in text
+    assert "table_file" in text
+
+
 def test_the_instructions_explain_masking_as_only_a_guardrail(instructions):
     text = unwrapped(instructions)
 
@@ -177,13 +187,35 @@ def test_list_analyses_names_every_analysis_mcp_tool():
     ("query", "limit"),
     [("nulls per column", 5), ("nulls per column", 2), ("xylophone", 5), ("", 1)],
 )
-def test_search_analyses_returns_the_python_listing(query, limit):
+def test_search_analyses_returns_the_python_listing_in_mcp_wording(query, limit):
     response = anyio.run(call, "search_analyses", {"query": query, "limit": limit})
     expected = ae.search_analyses(query, limit=limit)
 
     assert not response.is_error
-    assert [block.text for block in response.content] == [str(expected)]
     assert response.structured_content == expected.to_dict()
+    (text,) = [block.text for block in response.content]
+    assert text.splitlines()[0] == str(expected).splitlines()[0]
+    assert CALL.findall(text) == []
+    assert "ae." not in text
+
+
+def test_search_analyses_points_to_mcp_tools_for_more_and_next():
+    response = anyio.run(call, "search_analyses", {"query": "column", "limit": 2})
+
+    assert response.content[0].text.splitlines()[-2:] == [
+        "More: search_analyses with limit 11 shows all 11 matches.",
+        "Next: the infer_column_semantics MCP tool's description and input schema "
+        "say how to call it.",
+    ]
+
+
+def test_a_search_without_matches_points_to_list_analyses():
+    response = anyio.run(call, "search_analyses", {"query": "xylophone"})
+
+    assert response.content[0].text.splitlines()[-1] == (
+        "Try other words, or call list_analyses for every analysis; the MCP "
+        "server's instructions say where to start."
+    )
 
 
 def test_search_analyses_returns_five_matches_without_a_limit():

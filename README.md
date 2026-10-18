@@ -280,13 +280,13 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
 
 ### Read the response
 
-A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. A run that doesn't complete, such as `insufficient_data` from `summarize_numeric` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as a tool error (`isError: true`) whose structured content holds the stable error `code` and the `message` a Python caller gets.
+A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The record equals the Python one. The text is worded for an MCP caller: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. Some MCP clients show the model only one of the two. Claude Code, for one, shows only the structured content. A run that doesn't complete, such as `insufficient_data` from `summarize_numeric` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as a tool error (`isError: true`) whose structured content holds the stable error `code` and the `message` a Python caller gets.
 
-To get past the caps, pass `table_path`. The MCP server writes the complete table, the one `res.to_frame()` gives in Python, to a new `.csv`, `.parquet` or `.pq` file, and the text ends with `Full table written to <absolute path> (<n> rows).`
+To get past the caps, pass `table_path`. The MCP server writes the result's main table, the one `res.to_frame()` gives in Python without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
 - `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. The directory must exist already.
 - A cell that holds a list or a mapping, such as the row IDs of a duplicate group, is written as JSON text. In Parquet, a column whose values mix types, such as numbers and text, is written as text, as in the CSV.
-- An analysis with several tables writes its default one.
+- An analysis with several tables writes only its main one. `compute_association_matrix` writes its pairs, for example, and its wide matrix stays a Python-only table.
 
 ### Masking over MCP
 

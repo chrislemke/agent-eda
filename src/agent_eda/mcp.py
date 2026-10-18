@@ -11,7 +11,12 @@ Each MCP tool takes a data path in place of the DataFrame. The MCP server reads
 a CSV file counting only an empty field as missing, so stand-ins such as 'N/A'
 reach the analyses as values. A call returns the printed result as text and the
 result's to_dict() record as structured content, also when the run doesn't
-complete, such as with status insufficient_data. A caller mistake, an
+complete, such as with status insufficient_data. The text is worded for an MCP
+caller: where print(res) names res.to_frame() and res.to_json(), it names
+table_path and the structured content. A call with table_path writes the
+result's main table to that file and adds its path and row count to both: a
+last line of text and a table_file field in the structured content, since some
+clients show the model only one of the two. A caller mistake, an
 AgentEDAError, comes back as a tool error (isError true) whose text is the
 exception's message and whose structured content is {"code", "message"}. Any
 other exception is a bug and becomes a JSON-RPC internal error.
@@ -19,9 +24,10 @@ other exception is a bug and becomes a JSON-RPC internal error.
 The MCP tools of analyses that take a project have project_path in its place:
 the path to a project TOML file, as ae.Project.save writes it. Started as
 agent-eda-mcp --project project.toml, the MCP server uses that Project for
-every such call that passes no project_path; a call's mask_sensitive wins over both,
-as in Python. Masking is a guardrail against accidental exposure, not
-anonymization or access control (ADR 0001).
+every such call. A call's project_path replaces the MCP server's project
+(agent-eda-mcp --project) for that call, and a call's mask_sensitive wins over
+both. Masking is a guardrail against accidental exposure, not anonymization or
+access control (ADR 0001).
 
 The package never imports this module, so `import agent_eda` stays free of the
 mcp extra. Without the extra, create_server() raises MissingDependencyError and
@@ -33,6 +39,7 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
+from agent_eda._mcp_instructions import GUARDRAIL, PRECEDENCE
 from agent_eda.errors import AgentEDAError, MissingDependencyError
 from agent_eda.project import Project
 
@@ -58,30 +65,34 @@ def create_server(
     in-memory MCP client to it instead. Each MCP tool is built when the MCP
     server starts, from the analysis's registry entry and docstring: its name, a
     description, an input schema with data_path in place of data, and an
-    output schema of the analysis's to_dict() record. The search_analyses and
-    list_analyses MCP tools return the Python listings, and the MCP server's
+    output schema of the analysis's to_dict() record, with the table_file a
+    call with table_path adds. The search_analyses and list_analyses MCP tools
+    return the Python listings, worded for an MCP caller, and the MCP server's
     instructions are the guide for an MCP caller: what the package does, data
     paths, results and statuses, masking, every analysis and the first-look
     order. describe_analysis and guide are not MCP tools.
 
     Args:
-        analyses: The analysis functions to serve, such as
-            [ae.summarize_numeric]. None, the default, serves every analysis
-            that ae.list_analyses() lists. A function that agent_eda doesn't
-            register, such as a stand-in a test defines, is read the way the
-            registry reads an analysis (data first, options by keyword, a
-            docstring and an AnalysisResult subclass as the return type) and
-            is called as it is, without the registry's checks. The
-            discovery MCP tools and the instructions always cover every
-            registered analysis, as their Python counterparts do.
+        analyses: A test seam, not a way to serve a subset: leave it None,
+            the default, which serves every analysis that ae.list_analyses()
+            lists, as agent-eda-mcp does. Tests pass the analysis functions to
+            serve, such as [ae.summarize_numeric] or a stand-in the test
+            defines. An unregistered function is read the way the registry
+            reads an analysis (data first, options by keyword, a docstring
+            and an AnalysisResult subclass as the return type) and is called
+            as it is, without the registry's checks. The discovery MCP tools
+            and the instructions still cover every registered analysis, so
+            they name MCP tools a server built with a subset doesn't have.
+            Serving a subset or an unregistered function is unsupported
+            outside tests.
         project: The MCP server's Project, such as
             ae.Project.load('project.toml'), which agent-eda-mcp --project
-            loads. Every call of an MCP tool
-            that has project_path uses it, unless the call passes its own
-            project_path; a call's mask_sensitive wins over both, as in
-            Python. MCP tools of analyses that don't take a project ignore
-            it. None, the default, gives no Project. Masking is a guardrail
-            against accidental exposure, not anonymization or access control.
+            loads. Every call of an MCP tool that has project_path uses it. A
+            call's project_path replaces it for that call, and a call's
+            mask_sensitive wins over both. MCP tools of analyses that don't
+            take a project ignore it. None, the default, gives no Project.
+            Masking is a guardrail against accidental exposure, not
+            anonymization or access control.
 
     Returns:
         mcp.server.Server: The low-level MCP server named 'agent-eda', which
@@ -108,8 +119,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     This is the agent-eda-mcp console script. --project PATH loads the MCP
     server's Project once, at start. A mistake that stops the MCP server from
     starting, such as a missing mcp extra or a project file that
-    ae.Project.load refuses, prints its message to stderr and exits with
-    status 1, without a traceback.
+    ae.Project.load refuses or can't read, prints its message to stderr and
+    exits with status 1, without a traceback.
 
     Args:
         argv: The command-line arguments after the program name; None reads
@@ -140,11 +151,9 @@ def _parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="A project TOML file, as ae.Project.save writes it, whose data policy "
         "names the sensitive columns and says whether to mask them. The MCP "
-        "server loads it once, at start, and every call of an MCP tool that "
-        "takes project_path uses it unless the call passes its own project_path; "
-        "a call's mask_sensitive wins over both. An invalid file stops the MCP "
-        "server with its message. Masking is a guardrail against accidental "
-        "exposure, not anonymization or access control.",
+        "server loads it once, at start, for every call of an MCP tool that "
+        f"takes project_path. {PRECEDENCE} An invalid file stops the MCP server "
+        f"with its message. {GUARDRAIL}",
     )
     return parser
 
