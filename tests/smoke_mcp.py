@@ -18,7 +18,7 @@ CSV = "city,score,note\nOslo,1.5,N/A\nLyon,,ok\nOslo,2.5,\n"
 
 
 async def smoke(directory: Path) -> int:
-    (directory / "shop.csv").write_text(CSV)
+    (directory / "shop.csv").write_text(CSV, encoding="utf-8")
     server = StdioServerParameters(
         # The console script installed next to this interpreter.
         command=str(Path(sys.executable).parent / "agent-eda-mcp"),

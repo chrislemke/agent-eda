@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-AGENTS = (ROOT / "AGENTS.md").read_text()
+AGENTS = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 CHECKLIST_PATH = ROOT / "docs" / "agents" / "new-analysis.md"
 
 
@@ -22,7 +22,7 @@ def test_agents_md_points_to_the_checklist_in_one_line():
 
 
 def test_the_checklist_names_files_that_exist_and_a_check_for_each_step():
-    text = CHECKLIST_PATH.read_text()
+    text = CHECKLIST_PATH.read_text(encoding="utf-8")
     paths = re.findall(r"`((?:tests|src|docs|scripts)/[\w/.-]+\.(?:py|md))`", text)
     rows = [line for line in text.splitlines() if re.match(r"\| \d+ \|", line)]
 
@@ -73,7 +73,7 @@ def test_the_tests_section_names_the_helpers_and_the_stale_mcp_server():
 
 
 def test_the_checklist_and_agents_md_name_the_generator_of_the_reference():
-    checklist = CHECKLIST_PATH.read_text()
+    checklist = CHECKLIST_PATH.read_text(encoding="utf-8")
     docstrings = AGENTS.split("\n## Docstrings\n")[1].split("\n## ")[0]
 
     assert "scripts/generate_reference.py" in checklist
