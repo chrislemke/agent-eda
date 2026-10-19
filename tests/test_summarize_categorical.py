@@ -792,7 +792,7 @@ def test_text_stays_within_40_lines_of_120_characters():
         }
     )
 
-    lines = str(ae.summarize_categorical(df)).split("\n")
+    lines = str(ae.summarize_categorical(df)).splitlines()
 
     assert len(lines) <= 40
     assert max(len(line) for line in lines) <= 120

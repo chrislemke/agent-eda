@@ -55,7 +55,7 @@ def instructions():
 
 
 def test_the_instructions_keep_within_one_page_of_the_guides_limits(instructions):
-    lines = instructions.split("\n")
+    lines = instructions.splitlines()
 
     assert 20 <= len(lines) <= 60
     assert max(len(line) for line in lines) <= 120
@@ -80,7 +80,7 @@ def test_the_instructions_hold_no_python_call_syntax(instructions):
 def test_the_instructions_name_every_registered_analysis_with_its_summary(
     instructions,
 ):
-    lines = instructions.split("\n")
+    lines = instructions.splitlines()
 
     for info in ae.list_analyses().analyses:
         masking = " [supports masking]" if info.supports_masking else ""
@@ -88,7 +88,7 @@ def test_the_instructions_name_every_registered_analysis_with_its_summary(
 
 
 def test_the_instructions_say_what_the_package_does(instructions):
-    first = instructions.split("\n")[0]
+    first = instructions.splitlines()[0]
 
     assert first.startswith(f"agent-eda {ae.__version__}: deterministic ")
     assert "exploratory data analysis" in first
@@ -166,7 +166,7 @@ def test_the_instructions_explain_masking_as_only_a_guardrail(instructions):
 
 
 def test_the_instructions_give_the_first_look_order(instructions):
-    lines = instructions.split("\n")
+    lines = instructions.splitlines()
     start = lines.index("A first look at a new dataset, in this order:") + 1
 
     steps = [line.split(": ")[0] for line in lines[start : start + len(FIRST_LOOK)]]

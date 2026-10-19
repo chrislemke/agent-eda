@@ -17,9 +17,12 @@ pytest.importorskip(
 )
 
 import json
+import math
+import numbers
 import warnings
 
 import anyio
+import numpy as np
 import pandas as pd
 from mcp import Client
 from recipes import recipe_for
@@ -182,8 +185,9 @@ def test_every_analysis_writes_its_full_table_in_either_format(
 
     assert not response.is_error, response.content[0].text
     written = read_back(table_path)
-    assert list(written.columns) == list(expected.columns)
+    assert list(written.columns) == list(documented_cells(expected).columns)
     assert len(written) == len(expected)
+    assert different_cells(written, documented_cells(expected)) == []
 
 
 @pytest.mark.parametrize("extension", [".csv", ".parquet"])
@@ -375,6 +379,56 @@ def assert_same_table(written, expected):
     """The same columns and rows, with any missing value as None, whatever the
     dtype a file format gives a column."""
     pd.testing.assert_frame_equal(cells(written), cells(expected))
+
+
+def documented_cells(table):
+    """The table as the file holds it: the index first when it holds more than
+    the row numbers, and lists and mappings as JSON text."""
+    if table.index.equals(pd.RangeIndex(len(table))) and table.index.name is None:
+        table = table.reset_index(drop=True)
+    else:
+        table = table.reset_index()
+    return table.map(
+        lambda value: (
+            json.dumps(value, ensure_ascii=False, default=str)
+            if isinstance(value, list | tuple | dict | set | frozenset)
+            else value
+        )
+    )
+
+
+def different_cells(written, expected):
+    """Each cell of the file that differs from the table's, as 'row, column'.
+
+    A missing value and an empty string both read back as missing; numbers
+    agree within a relative 1e-12, and anything else as text.
+    """
+    return [
+        f"row {row}, {column!r}: {got!r} is not {want!r}"
+        for column in expected.columns
+        for row, (got, want) in enumerate(
+            zip(written[column].tolist(), expected[column].tolist(), strict=True)
+        )
+        if not same_cell(got, want)
+    ]
+
+
+def same_cell(got, want):
+    if is_missing(want) or is_missing(got):
+        return is_missing(want) and is_missing(got)
+    if isinstance(got, bool | np.bool_) or isinstance(want, bool | np.bool_):
+        return str(got).lower() == str(want).lower()
+    if isinstance(got, numbers.Real) and isinstance(want, numbers.Real):
+        return math.isclose(float(got), float(want), rel_tol=1e-12, abs_tol=0.0)
+    return str(got) == str(want)
+
+
+def is_missing(value):
+    return (
+        value is None
+        or bool(pd.isna(value))
+        or (isinstance(value, str) and value == "")
+    )
 
 
 def cells(frame):

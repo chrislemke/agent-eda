@@ -1,9 +1,11 @@
+import textwrap
+
 import numpy as np
 import pandas as pd
 import pytest
 
 import agent_eda as ae
-from agent_eda.results import Finding, Limitation
+from agent_eda.results import Finding, Limitation, StatusReason
 
 
 def test_text_follows_the_fixed_template():
@@ -155,7 +157,83 @@ def test_counts_use_thousands_separators_and_sizes_4_significant_digits():
 def test_text_stays_within_40_lines_of_120_characters(df):
     text = str(ae.describe_dataset(df, source="s3://" + "b" * 300))
 
-    lines = text.split("\n")
+    lines = text.splitlines()
     assert len(lines) <= 40
     assert max(len(line) for line in lines) <= 120
-    assert lines == text.splitlines()
+    # No other line separator, such as \r or U+2028, hides in a line.
+    assert "\n".join(lines) == text
+
+
+def reason_of(line_count):
+    """A status reason that prints on exactly `line_count` lines."""
+    words = []
+    while True:
+        words.append("raise_the_limit")
+        text = f"Reason: too_much_work: {' '.join(words)}"
+        wrapped = textwrap.wrap(text, width=120, subsequent_indent="    ")
+        if len(wrapped) == line_count:
+            return " ".join(words)
+        assert len(wrapped) < line_count, "a word added more than one line"
+
+
+def full_sections(reason_lines):
+    """A result with a full table, more findings and limitations than the text
+    shows and a reason on `reason_lines` lines, and its text's length without
+    the cut at 40 lines."""
+    res = ae.describe_dataset(pd.DataFrame({f"col_{i}": range(3) for i in range(12)}))
+    findings = [
+        Finding(
+            code=f"code_{i}",
+            claim=f"Claim {i}.",
+            assessment="descriptive",
+            columns=[],
+            fields=[],
+        )
+        for i in range(8)
+    ]
+    limitations = [
+        Limitation(code="unhashable_values", reason=f"Reason {i}.", fields=[])
+        for i in range(7)
+    ]
+    reason = StatusReason(code="too_much_work", message=reason_of(reason_lines))
+    filled = res.model_copy(
+        update={
+            "status": "failed",
+            "status_reason": reason,
+            "findings": findings,
+            "limitations": limitations,
+        }
+    )
+    # Without a reason, findings and limitations the text has the heading, 2
+    # facts, the table (title, header, 10 rows), "Findings: none", "Limitations:
+    # none" and a footer. A reason adds its lines, 5 findings and 5 limitations
+    # add a line each next to the "none" lines.
+    uncut = len(str(res).splitlines()) + reason_lines + 5 + 5
+    return filled, uncut
+
+
+@pytest.mark.parametrize("reason_lines", [10, 11, 12])
+def test_a_text_that_fits_in_40_lines_is_not_cut(reason_lines):
+    res, uncut = full_sections(reason_lines)
+
+    lines = str(res).splitlines()
+
+    assert len(lines) == uncut
+    assert len(lines) <= 40
+    assert not any("more lines" in line for line in lines)
+
+
+@pytest.mark.parametrize("reason_lines", [13, 14, 30])
+def test_a_text_past_40_lines_ends_on_a_line_that_counts_what_it_leaves_out(
+    reason_lines,
+):
+    res, uncut = full_sections(reason_lines)
+
+    lines = str(res).splitlines()
+
+    assert uncut > 40
+    assert len(lines) == 40
+    # 39 lines stay, and the last says how many it replaces.
+    assert lines[-1] == f"... {uncut - 39} more lines; see res.to_json()."
+    assert lines[0] == "describe_dataset: failed on 3 rows x 12 columns"
+    assert "Columns (10 of 12 shown):" in lines

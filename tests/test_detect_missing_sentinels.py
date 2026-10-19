@@ -780,11 +780,17 @@ def test_row_ids_are_the_id_columns_values_and_columns_none_leaves_it_out():
 
 
 def test_a_named_id_column_is_checked_too():
-    res = ae.detect_missing_sentinels(
-        orders(), columns=["order", "note"], id_column="order"
-    )
+    # Two orders carry the stand-in -999 as their ID.
+    df = orders().assign(order=[101, -999, 103, -999, 105])
+
+    res = ae.detect_missing_sentinels(df, columns=["order", "note"], id_column="order")
 
     assert res.parameters["columns"] == ["order", "note"]
+    [stand_in] = [c for c in res.candidates if c.column == "order"]
+    assert (stand_in.value, stand_in.count) == (-999, 2)
+    # Both rows show the stand-in as their row ID, which the result says.
+    assert stand_in.row_ids == [-999, -999]
+    assert [lim.code for lim in res.limitations] == ["ambiguous_row_ids"]
 
 
 def test_an_unknown_id_column_raises_with_the_closest_names():

@@ -12,6 +12,8 @@ import agent_eda as ae
 from agent_eda.errors import ColumnNotFoundError, ColumnTypeError, InvalidArgumentError
 
 INF = np.inf
+# The relative tolerance of comparisons with a reference value.
+RTOL = 1e-12
 
 
 def filled[T](values: list[T] | None) -> list[T]:
@@ -179,7 +181,7 @@ def test_a_regression_target_gets_the_fields_and_numbers_summarize_numeric_gives
     assert res.status == "completed"
     assert res.statistics is not None
     assert res.statistics.model_dump() == numeric.model_dump()
-    assert res.statistics.mean == pytest.approx(13.0)
+    assert res.statistics.mean == pytest.approx(13.0, rel=RTOL)
     # One missing value and two infinite ones.
     assert res.non_finite_count == 3
     assert res.missing_count == 1

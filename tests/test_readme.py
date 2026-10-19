@@ -79,7 +79,10 @@ def test_the_first_look_table_follows_the_guide_with_each_analysis_question(caps
 
     # Rows such as: | 1 | `describe_dataset` | What does this dataset contain? | none |
     row = re.compile(r"^\| (\d+) \| `(\w+)` \| ([^|]+?) \|", flags=re.MULTILINE)
-    assert row.findall(README.read_text(encoding="utf-8")) == expected
+    rows = row.findall(README.read_text(encoding="utf-8"))
+    # Two empty lists would be equal: the guide's steps must have been found.
+    assert len(expected) >= 5
+    assert rows == expected
 
 
 def test_the_readme_has_the_sections_of_a_user_guide_in_order():

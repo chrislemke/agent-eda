@@ -42,8 +42,11 @@ mcp = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "annotated-types" },
+    { name = "anyio" },
     { name = "hypothesis" },
     { name = "ipython" },
+    { name = "jsonschema" },
     { name = "polars" },
     { name = "pre-commit" },
     { name = "pyarrow" },
@@ -76,8 +79,11 @@ provides-extras = ["mcp"]
 [package.metadata.requires-dev]
 core = []
 dev = [
+    { name = "annotated-types", specifier = ">=0.6.0" },
+    { name = "anyio", specifier = ">=4.9" },
     { name = "hypothesis", specifier = ">=6.170.1" },
     { name = "ipython", specifier = ">=9.0" },
+    { name = "jsonschema", specifier = ">=4.20.0" },
     { name = "polars", specifier = ">=1.0" },
     { name = "pre-commit", specifier = ">=4.7.0" },
     { name = "pyarrow", specifier = ">=14.0.1" },
@@ -106,7 +112,7 @@ version = "4.15.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "idna" },
-    { name = "typing-extensions", marker = "python_full_version < '3.15'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.15' or (extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/d2/f4d173e22df740bc37b1db102b386ba719b66e95b0f0d751f556b387e6d2/anyio-4.15.1.tar.gz", hash = "sha256:9f28306018cbd6d329e64a36d58256edff76dd996fe423bc957326e578b82a94", size = 276966, upload-time = "2026-09-05T10:42:39.44Z" }
 wheels = [
@@ -1419,7 +1425,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "rpds-py" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/22/f5/df4e9027acead3ecc63e50fe1e36aca1523e1719559c499951bb4b53188f/referencing-0.37.0.tar.gz", hash = "sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8", size = 78036, upload-time = "2025-10-13T15:30:48.871Z" }
 wheels = [
