@@ -7,16 +7,18 @@ An open-source library of deterministic EDA analyses. Its callers are agents in 
 pyproject.toml makes uv refuse to run below the version these commands need (`required-version`). Installing and running through uv gives the mcp extra and the dev tools, on the latest numpy 2.x and pandas 3.x.
 
 ```sh
-uv sync                                        # install the package, the mcp extra and the dev tools
-uv run pre-commit install                      # install the git hooks: ruff and ty on commit, pytest on push
-uv run ruff check --fix .                      # lint, fixing what it can
-uv run ruff format .                           # format
-uv run pytest --hypothesis-profile=thorough    # test with 1,000 generated examples per analysis instead of 50
-uv run pytest --cov                            # test with coverage, subprocesses included
-uv run --extra mcp pytest tests/test_mcp_*.py  # test the MCP server alone
-uv add --dev <package>                         # add a dev dependency and update uv.lock
-uv build --wheel                               # build the wheel
-uv run pre-commit run --all-files              # run every hook on every file
+uv sync                                               # install the package, the mcp extra and the dev tools
+uv run pre-commit install                             # install the git hooks: ruff and ty on commit, pytest on push
+uv run ruff check --fix .                             # lint, fixing what it can
+uv run ruff format .                                  # format
+uv run python scripts/generate_reference.py           # rewrite the README's Reference from the docstrings, signatures and ae.errors
+uv run python scripts/generate_reference.py --check   # exit 1 when the Reference is stale, without writing
+uv run pytest --hypothesis-profile=thorough           # test with 1,000 generated examples per analysis instead of 50
+uv run pytest --cov                                   # test with coverage, subprocesses included
+uv run --extra mcp pytest tests/test_mcp_*.py         # test the MCP server alone
+uv add --dev <package>                                # add a dev dependency and update uv.lock
+uv build --wheel                                      # build the wheel
+uv run pre-commit run --all-files                     # run every hook on every file
 ```
 
 ### Finish checks
@@ -83,7 +85,7 @@ Google style. Every public analysis has these sections, in this order, under the
 6. `Examples:` a runnable doctest that prints a result.
 7. `See Also:` related analyses.
 
-`When to use:` and `See Also:` name only analyses that exist; when a new analysis is the better choice for a neighbour's question, update the neighbour's sections too. A contract test enforces all of this. `guide()`, `search_analyses()` and `describe_analysis()` read the docstring at runtime, so it is the only hand-written copy. The README's Reference is generated from the docstrings, the signatures and `ae.errors`: after you change one, run `uv run python scripts/generate_reference.py` and commit the README. A test fails when the Reference is stale.
+`When to use:` and `See Also:` name only analyses that exist; when a new analysis is the better choice for a neighbour's question, update the neighbour's sections too. A contract test enforces all of this. `guide()`, `search_analyses()` and `describe_analysis()` read the docstring at runtime, so it is the only hand-written copy. The README's Reference is generated from the docstrings, the signatures and `ae.errors`: after you change one, run the Reference generator (`scripts/generate_reference.py`, under Commands) and commit the README. A test fails when the Reference is stale.
 
 ## Implementation
 

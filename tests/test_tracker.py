@@ -128,6 +128,18 @@ def test_the_finished_specs_and_all_their_tickets_say_done():
     assert not_done == []
 
 
+def test_a_spec_whose_tickets_are_all_done_says_done():
+    stale = []
+    for spec in sorted(SCRATCH.glob("*/spec.md")):
+        tickets = sorted((spec.parent / "issues").glob("*.md"))
+        statuses = [STATUS_LINE.findall(t.read_text())[:1] for t in tickets]
+        all_done = bool(tickets) and all(s == ["done"] for s in statuses)
+        if all_done and STATUS_LINE.findall(spec.read_text())[:1] != ["done"]:
+            stale.append(str(spec.relative_to(ROOT)))
+
+    assert stale == [], f"All tickets are done, so set 'Status: done' in: {stale}"
+
+
 @pytest.mark.parametrize(
     "stale",
     [

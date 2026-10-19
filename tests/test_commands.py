@@ -48,6 +48,34 @@ def test_each_command_in_agents_md_appears_once():
     assert repeated == [], f"AGENTS.md lists these commands more than once: {repeated}"
 
 
+GENERATOR_COMMAND = "uv run python scripts/generate_reference.py"
+
+
+def test_agents_md_lists_the_reference_generator_and_its_check_form():
+    commands = section(AGENTS, "Commands")
+
+    assert f"\n{GENERATOR_COMMAND} " in commands
+    assert f"\n{GENERATOR_COMMAND} --check " in commands
+
+
+@pytest.mark.parametrize(
+    "command",
+    [GENERATOR_COMMAND, "uv run pytest -m benchmark"],
+    ids=["generator", "benchmark"],
+)
+def test_the_other_guides_point_to_agents_md_instead_of_spelling_out_these_commands(
+    command,
+):
+    guides = [
+        ROOT / "CONTRIBUTING.md",
+        *sorted((ROOT / "docs" / "agents").glob("*.md")),
+    ]
+
+    spelled = [guide.name for guide in guides if command in guide.read_text()]
+
+    assert spelled == [], f"{spelled} repeat `{command}`: point to AGENTS.md instead."
+
+
 def test_the_finish_checks_list_the_exact_commands():
     checks = section(AGENTS, "Finish checks")
     spans = re.findall(r"`([^`]+)`", checks)
@@ -149,5 +177,8 @@ def test_the_mcp_test_modules_say_how_to_get_the_extra_when_it_is_missing():
     )
 
     assert "skipped" in run.stdout, run.stdout + run.stderr
-    assert "uv sync" in run.stdout or "uv run --extra mcp pytest" in run.stdout
+    assert "uv sync` (uv 0.13 or later)" in run.stdout or (
+        "uv sync (uv 0.13 or later)" in run.stdout
+    )
+    assert "uv run --extra mcp pytest" in run.stdout
     assert "pip install 'agent-eda[mcp]'" in run.stdout

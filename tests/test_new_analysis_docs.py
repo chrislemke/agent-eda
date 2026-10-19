@@ -76,8 +76,11 @@ def test_the_checklist_and_agents_md_name_the_generator_of_the_reference():
     checklist = CHECKLIST_PATH.read_text()
     docstrings = AGENTS.split("\n## Docstrings\n")[1].split("\n## ")[0]
 
-    assert "uv run python scripts/generate_reference.py" in checklist
-    assert "uv run python scripts/generate_reference.py" in docstrings
+    assert "scripts/generate_reference.py" in checklist
+    assert "scripts/generate_reference.py" in docstrings
+    assert "AGENTS.md's Commands" in checklist
+    assert "uv run python scripts/generate_reference.py" not in checklist
+    assert "uv run python scripts/generate_reference.py" not in docstrings
     assert "only hand-written copy" in docstrings
     assert "README's Reference is generated from the docstrings" in docstrings
     assert "later slice" not in AGENTS

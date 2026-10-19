@@ -14,7 +14,7 @@ import pytest
 pytest.importorskip(
     "mcp",
     reason=(
-        "the MCP server tests need the mcp extra: run uv sync or "
+        "the MCP server tests need the mcp extra: run `uv sync` (uv 0.13 or later) or "
         "uv run --extra mcp pytest in this repository, or "
         "pip install 'agent-eda[mcp]' for an installed package"
     ),
