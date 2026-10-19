@@ -10,7 +10,11 @@ import pytest
 
 pytest.importorskip(
     "mcp",
-    reason="the MCP server tests need the mcp extra: pip install 'agent-eda[mcp]'",
+    reason=(
+        "the MCP server tests need the mcp extra: run uv sync or "
+        "uv run --extra mcp pytest in this repository, or "
+        "pip install 'agent-eda[mcp]' for an installed package"
+    ),
 )
 
 import json
@@ -24,6 +28,7 @@ from pathlib import Path
 import anyio
 import pandas as pd
 from mcp import Client, StdioServerParameters
+from stdio import stdio_environment
 
 import agent_eda as ae
 from agent_eda.errors import AgentEDAError
@@ -492,7 +497,9 @@ def run_agent_eda_mcp(*args):
 
 async def call_over_stdio(cwd, args, name, arguments):
     """Start agent-eda-mcp with these arguments, as an MCP client does."""
-    server = StdioServerParameters(command=AGENT_EDA_MCP, args=args, cwd=str(cwd))
+    server = StdioServerParameters(
+        command=AGENT_EDA_MCP, args=args, env=stdio_environment(), cwd=str(cwd)
+    )
     async with Client(server, mode="legacy") as client:
         return await client.call_tool(name, arguments)
 

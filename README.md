@@ -1018,34 +1018,8 @@ Planned analyses follow the same rules as the shipped ones, which [AGENTS.md](AG
 
 ## Development
 
-The project uses [uv](https://docs.astral.sh/uv/). Clone the repository, then install the package with its dev tools and the git hooks:
+The project uses [uv](https://docs.astral.sh/uv/), 0.13 or later: `pyproject.toml` makes older versions refuse to run. [AGENTS.md](AGENTS.md) is the only place that lists the commands: the setup and everyday ones under Commands, and the checks to run before finishing a change under Finish checks. They include the two minimum-versions runs, the MCP smoke test, which starts `agent-eda-mcp` over real stdio and fails rather than skips when the mcp extra is missing, and the benchmark. Without the extra, the MCP test modules skip and say how to install it.
 
-```sh
-uv sync
-uv run pre-commit install
-```
-
-| Task | Command |
-| --- | --- |
-| Lint | `uv run ruff check .` |
-| Format | `uv run ruff format .` |
-| Type check | `uv run ty check` |
-| Test | `uv run pytest` |
-| Test on the minimum versions | `uv run --isolated --resolution lowest-direct --no-group mcp --group core --python 3.12 pytest` |
-| Test on the minimum versions with the mcp extra | `uv run --isolated --resolution lowest-direct --extra mcp --python 3.12 pytest` |
-| Test the MCP server alone | `uv run --extra mcp pytest tests/test_mcp_*.py` |
-| Smoke test the MCP server over stdio | `uv run --extra mcp python -I tests/smoke_mcp.py` |
-| Test with more generated examples | `uv run pytest --hypothesis-profile=thorough` |
-| Test with coverage | `uv run pytest --cov` |
-| Benchmark | `uv run pytest -m benchmark` |
-| Build the wheel | `uv build --wheel` |
-| Run all hooks | `uv run pre-commit run --all-files` |
-
-Notes on the less obvious commands:
-
-- **Minimum versions.** The run installs every dependency at the lowest version `pyproject.toml` allows (numpy 1.26, pandas 2.2, pydantic 2.7, scipy 1.11.2, scikit-learn 1.5, statsmodels 0.14.1) into a throwaway environment on Python 3.12, without the mcp extra, whose tests skip. The second run adds the extra at its floors (mcp 2.3 and pyarrow 14.0.1), and with them the pydantic 2.12 that mcp needs, so it runs the whole suite. Keep `--isolated`; without it, uv rewrites `uv.lock`.
-- **The mcp extra.** `uv sync` and `uv run` install it, so `uv run pytest` runs the MCP server tests. This needs uv 0.13 or later, the version CI and the hooks use; uv 0.10 leaves the extra out unless you pass `--extra mcp`. Without the extra, the MCP test modules skip and say why.
-- **MCP smoke test.** `tests/smoke_mcp.py` starts `agent-eda-mcp` over real stdio, lists the MCP tools and calls `describe_dataset`. Unlike the MCP test modules, it fails rather than skips when the extra is missing.
 - **The MCP server in Claude Code.** The repository's `.mcp.json` runs `uv run --extra mcp agent-eda-mcp`, so Claude Code started in a clone offers the analyses of your checkout as MCP tools once you approve the MCP server. Restart the session to pick up a changed analysis.
 - **Property tests.** Hypothesis calls every analysis on generated DataFrames full of edge cases. It runs derandomized: 50 examples per analysis, or 1,000 with the `thorough` profile.
 - **Benchmark.** It times every analysis with default arguments on a deterministic DataFrame of 1,000,000 rows and 100 mixed columns, with BLAS and pyarrow limited to 2 threads, and fails any analysis that takes 5 seconds or more. The default test run skips it.

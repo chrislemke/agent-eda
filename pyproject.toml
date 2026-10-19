@@ -49,6 +49,8 @@ mcp = ["agent-eda[mcp]"]
 core = []
 
 [tool.uv]
+# uv 0.10 leaves the mcp extra out of `uv sync` and `uv run`; 0.13 installs it.
+required-version = ">=0.13"
 default-groups = ["dev", "mcp"]
 # Without these, uv resolves every extra and group together, and the mcp extra's
 # pydantic floor would lift the core's.
@@ -101,6 +103,8 @@ filterwarnings = ["error::DeprecationWarning", "error::FutureWarning"]
 
 [tool.coverage.run]
 branch = true
+# Measure the agent-eda-mcp process that the MCP tests start.
+patch = ["subprocess"]
 source = ["."]
 omit = ["tests/*", ".venv/*"]
 

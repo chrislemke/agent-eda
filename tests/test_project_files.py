@@ -298,7 +298,9 @@ def test_save_and_load_use_no_toml_library_but_the_standard_one(tmp_path):
         "import agent_eda as ae\n"
         "project = ae.Project(name='churn')\n"
         f"assert ae.Project.load(project.save({str(path)!r})) == project\n"
-        "print(' '.join(sorted(name for name in sys.modules if 'toml' in name)))\n"
+        # coverage's subprocess patch loads its own copy of the config reader
+        "print(' '.join(sorted(name for name in sys.modules\n"
+        "    if 'toml' in name and not name.startswith('coverage'))))\n"
     )
 
     completed = subprocess.run(

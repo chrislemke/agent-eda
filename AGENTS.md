@@ -4,17 +4,32 @@ An open-source library of deterministic EDA analyses. Its callers are agents in 
 
 ## Commands
 
+pyproject.toml makes uv refuse to run below the version these commands need (`required-version`). Installing and running through uv gives the mcp extra and the dev tools, on the latest numpy 2.x and pandas 3.x.
+
 ```sh
-uv sync                     # install the package, the mcp extra and the dev tools
-uv run ruff check --fix .   # lint
-uv run ruff format .        # format
-uv run ty check             # type check
-uv run pytest               # test, the MCP server tests included
-uv run --extra mcp python -I tests/smoke_mcp.py  # start agent-eda-mcp over stdio and call one MCP tool
-uv add --dev <package>      # add a dev dependency and update uv.lock
+uv sync                                        # install the package, the mcp extra and the dev tools
+uv run pre-commit install                      # install the git hooks: ruff and ty on commit, pytest on push
+uv run ruff check --fix .                      # lint, fixing what it can
+uv run ruff format .                           # format
+uv run pytest --hypothesis-profile=thorough    # test with 1,000 generated examples per analysis instead of 50
+uv run pytest --cov                            # test with coverage, subprocesses included
+uv run --extra mcp pytest tests/test_mcp_*.py  # test the MCP server alone
+uv add --dev <package>                         # add a dev dependency and update uv.lock
+uv build --wheel                               # build the wheel
+uv run pre-commit run --all-files              # run every hook on every file
 ```
 
-`uv run` uses the latest numpy 2.x and pandas 3.x and installs the mcp extra. That needs uv 0.13 or later; with an older uv, add `--extra mcp` to each `uv run`, or `ty check` fails on the `mcp` imports and the MCP tests skip. The README's Development table has the two minimum-versions runs (Python 3.12, numpy 1.26, pandas 2.2): one without the mcp extra on pydantic 2.7, where the MCP tests skip, and one with the extra at its floors. The git hooks run ruff and ty on commit and pytest on push.
+### Finish checks
+
+Run these before finishing a change. CI runs the same ones, and the git hooks run ruff and ty on commit and pytest on push. Fix what they flag.
+
+1. Lint, format and types: `uv run ruff check .`, `uv run ruff format --check .` and `uv run ty check`.
+2. Tests, the MCP server tests included: `uv run pytest`.
+3. Tests on the minimum versions (Python 3.12, numpy 1.26, pandas 2.2), two runs. Keep `--isolated` on both: it leaves `uv.lock` unchanged, and without it uv rewrites the lock.
+   - Without the mcp extra, on pydantic 2.7, where the MCP tests skip: `uv run --isolated --resolution lowest-direct --no-group mcp --group core --python 3.12 pytest`
+   - With the extra at its floors, which lift pydantic to 2.12: `uv run --isolated --resolution lowest-direct --extra mcp --python 3.12 pytest`
+4. The MCP server over real stdio, which starts `agent-eda-mcp` and calls one MCP tool: `uv run --extra mcp python -I tests/smoke_mcp.py`.
+5. The benchmark, `uv run pytest -m benchmark`, after changing an analysis whose cost grows with rows or columns, or code that such an analysis calls. The default test run skips it.
 
 ## Sources of truth
 
@@ -30,7 +45,7 @@ Specs and tickets live under `.scratch/<feature>/` (see `docs/agents/issue-track
 2. Work test-first with the `/tdd` skill: for each acceptance box, write a failing test through the public API, then the code that makes it pass.
 3. Tick a box (`- [x]`) once a test or a command shows it holds.
 4. Under `## Comments` at the end of the ticket, record what the ticket settled that the spec left open, any measurement it asks for, and any check you couldn't run locally.
-5. A ticket is finished when every box is ticked and the finish checks under Tests pass. Set its `Status:` line to `done`, and commit with the message `NN: <ticket title>`.
+5. A ticket is finished when every box is ticked and the Finish checks under Commands pass. Set its `Status:` line to `done`, and commit with the message `NN: <ticket title>`.
 
 The ticket is the acceptance bar. Where it settles a point the spec left open, the ticket wins, and the spec overrides the proposed names in Planned analyses. Later tickets extend the shared parts that earlier ones built (the result base class, the text template, the registry, the errors, the column and row ID rules, masking). If a ticket contradicts an ADR, flag it as `docs/agents/domain.md` describes instead of overriding the ADR.
 
@@ -78,7 +93,7 @@ Google style. Every public analysis has these sections, in this order, under the
   - `to_numpy()` can return a view of the caller's data: read-only under pandas 3's copy-on-write, writable under 2.2. Copy before sorting or assigning in place.
 - Pure Python. Required dependencies stay within AgentCore Code Interpreter's preinstalled set (ADR 0005). Anything else is an optional extra, and a missing extra raises `MissingDependencyError` with the install command.
 - Load bundled files with `importlib.resources`, so the wheel still works when imported straight from a zip on `sys.path`.
-- Performance target: each first-look analysis runs in under 5 seconds on 1M rows × 100 mixed columns.
+- Performance target: each first-look analysis runs in under 5 seconds on 1,000,000 rows × 100 columns, as `tests/test_benchmark.py` checks.
 
 ## Tests
 
@@ -88,7 +103,7 @@ pytest, with Hypothesis for property tests.
 - Use small hand-built DataFrames where the right answer is obvious. Check numbers against reference values computed on the same data with SciPy, statsmodels, pandas or a published worked example, within a stated tolerance.
 - Cover edge cases with Hypothesis: empty data, all missing, constant, one row, ties, infinities, mixed types, nullable, pyarrow-backed and pandas 2 and 3 string dtypes. Hypothesis runs derandomized, and every test is independent of the network, unseeded randomness and test order.
 - A test function's name never reuses an analysis name.
-- Before finishing a change, run the four checks under Commands and the minimum-versions run, and fix what they flag. A `# noqa` or `# ty: ignore` carries its reason on the same line.
+- Before finishing a change, run the Finish checks under Commands. A `# noqa` or `# ty: ignore` carries its reason on the same line.
 
 ## Agent skills
 

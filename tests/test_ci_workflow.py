@@ -1,5 +1,6 @@
-"""The CI workflow runs the commands that the README documents for local runs."""
+"""The CI workflow runs the commands that AGENTS.md lists as finish checks."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -55,9 +56,20 @@ def commands(job):
 
 
 def documented_command(task):
-    """The command that the README's Development table gives for a task."""
-    for line in (ROOT / "README.md").read_text().splitlines():
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if line.startswith("|") and cells[0] == task:
-            return cells[1].strip("`")
-    pytest.fail(f"The README's Development table has no row for {task!r}.")
+    """The minimum-versions command that AGENTS.md's Finish checks give for a task.
+
+    The task is "Test on the minimum versions" for the run without the mcp extra
+    and "Test on the minimum versions with the mcp extra" for the run with it.
+    """
+    text = (ROOT / "AGENTS.md").read_text()
+    checks = text.split("\n### Finish checks\n")[1].split("\n## ")[0]
+    minimum = [
+        span
+        for span in re.findall(r"`([^`]+)`", checks)
+        if "--resolution lowest-direct" in span
+    ]
+    with_extra = task.endswith("with the mcp extra")
+    matching = [span for span in minimum if ("--extra mcp" in span) == with_extra]
+    if len(matching) != 1:
+        pytest.fail(f"AGENTS.md's Finish checks need one command for {task!r}.")
+    return matching[0]

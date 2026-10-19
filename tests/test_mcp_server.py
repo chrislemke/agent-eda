@@ -13,12 +13,17 @@ import pytest
 
 pytest.importorskip(
     "mcp",
-    reason="the MCP server tests need the mcp extra: pip install 'agent-eda[mcp]'",
+    reason=(
+        "the MCP server tests need the mcp extra: run uv sync or "
+        "uv run --extra mcp pytest in this repository, or "
+        "pip install 'agent-eda[mcp]' for an installed package"
+    ),
 )
 
 import anyio
 import pandas as pd
 from mcp import Client, StdioServerParameters
+from stdio import stdio_environment
 
 import agent_eda as ae
 from agent_eda.mcp import create_server
@@ -186,7 +191,7 @@ async def call_over_stdio(cwd, hash_seed, data_path):
         # The console script installed next to this interpreter, since the
         # client passes the subprocess only a few environment variables.
         command=str(Path(sys.executable).parent / "agent-eda-mcp"),
-        env={"PYTHONHASHSEED": hash_seed},
+        env=stdio_environment(PYTHONHASHSEED=hash_seed),
         cwd=str(cwd),
     )
     async with Client(server, mode="legacy") as client:

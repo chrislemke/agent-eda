@@ -69,7 +69,7 @@ jobs:
         with:
           version: "0.13.1"
           enable-cache: false
-      # The README's command; tests/test_ci_workflow.py fails if the two differ.
+      # AGENTS.md's Finish checks give this command; tests/test_ci_workflow.py fails if the two differ.
       # Python 3.12, because numpy 1.26 has no wheels for 3.13.
       - name: Test on the minimum versions
         run: uv run --isolated --resolution lowest-direct --no-group mcp --group core --python 3.12 pytest
@@ -86,7 +86,7 @@ jobs:
         with:
           version: "0.13.1"
           enable-cache: false
-      # The README's command; tests/test_ci_workflow.py fails if the two differ.
+      # AGENTS.md's Finish checks give this command; tests/test_ci_workflow.py fails if the two differ.
       # The extra at its floors (mcp 2.3, pyarrow 14.0.1) and the pydantic 2.12
       # that mcp needs, so the whole suite runs, the MCP tests included.
       - name: Test on the minimum versions with the mcp extra
