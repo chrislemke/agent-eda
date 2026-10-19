@@ -35,7 +35,7 @@ Run these before finishing a change. CI runs the same ones, and the git hooks ru
 
 - `GLOSSARY.md`: use its terms in code, docstrings and messages. Check it before naming anything.
 - `docs/adr/`: read the ADRs before touching dependencies, the call pattern, data policy behaviour, or anything that would add LLM or network use.
-- `README.md`, section Planned analyses: the backlog of planned analyses. Its names and modules are proposals. When an analysis ships, move it from Planned analyses to the README's Analyses table; from then on the code and docstring are authoritative.
+- `docs/planned-analyses.md`: the backlog of planned analyses. Its names and modules are proposals. When an analysis ships, move it from there to the README's Analyses section: into the first-look table when `ae.guide()` makes it a step of the first look, otherwise into the "Other analyses" table under its module. From then on the code and docstring are authoritative.
 
 ## Working on a ticket
 
@@ -47,11 +47,11 @@ Specs and tickets live under `.scratch/<feature>/` (see `docs/agents/issue-track
 4. Under `## Comments` at the end of the ticket, record what the ticket settled that the spec left open, any measurement it asks for, and any check you couldn't run locally.
 5. A ticket is finished when every box is ticked and the Finish checks under Commands pass. Set its `Status:` line to `done`, and commit with the message `NN: <ticket title>`.
 
-The ticket is the acceptance bar. Where it settles a point the spec left open, the ticket wins, and the spec overrides the proposed names in Planned analyses. Later tickets extend the shared parts that earlier ones built (the result base class, the text template, the registry, the errors, the column and row ID rules, masking). If a ticket contradicts an ADR, flag it as `docs/agents/domain.md` describes instead of overriding the ADR.
+The ticket is the acceptance bar. Where it settles a point the spec left open, the ticket wins, and the spec overrides the proposed names in `docs/planned-analyses.md`. Later tickets extend the shared parts that earlier ones built (the result base class, the text template, the registry, the errors, the column and row ID rules, masking). If a ticket contradicts an ADR, flag it as `docs/agents/domain.md` describes instead of overriding the ADR.
 
 ## Layout
 
-- `src/agent_eda/`: the package, in a src layout built by the uv build backend. An analysis lives in the submodule that Planned analyses gives it, such as `agent_eda.data.missingness` or `agent_eda.statistics.descriptive`. Exceptions live in the public `agent_eda.errors` module and result classes in `agent_eda.results`.
+- `src/agent_eda/`: the package, in a src layout built by the uv build backend. An analysis lives in the submodule that `docs/planned-analyses.md` gives it, such as `agent_eda.data.missingness` or `agent_eda.statistics.descriptive`. Exceptions live in the public `agent_eda.errors` module and result classes in `agent_eda.results`.
 - `tests/`: pytest tests. They import only `agent_eda`.
 
 ## Rules for every analysis

@@ -13,6 +13,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = (ROOT / "AGENTS.md").read_text()
 README = (ROOT / "README.md").read_text()
+CONTRIBUTING = (ROOT / "CONTRIBUTING.md").read_text()
 
 
 def section(text, heading):
@@ -27,7 +28,11 @@ def test_uv_refuses_to_run_below_the_version_the_commands_need():
     assert pyproject["tool"]["uv"]["required-version"] == ">=0.13"
 
 
-@pytest.mark.parametrize("text", [AGENTS, README], ids=["AGENTS.md", "README.md"])
+@pytest.mark.parametrize(
+    "text",
+    [AGENTS, README, CONTRIBUTING],
+    ids=["AGENTS.md", "README.md", "CONTRIBUTING.md"],
+)
 def test_no_document_repeats_the_uv_version_caveat(text):
     assert "uv 0.13 or later" not in text
     assert "older uv" not in text
@@ -70,12 +75,13 @@ def test_the_finish_checks_say_why_isolated_is_there_and_when_to_run_the_benchma
     assert re.search(r"benchmark.*(cost|rows|columns)", checks, flags=re.IGNORECASE)
 
 
-def test_the_readme_points_to_agents_md_instead_of_repeating_the_commands():
-    development = section(README, "Development")
-
-    assert "AGENTS.md" in development
-    assert "lowest-direct" not in development
-    assert "| Task | Command |" not in development
+@pytest.mark.parametrize(
+    "text", [README, CONTRIBUTING], ids=["README.md", "CONTRIBUTING.md"]
+)
+def test_the_guides_point_to_agents_md_instead_of_repeating_the_commands(text):
+    assert "AGENTS.md" in text
+    assert "lowest-direct" not in text
+    assert "| Task | Command |" not in text
 
 
 def test_agents_md_states_the_performance_target_the_benchmark_checks():
@@ -111,7 +117,7 @@ def test_claude_code_does_not_enable_pyright_lsp():
     assert not [name for name in settings["enabledPlugins"] if "pyright" in name]
 
 
-@pytest.mark.parametrize("path", ["AGENTS.md", "README.md", "docs"])
+@pytest.mark.parametrize("path", ["AGENTS.md", "README.md", "CONTRIBUTING.md", "docs"])
 def test_documents_name_review_skills_with_their_plugin_prefix(path):
     target = ROOT / path
     files = [target] if target.is_file() else sorted(target.rglob("*.md"))
