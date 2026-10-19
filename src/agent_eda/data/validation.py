@@ -6,12 +6,11 @@ import re
 import typing
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 
 import numpy as np
 import pandas as pd
-import pydantic
-from pydantic import BaseModel, ConfigDict, Field, GetJsonSchemaHandler, model_validator
+from pydantic import Field, GetJsonSchemaHandler, model_validator
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema
 
@@ -23,6 +22,7 @@ from agent_eda._columns import (
     select_columns,
 )
 from agent_eda._conversions import Check, check_column
+from agent_eda._declarations import Declaration
 from agent_eda._docstring import without_examples
 from agent_eda._levels import (
     Levels,
@@ -44,9 +44,6 @@ from agent_eda._parse import (
 )
 from agent_eda._registry import (
     analysis,
-    invalid_message,
-    python_scalar,
-    unknown_name_message,
 )
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import data_shape, execution, overall_status
@@ -87,7 +84,7 @@ _DIRECTIVE = re.compile(r"%(:z|.?)", re.DOTALL)
 _KNOWN_DIRECTIVES = frozenset("aAwdbBmyYHIpMSfzZjUWcxXGuV%") | {":z"}
 
 
-class ColumnSpec(BaseModel):
+class ColumnSpec(Declaration):
     """What a column is declared to hold: its logical type and more.
 
     A declared schema maps column names to a ColumnSpec or to a logical type
@@ -103,7 +100,12 @@ class ColumnSpec(BaseModel):
         ColumnSpec(logical_type='datetime', nullable=False, datetime_format='%d/%m/%Y')
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+    _example = "ae.ColumnSpec('integer', nullable=False)"
+    _field_types: ClassVar[dict[str, object]] = {
+        "logical_type": LogicalType,
+        "nullable": bool | None,
+        "datetime_format": str | None,
+    }
 
     logical_type: LogicalType = Field(
         description="What the values mean: 'boolean', 'integer', 'float', "
@@ -149,11 +151,7 @@ class ColumnSpec(BaseModel):
                         code="invalid_call",
                     )
                 fields = {"logical_type": args[0], **fields}
-            fields = {name: python_scalar(value) for name, value in fields.items()}
-            try:
-                super().__init__(**fields)
-            except pydantic.ValidationError as error:
-                raise _spec_error(fields, error.errors()) from None
+            super().__init__(**fields)
 
     @classmethod
     def __get_pydantic_json_schema__(
@@ -178,10 +176,26 @@ class ColumnSpec(BaseModel):
                 f"{type(obj).__name__}. ae.ColumnSpec('integer') builds one from "
                 "a logical type."
             )
-        try:
-            return super().model_validate(obj, *args, **kwargs)
-        except pydantic.ValidationError as error:
-            raise _spec_error(dict(obj), error.errors()) from None
+        return super().model_validate(obj, *args, **kwargs)
+
+    @classmethod
+    def _rejected(cls, fields: Mapping[str, Any], problems: list[Any]) -> AgentEDAError:
+        """A spec without a logical_type says how to write one for the surface."""
+        first = problems[0]
+        if first["type"] == "missing" and not any(
+            isinstance(problem.get("ctx", {}).get("error"), AgentEDAError)
+            for problem in problems
+        ):
+            allowed = join_alternatives([repr(t) for t in _LOGICAL_TYPES])
+            return worded(
+                InvalidArgumentError,
+                lambda surface: (
+                    f"ColumnSpec needs logical_type, one of {allowed}, such "
+                    f"as {_spec_example(surface)}."
+                ),
+                code="invalid_call",
+            )
+        return super()._rejected(fields, problems)
 
     @model_validator(mode="after")
     def _check_datetime_format(self) -> Self:
@@ -237,48 +251,11 @@ ColumnSpec.__signature__ = inspect.Signature(
     ]
 )
 
-_SPEC_FIELDS = tuple(ColumnSpec.model_fields)
-
 
 def _spec_example(surface: Surface) -> str:
     """A ColumnSpec as the caller writes one."""
     fields = as_written(surface, logical_type="integer", nullable=False)
     return f"ae.ColumnSpec({fields})" if surface == "python" else fields
-
-
-def _spec_error(fields: dict[str, Any], problems: list[Any]) -> AgentEDAError:
-    """The error to raise for a ColumnSpec that pydantic rejected."""
-    for problem in problems:
-        error = problem.get("ctx", {}).get("error")
-        if isinstance(error, AgentEDAError):
-            return error
-    first = problems[0]
-    if first["type"] == "extra_forbidden":
-        name = str(first["loc"][0])
-        return InvalidArgumentError(
-            unknown_name_message("ColumnSpec", "field", name, _SPEC_FIELDS),
-            code="invalid_call",
-        )
-    if first["type"] == "missing":
-        allowed = join_alternatives([repr(t) for t in _LOGICAL_TYPES])
-        return worded(
-            InvalidArgumentError,
-            lambda surface: (
-                f"ColumnSpec needs logical_type, one of {allowed}, such "
-                f"as {_spec_example(surface)}."
-            ),
-            code="invalid_call",
-        )
-    annotations = {
-        name: spec_field.annotation
-        for name, spec_field in ColumnSpec.model_fields.items()
-    }
-    return worded(
-        InvalidArgumentError,
-        lambda surface: invalid_message(
-            "ColumnSpec", annotations, fields, problems, noun="field", surface=surface
-        ),
-    )
 
 
 # Every column can be read for what it holds.

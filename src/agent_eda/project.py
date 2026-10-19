@@ -7,158 +7,23 @@ access control: the package runs in the caller's own process, which can read
 the data directly (ADR 0001).
 """
 
-import inspect
-import json
 import os
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import pandas as pd
-import pydantic
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from agent_eda import _project_file
-from agent_eda._registry import invalid_message, python_scalar, unknown_name_message
+from agent_eda._declarations import Declaration, keyword_signature
+from agent_eda._registry import python_scalar
 from agent_eda._run import check_distinct
 from agent_eda._wording import worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 
 
-class _Declaration(BaseModel):
-    """Base of the models callers build to declare something, such as a Project.
-
-    Building one raises InvalidArgumentError in the package's format, never
-    pydantic's ValidationError: by calling it, with model_validate,
-    model_validate_json or model_validate_strings, or from a dict of its
-    fields inside another declaration or given to an analysis.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    # A call that builds one, for messages that show how.
-    _example: ClassVar[str]
-    # Each field's type as callers pass it, for messages and help().
-    _field_types: ClassVar[dict[str, object]]
-
-    if not TYPE_CHECKING:
-        # Type checkers read each subclass's own signature instead.
-
-        def __init__(self, *args: Any, **fields: Any) -> None:
-            if args:
-                raise InvalidArgumentError(
-                    f"{type(self).__name__} takes its fields by keyword, such as "
-                    f"{self._example}.",
-                    code="invalid_call",
-                )
-            try:
-                super().__init__(**fields)
-            except pydantic.ValidationError as error:
-                raise _declaration_error(type(self), fields, error.errors()) from None
-
-    @classmethod
-    def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> Self:
-        """Build one from a dict of its fields, as JSON gives it."""
-        if not isinstance(obj, (Mapping, cls)):
-            raise InvalidArgumentError(
-                f"{cls.__name__}.model_validate takes a dict of the fields, but got "
-                f"a {type(obj).__name__}. {cls._example} builds one in code."
-            )
-        try:
-            return super().model_validate(obj, *args, **kwargs)
-        except pydantic.ValidationError as error:
-            fields = dict(obj) if isinstance(obj, Mapping) else {}
-            raise _declaration_error(cls, fields, error.errors()) from None
-
-    @classmethod
-    def model_validate_json(
-        cls, json_data: str | bytes | bytearray, *args: Any, **kwargs: Any
-    ) -> Self:
-        """Build one from JSON text of its fields, as model_dump_json() writes it."""
-        try:
-            fields = json.loads(json_data)
-        except (TypeError, ValueError) as error:
-            raise InvalidArgumentError(
-                f"{cls.__name__}.model_validate_json got text that isn't valid JSON: "
-                f"{error}. Pass the text model_dump_json() writes, a JSON object of "
-                "the fields."
-            ) from None
-        return cls.model_validate(fields, *args, **kwargs)
-
-    @classmethod
-    def model_validate_strings(cls, obj: Any, *args: Any, **kwargs: Any) -> Self:
-        """Build one from a dict of its fields whose values are strings."""
-        if not isinstance(obj, Mapping):
-            raise InvalidArgumentError(
-                f"{cls.__name__}.model_validate_strings takes a dict of the fields, "
-                f"but got a {type(obj).__name__}. {cls._example} builds one in code."
-            )
-        try:
-            return super().model_validate_strings(obj, *args, **kwargs)
-        except pydantic.ValidationError as error:
-            raise _declaration_error(cls, dict(obj), error.errors()) from None
-
-    @model_validator(mode="wrap")
-    @classmethod
-    def _fields_named_by_strings(cls, value: Any, handler: Any) -> Any:
-        """A dict whose keys aren't all strings can't name fields; say so.
-
-        This runs before pydantic hands a dict of fields to __init__, where a
-        key that isn't a string would raise a bare TypeError.
-        """
-        if isinstance(value, Mapping):
-            keys = [key for key in value if not isinstance(key, str)]
-            if keys:
-                raise InvalidArgumentError(
-                    f"{cls.__name__} got the key {keys[0]!r}, but its fields are "
-                    f"named by strings: {', '.join(cls.model_fields)}.",
-                    code="invalid_call",
-                )
-        return handler(value)
-
-
-def _declaration_error(
-    model: type[_Declaration], fields: Mapping[str, Any], problems: list[Any]
-) -> AgentEDAError:
-    """The error to raise for a declaration that pydantic rejected.
-
-    A check of the package's own, such as a nested declaration's, raised an
-    error that says it best. Otherwise the first problem is shown in the
-    format of the analyses' argument errors, as ColumnSpec shows its own.
-    """
-    for problem in problems:
-        error = problem.get("ctx", {}).get("error")
-        if isinstance(error, AgentEDAError):
-            return error
-    first = problems[0]
-    if first["type"] == "extra_forbidden":
-        name = str(first["loc"][0])
-        return InvalidArgumentError(_unknown_field(model, name), code="invalid_call")
-    # As lists, which the message follows to the value at fault.
-    given = {
-        name: list(value) if isinstance(value, tuple) else value
-        for name, value in fields.items()
-    }
-    return InvalidArgumentError(
-        invalid_message(
-            model.__name__, model._field_types, given, problems, noun="field"
-        )
-    )
-
-
-def _unknown_field(model: type[_Declaration], name: str) -> str:
-    """Say that a declaration has no such field, naming the closest and the rest."""
-    allowed = list(model.model_fields)
-    if model is Project and name in DataPolicy.model_fields:
-        return (
-            f"Project has no field {name!r}. It is a field of the data policy: "
-            f"ae.Project(data_policy=ae.DataPolicy({name}=...)). "
-            f"Allowed: {', '.join(allowed)}."
-        )
-    return unknown_name_message(model.__name__, "field", name, allowed)
-
-
-class DataPolicy(_Declaration):
+class DataPolicy(Declaration):
     """Which columns hold sensitive values, and whether results mask them.
 
     A sensitive column holds values that should not appear in results when
@@ -206,7 +71,10 @@ class DataPolicy(_Declaration):
     )
 
     _example = "ae.DataPolicy(sensitive_columns=['email'], mask_sensitive=True)"
-    _field_types = {"sensitive_columns": Sequence[str] | None, "mask_sensitive": bool}
+    _field_types: ClassVar[dict[str, object]] = {
+        "sensitive_columns": Sequence[str] | None,
+        "mask_sensitive": bool,
+    }
 
     sensitive_columns: tuple[str, ...] = Field(
         default=(),
@@ -294,7 +162,7 @@ def _name(item: object) -> object:
     return item  # validation rejects it, naming its type
 
 
-class Project(_Declaration):
+class Project(Declaration):
     """A data science project's declarations, given to the analyses that use them.
 
     A Project is optional, and every analysis runs without one. It holds a
@@ -312,10 +180,10 @@ class Project(_Declaration):
     Args:
         name (str | None): The project's name, such as 'churn'. None, the
             default, leaves it unnamed.
-        data_policy (DataPolicy): Which columns are sensitive and whether to
-            mask them: a DataPolicy, or a dict of its fields. Defaults to
-            DataPolicy(), which declares no sensitive column and leaves masking
-            off.
+        data_policy (DataPolicy | Mapping[str, Any] | None): Which columns are
+            sensitive and whether to mask them: a DataPolicy, a dict of its
+            fields, or None. Defaults to DataPolicy(), which declares no
+            sensitive column and leaves masking off.
 
     Examples:
         >>> import pandas as pd
@@ -351,7 +219,10 @@ class Project(_Declaration):
         "ae.Project(name='churn', "
         "data_policy=ae.DataPolicy(sensitive_columns=['email']))"
     )
-    _field_types = {"name": str | None, "data_policy": DataPolicy}
+    _field_types: ClassVar[dict[str, object]] = {
+        "name": str | None,
+        "data_policy": DataPolicy | Mapping[str, Any] | None,
+    }
 
     name: str | None = Field(
         default=None,
@@ -371,6 +242,16 @@ class Project(_Declaration):
             name: str | None = None,
             data_policy: DataPolicy | Mapping[str, Any] | None = None,
         ) -> None: ...
+
+    @classmethod
+    def _unknown_field(cls, name: str) -> str:
+        if name in DataPolicy.model_fields:
+            return (
+                f"Project has no field {name!r}. It is a field of the data policy: "
+                f"ae.Project(data_policy=ae.DataPolicy({name}=...)). "
+                f"Allowed: {', '.join(cls.model_fields)}."
+            )
+        return super()._unknown_field(name)
 
     @classmethod
     def load(cls, path: str | os.PathLike[str]) -> Self:
@@ -524,33 +405,8 @@ class Project(_Declaration):
         return value
 
 
-# help() and editors show the calls as they read, not as pydantic builds them.
-DataPolicy.__signature__ = inspect.Signature(
-    [
-        inspect.Parameter(
-            "sensitive_columns",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=(),
-            annotation=Sequence[str] | None,
-        ),
-        inspect.Parameter(
-            "mask_sensitive",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=False,
-            annotation=bool,
-        ),
-    ]
+# help() and editors show the calls as they read, not as pydantic builds it.
+DataPolicy.__signature__ = keyword_signature(
+    DataPolicy, {"sensitive_columns": (), "mask_sensitive": False}
 )
-Project.__signature__ = inspect.Signature(
-    [
-        inspect.Parameter(
-            "name", inspect.Parameter.KEYWORD_ONLY, default=None, annotation=str | None
-        ),
-        inspect.Parameter(
-            "data_policy",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=None,
-            annotation=DataPolicy | None,
-        ),
-    ]
-)
+Project.__signature__ = keyword_signature(Project, {"name": None, "data_policy": None})
