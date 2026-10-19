@@ -160,6 +160,29 @@ KINDS: dict[str, Kind] = {
     "string": Kind(TEXT, _series("string"), _TEXTS),
     "string[pyarrow]": Kind(TEXT, _series("string[pyarrow]"), _TEXTS),
     "arrow string": Kind(TEXT, _arrow(pa.string()), _TEXTS),
+    # pandas' factorize reads '\x00' as the end of the text, so '' and '\x00a' are
+    # one value to it, but only in a column where every value is text.
+    "object text with NUL": Kind(
+        st.text(alphabet="ab\x00", max_size=3),
+        _series(object),
+        ["a\x00b", "", "\x00a", "a"],
+        missing=False,
+    ),
+    "object text with NUL and missing values": Kind(
+        st.text(alphabet="ab\x00", max_size=3) | st.just(NAN),
+        _series(object),
+        ["a\x00b", None, "", "\x00a"],
+    ),
+    # Integers, floats and lists in one column can't all be hashed, and
+    # infer_dtype calls such a column "mixed-integer" or "mixed".
+    "object of integers and lists": Kind(
+        st.integers(0, 2)
+        | st.lists(st.integers(0, 2), max_size=2)
+        | st.sampled_from([1.5, True, "x"])
+        | st.dictionaries(st.sampled_from("ab"), st.integers(0, 2), max_size=1),
+        _series(object),
+        [1, None, [2], 1.5],
+    ),
     "object of mixed types": Kind(
         TEXT
         | st.integers(-3, 3)

@@ -22,6 +22,7 @@ from agent_eda._text import (
     join_labels,
     plural,
 )
+from agent_eda._values import value_codes
 from agent_eda._wording import left_out, worded
 from agent_eda.errors import ColumnNotFoundError, ColumnTypeError, InvalidArgumentError
 
@@ -53,7 +54,8 @@ class Labels:
         # Iterating gives Python scalars, so label types read 'int', not 'int64'.
         self.labels: list[object] = list(flat)
         self.texts = [str(label) for label in self.labels]
-        codes, uniques = flat.factorize()
+        found = value_codes(flat, unhashable="by_content")
+        codes, uniques = found.codes, found.uniques
         # factorize gives every missing label -1, but pandas tells None, NaN,
         # NaT and NA apart as labels: give each kind of missing label its code.
         missing_kinds: dict[str, int] = {}
