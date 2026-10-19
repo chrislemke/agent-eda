@@ -803,7 +803,7 @@ def test_nan_stored_as_a_value_counts_as_missing_with_a_limitation():
     [limitation] = res.limitations
     assert limitation.code == "nan_counted_as_missing"
     assert limitation.reason == (
-        "1 column stores NaN as a value, which pandas isna() doesn't count as "
+        "1 column stores NaN as a value, which pandas doesn't count as "
         "missing; missing_count counts it: 'x'."
     )
     assert limitation.fields == ["columns['x'].missing_count"]

@@ -181,9 +181,9 @@ def stored_nan_limitations(
 ) -> list[Limitation]:
     """The limitation for columns that store NaN as a value; none without columns.
 
-    Every analysis counts that NaN as missing, which pandas' isna() doesn't.
-    `effect` says what the analysis does with it, such as "missing_count counts
-    it", and `fields` name the fields where it differs from isna().
+    Every analysis counts that NaN as missing, which pandas' missing-value check
+    doesn't. `effect` says what the analysis does with it, such as
+    "missing_count counts it", and `fields` name the fields where it differs.
     """
     if not names:
         return []
@@ -192,8 +192,8 @@ def stored_nan_limitations(
         Limitation(
             code="nan_counted_as_missing",
             reason=(
-                f"{store} NaN as a value, which pandas isna() doesn't count as "
-                f"missing; {effect}: {join_labels(names)}."
+                f"{store} NaN as a value, which pandas doesn't count as missing; "
+                f"{effect}: {join_labels(names)}."
             ),
             fields=fields,
         )
@@ -221,7 +221,7 @@ def read_limitations(
             Limitation(
                 code="boolean_as_numeric",
                 reason=(
-                    f"{were} read as 0 for False and 1 for True: {join_labels(booleans)}."
+                    f"{were} read as 0 for false and 1 for true: {join_labels(booleans)}."
                 ),
                 fields=[path(name) for name in booleans],
             )

@@ -747,8 +747,7 @@ def test_repeated_row_ids_are_a_limitation_when_the_result_can_show_row_ids():
     assert ambiguous.fields == ["unexpected_labels[0].row_ids"]
     assert ambiguous.reason == (
         "2 rows share an index label, so a row ID can match several rows: use a "
-        "unique id_column. Or make the index unique, such as with "
-        "df.reset_index(drop=True)."
+        "unique id_column. Or make the index unique."
     )
     # Without expected_labels, the result shows no row ID.
     assert "ambiguous_row_ids" not in [lim.code for lim in unchecked.limitations]
