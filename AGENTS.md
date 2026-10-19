@@ -24,9 +24,9 @@ uv add --dev <package>      # add a dev dependency and update uv.lock
 
 ## Working on a ticket
 
-Specs and tickets live under `.scratch/<feature>/` (see `docs/agents/issue-tracker.md`). The current feature is `mcp-server`: `.scratch/mcp-server/spec.md` and the tickets in `.scratch/mcp-server/issues/`, taken in number order. `first-look` is finished.
+Specs and tickets live under `.scratch/<feature>/` (see `docs/agents/issue-tracker.md`). `.scratch/ROADMAP.md` lists the specs in the order they are worked on. The current spec is the first one there with a `ready-for-agent` ticket that still has an unticked box and whose `Blocked by:` tickets have every box ticked. `first-look` and `mcp-server` are finished.
 
-1. Take the lowest-numbered ticket whose `Blocked by:` tickets have every box ticked. Read the ticket, the spec sections it names, and the ADRs behind them.
+1. In the current spec, take the lowest-numbered `ready-for-agent` ticket whose `Blocked by:` tickets have every box ticked. Read the ticket, the spec sections it names, and the ADRs behind them.
 2. Work test-first with the `/tdd` skill: for each acceptance box, write a failing test through the public API, then the code that makes it pass.
 3. Tick a box (`- [x]`) once a test or a command shows it holds.
 4. Under `## Comments` at the end of the ticket, record what the ticket settled that the spec left open, any measurement it asks for, and any check you couldn't run locally.
