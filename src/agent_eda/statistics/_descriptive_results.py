@@ -1,7 +1,7 @@
 """The results of summarize_numeric and summarize_categorical."""
 
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 import pandas as pd
 from pydantic import (
@@ -22,7 +22,6 @@ from agent_eda._result_base import (
     MaskableResult,
     ResultModel,
     _Cap,
-    _check_table,
     _left_out_lines,
     _tables_unavailable,
 )
@@ -106,6 +105,10 @@ class SummarizeNumericResult(AnalysisResult):
     # says why it was left out; None for a result rebuilt from its record.
     _left_out_kinds: Mapping[str, str] | None = PrivateAttr(default=None)
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "columns": None,
+    }
+
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         settings = self.settings
         facts = [
@@ -164,7 +167,7 @@ class SummarizeNumericResult(AnalysisResult):
         Args:
             table: 'columns', the only table.
         """
-        _check_table(table, ("columns",))
+        self._check_table(table)
         levels = [float(level) for level in self.settings.quantiles]
         return numeric_frame(list(self.columns.values()), levels)
 
@@ -220,8 +223,7 @@ def level_label(level: SummarizeCategoricalLevel, *, masked: bool = False) -> st
     """A level's label as the text shows it: text labels are quoted, so
     surrounding spaces stay visible; a masked label, a placeholder such as
     <masked 1>, is not."""
-    quoted = level.label_type == "str" and not masked
-    return repr(level.label) if quoted else str(level.label)
+    return _text.shown_value(level.label, level.label_type, masked=masked)
 
 
 def _level_text(level: SummarizeCategoricalLevel, *, masked: bool = False) -> str:
@@ -319,6 +321,10 @@ class SummarizeCategoricalResult(MaskableResult):
     # says why it was left out; None for a result rebuilt from its record.
     _left_out_kinds: Mapping[str, str] | None = PrivateAttr(default=None)
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "levels": None,
+    }
+
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
             "Shares are fractions of non-missing values. Levels go by count, then "
@@ -370,7 +376,7 @@ class SummarizeCategoricalResult(MaskableResult):
         Args:
             table: 'levels', the only table.
         """
-        _check_table(table, ("levels",))
+        self._check_table(table)
         if self._tables is None:
             if any(column.distinct_count for column in self.columns.values()):
                 raise _tables_unavailable(self)

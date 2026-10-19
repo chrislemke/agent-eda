@@ -1,9 +1,9 @@
 """The results of profile_missing_values and detect_missing_sentinels."""
 
 import datetime as dt
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 import pandas as pd
 from pydantic import (
@@ -22,7 +22,6 @@ from agent_eda._result_base import (
     ResultModel,
     RowId,
     _Cap,
-    _check_table,
     _entries_frame,
     _hint,
     _tables_unavailable,
@@ -125,6 +124,11 @@ class ProfileMissingValuesResult(MaskableResult):
         "row_distribution has every entry."
     )
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "columns": None,
+        "row_distribution": "has the rows per number of missing values",
+    }
+
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         entries = self.columns.values()
         rows = self.support.row_count
@@ -177,12 +181,6 @@ class ProfileMissingValuesResult(MaskableResult):
             ],
         )
 
-    def _text_other_tables(self) -> list[str]:
-        return [
-            "res.to_frame(table='row_distribution') has the rows per number of "
-            "missing values"
-        ]
-
     def to_frame(
         self, table: Literal["columns", "row_distribution"] = "columns"
     ) -> pd.DataFrame:
@@ -197,7 +195,7 @@ class ProfileMissingValuesResult(MaskableResult):
                 of missing values that occurs: missing_count, row_count and
                 row_share.
         """
-        _check_table(table, ("columns", "row_distribution"))
+        self._check_table(table)
         if table == "row_distribution":
             return _entries_frame(self.row_distribution, ProfileMissingValuesRowCount)
         columns: dict[str, pd.Series] = {}
@@ -312,6 +310,10 @@ class DetectMissingSentinelsResult(MaskableResult):
     # result rebuilt from its record, which holds the first 10 of each.
     _row_ids: list[Any] | None = PrivateAttr(default=None)
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "candidates": None,
+    }
+
     def sentinel_values(self, columns: Sequence[str] | None = None) -> "SentinelValues":
         """The candidates as sentinel_values for profile_missing_values.
 
@@ -376,12 +378,7 @@ class DetectMissingSentinelsResult(MaskableResult):
             if counts
             else "no candidates"
         )
-        id_column = self.settings.id_column
-        source = (
-            f"values of id_column {id_column!r}"
-            if id_column is not None
-            else "index labels"
-        )
+        source = self._row_id_source()
         checked = _text.plural(self.support.column_count, "column", "columns")
         facts = _text.wrap(
             f"Checked {checked}: {found}. Shares are of all rows; row IDs are "
@@ -416,8 +413,7 @@ class DetectMissingSentinelsResult(MaskableResult):
         order = sorted(
             range(len(self.candidates)), key=lambda i: -self.candidates[i].count
         )
-        id_column = self.settings.id_column
-        quote_ids = not (id_column is not None and self._masked(id_column))
+        quote_ids = self._ids_quoted()
         return _text.Table(
             title="Candidates, most frequent first",
             unit=("candidate", "candidates"),
@@ -455,7 +451,7 @@ class DetectMissingSentinelsResult(MaskableResult):
         Args:
             table: 'candidates', the only table.
         """
-        _check_table(table, ("candidates",))
+        self._check_table(table)
         frame = _entries_frame(self.candidates, SentinelCandidate)
         frame["value"] = pd.Series([c.value for c in self.candidates], dtype=object)
         if self._row_ids is None:
@@ -473,9 +469,9 @@ def _candidate_text(candidate: SentinelCandidate, *, masked: bool) -> str:
     whitespace-only text stay visible, and placeholders, numbers, dates and
     times as they are."""
     value = candidate.value
-    if candidate.value_type == "str" and not masked:
+    if isinstance(value, float):
         return repr(value)
-    return repr(value) if isinstance(value, float) else str(value)
+    return _text.shown_value(value, candidate.value_type, masked=masked)
 
 
 # The text names this many row IDs of a candidate and counts the rest.

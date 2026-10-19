@@ -7,7 +7,7 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
-from agent_eda._columns import ALL_KINDS, Column, ColumnRule, select_columns
+from agent_eda._columns import Column, any_column, select_columns
 from agent_eda._declared_values import (
     DeclaredValue,
     JsonSentinel,
@@ -17,20 +17,23 @@ from agent_eda._declared_values import (
     json_value,
     matches,
 )
+from agent_eda._findings import all_missing_columns
 from agent_eda._levels import stored_label, type_name
 from agent_eda._masking import mask_values, resolve_masking
 from agent_eda._numeric import stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._result_base import (
+    ROW_IDS_KEPT,
     ColumnSupport,
     Finding,
     Limitation,
     Status,
     StatusReason,
     Support,
+    entry_path,
 )
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
-from agent_eda._status import NO_ROWS, overall_status
+from agent_eda._status import NO_COLUMNS, NO_ROWS, overall_status
 from agent_eda._text import join_labels, plural
 from agent_eda._values import stored_nan_mask
 from agent_eda._written_form import record_scalar, row_id_list
@@ -47,13 +50,7 @@ from agent_eda.data._sentinel_rules import read_by_rules, suspects
 from agent_eda.project import Project
 
 # Every dtype can have missing values.
-_EVERY_COLUMN = ColumnRule(
-    default=ALL_KINDS,
-    default_text="every column",
-    accepted=ALL_KINDS,
-    accepted_text="columns of every dtype",
-    fixes={},
-)
+_EVERY_COLUMN = any_column("every column")
 
 
 @analysis(
@@ -258,7 +255,7 @@ def profile_missing_values(
         entries[column.name] = ProfileMissingValuesColumn(
             column=column.name,
             status="completed" if row_count else "insufficient_data",
-            status_reason=None if row_count else _NO_ROWS,
+            status_reason=None if row_count else NO_ROWS,
             native_missing_count=native_count,
             sentinel_count=sentinel,
             missing_count=missing,
@@ -279,7 +276,7 @@ def profile_missing_values(
     missing_total = sum(entry.missing_count for entry in entries.values())
     value_count = row_count * len(entries)
     status, status_reason = overall_status(
-        row_count, list(entries.values()), no_columns=_NO_COLUMNS
+        row_count, list(entries.values()), no_columns=NO_COLUMNS
     )
     return ProfileMissingValuesResult.for_call(
         parameters={
@@ -302,7 +299,7 @@ def profile_missing_values(
         limitations=[
             *stored_nan_limitations(
                 stored_nan,
-                [f"{_entry_path(name)}.native_missing_count" for name in stored_nan],
+                [f"{entry_path(name)}.native_missing_count" for name in stored_nan],
                 "native_missing_count counts it",
             ),
             *_not_declared(entries, any_declared=bool(declared)),
@@ -318,10 +315,6 @@ def profile_missing_values(
     )
 
 
-_NO_COLUMNS = StatusReason(code="no_columns", message="The data has no columns.")
-_NO_ROWS = StatusReason(code="no_rows", message="The data has no rows.")
-
-
 def _null_shares(
     entries: dict[str, ProfileMissingValuesColumn], row_count: int
 ) -> list[Limitation]:
@@ -330,7 +323,7 @@ def _null_shares(
         fields = [
             "missing_share",
             "complete_row_share",
-            *(f"{_entry_path(name)}.missing_share" for name in entries),
+            *(f"{entry_path(name)}.missing_share" for name in entries),
         ]
         reason = "The data has no rows, so every share is null."
     elif not entries:
@@ -339,11 +332,6 @@ def _null_shares(
     else:
         return []
     return [Limitation(code="too_few_values", reason=reason, fields=fields)]
-
-
-def _entry_path(name: str) -> str:
-    """The result path of a column's entry, such as "columns['age']"."""
-    return f"columns[{name!r}]"
 
 
 def _all_missing_columns(
@@ -357,19 +345,12 @@ def _all_missing_columns(
         for name, entry in entries.items()
         if row_count and entry.missing_count == row_count
     ]
-    if not names:
-        return []
-    hold = plural(len(names), "column holds", "columns hold")
-    counting = ", counting declared sentinel values" if any_declared else ""
-    return [
-        Finding(
-            code="all_missing_columns",
-            claim=f"{hold} only missing values{counting}: {join_labels(names)}.",
-            assessment="suspected",
-            columns=names,
-            fields=[f"{_entry_path(name)}.missing_count" for name in names],
-        )
-    ]
+    return all_missing_columns(
+        names,
+        [f"{entry_path(name)}.missing_count" for name in names],
+        verb="hold",
+        counting=", counting declared sentinel values" if any_declared else "",
+    )
 
 
 def _sentinel_values_present(
@@ -385,7 +366,7 @@ def _sentinel_values_present(
             claim=f"Declared sentinel values occur in {columns}: {join_labels(names)}.",
             assessment="descriptive",
             columns=names,
-            fields=[f"{_entry_path(name)}.sentinel_count" for name in names],
+            fields=[f"{entry_path(name)}.sentinel_count" for name in names],
         )
     ]
 
@@ -414,19 +395,13 @@ def _not_declared(
         Limitation(
             code="sentinel_values_not_declared",
             reason=reason,
-            fields=[f"{_entry_path(name)}.sentinel_count" for name in names],
+            fields=[f"{entry_path(name)}.sentinel_count" for name in names],
         )
     ]
 
 
 # Sentinel values can hide in a column of any dtype.
-_ANY_COLUMN = ColumnRule(
-    default=ALL_KINDS,
-    default_text="every column except id_column",
-    accepted=ALL_KINDS,
-    accepted_text="columns of every dtype",
-    fixes={},
-)
+_ANY_COLUMN = any_column("every column except id_column")
 
 
 @analysis(
@@ -651,7 +626,7 @@ def detect_missing_sentinels(
         for column in selection.columns
     }
     found = [candidate for done in checked.values() for candidate in done.candidates]
-    shown = [candidate.positions[:_ROW_IDS] for candidate in found]
+    shown = [candidate.positions[:ROW_IDS_KEPT] for candidate in found]
     view = _View(
         declared={
             name: [json_value(value) for value in declared.get(name, [])]
@@ -729,10 +704,6 @@ def detect_missing_sentinels(
     )
     result._row_ids = view.all_row_ids
     return result
-
-
-# A candidate keeps the IDs of this many rows that hold it.
-_ROW_IDS = 10
 
 
 @dataclass(frozen=True)

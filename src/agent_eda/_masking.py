@@ -216,14 +216,40 @@ def mask_levels(levels: Levels) -> MaskedLevels:
     return MaskedLevels(levels=masked, numbers=numbers)
 
 
-def mask_values(values: Sequence[object]) -> list[str | None]:
+def mask_values(
+    values: Sequence[object],
+    *,
+    first: int = 1,
+    known: Sequence[tuple[object, str]] = (),
+) -> list[str | None]:
     """Numbered placeholders for values in the order given, such as row IDs.
 
     Equal values share a placeholder, numbered in order of first appearance,
     so values that repeat still show as repeating. Missing values (None, NaN,
     NaT, pd.NA) stay None. Pass the values of one column in result order.
+
+    `first` is the number of the first new placeholder, for values that
+    continue the numbering of another call. `known` pairs values that already
+    have a placeholder with it: a value equal to one of them takes that
+    placeholder and uses no number.
     """
     # fromiter keeps tuples whole, where np.array would make them a dimension.
-    objects = np.fromiter(values, dtype=object, count=len(values))
+    objects = np.fromiter(
+        [*(value for value, _ in known), *values],
+        dtype=object,
+        count=len(known) + len(values),
+    )
     codes = value_codes(objects, unhashable="by_content").codes
-    return [placeholder(int(code) + 1) if code >= 0 else None for code in codes]
+    fixed = {int(code): text for code, (_, text) in zip(codes, known, strict=False)}
+    numbered: dict[int, str] = {}
+    placeholders: list[str | None] = []
+    for code in codes[len(known) :].tolist():
+        if code < 0:
+            placeholders.append(None)
+        elif code in fixed:
+            placeholders.append(fixed[code])
+        else:
+            if code not in numbered:
+                numbered[code] = placeholder(first + len(numbered))
+            placeholders.append(numbered[code])
+    return placeholders

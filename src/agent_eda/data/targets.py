@@ -4,7 +4,7 @@ import datetime as dt
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, NamedTuple, cast
 
 import numpy as np
 import pandas as pd
@@ -28,6 +28,7 @@ from agent_eda._declared_values import (
     holds,
     likely_value,
 )
+from agent_eda._findings import ASSESSMENTS, infinite_values
 from agent_eda._levels import (
     Levels,
     count_levels_by_row,
@@ -60,6 +61,7 @@ from agent_eda._numeric import (
 )
 from agent_eda._registry import analysis
 from agent_eda._result_base import (
+    ROW_IDS_KEPT,
     Assessment,
     ColumnSupport,
     Finding,
@@ -70,7 +72,13 @@ from agent_eda._result_base import (
 )
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._status import NO_ROWS
-from agent_eda._text import format_number, join_items, placeholder, plural
+from agent_eda._text import (
+    format_number,
+    join_items,
+    placeholder,
+    plural,
+    shown_value,
+)
 from agent_eda._wording import Listed, Pass, PythonOnly, Say, Wording, Words, mistake
 from agent_eda._written_form import row_id_list
 from agent_eda.data._targets_results import (
@@ -160,28 +168,46 @@ _TASK_RULES: dict[str, ColumnRule] = {
         leave_out=False,
     ),
 }
+
+
+class _FindingKind(NamedTuple):
+    """What a finding code always carries: its assessment, and the result fields
+    that back it unless the call names others."""
+
+    assessment: Assessment
+    fields: tuple[str, ...]
+
+
+# The findings profile_target can report, in the order its docstring lists them.
+_FINDINGS: dict[str, _FindingKind] = {
+    "single_class": _FindingKind("violation", ("class_count", "classes")),
+    "more_than_two_classes": _FindingKind("violation", ("class_count", "classes")),
+    "unexpected_labels": _FindingKind(
+        "violation", ("unexpected_label_count", "unexpected_labels")
+    ),
+    "no_unexpected_labels": _FindingKind("passed", ("unexpected_label_count",)),
+    "all_labels_distinct": _FindingKind(
+        "suspected", ("class_count", "non_missing_count")
+    ),
+    "constant_target": _FindingKind("violation", ("statistics.min", "statistics.max")),
+    "infinite_values": _FindingKind(
+        ASSESSMENTS["infinite_values"],
+        ("statistics.infinite_count", "non_finite_count"),
+    ),
+    "missing_labels": _FindingKind("descriptive", ("missing_count", "missing_share")),
+    "rare_classes": _FindingKind("descriptive", ("rare_class_count", "rare_classes")),
+    "missing_expected_classes": _FindingKind("violation", ("class_count", "classes")),
+    "case_or_space_variants": _FindingKind("suspected", ("class_count", "classes")),
+    "two_value_target": _FindingKind("suspected", ("statistics.min", "statistics.max")),
+}
+
 # The classes and unexpected labels each result keeps; to_frame() has every label.
 _KEPT_LABELS = 100
-# The row IDs each unexpected label keeps.
-_KEPT_ROW_IDS = 10
 
 
 @analysis(
     statuses=("completed", "insufficient_data"),
-    finding_codes=(
-        "single_class",
-        "more_than_two_classes",
-        "unexpected_labels",
-        "no_unexpected_labels",
-        "all_labels_distinct",
-        "constant_target",
-        "infinite_values",
-        "missing_labels",
-        "rare_classes",
-        "missing_expected_classes",
-        "case_or_space_variants",
-        "two_value_target",
-    ),
+    finding_codes=tuple(_FINDINGS),
     tags=(
         "target",
         "label",
@@ -796,7 +822,7 @@ def _unexpected_labels(
         position: row_ids.labels.take(found)
         for position, found in zip(outside_order, rows, strict=True)
     }
-    ids: list[list[object]] = [row_ids.at(found[:_KEPT_ROW_IDS]) for found in rows]
+    ids: list[list[object]] = [row_ids.at(found[:ROW_IDS_KEPT]) for found in rows]
     if masking.masks(row_ids.id_column):
         if row_ids.id_column == target.name and view.masked is not None:
             masked = view.masked
@@ -804,14 +830,10 @@ def _unexpected_labels(
                 position: [masked.label(position)] * len(found)
                 for position, found in zip(outside_order, rows, strict=True)
             }
-            ids = [every[position][:_KEPT_ROW_IDS] for position in kept]
+            ids = [every[position][:ROW_IDS_KEPT] for position in kept]
         else:
-            shown = [
-                entry[:_KEPT_ROW_IDS] for entry in map(row_id_list, every.values())
-            ]
-            later = [
-                entry[_KEPT_ROW_IDS:] for entry in map(row_id_list, every.values())
-            ]
+            shown = [entry[:ROW_IDS_KEPT] for entry in map(row_id_list, every.values())]
+            later = [entry[ROW_IDS_KEPT:] for entry in map(row_id_list, every.values())]
             placeholders = iter(
                 mask_values([i for entry in [*shown, *later] for i in entry])
             )
@@ -1044,7 +1066,7 @@ _LISTED_GROUPS = 3
 def _shown(view: _Labels, position: int) -> str:
     """A label as a claim writes it: text quoted, a placeholder as it is."""
     label, label_type = view.entry(position)
-    return repr(label) if label_type == "str" and view.masked is None else str(label)
+    return shown_value(label, label_type, masked=view.masked is not None)
 
 
 def _missing_expected_classes(
@@ -1082,7 +1104,7 @@ def _case_or_space_variants(
         f"{plural(len(groups), 'group', 'groups')} of labels {differ} only by case "
         f"or surrounding spaces: {'; '.join(listed)}."
     )
-    fields = [*_FINDING_FIELDS["case_or_space_variants"]]
+    fields = [*_FINDINGS["case_or_space_variants"].fields]
     if checked:
         fields.append("unexpected_labels")
     return _finding("case_or_space_variants", target, claim, fields)
@@ -1152,7 +1174,11 @@ def _regression_findings(
             f"{plural(summary.infinite_count, 'target value', 'target values')} {are} "
             "infinite, which every statistic leaves out."
         )
-        findings.append(_finding("infinite_values", target, claim))
+        findings.extend(
+            infinite_values(
+                [target.name], _FINDINGS["infinite_values"].fields, claim=claim
+            )
+        )
     if two_values is not None:
         low, high = two_values
         claim = (
@@ -1168,20 +1194,6 @@ def _regression_findings(
 _SINGLE_CLASS = (
     "Every valid label is the same class, so a classifier has nothing to tell apart."
 )
-# The fields behind each finding.
-_FINDING_FIELDS = {
-    "single_class": ["class_count", "classes"],
-    "more_than_two_classes": ["class_count", "classes"],
-    "unexpected_labels": ["unexpected_label_count", "unexpected_labels"],
-    "no_unexpected_labels": ["unexpected_label_count"],
-    "all_labels_distinct": ["class_count", "non_missing_count"],
-    "missing_labels": ["missing_count", "missing_share"],
-    "rare_classes": ["rare_class_count", "rare_classes"],
-    "infinite_values": ["statistics.infinite_count", "non_finite_count"],
-    "missing_expected_classes": ["class_count", "classes"],
-    "case_or_space_variants": ["class_count", "classes"],
-    "two_value_target": ["statistics.min", "statistics.max"],
-}
 
 
 def _finding(
@@ -1194,26 +1206,10 @@ def _finding(
     return Finding(
         code=code,
         claim=claim,
-        assessment=_ASSESSMENTS[code],
+        assessment=_FINDINGS[code].assessment,
         columns=[target.name],
-        fields=_FINDING_FIELDS[code] if fields is None else fields,
+        fields=list(_FINDINGS[code].fields if fields is None else fields),
     )
-
-
-_ASSESSMENTS: dict[str, Assessment] = {
-    "single_class": "violation",
-    "more_than_two_classes": "violation",
-    "unexpected_labels": "violation",
-    "no_unexpected_labels": "passed",
-    "all_labels_distinct": "suspected",
-    "constant_target": "violation",
-    "infinite_values": "suspected",
-    "missing_labels": "descriptive",
-    "rare_classes": "descriptive",
-    "missing_expected_classes": "violation",
-    "case_or_space_variants": "suspected",
-    "two_value_target": "suspected",
-}
 
 
 _NO_EXPECTED_LABELS = Limitation(
@@ -1303,8 +1299,9 @@ def _two_values(
     return low, high
 
 
-def _statistics_path(name: str) -> str:
-    """The result path of a regression target's statistics."""
+def _statistics_path(_name: str) -> str:
+    """The result path of a regression target's statistics, whatever the name:
+    the target is the only column."""
     return "statistics"
 
 

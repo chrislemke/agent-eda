@@ -297,6 +297,16 @@ def label_text(label: object) -> str:
     return repr(label) if isinstance(label, str) else canonical_text(label)
 
 
+def shown_value(value: object, value_type: str, *, masked: bool) -> str:
+    """A stored value as the text shows it: text quoted, so that surrounding
+    spaces stay visible; other types, and a masked value, which is a placeholder
+    such as <masked 1>, as str() writes them.
+
+    `value_type` is the Python type name of the stored value, as results record it.
+    """
+    return repr(value) if value_type == "str" and not masked else str(value)
+
+
 def join_labels(labels: Sequence[object], *, quote: bool = True) -> str:
     """Show labels as "'a', 'b' and 3", naming at most MAX_NAMED of them.
 

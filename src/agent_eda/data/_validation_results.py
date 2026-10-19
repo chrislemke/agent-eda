@@ -1,8 +1,8 @@
 """The results of infer_column_semantics and validate_column_types."""
 
 import typing
-from collections.abc import Sequence
-from typing import Annotated, Any, Literal
+from collections.abc import Mapping, Sequence
+from typing import Annotated, Any, ClassVar, Literal
 
 import pandas as pd
 from pydantic import (
@@ -25,7 +25,6 @@ from agent_eda._result_base import (
     ResultModel,
     RowId,
     _Cap,
-    _check_table,
     _tables_unavailable,
 )
 from agent_eda._written_form import row_id_list
@@ -181,6 +180,11 @@ class InferColumnSemanticsResult(AnalysisResult):
         "declared order; empty without schema."
     )
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "columns": None,
+        "candidates": "has every candidate with its reasons",
+    }
+
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
             "Scores rank logical types by fixed rules and aren't probabilities. "
@@ -240,9 +244,6 @@ class InferColumnSemanticsResult(AnalysisResult):
             )
         return schema
 
-    def _text_other_tables(self) -> list[str]:
-        return ["res.to_frame(table='candidates') has every candidate with its reasons"]
-
     def _text_table(self) -> _text.Table:
         declared = self.settings.schema is not None
         headers = ["column", "inferred", "score", "next", "next_score"]
@@ -285,7 +286,7 @@ class InferColumnSemanticsResult(AnalysisResult):
                 row per candidate: the column, its rank from 1, the logical
                 type, the score and the reasons.
         """
-        _check_table(table, ("columns", "candidates"))
+        self._check_table(table)
         if table == "candidates":
             return self._candidates_frame()
         entries = list(self.columns.values())
@@ -460,18 +461,17 @@ class ValidateColumnTypesResult(MaskableResult):
     # result rebuilt from its record, which holds the first 10 of each.
     _row_ids: dict[str, Any] | None = PrivateAttr(default=None)
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "columns": None,
+        "invalid_values": "counts every distinct invalid value",
+    }
+
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
             "compatible: stored as the declared type; convertible: converts "
             "exactly; invalid: neither. Nothing was converted."
         ]
-        id_column = self.settings.id_column
-        source = (
-            f"values of id_column {id_column!r}"
-            if id_column is not None
-            else "index labels"
-        )
-        facts.append(f"Row IDs: {source}.")
+        facts.append(f"Row IDs: {self._row_id_source()}.")
         if self.undeclared_columns:
             names = _text.join_labels(self.undeclared_columns)
             facts.extend(
@@ -525,20 +525,13 @@ class ValidateColumnTypesResult(MaskableResult):
 
         Text is quoted, so surrounding spaces stay visible; placeholders aren't.
         """
-        masked = self._masked(entry.column)
         shown = [
-            f"{value.value!r}: {value.count:,}"
-            if value.value_type == "str" and not masked
-            else f"{value.value}: {value.count:,}"
+            f"{self._shown(value.value, value.value_type, entry.column)}: "
+            f"{value.count:,}"
             for value in entry.invalid_values
         ]
         more = (entry.invalid_distinct_count or 0) - len(shown)
         return ", ".join(shown) + (f" and {more:,} more" if more > 0 else "")
-
-    def _text_other_tables(self) -> list[str]:
-        return [
-            "res.to_frame(table='invalid_values') counts every distinct invalid value"
-        ]
 
     def to_frame(
         self, table: Literal["columns", "invalid_values"] = "columns"
@@ -556,7 +549,7 @@ class ValidateColumnTypesResult(MaskableResult):
                 descending, then by value: column, value as stored (or its
                 placeholder, with masking on), value_type and count.
         """
-        _check_table(table, ("columns", "invalid_values"))
+        self._check_table(table)
         if table == "invalid_values":
             if self._tables is None and any(
                 column.invalid_distinct_count for column in self.columns.values()
