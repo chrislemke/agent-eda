@@ -23,7 +23,7 @@ import numbers
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal, TypeGuard
+from typing import Literal, TypeGuard, cast
 
 import numpy as np
 import pandas as pd
@@ -35,6 +35,7 @@ from agent_eda._columns import (
     column_kind,
     select_columns,
 )
+from agent_eda._parse import ReadFamily, read_as
 from agent_eda._run import check_distinct
 from agent_eda._text import Surface, join_items, join_labels
 from agent_eda._wording import worded
@@ -268,7 +269,15 @@ def declared_values(
     for name, values in sentinel_values.items():
         column = by_name[name]
         values = list(values)
-        check_distinct(analysis, f"sentinel_values[{name!r}]", values, "value")
+        # 1 and True are two values, as the matching keeps them apart: values are
+        # the same when they are equal and of one family.
+        check_distinct(
+            analysis,
+            f"sentinel_values[{name!r}]",
+            values,
+            "value",
+            key=lambda value: (family(value), value),
+        )
         column_holds = holds(data.iloc[:, column.position])
         problems.extend(
             problem
@@ -502,57 +511,34 @@ _ISO_FAMILIES: tuple[Family, ...] = ("datetime", "date", "timedelta")
 
 
 def _iso(text: str, target: Family) -> SentinelValue | None:
-    """Text as an ISO 8601 datetime, date or duration, or None when it isn't one."""
-    try:
-        if target == "datetime":
-            exact = dt.datetime.fromisoformat(text)  # ISO 8601 only
-            stamp = pd.Timestamp(text)  # keeps nanoseconds
-            return stamp if isinstance(stamp, pd.Timestamp) else _timestamp(exact)
-        if target == "date":
-            return dt.date.fromisoformat(text)
-        if target == "timedelta" and text.lstrip("+-").startswith("P"):
-            duration = pd.Timedelta(text)
-            return duration if isinstance(duration, pd.Timedelta) else None
-    except (ValueError, OverflowError):
+    """Text as an ISO 8601 datetime, date or duration, or None when it isn't one.
+
+    The rules are the analyses' own (_parse.read_as), except that a duration
+    must be written in ISO 8601, as the input schema's format says: pandas also
+    reads '5' as five nanoseconds and '1 day' as a day.
+    """
+    if target == "timedelta" and not text.lstrip("+-").startswith("P"):
         return None
-    return None
+    if target not in _ISO_FAMILIES:
+        return None
+    value = read_as(text, cast("ReadFamily", target))
+    return None if isinstance(value, bool | int | float) else value
 
 
 def _parse(text: str, target: Family, column: Holds) -> SentinelValue | None:
     """Text as a value of the target family, or None when it doesn't parse.
 
-    Dates and datetimes parse as ISO 8601 only, so no day and month order is
-    guessed and words such as 'now' stay text.
+    The rules are the analyses' own (_parse.read_as), so a suggestion is a
+    value that infer_column_semantics and validate_column_types read the same
+    text as. Dates and datetimes read as ISO 8601 only, so no day and month
+    order is guessed and words such as 'now' stay text.
     """
-    try:
-        if target == "number":
-            return _parse_number(text, integer=column.integers is not None)
-        if target == "boolean":
-            return {"true": True, "false": False}.get(text.casefold())
-        if target == "datetime":
-            stamp = _timestamp(dt.datetime.fromisoformat(text))
-            return _in_zone(stamp, column.tz)
-        if target == "date":
-            return dt.date.fromisoformat(text)
-        if target == "timedelta":
-            duration = pd.Timedelta(text)
-            return duration if isinstance(duration, pd.Timedelta) else None
-    except (ValueError, OverflowError):
+    if target in ("text", "other"):
         return None
-    return None
-
-
-def _parse_number(text: str, *, integer: bool) -> int | float | None:
-    try:
-        return int(text)
-    except ValueError:
-        pass
-    number = float(text)
-    if not math.isfinite(number):
-        return None
-    if integer:
-        return int(number) if number.is_integer() else None
-    return number
+    value = read_as(text, target, whole=column.integers is not None)
+    if isinstance(value, pd.Timestamp):
+        return _in_zone(value, column.tz)
+    return value
 
 
 def _in_zone(stamp: pd.Timestamp, tz: dt.tzinfo | str | None) -> pd.Timestamp:

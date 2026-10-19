@@ -281,7 +281,13 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
 
 - The extension sets the format, in any case: `.csv`, `.tsv`, `.csv.gz`, `.tsv.gz`, `.parquet` or `.pq`. Any other extension gives the error `unsupported_data_format`.
 - The MCP server reads CSV and TSV files as UTF-8, and only an empty field counts as missing. Values such as `N/A`, `NULL` or `-999` reach the analyses as values, so `detect_missing_sentinels` can find them.
-- Parquet files keep their dtypes and their stored index.
+- The MCP server types each CSV or TSV column once, over the whole file, and uses no column as the index:
+  - A column is read as numbers or booleans (`true` or `false`, in any case) only when every non-empty field parses as one. Otherwise it stays text. `inf` and `-inf` read as numbers.
+  - A whole number written with a leading zero, such as the postal code `01234` or the ID `007`, is a code, so its column stays text and `find_candidate_keys` tells `"007"` and `"7"` apart. `-5`, `0`, `0.5` and `10` stay numbers.
+  - Blank lines are skipped, except in a file with one column, where each is a row with a missing value.
+  - A row may end in an empty field, as in `A1,Oslo,10,`. A row with any other field past the header's gives `unreadable_data_file` and names the line.
+  - A repeated header name stays repeated. `describe_dataset` reports it, and every other analysis asks you to rename the repeated columns in the file.
+- Parquet files keep the dtypes and the index that pandas stored in them. A file written without pandas metadata, such as by Spark or DuckDB, gets pandas' default dtypes for its Parquet types (an integer column with nulls becomes float) and a 0-based index.
 - A relative path resolves against the MCP server's working directory, the directory the MCP client starts it in. Pass absolute paths if you don't know which directory that is.
 - The MCP server reads only local files. It reads a URL such as `s3://bucket/data.csv` as a relative file path, so the call fails with `data_file_not_found`.
 - A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names in its directory.
@@ -622,7 +628,7 @@ A data science project's declarations, given to the analyses that use them.
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `name` | `str \| None` | `None` | The project's name; null, the default, leaves it unnamed. |
-| `data_policy` | `DataPolicy \| None` | `None` | Which columns are sensitive and whether to mask them. |
+| `data_policy` | `DataPolicy \| Mapping[str, Any] \| None` | `None` | Which columns are sensitive and whether to mask them. |
 
 #### `DataPolicy`
 

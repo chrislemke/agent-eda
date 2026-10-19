@@ -19,7 +19,12 @@ from mcp.server.stdio import stdio_server
 
 import agent_eda
 from agent_eda._annotations import type_text
-from agent_eda._data_files import DataReader, supported_extensions
+from agent_eda._data_files import (
+    CSV_RULES,
+    PARQUET_RULES,
+    DataReader,
+    supported_extensions,
+)
 from agent_eda._local_files import path_argument
 from agent_eda._mcp_instructions import GUARDRAIL, PRECEDENCE, instructions
 from agent_eda._registry import (
@@ -49,8 +54,8 @@ _DATA_PATH = {
     f"names the format: {supported_extensions()}, in any case. In a CSV or TSV "
     "only an empty field counts as missing, so values such as 'N/A' or -999 "
     "reach the analysis as values, and row IDs in the result are 0-based "
-    "data-row numbers. Parquet keeps its dtypes, and row IDs follow the index "
-    "stored in the file.",
+    "data-row numbers; in a Parquet file they follow the index stored in it. "
+    f"{CSV_RULES} {PARQUET_RULES}",
 }
 
 # Why the MCP server makes no enforcement claim (ADR 0006).

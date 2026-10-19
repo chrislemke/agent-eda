@@ -98,8 +98,9 @@ def profile_missing_values(
             matches -999.0 but never True), datetimes by the instant they name.
             Over MCP, write a datetime, date or timedelta as its ISO 8601 text,
             such as '1900-01-01T00:00:00', '1900-01-01' or 'PT0S': it is read as
-            one for a column that holds such values and no text.
-            Every column named must be selected. A value that can never match
+            one for a column that holds such values and no text. List each value
+            once: -999 and -999.0 are one value, while True and 1 are two. Every
+            column named must be selected. A value that can never match
             its column raises errors.InvalidArgumentError naming the value you
             likely meant, such as -999 for the text '-999' in an integer
             column, and so do NaN, NaT and infinite values. None, the default,
@@ -496,8 +497,10 @@ def detect_missing_sentinels(
             True), datetimes by the instant they name. Over MCP, write a
             datetime, date or timedelta as its ISO 8601 text, such as
             '1900-01-01T00:00:00', '1900-01-01' or 'PT0S': it is read as one for
-            a column that holds such values and no text. Every column named must
-            be checked. A value that can never match its column raises
+            a column that holds such values and no text. List each value once:
+            -999 and -999.0 are one value, while True and 1 are two. Every
+            column named must be checked. A value that can never match its
+            column raises
             errors.InvalidArgumentError naming the value you likely meant, such
             as -999 for the text '-999' in an integer column, and so do NaN,
             NaT and infinite values. The declared values a column holds come
