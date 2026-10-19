@@ -83,7 +83,7 @@ def test_a_field_of_the_wrong_type_raises_naming_the_type_it_takes():
 
     assert error.code == "invalid_argument"
     assert str(error).startswith(
-        "ColumnSpec got 'no' for nullable, but nullable must be bool | None."
+        "ColumnSpec got 'no' for nullable, but nullable must be a boolean, or None."
     )
 
 

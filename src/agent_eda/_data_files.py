@@ -19,7 +19,6 @@ from typing import Any, BinaryIO, TextIO
 import numpy as np
 import pandas as pd
 
-from agent_eda._columns import closest_names
 from agent_eda._local_files import (
     READABLE,
     FileFormat,
@@ -29,7 +28,7 @@ from agent_eda._local_files import (
     resolve,
 )
 from agent_eda._parse import read_texts
-from agent_eda._text import join_alternatives
+from agent_eda._text import closest_names, join_alternatives
 from agent_eda.errors import (
     DataFileError,
     DataFileNotFoundError,

@@ -15,10 +15,15 @@ from pydantic.fields import FieldInfo
 from pydantic_core import to_jsonable_python
 
 from agent_eda._annotations import choices, python_literal, type_text, valid_range
-from agent_eda._columns import closest_names
-from agent_eda._registry import AnalysisSpec, registered
+from agent_eda._registry import AnalysisSpec, checked_keywords, registered
 from agent_eda._search import rank, terms
-from agent_eda._text import Surface, join_alternatives, join_items, plural
+from agent_eda._text import (
+    Surface,
+    closest_names,
+    join_alternatives,
+    join_items,
+    plural,
+)
 from agent_eda._version import __version__
 from agent_eda._wording import as_written, worded
 from agent_eda.errors import InvalidArgumentError, UnknownAnalysisError
@@ -90,6 +95,7 @@ Find more:
   help(ae.summarize_numeric)  the full docstring"""
 
 
+@checked_keywords
 def guide() -> None:
     """Print one page on agent-eda: what it does, how to call and read analyses.
 
@@ -159,6 +165,7 @@ def _first_look_lines(listing: AnalysisListing) -> list[str]:
     ]
 
 
+@checked_keywords
 def list_analyses() -> AnalysisListing:
     """List every analysis with its module, one-line summary and masking support.
 
@@ -199,6 +206,7 @@ def list_analyses() -> AnalysisListing:
     )
 
 
+@checked_keywords
 def describe_analysis(name: str) -> AnalysisDescription:
     """Describe one analysis: everything needed for a correct first call.
 
@@ -294,6 +302,7 @@ def _search_example(surface: Surface, limit: int | None = None) -> str:
     return f"ae.search_analyses('missing values'{more})"
 
 
+@checked_keywords
 def search_analyses(query: str, limit: int = 5) -> SearchListing:
     """Find the analyses that best match a question in your own words.
 

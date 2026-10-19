@@ -13,7 +13,6 @@ classes in ae.results. Attributes load on first use, so importing the package
 stays cheap.
 """
 
-import difflib
 import importlib
 from typing import TYPE_CHECKING
 
@@ -110,7 +109,9 @@ if not TYPE_CHECKING:
         elif name in _EXPORTS:
             value = getattr(importlib.import_module(_EXPORTS[name]), name)
         else:
-            closest = difflib.get_close_matches(name, [*__all__, *_SUBMODULES], n=1)
+            from agent_eda._text import closest_names
+
+            closest = closest_names(name, [*__all__, *_SUBMODULES])[:1]
             hint = f" Did you mean {closest[0]!r}?" if closest else ""
             raise AttributeError(
                 f"module 'agent_eda' has no attribute {name!r}.{hint} "
