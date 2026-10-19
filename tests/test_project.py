@@ -74,7 +74,7 @@ def test_the_docstring_examples_run(model):
 def test_help_shows_the_fields_as_keyword_arguments():
     assert str(inspect.signature(ae.Project)) == (
         "(*, name: str | None = None, data_policy: agent_eda.project.DataPolicy | "
-        "None = None)"
+        "collections.abc.Mapping[str, typing.Any] | None = None)"
     )
     assert str(inspect.signature(ae.DataPolicy)) == (
         "(*, sensitive_columns: collections.abc.Sequence[str] | None = (), "
@@ -346,8 +346,8 @@ def test_a_data_policy_field_given_to_the_project_shows_where_it_belongs(field):
         (
             lambda: ae.Project(data_policy=["email"]),  # ty: ignore[invalid-argument-type]  # the wrong type is the test
             "Project got a list of 1 item for data_policy, but data_policy must be "
-            "DataPolicy. Input should be a valid dictionary or instance of "
-            "DataPolicy. See help(ae.Project) for every field.",
+            "DataPolicy | Mapping[str, Any] | None. See help(ae.Project) for every "
+            "field.",
         ),
         (
             lambda: ae.DataPolicy(mask_sensitive="yes"),  # ty: ignore[invalid-argument-type]  # the wrong type is the test

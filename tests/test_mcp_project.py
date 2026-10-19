@@ -478,13 +478,42 @@ async def call(name, arguments, project=None):
 
 
 def write(path, text):
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
 def read(path):
-    """The DataFrame the server reads from a CSV file."""
-    return pd.read_csv(path, keep_default_na=False, na_values=[""])
+    """The DataFrame the server reads from this file's CSV text, built by hand."""
+    frames = {
+        CSV: pd.DataFrame(
+            {
+                "customer": ["ann@example.org", "bo@example.org", "ann@example.org"],
+                "plan": ["pro", "pro", "team"],
+                "spend": [10, 20, 30],
+            }
+        ),
+        PEOPLE: pd.DataFrame(
+            {
+                "email": [
+                    "ann@example.org",
+                    "bo@example.org",
+                    "cy@example.org",
+                    "ann@example.org",
+                    "dee@example.org",
+                ],
+                "segment": [
+                    "gold-tier",
+                    "silver-tier",
+                    "no-tier",
+                    "gold-tier",
+                    "silver-tier",
+                ],
+                "plan": ["pro", "pro", "team", "pro", "team"],
+                "spend": [10, -999, 30, 10, -999],
+            }
+        ),
+    }
+    return frames[path.read_text(encoding="utf-8")]
 
 
 # The console script installed next to this interpreter.
@@ -630,15 +659,14 @@ def test_the_instructions_and_the_readme_say_what_masking_never_covers():
             return client.instructions
 
     instructions = " ".join(anyio.run(scenario).split())
-    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        encoding="utf-8"
+    )
     section = readme.split("### Masking over MCP")[1].split("\n## ")[0]
     masking = " ".join(section.split())
 
-    assert (
-        "Numeric statistics, such as a minimum, and index labels are never masked."
-        in instructions
-    )
-    assert "Tools without [supports masking] don't read the project." in instructions
+    assert "Numeric statistics and index labels are never masked;" in instructions
+    assert "other tools ignore the project." in instructions
     assert "never touches numeric statistics" in masking
     assert "or index labels" in masking
     assert "the MCP tools without masking don't read the project" in masking
@@ -647,7 +675,9 @@ def test_the_instructions_and_the_readme_say_what_masking_never_covers():
 
 
 def test_the_readme_counts_the_analyses_that_can_show_raw_values():
-    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        encoding="utf-8"
+    )
     section = readme.split("## Projects and masking")[1].split("\n## ")[0]
 
     [paragraph] = [p for p in section.split("\n\n") if p.startswith("Six analyses")]

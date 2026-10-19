@@ -101,7 +101,8 @@ def profile_missing_values(
             too), date or timedelta (pd.Timedelta too). A value matches exactly:
             text with its case and surrounding spaces, numbers by value (-999
             matches -999.0 but never True), datetimes by the instant they name.
-            Every column named must be selected. A value that can never match
+            List each value once: -999 and -999.0 are one value, while True and
+            1 are two. Every column named must be selected. A value that can never match
             its column raises errors.InvalidArgumentError naming the value you
             likely meant, such as -999 for the text '-999' in an integer
             column, and so do NaN, NaT and infinite values. None, the default,
@@ -523,8 +524,9 @@ def detect_missing_sentinels(
             int, float, str, datetime (pd.Timestamp too), date or timedelta
             (pd.Timedelta too). A value matches exactly: text with its case and
             surrounding spaces, numbers by value (-999 matches -999.0 but never
-            True), datetimes by the instant they name. Every column named must
-            be checked. A value that can never match its column raises
+            True), datetimes by the instant they name. List each value once:
+            -999 and -999.0 are one value, while True and 1 are two. Every
+            column named must be checked. A value that can never match its column raises
             errors.InvalidArgumentError naming the value you likely meant, such
             as -999 for the text '-999' in an integer column, and so do NaN,
             NaT and infinite values. The declared values a column holds come

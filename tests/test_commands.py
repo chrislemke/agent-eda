@@ -11,9 +11,9 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-AGENTS = (ROOT / "AGENTS.md").read_text()
-README = (ROOT / "README.md").read_text()
-CONTRIBUTING = (ROOT / "CONTRIBUTING.md").read_text()
+AGENTS = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+README = (ROOT / "README.md").read_text(encoding="utf-8")
+CONTRIBUTING = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
 
 
 def section(text, heading):
@@ -23,7 +23,7 @@ def section(text, heading):
 
 
 def test_uv_refuses_to_run_below_the_version_the_commands_need():
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert pyproject["tool"]["uv"]["required-version"] == ">=0.13"
 
@@ -71,7 +71,9 @@ def test_the_other_guides_point_to_agents_md_instead_of_spelling_out_these_comma
         *sorted((ROOT / "docs" / "agents").glob("*.md")),
     ]
 
-    spelled = [guide.name for guide in guides if command in guide.read_text()]
+    spelled = [
+        guide.name for guide in guides if command in guide.read_text(encoding="utf-8")
+    ]
 
     assert spelled == [], f"{spelled} repeat `{command}`: point to AGENTS.md instead."
 
@@ -121,7 +123,9 @@ def test_agents_md_states_the_performance_target_the_benchmark_checks():
 
 
 def test_the_pre_push_pytest_hook_runs_on_every_push_and_fails_on_no_tests():
-    config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())
+    config = yaml.safe_load(
+        (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    )
     hooks = {hook["id"]: hook for repo in config["repos"] for hook in repo["hooks"]}
     hook = hooks["pytest"]
 
@@ -134,13 +138,15 @@ def test_the_pre_push_pytest_hook_runs_on_every_push_and_fails_on_no_tests():
 
 
 def test_coverage_follows_subprocesses():
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert pyproject["tool"]["coverage"]["run"]["patch"] == ["subprocess"]
 
 
 def test_claude_code_does_not_enable_pyright_lsp():
-    settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+    settings = json.loads(
+        (ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
 
     assert not [name for name in settings["enabledPlugins"] if "pyright" in name]
 
@@ -153,7 +159,7 @@ def test_documents_name_review_skills_with_their_plugin_prefix(path):
     bare = [
         file.name
         for file in files
-        if re.search(r"(?<![\w:-])code-review\b", file.read_text())
+        if re.search(r"(?<![\w:-])code-review\b", file.read_text(encoding="utf-8"))
     ]
 
     assert bare == [], f"Write mattpocock-skills:code-review, not code-review: {bare}"

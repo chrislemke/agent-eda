@@ -11,7 +11,7 @@ import pytest
 
 import agent_eda as ae
 
-INIT = Path(ae.__file__).read_text()
+INIT = Path(ae.__file__).read_text(encoding="utf-8")
 # The packages whose public functions are analyses.
 ANALYSIS_PACKAGES = ["agent_eda.data", "agent_eda.statistics"]
 

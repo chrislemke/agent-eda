@@ -35,7 +35,7 @@ from agent_eda._annotations import (
 from agent_eda._columns import check_column_labels, closest_names
 from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
-from agent_eda._run import watch_all_warnings
+from agent_eda._run import capture_warnings, watch_all_warnings
 from agent_eda._text import (
     MAX_NAME_LENGTH,
     Surface,
@@ -770,7 +770,7 @@ def _absorb_warnings(result: object, caught: list[warnings.WarningMessage]) -> o
             )
             others.setdefault(key, warning)
     for warning in others.values():
-        with warnings.catch_warnings(record=True):
+        with capture_warnings():
             warnings.warn_explicit(
                 warning.message, warning.category, warning.filename, warning.lineno
             )
