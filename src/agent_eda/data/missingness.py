@@ -624,10 +624,16 @@ def detect_missing_sentinels(
         data,
         columns,
         _ANY_COLUMN,
-        id_column=row_ids.id_column,
+        # Only a call without columns leaves the id_column out by itself.
+        id_column=row_ids.id_column if columns is None else None,
     )
     declared = declared_values(
-        "detect_missing_sentinels", data, selection.columns, sentinel_values
+        "detect_missing_sentinels",
+        data,
+        selection.columns,
+        sentinel_values,
+        # Only a call without columns leaves the id_column out by itself.
+        id_column=row_ids.id_column if columns is None else None,
     )
     row_count = len(data)
     checked = {

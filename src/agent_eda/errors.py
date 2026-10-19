@@ -13,9 +13,12 @@ Codes, with the class that raises each:
         that repeats a value, or a declared sentinel value that can never match
         its column; that message names the value the caller likely meant.
     invalid_call (InvalidArgumentError): the call itself is malformed, such as
-        an option passed by position, an unknown keyword or a missing DataFrame.
+        an option passed by position, an unknown keyword or a missing DataFrame;
+        discovery functions and Project.load and Project.save raise it for an
+        unknown keyword too, naming the closest one.
     unsupported_data_type (InvalidArgumentError): data isn't a pandas
-        DataFrame; the message shows the one-line conversion.
+        DataFrame, such as a file path, a pyarrow Table or None; the message
+        shows how to get one.
     ambiguous_column_labels (InvalidArgumentError): the data's column labels
         repeat, share a string form or form a MultiIndex, so a name can't pick
         out one column; the message shows how to rename them. describe_dataset

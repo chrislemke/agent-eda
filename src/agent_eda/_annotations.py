@@ -5,12 +5,15 @@ same functions, so they can't disagree.
 """
 
 import collections.abc
+import datetime
 import types
 import typing
 from dataclasses import dataclass
 
 import annotated_types
 from pydantic import JsonValue
+
+from agent_eda._text import a_or_an, join_alternatives
 
 # Short names for the libraries an annotation can come from.
 _LIBRARY_ALIASES = {"pandas": "pd", "numpy": "np"}
@@ -154,3 +157,78 @@ def python_literal(value: JsonValue) -> str:
         pairs = (f"{key!r}: {python_literal(item)}" for key, item in value.items())
         return "{" + ", ".join(pairs) + "}"
     return repr(value)
+
+
+# How an agent reads a scalar type: singular with its article, and plural.
+_SCALARS: dict[object, tuple[str, str]] = {
+    str: ("a string", "strings"),
+    int: ("an integer", "integers"),
+    float: ("a number", "numbers"),
+    bool: ("a boolean", "booleans"),
+    datetime.datetime: ("a datetime", "datetimes"),
+    datetime.date: ("a date", "dates"),
+    datetime.timedelta: ("a timedelta", "timedeltas"),
+}
+
+
+def allowed_text(annotation: object, subject: str, *, none: str = "None") -> str:
+    """What an option allows, in words and without typing syntax.
+
+    Such as "a number with 0 <= trim_fraction < 0.5", "a list of strings, or None"
+    or "one of 'a' or 'b', or a ColumnSpec". `subject` names the value in a
+    declared range, and `none` is how the caller writes None: "null" over MCP.
+    """
+    return _allowed(annotation, subject, none, plural=False)
+
+
+def _allowed(annotation: object, subject: str, none: str, *, plural: bool) -> str:
+    origin = typing.get_origin(annotation)
+    arguments = typing.get_args(annotation)
+    if origin is typing.Annotated:
+        inner = _allowed(arguments[0], subject, none, plural=plural)
+        limits = bounds(arguments[1:], subject)
+        return f"{inner} with {limits}" if limits else inner
+    if origin is typing.Literal:
+        listed = join_alternatives([repr(choice) for choice in arguments])
+        return f"values, each one of {listed}" if plural else f"one of {listed}"
+    if origin in (typing.Union, types.UnionType):
+        return _allowed_union(arguments, subject, none, plural=plural)
+    if origin in LIST_TYPES and arguments:
+        items = _allowed(arguments[0], "value", none, plural=True)
+        return f"a list of {items}"
+    if origin in MAPPING_TYPES and len(arguments) == 2:
+        if arguments[1] is typing.Any:
+            return "a dict"
+        values = _allowed(arguments[1], subject, none, plural=False)
+        return f"a mapping from column names to {values}"
+    if annotation is type(None):
+        return none
+    if annotation is typing.Any:
+        return "values" if plural else "a value"
+    if annotation in _SCALARS:
+        singular, many = _SCALARS[annotation]
+        return many if plural else singular
+    name = getattr(origin or annotation, "__name__", str(annotation))
+    return f"{name} values" if plural else a_or_an(name)
+
+
+def _allowed_union(
+    members_: tuple[object, ...], subject: str, none: str, *, plural: bool
+) -> str:
+    """The members of a union: the fixed choices first, then the types."""
+    literals = [m for m in members_ if typing.get_origin(m) is typing.Literal]
+    kept = [m for m in members_ if m not in literals and m is not type(None)]
+    pieces = []
+    if literals:
+        choices = [repr(c) for literal in literals for c in typing.get_args(literal)]
+        listed = join_alternatives(choices)
+        pieces.append(f"values, each one of {listed}" if plural else f"one of {listed}")
+    pieces.extend(_allowed(m, subject, none, plural=plural) for m in kept)
+    if type(None) in members_:
+        pieces.append(none)
+    if len(pieces) == 2 and (literals or pieces[1] == none):
+        # "one of 'a' or 'b', or a ColumnSpec" and "a string, or None".
+        return ", or ".join(pieces)
+    if literals and len(pieces) > 2:
+        return f"{pieces[0]}, or {join_alternatives(pieces[1:])}"
+    return join_alternatives(pieces)

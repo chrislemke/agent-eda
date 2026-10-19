@@ -16,7 +16,7 @@ It is written for three kinds of callers:
 - **Results you can read and parse**: `print(res)` gives at most 40 lines of text, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package from inside Python.
-- **Helpful errors**: a misspelled column name raises an error that lists the available columns and the closest match.
+- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix that works: a misspelled column or keyword lists the available names and the closest match, and a file path passed as data says to read it with `pd.read_csv` or `pd.read_parquet`.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses, in everything a result shows.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that call MCP tools instead of writing Python.
 - **Safe from threads**: concurrent calls from several threads are safe, and each result keeps its own limitations.
@@ -679,7 +679,7 @@ Exceptions that agent-eda raises when a call is wrong.
 | --- | --- | --- |
 | `invalid_argument` | `InvalidArgumentError` | An argument has the wrong type or value, such as a number outside its range, an unknown choice, a list that repeats a value, or a declared sentinel value that can never match its column. |
 | `invalid_call` | `InvalidArgumentError` | The call itself is malformed, such as an option passed by position, an unknown keyword or a missing DataFrame. |
-| `unsupported_data_type` | `InvalidArgumentError` | Data isn't a pandas DataFrame. |
+| `unsupported_data_type` | `InvalidArgumentError` | Data isn't a pandas DataFrame, such as a file path, a pyarrow Table or None. |
 | `ambiguous_column_labels` | `InvalidArgumentError` | The data's column labels repeat, share a string form or form a MultiIndex, so a name can't pick out one column. |
 | `column_not_found` | `ColumnNotFoundError` | A column name isn't in the data. |
 | `unsupported_column_type` | `ColumnTypeError` | A named column has a dtype the analysis can't use, or an id_column holds values that can't be hashed, such as lists. |

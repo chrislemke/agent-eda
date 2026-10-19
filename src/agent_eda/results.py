@@ -1,7 +1,6 @@
 """Result classes returned by agent-eda analyses."""
 
 import datetime as dt
-import difflib
 import itertools
 import json
 import math
@@ -261,10 +260,10 @@ def _check_table(table: object, tables: Sequence[str]) -> None:
     """
     if isinstance(table, str) and table in tables:
         return
-    shown = repr(table) if isinstance(table, str) else f"a {type(table).__name__}"
-    closest = (
-        difflib.get_close_matches(table, tables, n=1) if isinstance(table, str) else []
+    shown = (
+        repr(table) if isinstance(table, str) else _text.a_or_an(type(table).__name__)
     )
+    closest = _text.closest_names(table, tables)[:1] if isinstance(table, str) else []
     hint = f" Did you mean {closest[0]!r}?" if closest else ""
     allowed = _text.join_alternatives([repr(name) for name in tables])
     raise InvalidArgumentError(

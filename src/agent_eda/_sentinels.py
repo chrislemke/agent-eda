@@ -244,6 +244,8 @@ def declared_values(
     data: pd.DataFrame,
     selected: Sequence[Column],
     sentinel_values: Mapping[str, Sequence[SentinelValue]] | None,
+    *,
+    id_column: str | None = None,
 ) -> dict[str, list[SentinelValue]]:
     """The declared values of each selected column, checked against the data.
 
@@ -251,7 +253,8 @@ def declared_values(
     out. Raises before any computation: ColumnNotFoundError for a name that
     isn't a column, and InvalidArgumentError for a column the call leaves out,
     a value listed twice for one column, or a value that can never match its
-    column.
+    column. `id_column` is the column that identifies rows when the call names
+    no columns, which then leaves it out; otherwise None.
     """
     if not sentinel_values:
         return {}
@@ -261,7 +264,7 @@ def declared_values(
     by_name = {column.name: column for column in selected}
     left_out = [name for name in names if name not in by_name]
     if left_out:
-        raise InvalidArgumentError(_left_out_message(analysis, left_out))
+        raise InvalidArgumentError(_left_out_message(analysis, left_out, id_column))
     problems: list[_Problem] = []
     declared: dict[str, list[SentinelValue]] = {}
     for name, values in sentinel_values.items():
@@ -289,7 +292,15 @@ def declared_values(
     return declared
 
 
-def _left_out_message(analysis: str, names: list[str]) -> str:
+def _left_out_message(analysis: str, names: list[str], id_column: str | None) -> str:
+    if names == [id_column]:
+        # Without columns, the id_column is the one column the default leaves out.
+        return (
+            f"{analysis} got sentinel values for {id_column!r}, but leaving the "
+            f"columns argument out leaves out the id_column, which identifies "
+            f"rows. Name it in columns to check it, or leave it out of "
+            "sentinel_values."
+        )
     if len(names) == 1:
         return (
             f"{analysis} got sentinel values for {names[0]!r}, which columns leaves "

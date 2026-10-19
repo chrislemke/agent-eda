@@ -4,7 +4,6 @@ Every analysis except describe_dataset refers to columns by name: the string
 form of each label, which is also how results show columns.
 """
 
-import difflib
 import typing
 from collections import Counter
 from collections.abc import Hashable, Mapping, Sequence
@@ -17,6 +16,7 @@ import pandas as pd
 from agent_eda._run import check_distinct
 from agent_eda._text import (
     Surface,
+    closest_names,
     join_alternatives,
     join_items,
     join_labels,
@@ -27,8 +27,6 @@ from agent_eda.errors import ColumnNotFoundError, ColumnTypeError, InvalidArgume
 
 # Error messages name at most this many of the data's columns.
 MAX_LISTED_COLUMNS = 20
-# Suggestions for a misspelled column name.
-MAX_SUGGESTIONS = 3
 
 ColumnKind = Literal[
     "numeric",
@@ -261,8 +259,16 @@ def select_columns(
     by_name = {column.name: column for column in columns}
     unknown = [name for name in requested if name not in by_name]
     if unknown:
-        raise ColumnNotFoundError(
-            _not_found(analysis, parameter, unknown, list(by_name))
+        raise worded(
+            ColumnNotFoundError,
+            lambda surface: _not_found(
+                analysis,
+                parameter,
+                unknown,
+                list(by_name),
+                index_names=[str(n) for n in data.index.names if n is not None],
+                surface=surface,
+            ),
         )
     selected = [by_name[name] for name in requested]
     rejected = [column for column in selected if column.kind not in rule.accepted]
@@ -274,27 +280,14 @@ def select_columns(
     return Selection(columns=selected, left_out=[])
 
 
-def closest_names(name: str, names: Sequence[str]) -> list[str]:
-    """The names closest to `name`, at most MAX_SUGGESTIONS of them.
-
-    Names equal to it apart from case and surrounding spaces come first, then
-    close spellings, ranked by difflib's similarity.
-    """
-    by_key: dict[str, list[str]] = {}
-    for candidate in names:
-        by_key.setdefault(_fold(candidate), []).append(candidate)
-    key = _fold(name)
-    similar = difflib.get_close_matches(key, list(by_key), n=MAX_SUGGESTIONS)
-    found = [*by_key.get(key, []), *(c for k in similar for c in by_key[k])]
-    return list(dict.fromkeys(found))[:MAX_SUGGESTIONS]
-
-
-def _fold(name: str) -> str:
-    return name.strip().casefold()
-
-
 def _not_found(
-    analysis: str, parameter: str, unknown: list[str], names: list[str]
+    analysis: str,
+    parameter: str,
+    unknown: list[str],
+    names: list[str],
+    *,
+    index_names: Sequence[str] = (),
+    surface: Surface = "python",
 ) -> str:
     if names:
         listed = join_items([repr(n) for n in names], limit=MAX_LISTED_COLUMNS)
@@ -308,7 +301,20 @@ def _not_found(
     }
     if len(unknown) == 1:
         [name] = unknown
+        if parameter == "id_column" and name in index_names:
+            return (
+                f"{analysis} got id_column {name!r}, which names the index, not a "
+                f"column. The index labels are already the row IDs: "
+                f"{left_out(parameter, surface)} to use them. To use the index as a "
+                f"column instead, {_as_column(surface)}. {available}"
+            )
         hint = f" Did you mean {matches[name]}?" if matches[name] else ""
+        if name == "None" and parameter.endswith("columns"):
+            none = "None" if surface == "python" else "null"
+            hint += (
+                f" To select every suitable column, {left_out(parameter, surface)} "
+                f"rather than a list holding {none}."
+            )
         return f"{analysis} got an unknown column {name!r} in {parameter}.{hint} {available}"
     described = [
         f"{name!r} (did you mean {match}?)" if match else repr(name)
@@ -318,6 +324,13 @@ def _not_found(
         f"{analysis} got {len(unknown):,} unknown columns in {parameter}: "
         f"{join_items(described, limit=MAX_LISTED_COLUMNS)}. {available}"
     )
+
+
+def _as_column(surface: Surface) -> str:
+    """How to turn the index into a column, for the surface."""
+    if surface == "python":
+        return "call df.reset_index() first"
+    return "write it as a column in the data file"
 
 
 def _wrong_type(

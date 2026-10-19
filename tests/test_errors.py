@@ -48,7 +48,7 @@ def test_an_argument_of_the_wrong_type_raises_without_a_pydantic_error():
     error = caught.value
     assert error.code == "invalid_argument"
     assert str(error).startswith(
-        "describe_dataset got 5 for source, but source must be str | None."
+        "describe_dataset got 5 for source, but source must be a string, or None."
     )
     assert error.__cause__ is None
     assert error.__suppress_context__
@@ -150,7 +150,7 @@ def test_a_quantile_level_outside_0_to_1_raises_with_the_range(levels, shown):
     assert caught.value.code == "invalid_argument"
     assert str(caught.value) == (
         f"summarize_numeric got {shown}, but each value in quantiles must be "
-        f"float with 0 <= value <= 1. {HELP}"
+        f"a number with 0 <= value <= 1. {HELP}"
     )
 
 
@@ -162,7 +162,7 @@ def test_a_trim_fraction_outside_its_range_raises_with_the_range(trim_fraction):
     assert caught.value.code == "invalid_argument"
     assert str(caught.value) == (
         f"summarize_numeric got {trim_fraction!r} for trim_fraction, but "
-        f"trim_fraction must be float with 0 <= trim_fraction < 0.5. {HELP}"
+        f"trim_fraction must be a number with 0 <= trim_fraction < 0.5. {HELP}"
     )
 
 
@@ -172,7 +172,7 @@ def test_a_trim_fraction_of_the_wrong_type_raises_with_its_type_and_range():
 
     assert str(caught.value) == (
         "summarize_numeric got '0.1' for trim_fraction, but trim_fraction must be "
-        f"float with 0 <= trim_fraction < 0.5. Input should be a valid number. {HELP}"
+        f"a number with 0 <= trim_fraction < 0.5. {HELP}"
     )
 
 
