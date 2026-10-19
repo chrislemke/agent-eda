@@ -1,10 +1,15 @@
 """The fixed plain-text template every result prints with.
 
 A result prints as: a first line with the analysis, status and data size; an
-optional status reason; a few fact lines; the key table (at most 10 rows); the
-findings (at most 5); the limitations (at most 5); and a footer that says where
-the rest is. The text never exceeds 40 lines or 120 characters per line, and
-every section counts what it leaves out.
+optional status reason; a few fact lines; the key table (at most 10 rows) with
+optional detail lines under it; the findings (at most 5); the limitations (at
+most 5); and a footer that says where the rest is. The text never exceeds 40
+lines or 120 characters per line, and every section counts what it leaves out.
+
+A line that is too long wraps with a hanging indent and is never cut: only a
+table cell too wide for its column is shortened, with "...", and the record
+keeps the whole value. The detail lines are the only lines that give way to the
+others when the 40 lines run short.
 
 The text names what the caller can reach on its surface: a Python caller reads
 res.to_frame() and res.to_json(), an MCP caller the full table that table_path
@@ -41,6 +46,8 @@ MAX_UNKNOWN_NAMED = 3
 MAX_NAME_LENGTH = 40
 
 ELLIPSIS = "..."
+# What a line that wraps continues with.
+HANGING = "    "
 COLUMN_GAP = "  "
 # Text cells never shrink below this width to make a table fit.
 MIN_TEXT_WIDTH = 8
@@ -72,6 +79,11 @@ class Table:
     # such as "all 5 rows in groups"; it wins over frame_rows and frame_unit.
     # None means the count of the table's rows or of frame_rows.
     frame: str | None = None
+    # Lines under the table, one per shown row, such as a column's top levels,
+    # which the text shows as far as the line cap leaves room, under the title
+    # `details_title`.
+    details: Sequence[str] = ()
+    details_title: str = ""
 
 
 @dataclass(frozen=True)
@@ -101,13 +113,22 @@ def render(
     returns, each as a clause for the footer, such as "res.to_frame(table='x')
     has ...". Only Python can ask for them, so the MCP text leaves them out.
     """
-    lines = [heading, *facts]
+    lines = [
+        line
+        for text in [heading, *facts]
+        for line in _wrapped(_printable(text), indent=HANGING)
+    ]
     if table is not None:
-        lines.extend(_table_lines(table))
-    lines.extend(_item_lines("Findings", findings, MAX_FINDINGS))
-    lines.extend(_item_lines("Limitations", limitations, MAX_LIMITATIONS))
-    lines.extend(_footer(table, other_tables if surface == "python" else (), surface))
-    lines = [_fit(_printable(line)) for line in lines]
+        lines.extend(_fit(_printable(line)) for line in _table_lines(table))
+    after_table = [
+        *_item_lines("Findings", findings, MAX_FINDINGS),
+        *_item_lines("Limitations", limitations, MAX_LIMITATIONS),
+        *_footer(table, other_tables if surface == "python" else (), surface),
+    ]
+    if table is not None and table.details:
+        room = MAX_LINES - reserve - len(lines) - len(after_table)
+        lines.extend(_detail_lines(table, room))
+    lines.extend(after_table)
     limit = MAX_LINES - reserve
     if len(lines) > limit:
         hidden = len(lines) - limit + 1
@@ -343,7 +364,39 @@ def _item_lines(title: str, items: Sequence[Item], limit: int) -> list[str]:
         return [f"{title}: none"]
     shown = items[:limit]
     lines = [f"{title} ({len(shown):,} of {len(items):,} shown):"]
-    lines.extend(f"- {item.label}: {item.text}" for item in shown)
+    for item in shown:
+        lines.extend(
+            wrap(_printable(f"- {item.label}: {item.text}"), first="", indent="  ")
+        )
+    return lines
+
+
+def _detail_lines(table: Table, room: int) -> list[str]:
+    """The table's detail lines that fit in `room` lines, and a count of the rest."""
+    entries = [
+        wrap(_printable(text), first="  ", indent="    ")
+        for text in table.details[:MAX_TABLE_ROWS]
+    ]
+    if room < 1:
+        return []
+    if room < 3:
+        return [f"{table.details_title}: {len(entries):,} not shown for lack of room."]
+    budget = room - 1
+    if sum(len(entry) for entry in entries) <= budget:
+        shown = len(entries)
+    else:
+        used = 0
+        shown = 0
+        for entry in entries:
+            if used + len(entry) > budget - 1:
+                break
+            used += len(entry)
+            shown += 1
+    lines = [f"{table.details_title}:"]
+    for entry in entries[:shown]:
+        lines.extend(entry)
+    if shown < len(entries):
+        lines.append(f"  and {len(entries) - shown:,} more not shown.")
     return lines
 
 
@@ -368,7 +421,9 @@ def _footer(
         else:
             count = len(table.rows)
         rows = plural(count, *(table.frame_unit or table.unit))
-        frame = f"{full_table} has {'the' if count == 1 else 'all'} {rows}"
+        frame = f"{full_table} has " + (
+            "no rows" if count == 0 else f"{'the' if count == 1 else 'all'} {rows}"
+        )
     return wrap(
         f"More: {'; '.join([frame, *other_tables])}; {rest}", first="", indent="    "
     )
@@ -392,7 +447,17 @@ def _printable(text: str) -> str:
     )
 
 
+def _wrapped(text: str, *, indent: str) -> list[str]:
+    """The text as lines within MAX_WIDTH. A line that is too long wraps, with
+    the indent it starts with, or `indent` when it starts at the margin."""
+    if len(text) <= MAX_WIDTH:
+        return [text]
+    lead = text[: len(text) - len(text.lstrip())]
+    return wrap(text.strip(), first=lead, indent=lead or indent)
+
+
 def _fit(line: str) -> str:
+    """A table line within MAX_WIDTH; only a table too wide to shrink is cut."""
     if len(line) <= MAX_WIDTH:
         return line
     return line[: MAX_WIDTH - len(ELLIPSIS)] + ELLIPSIS

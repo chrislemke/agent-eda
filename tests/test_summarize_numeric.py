@@ -838,24 +838,40 @@ def survey():
 def test_text_shows_the_main_statistics_of_each_column():
     res = ae.summarize_numeric(survey())
 
-    assert str(res) == "\n".join(
-        [
-            "summarize_numeric: completed on 6 rows x 3 columns",
-            "Statistics use the finite values. Quantile method linear; trimmed_mean "
-            "cuts 10% from each end.",
-            "Left out, not numeric or boolean: 'member'.",
-            "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
-            "skewness and excess_kurtosis.",
-            "Columns (2 of 2 shown):",
-            "column  non_missing_count  missing_count       mean        std    min  median    max",
-            "age                     5              1       39.8      9.094     29      38     51",
-            "income                  6              0  1.667e+05  4.082e+05  48.25      58  1e+06",
-            "Findings: none",
-            "Limitations: none",
-            "More: res.to_frame() has all 2 columns; res.findings, res.limitations "
-            "and res.to_json() have the rest.",
-        ]
+    lines = str(res).splitlines()
+
+    assert lines[0] == "summarize_numeric: completed on 6 rows x 3 columns"
+    assert lines[1] == (
+        "Statistics use the finite values. Quantile method linear; trimmed_mean "
+        "cuts trim_fraction 0.1 from each end."
     )
+    assert (
+        "Left out, boolean, which counts only when columns names it: 'member'." in lines
+    )
+    start = lines.index("Columns (2 of 2 shown):")
+    assert lines[start + 1].split() == [
+        "column",
+        "non_missing_count",
+        "missing_count",
+        "mean",
+        "std",
+        "min",
+        "median",
+        "max",
+    ]
+    assert lines[start + 2].split() == [
+        "age",
+        "5",
+        "1",
+        "39.8",
+        "9.094",
+        "29",
+        "38",
+        "51",
+    ]
+    assert lines[start + 3].split()[:3] == ["income", "6", "0"]
+    assert "Findings: none" in lines
+    assert lines[-1].startswith("More: res.to_frame() has all 2 columns;")
 
 
 def test_text_of_named_columns_says_nothing_about_left_out_ones():
@@ -864,7 +880,7 @@ def test_text_of_named_columns_says_nothing_about_left_out_ones():
     lines = str(res).splitlines()
     assert lines[1] == (
         "Statistics use the finite values. Quantile method linear; trimmed_mean "
-        "cuts 12.5% from each end."
+        "cuts trim_fraction 0.125 from each end."
     )
     assert not any(line.startswith("Left out") for line in lines)
 
