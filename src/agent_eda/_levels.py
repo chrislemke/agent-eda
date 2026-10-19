@@ -24,6 +24,7 @@ import pandas as pd
 
 from agent_eda._text import placeholder
 from agent_eda._values import categorical_array, value_codes
+from agent_eda._written_form import canonical_text
 
 if TYPE_CHECKING:
     # Result classes build their tables here, so this module imports nothing
@@ -370,7 +371,7 @@ def label_key(label: object) -> tuple:
         return (0, 0, value)
     if isinstance(value, str):
         return (1, value)
-    return (2, type(value).__name__, str(value))
+    return (2, type(value).__name__, canonical_text(value))
 
 
 def _is_nan(value: object) -> bool:
@@ -393,7 +394,7 @@ def stored_label(label: object) -> object:
 
 
 def record_label(label: object) -> str | bool | int | float:
-    """A label as the record holds it: a JSON scalar, or else its string form."""
+    """A label as the record holds it: a JSON scalar, or else its canonical text."""
     value = stored_label(label)
     if isinstance(value, bool):
         return bool(value)
@@ -403,7 +404,7 @@ def record_label(label: object) -> str | bool | int | float:
         return str(value)
     if isinstance(value, float) and math.isfinite(value):
         return float(value)
-    return str(value)
+    return canonical_text(value)
 
 
 def type_name(label: object) -> str:

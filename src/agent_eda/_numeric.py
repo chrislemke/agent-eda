@@ -76,12 +76,9 @@ NullReason = Literal["too_few_values", "zero_variance", "numerical_warning"]
 
 
 @dataclass(frozen=True)
-class NumericColumn:
-    """A column read as float64, and what reading it that way changed."""
+class ReadEffects:
+    """What reading a column as float64 changed, which limitations report."""
 
-    # NaN where a value is missing. It can be a read-only view of the caller's
-    # data: never write to it.
-    values: np.ndarray
     # Whether it held booleans, read as 0 and 1.
     boolean: bool
     # Whether it holds integers that float64 can't represent exactly.
@@ -89,6 +86,15 @@ class NumericColumn:
     # NaN values that pandas' isna() doesn't count as missing, as pyarrow-backed
     # floats (and nullable floats on pandas 2) can store; read as missing.
     stored_nan_count: int
+
+
+@dataclass(frozen=True)
+class NumericColumn(ReadEffects):
+    """A column read as float64, and what reading it that way changed."""
+
+    # NaN where a value is missing. It can be a read-only view of the caller's
+    # data: never write to it.
+    values: np.ndarray
 
 
 def read_numeric(series: pd.Series) -> NumericColumn:
@@ -127,7 +133,7 @@ def _beyond_exact_integers(series: pd.Series) -> bool:
 
 
 def read_limitations(
-    columns: Mapping[str, NumericColumn], path: Callable[[str], str]
+    columns: Mapping[str, ReadEffects], path: Callable[[str], str]
 ) -> list[Limitation]:
     """The limitations that reading the columns as float64 brings.
 

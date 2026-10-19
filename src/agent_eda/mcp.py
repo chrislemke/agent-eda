@@ -56,7 +56,6 @@ _EXTRA_MODULES = ("mcp", "mcp_types", "anyio")
 
 def create_server(
     *,
-    analyses: "Sequence[Callable[..., AnalysisResult]] | None" = None,
     project: Project | None = None,
 ) -> "Server":
     """Build the MCP server, ready to run over any MCP transport.
@@ -73,18 +72,6 @@ def create_server(
     order. describe_analysis and guide are not MCP tools.
 
     Args:
-        analyses: A test seam, not a way to serve a subset: leave it None,
-            the default, which serves every analysis that ae.list_analyses()
-            lists, as agent-eda-mcp does. Tests pass the analysis functions to
-            serve, such as [ae.summarize_numeric] or a stand-in the test
-            defines. An unregistered function is read the way the registry
-            reads an analysis (data first, options by keyword, a docstring
-            and an AnalysisResult subclass as the return type) and is called
-            as it is, without the registry's checks. The discovery MCP tools
-            and the instructions still cover every registered analysis, so
-            they name MCP tools an MCP server built with a subset doesn't have.
-            Serving a subset or an unregistered function is unsupported
-            outside tests.
         project: The MCP server's Project, such as
             ae.Project.load('project.toml'), which agent-eda-mcp --project
             loads. Every call of an MCP tool that has project_path uses it. A
@@ -106,6 +93,24 @@ def create_server(
         TypeError: An analysis can't be an MCP tool, such as one with a
             parameter whose type has no JSON Schema. The message names the
             analysis and the parameter.
+    """
+    return _create_server(project=project)
+
+
+def _create_server(
+    *,
+    analyses: "Sequence[Callable[..., AnalysisResult]] | None" = None,
+    project: Project | None = None,
+) -> "Server":
+    """create_server, with the test hook that serves other analyses.
+
+    `analyses` are the analysis functions to serve in place of every registered
+    one, such as [ae.summarize_numeric] or a stand-in a test defines. An
+    unregistered function is read the way the registry reads an analysis (data
+    first, options by keyword, a docstring and an AnalysisResult subclass as the
+    return type) and is called as it is, without the registry's checks. The
+    discovery MCP tools and the instructions still cover every registered
+    analysis. Only tests use it.
     """
     _require_extra()
     from agent_eda._mcp_server import create_server as create

@@ -16,7 +16,7 @@ It is written for three kinds of callers:
 - **Results you can read and parse**: `print(res)` gives at most 40 lines of text, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package from inside Python.
-- **Helpful errors**: a misspelled column name raises an error that lists the available columns and the closest match.
+- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix that works: a misspelled column or keyword lists the available names and the closest match, and a file path passed as data says to read it with `pd.read_csv` or `pd.read_parquet`.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses, in everything a result shows.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that call MCP tools instead of writing Python.
 - **Safe from threads**: concurrent calls from several threads are safe, and each result keeps its own limitations.
@@ -182,13 +182,15 @@ A mistake in a call, such as a misspelled column or an unknown option, raises a 
 
 Every analysis decides which values are equal the same way, as pandas does, so `1`, `1.0` and `True` are one value. Text that holds a NUL character (`"\x00"`) stays apart from text that is equal up to it, as Python's `==` has it. Values pandas can't hash, such as lists, are the one place analyses differ, each as its docstring says: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
-Every analysis reads a column by what its dtype holds, whether NumPy, pandas' nullable or pyarrow-backed. A pyarrow dictionary column, which Parquet gives for a categorical when read with `dtype_backend="pyarrow"`, is a categorical like pandas' own: its entries are the categories, unused ones included. A sparse column of numbers or booleans is read as numbers or booleans. Three kinds have no analysis yet and count as "other": pyarrow time-of-day and binary columns, nested pyarrow types, and sparse columns of text, objects, datetimes or durations. The default selection of an analysis leaves them out and `compute_association_matrix` skips them with the reason `unsupported_dtype`, and naming one raises `ColumnTypeError` that shows its dtype. `describe_dataset` describes every column whatever its dtype.
+A pyarrow dictionary column, such as Parquet gives for a categorical with `dtype_backend="pyarrow"`, is a categorical like pandas' own. Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, count as "other": the defaults leave them out, `compute_association_matrix` skips them as `unsupported_dtype`, and naming one raises `ColumnTypeError`.
+
+Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record), and an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, printed text and `to_frame()` tables whatever `PYTHONHASHSEED` is; `to_frame()` keeps a set as the object it is, so write such a table with its own cells in mind, since pandas' `to_csv()` would list a set in hash order. A test runs every analysis in two processes with different hash seeds and compares them.
 
 Concurrent calls from several threads are safe. An analysis captures the warnings it raises under one lock, so captures run one at a time, each result gets only its own `numerical_warning` limitation, and the caller's warning filters and `warnings.showwarning` stay as they were.
 
 ## Projects and masking
 
-Five analyses can show raw values, such as the labels `summarize_categorical` counts or the row IDs `find_duplicate_rows` lists: `validate_column_types`, `detect_missing_sentinels`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
+Six analyses can show raw values, such as the labels `summarize_categorical` counts, the row IDs `find_duplicate_rows` lists or the sentinel values you declare to `profile_missing_values`: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
 
 A `Project` holds settings that stay the same across calls. Its data policy names the sensitive columns, and masking replaces their values with numbered placeholders. Counts and shares stay:
 
@@ -217,7 +219,9 @@ How masking is decided:
 - `mask_sensitive=True` in the data policy switches it on for every call that gets the project.
 - `mask_sensitive=True` or `False` in a call overrides the project for that call.
 - It covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
-- It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` when the index holds sensitive values.
+- It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` when the index holds sensitive values. The other analyses, such as `summarize_numeric`, don't read a project.
+- A sensitive column matches by its exact name. When a name misses a column only by case or Unicode form, such as `'Email'` for `'email'`, nothing is masked for it, and the printed masking text and `masking.near_miss_columns` say "did you mean 'email'?" instead of claiming that no sensitive value is shown.
+- With masking on, no error message quotes a value of a sensitive column, such as an expected label or a declared sentinel value. A message that lists unknown column names names at most 3, each cut to 40 characters, and an option that ends in `column` or `columns` refuses a Series, an Index or an array of a column's values, without showing them, and shows the fix.
 
 Save the project once and load it in every later script, which helps an agent that runs each script in a new process:
 
@@ -230,6 +234,7 @@ project = ae.Project.load("project.toml")
 
 ```toml
 # An agent-eda Project. Load it with ae.Project.load(path).
+format_version = 1
 name = "churn"
 
 [data_policy]
@@ -238,6 +243,8 @@ sensitive_columns = [
 ]
 mask_sensitive = true
 ```
+
+`format_version` is the layout of the file. A file without it loads as version 1, and a file from a newer agent-eda raises an `invalid_project_file` error that names its version. `project.save` writes through a temporary file and a rename, so an interrupted save leaves the file that was there. A new file is readable by its owner only, and a replaced file keeps its permissions. It refuses a target that isn't a regular file, such as a named pipe, and a project bigger than the 1 MiB that `Project.load` reads. `Project.load` raises `invalid_project_file` when the file isn't a regular file, holds more than 1 MiB, can't be read (for example without permission) or has a newer `format_version`, as well as for invalid TOML and missing or wrong keys.
 
 Masking is a guardrail against accidental exposure, not anonymization or access control. The package runs in the agent's own Python process, so an agent that can call it can also read the data directly. [ADR 0001](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0001-data-policy-is-a-guardrail.md) records why.
 
@@ -289,10 +296,13 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
   - A column is read as numbers or booleans (`true` or `false`, in any case) only when every non-empty field parses as one. Otherwise it stays text. `inf` and `-inf` read as numbers.
   - A whole number written with a leading zero, such as the postal code `01234` or the ID `007`, is a code, so its column stays text and `find_candidate_keys` tells `"007"` and `"7"` apart. `-5`, `0`, `0.5` and `10` stay numbers.
   - Blank lines are skipped, except in a file with one column, where each is a row with a missing value.
+  - A quoted empty field (`""`) is an empty string, not a missing value, and its column stays text. This is how a CSV that `table_path` writes keeps the two apart.
+  - A file with one column whose name holds a `;` gives `unreadable_data_file`, with a hint that the file looks semicolon-separated. The MCP server reads commas (tabs for a TSV). Rename the column in the file if the name is real.
   - A row may end in an empty field, as in `A1,Oslo,10,`. A row with any other field past the header's gives `unreadable_data_file` and names the line.
   - A repeated header name stays repeated. `describe_dataset` reports it, and every other analysis asks you to rename the repeated columns in the file.
 - Parquet files keep the dtypes and the index that pandas stored in them. A file written without pandas metadata, such as by Spark or DuckDB, gets pandas' default dtypes for its Parquet types (an integer column with nulls becomes float) and a 0-based index.
-- A relative path resolves against the MCP server's working directory, the directory the MCP client starts it in. Pass absolute paths if you don't know which directory that is.
+- A relative path resolves against the MCP server's working directory, the directory the MCP client starts it in. Pass absolute paths if you don't know which directory that is. A leading `~` is the home directory, in `data_path`, `table_path` and `project_path` alike.
+- A path the operating system refuses comes back as an MCP tool error that names the cause, never as an internal error: a name over 255 characters, a directory the MCP server may not search, a symbolic link loop, a NUL character, a file without read permission, or a path that isn't a regular file (a named pipe or a device). A Parquet file with two columns of one name, or with pandas metadata that doesn't match its columns, gives `unreadable_data_file`.
 - The MCP server reads only local files. It reads a URL such as `s3://bucket/data.csv` as a relative file path, so the call fails with `data_file_not_found`.
 - A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names in its directory.
 - Row IDs in a result are 0-based data-row numbers for a CSV or TSV file, and follow the stored index for a Parquet file. `id_column` names rows by a column's values instead.
@@ -312,13 +322,16 @@ A call returns the printed result as text and the whole `to_dict()` record as st
 
 To get past the caps, pass `table_path`. The MCP server writes the result's main table, the one `res.to_frame()` gives in Python without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
-- `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. The directory must exist already.
+- `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. A symbolic link at the path, dangling or not, gives the same error, and nothing is written through it. The directory must exist already.
+- The directory must also be one the MCP server may write in. A read-only volume, a missing permission and a path the operating system refuses give `invalid_argument` before the analysis runs, where the MCP server can tell. A write that fails partway, such as on a full disk, removes its partial file, so the same call can run again.
+- In a CSV, a missing value is an empty field and an empty string is the quoted field `""`, which the MCP server reads back as an empty string. Parquet keeps the two apart as it keeps every dtype.
+- The line at the end of the text keeps to 120 characters: when the path doesn't fit, it takes a line of its own, and a path too long even for that is left to `table_file.path`. The result's own text gives up a line when it has 40, so the whole text keeps to 40.
 - A cell that holds a list or a mapping, such as the columns of a candidate key from `find_candidate_keys`, is written as JSON text. In Parquet, a column whose values mix types, such as numbers and text, is written as text, as in the CSV.
 - An analysis with several tables writes only its main one. `compute_association_matrix` writes its pairs, for example, and its wide matrix stays a Python-only table.
 
 ### Masking over MCP
 
-The five MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes.
+The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as the minimum `summarize_numeric` reports for a sensitive column, or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error, which is a bug in agent-eda, names only the exception's type, since its message could quote a value; the server's log on stderr keeps the traceback.
 
 Masking over MCP is the same guardrail as in Python: it guards against accidental exposure and is not anonymization or access control. The MCP server enforces nothing, since whoever can call it can usually read the data file directly.
 
@@ -396,7 +409,7 @@ Do the columns hold the logical types I declared?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces the invalid values of sensitive columns, and row IDs taken from a sensitive id_column, with numbered placeholders, '<masked 1>' and so on, equal values alike, and needs a project that declares sensitive columns; False shows them as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `columns` (`column`, `declared_logical_type`, `nullable`, `datetime_format`, `present`, `dtype`, `compatible_count`, `convertible_count`, `invalid_count`, `missing_count`, `invalid_row_ids`, `invalid_distinct_count`, `invalid_values`, `assessment`), `undeclared_columns`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `declared_logical_type`, `nullable`, `datetime_format`, `present`, `dtype`, `compatible_count`, `convertible_count`, `invalid_count`, `missing_count`, `invalid_row_ids`, `invalid_distinct_count`, `invalid_values`, `assessment`), `undeclared_columns`
 
 - `invalid_values` (violation): columns that hold invalid values.
 - `declared_columns_missing` (violation): declared columns the data doesn't have, each with the closest names.
@@ -409,7 +422,7 @@ Do the columns hold the logical types I declared?
 
 #### `profile_missing_values`
 
-`ae.profile_missing_values(data, *, columns=None, sentinel_values=None) -> ProfileMissingValuesResult`
+`ae.profile_missing_values(data, *, columns=None, sentinel_values=None, project=None, mask_sensitive=None) -> ProfileMissingValuesResult`
 
 How much data is missing, and where?
 
@@ -417,8 +430,10 @@ How much data is missing, and where?
 | --- | --- | --- | --- |
 | `columns` | `Sequence[str] \| None` | `None` | Names of the columns to profile, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
 | `sentinel_values` | `Mapping[str, Sequence[bool \| int \| float \| str \| datetime \| date \| timedelta]] \| None` | `None` | The sentinel values to count as missing, by column name, such as {'age': [-999], 'city': ['N/A', '']}: one value or a list of values per column, each a bool, int, float, str, datetime (pd.Timestamp too), date or timedelta (pd.Timedelta too). |
+| `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
+| `mask_sensitive` | `bool \| None` | `None` | True replaces each declared sentinel value of a sensitive column, in parameters and in the columns table, with a numbered placeholder, '<masked 1>' for the first value declared and so on, and needs a project that declares sensitive columns; False shows the values as declared. |
 
-**Fields:** `columns` (`column`, `status`, `status_reason`, `native_missing_count`, `sentinel_count`, `missing_count`, `missing_share`, `sentinel_values`), `missing_count`, `missing_share`, `complete_row_count`, `complete_row_share`, `row_distribution` (`missing_count`, `row_count`, `row_share`)
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `native_missing_count`, `sentinel_count`, `missing_count`, `missing_share`, `sentinel_values`), `missing_count`, `missing_share`, `complete_row_count`, `complete_row_share`, `row_distribution` (`missing_count`, `row_count`, `row_share`)
 
 - `all_missing_columns` (suspected): every value of a column is missing or a declared sentinel value.
 - `sentinel_values_present` (descriptive): declared sentinel values occur in a column, where they count as missing.
@@ -439,7 +454,7 @@ Which values look like stand-ins for missing data?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each value of a sensitive column that the result shows, its candidate values, its declared values in parameters and its values as row IDs when it is id_column, with a numbered placeholder, '<masked 1>' for the first value in result order and so on, equal values alike, and needs a project that declares sensitive columns; False shows the values as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `candidates` (`column`, `value`, `value_type`, `count`, `share`, `evidence`, `confirmation`, `row_ids`), `columns_without_rules`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `candidates` (`column`, `value`, `value_type`, `count`, `share`, `evidence`, `confirmation`, `row_ids`), `columns_without_rules`
 
 - `sentinel_values_present` (descriptive): declared sentinel values occur in a column.
 - `suspected_sentinel_values` (suspected): the built-in rules found values that may stand in for missing ones, which stay valid values until you declare them.
@@ -479,7 +494,7 @@ Which values occur in each categorical column, and how often?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each level of a sensitive column with a numbered placeholder, '<masked 1>' for the most common and so on in level order, and needs a project that declares sensitive columns; False shows the levels as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `cardinality`, `levels`, `most_common_levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`, `share_denominator`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `cardinality`, `levels`, `most_common_levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`, `share_denominator`, `level_order`
 
 - `case_or_space_variants` (suspected): a column holds labels that differ only by case or surrounding spaces, such as 'Yes' and 'yes '.
 - `mixed_value_types` (suspected): a column holds values of more than one Python type, such as 1 and '1'.
@@ -500,7 +515,7 @@ Are there exact duplicate rows?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each row ID taken from a sensitive id_column with a numbered placeholder, '<masked 1>' for the first ID the result shows and so on, equal IDs alike, and needs a project that declares sensitive columns; False shows the IDs as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `compared_columns`, `missing_values_compare_equal`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `compared_columns`, `missing_values_compare_equal`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
 
 - `duplicate_rows` (suspected): two or more rows are equal in every compared column.
 - `no_duplicate_rows` (descriptive): no two rows are equal in every compared column.
@@ -543,7 +558,7 @@ What does the target look like for this task?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces the labels of a sensitive target, the classes, the labels outside expected_labels and expected_labels as parameters records it, with numbered placeholders, '<masked 1>' for its first label in level order and so on, and the row IDs taken from a sensitive id_column too; it needs a project that declares sensitive columns. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`, `level_order`
 
 - `single_class` (violation): every valid label is the same class, so a classifier has nothing to tell apart.
 - `more_than_two_classes` (violation): a binary_classification target has more than two classes.
@@ -697,14 +712,15 @@ Exceptions that agent-eda raises when a call is wrong.
 | --- | --- | --- |
 | `invalid_argument` | `InvalidArgumentError` | An argument has the wrong type or value, such as a number outside its range, an unknown choice, a list that repeats a value, or a declared sentinel value that can never match its column. |
 | `invalid_call` | `InvalidArgumentError` | The call itself is malformed, such as an option passed by position, an unknown keyword or a missing DataFrame. |
-| `unsupported_data_type` | `InvalidArgumentError` | Data isn't a pandas DataFrame. |
+| `unsupported_data_type` | `InvalidArgumentError` | Data isn't a pandas DataFrame, such as a file path, a pyarrow Table or None. |
 | `ambiguous_column_labels` | `InvalidArgumentError` | The data's column labels repeat, share a string form or form a MultiIndex, so a name can't pick out one column. |
 | `column_not_found` | `ColumnNotFoundError` | A column name isn't in the data. |
 | `unsupported_column_type` | `ColumnTypeError` | A named column has a dtype the analysis can't use, or an id_column holds values that can't be hashed, such as lists. |
 | `unknown_analysis` | `UnknownAnalysisError` | describe_analysis got a name that isn't an analysis. |
-| `invalid_project_file` | `ProjectFileError` | Project.load got a file that isn't UTF-8 TOML, and the message gives the line at fault, that lacks the [data_policy] table or one of its keys, or that holds a value a Project can't take. |
+| `invalid_project_file` | `ProjectFileError` | Project.load got a file that isn't UTF-8 TOML, and the message gives the line at fault, that lacks the [data_policy] table or one of its keys, or that holds a value a Project can't take, that isn't a regular file, that holds more than 1 MiB, that the operating system refuses to read, or that has a newer format_version than this agent-eda reads. |
 | `unknown_project_key` | `ProjectFileError` | Project.load got a file with a key that is neither a field of the Project nor one of its data policy, such as a misspelling. |
 | `project_file_not_found` | `ProjectFileNotFoundError` | Project.load found no file at the path. |
+| `result_table_unavailable` | `ResultTableUnavailableError` | to_frame() was called on a result that was rebuilt from its record, such as by model_validate(res.model_dump()), which doesn't hold the tables that only a call of the analysis keeps. |
 | `project_file_exists` | `ProjectFileExistsError` | project.save found a file at the path and overwrite was False. |
 | `missing_dependency` | `MissingDependencyError` | A feature needs an optional extra that isn't installed, such as the MCP server without the mcp extra. |
 | `unsupported_data_format` | `UnsupportedDataFormatError` | An MCP tool got a data path whose extension it can't read. |

@@ -20,7 +20,7 @@ import datetime as dt
 import json
 import math
 import numbers
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal, TypeGuard, cast
@@ -255,14 +255,21 @@ def declared_values(
     data: pd.DataFrame,
     selected: Sequence[Column],
     sentinel_values: Mapping[str, Sequence[SentinelValue]] | None,
+    *,
+    hidden: Collection[str] = (),
+    id_column: str | None = None,
 ) -> dict[str, list[SentinelValue]]:
     """The declared values of each selected column, checked against the data.
+
+    The messages never quote the values declared for the `hidden` columns, the
+    sensitive columns of a masking call.
 
     A column with an empty list has none declared, as one the mapping leaves
     out. Raises before any computation: ColumnNotFoundError for a name that
     isn't a column, and InvalidArgumentError for a column the call leaves out,
     a value listed twice for one column, or a value that can never match its
-    column.
+    column. `id_column` is the column that identifies rows when the call names
+    no columns, which then leaves it out; otherwise None.
     """
     if not sentinel_values:
         return {}
@@ -272,7 +279,7 @@ def declared_values(
     by_name = {column.name: column for column in selected}
     left_out = [name for name in names if name not in by_name]
     if left_out:
-        raise InvalidArgumentError(_left_out_message(analysis, left_out))
+        raise InvalidArgumentError(_left_out_message(analysis, left_out, id_column))
     problems: list[_Problem] = []
     declared: dict[str, list[SentinelValue]] = {}
     for name, values in sentinel_values.items():
@@ -286,6 +293,7 @@ def declared_values(
             values,
             "value",
             key=lambda value: (family(value), value),
+            hide=name in hidden,
         )
         column_holds = holds(data.iloc[:, column.position])
         problems.extend(
@@ -296,13 +304,23 @@ def declared_values(
         if values:
             declared[name] = values
     if problems:
+        hidden_columns = set(hidden)
         raise worded(
-            InvalidArgumentError, lambda surface: _message(analysis, problems, surface)
+            InvalidArgumentError,
+            lambda surface: _message(analysis, problems, hidden_columns, surface),
         )
     return declared
 
 
-def _left_out_message(analysis: str, names: list[str]) -> str:
+def _left_out_message(analysis: str, names: list[str], id_column: str | None) -> str:
+    if names == [id_column]:
+        # Without columns, the id_column is the one column the default leaves out.
+        return (
+            f"{analysis} got sentinel values for {id_column!r}, but leaving the "
+            f"columns argument out leaves out the id_column, which identifies "
+            f"rows. Name it in columns to check it, or leave it out of "
+            "sentinel_values."
+        )
     if len(names) == 1:
         return (
             f"{analysis} got sentinel values for {names[0]!r}, which columns leaves "
@@ -573,58 +591,74 @@ def _is_sentinel_value(value: object) -> TypeGuard[SentinelValue]:
     return isinstance(value, bool | int | float | str | dt.date | dt.timedelta)
 
 
-def _message(analysis: str, problems: list[_Problem], surface: Surface) -> str:
-    """Say which declared values can't be used, why, and how to fix the call."""
+def _message(
+    analysis: str, problems: list[_Problem], hidden: set[str], surface: Surface
+) -> str:
+    """Say which declared values can't be used, why, and how to fix the call.
+
+    The values declared for a hidden column are never quoted, nor the values
+    guessed from them.
+    """
     if len(problems) == 1:
         [problem] = problems
-        value = literal(problem.value, surface)
+        masked = problem.column in hidden
+        value = "a value" if masked else literal(problem.value, surface)
+        it = "it" if masked else value
         head = (
             f"{analysis} got {value} for column {problem.column!r} in sentinel_values"
         )
         if problem.problem == "missing":
-            why = f"{value} is a missing value itself, not a stand-in for one."
+            why = f"{it} is a missing value itself, not a stand-in for one."
         elif problem.problem == "infinite":
-            why = f"{value} is an infinite value, not a stand-in for a missing one."
+            why = f"{it} is an infinite value, not a stand-in for a missing one."
         else:
             why = (
                 f"{problem.column!r} holds {problem.holds} (dtype {problem.dtype}), "
                 "so it can never match."
             )
-            if problem.likely is not None:
+            if problem.likely is not None and not masked:
                 why += f" Did you mean {literal(problem.likely, surface)}?"
-        return f"{head}, but {why} {_closing(problems, surface)}"
-    fragments = [_fragment(problem, surface) for problem in problems[:_MAX_LISTED]]
+        return f"{head}, but {why} {_closing(problems, hidden, surface)}"
+    fragments = [
+        _fragment(problem, hidden, surface) for problem in problems[:_MAX_LISTED]
+    ]
     if len(problems) > _MAX_LISTED:
         fragments.append(f"and {len(problems) - _MAX_LISTED:,} more")
     return (
         f"{analysis} can't use {len(problems):,} values in sentinel_values: "
-        f"{'; '.join(fragments)}. {_closing(problems, surface)}"
+        f"{'; '.join(fragments)}. {_closing(problems, hidden, surface)}"
     )
 
 
-def _fragment(problem: _Problem, surface: Surface) -> str:
+def _fragment(problem: _Problem, hidden: set[str], surface: Surface) -> str:
     """A value the call can't use and why, as one item of a list."""
-    named = f"{literal(problem.value, surface)} for {problem.column!r}"
+    masked = problem.column in hidden
+    shown = "a value" if masked else literal(problem.value, surface)
+    named = f"{shown} for {problem.column!r}"
     if problem.problem == "missing":
         return f"{named}, a missing value itself"
     if problem.problem == "infinite":
         return f"{named}, an infinite value"
     likely = (
         f"; did you mean {literal(problem.likely, surface)}?"
-        if problem.likely is not None
+        if problem.likely is not None and not masked
         else ""
     )
     return f"{named}, which holds {problem.holds} (dtype {problem.dtype}{likely})"
 
 
-def _closing(problems: list[_Problem], surface: Surface) -> str:
+def _closing(problems: list[_Problem], hidden: set[str], surface: Surface) -> str:
     """How to fix each kind of problem, in a fixed order."""
     kinds = {problem.problem for problem in problems}
     sentences = []
     if "type" in kinds:
         sentence = "Declare each value as the type its column holds"
         [first] = problems if len(problems) == 1 else [None]
-        if first is not None and first.likely is not None:
+        if (
+            first is not None
+            and first.likely is not None
+            and first.column not in hidden
+        ):
             likely = literal(first.likely, surface)
             sentence += (
                 f', such as {{"sentinel_values": {{{json.dumps(first.column)}: '

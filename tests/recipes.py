@@ -337,6 +337,23 @@ def sentinels_of_sensitive_columns(
 
 
 @st.composite
+def declared_values_of_sensitive_columns(
+    draw: st.DrawFn, data: pd.DataFrame, sensitive: list[str]
+) -> Arguments:
+    """Arguments that make profile_missing_values show sensitive values: every
+    column selected, and some of each sensitive column's own values declared."""
+    labels = {str(label): label for label in data.columns}
+    declared = {
+        name: draw(
+            st.lists(st.sampled_from(values), min_size=1, max_size=3, unique=True)
+        )
+        for name in sensitive
+        if (values := sentinel_candidates(data[labels[name]]))
+    }
+    return {"columns": None, "sentinel_values": declared or None}
+
+
+@st.composite
 def masking_arguments(draw: st.DrawFn, data: pd.DataFrame) -> Arguments:
     """project= and mask_sensitive= in any valid combination, or left out.
 
@@ -541,12 +558,17 @@ RECIPES: dict[str, Recipe] = {
                 id_column=column_names(hashable_names(data)),
             )
         ),
-        # Row IDs from a sensitive id_column.
-        sensitive_options=lambda data, sensitive: optional(
-            id_column=st.sampled_from(sensitive)
+        # Every column compared, so the rows that frames_with_secrets repeats
+        # always form groups, and row IDs from a sensitive id_column.
+        sensitive_options=lambda data, sensitive: st.fixed_dictionaries(
+            {"columns": st.none(), "id_column": st.sampled_from(sensitive)}
         ),
     ),
-    "profile_missing_values": Recipe(options=missing_value_arguments),
+    "profile_missing_values": Recipe(
+        options=with_masking(missing_value_arguments),
+        # Declared values among the sensitive columns' own values.
+        sensitive_options=declared_values_of_sensitive_columns,
+    ),
     "profile_target": Recipe(
         required=first_label_target,
         options=with_masking(target_arguments),

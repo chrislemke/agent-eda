@@ -36,7 +36,14 @@ from agent_eda._registry import (
     validate_json,
 )
 from agent_eda._sentinels import read_iso
-from agent_eda._table_files import RECORD_KEY, RECORD_SCHEMA, TableFile, table_file
+from agent_eda._table_files import (
+    RECORD_KEY,
+    RECORD_SCHEMA,
+    TableFile,
+    WrittenTable,
+    table_file,
+)
+from agent_eda._text import closest_names, join_alternatives
 from agent_eda._version import __version__
 from agent_eda._wording import message as worded_message
 from agent_eda._wording import see_every
@@ -50,7 +57,8 @@ _log = logging.getLogger("agent_eda.mcp")
 _DATA_PATH = {
     "type": "string",
     "description": "Path to the CSV, TSV or Parquet file that holds the data, "
-    "absolute or relative to the MCP server's working directory. The extension "
+    "absolute or relative to the MCP server's working directory; a leading ~ is "
+    "the home directory. The extension "
     f"names the format: {supported_extensions()}, in any case. In a CSV or TSV "
     "only an empty field counts as missing, so values such as 'N/A' or -999 "
     "reach the analysis as values, and row IDs in the result are 0-based "
@@ -65,7 +73,8 @@ _PROJECT_PATH = {
     "anyOf": [{"type": "string"}, {"type": "null"}],
     "default": None,
     "description": "Path to a project TOML file, absolute or relative to the MCP "
-    "server's working directory, whose data policy names the sensitive columns "
+    "server's working directory (a leading ~ is the home directory), whose data "
+    "policy names the sensitive columns "
     "and says whether to mask them. The file has a [data_policy] table with "
     'sensitive_columns = ["email"] and mask_sensitive = true or false, and an '
     "optional top-level name. null, the default, uses the project the MCP "
@@ -83,17 +92,22 @@ _TABLE_PATH = {
     "compute_association_matrix's matrix, are for Python callers. The extension "
     "names the format: .csv "
     "for CSV, or .parquet or .pq for Parquet, in any case. The path is absolute "
-    "or relative to the MCP server's working directory, and its directory must "
-    "exist. The MCP server never overwrites: a path where a file already exists "
-    "is an error, raised before the analysis runs. The text of the response then "
-    "ends with the line 'Full table written to <absolute path> (<n> rows).', and "
+    "or relative to the MCP server's working directory (a leading ~ is the home "
+    "directory), and its directory must exist and be one the MCP server may "
+    "write in. The MCP server never overwrites and never writes through a "
+    "symbolic link: a path where a file or a link already exists is an error, "
+    "raised before the analysis runs, like a directory it may not write in. A "
+    "write that fails partway leaves no file. The text of the response then "
+    "ends with the line 'Full table written to <absolute path> (<n> rows).' (the "
+    "path on a line of its own when the line would pass 120 characters), and "
     "the structured content gains table_file with the same path and row_count. "
     "The index "
     "becomes the first column only when it is more than the row numbers 0, 1, 2, "
     "... A cell that holds a list or a mapping, such as row IDs, is written as "
     "JSON text, and in Parquet a column whose values mix types, such as numbers "
-    "and text, is written as text, as in the CSV. null, the default, writes no "
-    "file.",
+    "and text, is written as text, as in the CSV. In a CSV a missing value is an "
+    'empty field and an empty string is the quoted field "", which the MCP '
+    "server reads back as an empty string. null, the default, writes no file.",
 }
 
 # Follows the docstring's mask_sensitive text, which speaks of the project
@@ -253,7 +267,7 @@ def create_server(
         if served is None:
             raise MCPError(
                 code=types.INVALID_PARAMS,
-                message=f"There is no MCP tool named {params.name!r}.",
+                message=_unknown_tool(params.name, [*discovery, *tools]),
             )
         arguments = dict(params.arguments or {})
         try:
@@ -266,11 +280,16 @@ def create_server(
             # A bug. Without this, the SDK answers a client that did the
             # initialize handshake with error code 0, not an internal error.
             _log.exception("%s failed with an unexpected error", params.name)
+            # The message of a bug can quote a value of the data, so with
+            # masking on only the exception's type reaches the caller.
+            reason = type(error).__name__
+            if not _masking_on(served, project, arguments):
+                reason = f"{reason}: {error}"
             raise MCPError(
                 code=types.INTERNAL_ERROR,
                 message=f"{params.name} failed with an unexpected error, which is "
-                f"a bug in agent-eda, not in the call: {type(error).__name__}: "
-                f"{error}. The MCP server's log on stderr has the traceback.",
+                f"a bug in agent-eda, not in the call: {reason}. The MCP server's "
+                "log on stderr has the traceback.",
             ) from error
 
     return Server(
@@ -280,6 +299,47 @@ def create_server(
         on_list_tools=list_tools,
         on_call_tool=call_tool,
     )
+
+
+# The Python functions that have no MCP tool.
+_PYTHON_ONLY = ("guide", "describe_analysis")
+
+
+def _unknown_tool(name: str, names: list[str]) -> str:
+    """Say that no MCP tool has this name, naming the closest and every MCP tool."""
+    parts = [f"There is no MCP tool named {name!r}."]
+    close = closest_names(name, names)
+    if close:
+        parts.append(f"Did you mean {join_alternatives([repr(n) for n in close])}?")
+    if name in _PYTHON_ONLY:
+        parts.append(
+            f"{name} is a Python function, not an MCP tool: the MCP server's "
+            "instructions hold the guide, and each MCP tool's description and "
+            "input schema hold what describe_analysis says."
+        )
+    parts.append(f"MCP tools: {', '.join(names)}.")
+    return " ".join(parts)
+
+
+def _masking_on(
+    served: _AnalysisTool | _DiscoveryTool,
+    project: Project | None,
+    arguments: dict[str, Any],
+) -> bool:
+    """Whether the call that failed was masking, or may have been.
+
+    `arguments` are what the call left of them: it pops project_path and puts
+    the project it used under "project". A project that was never loaded counts
+    as masking, so a bug before that point can't show a value either.
+    """
+    if not isinstance(served, _AnalysisTool) or not served.spec.supports_masking:
+        return False
+    if (call := arguments.get("mask_sensitive")) is not None:
+        return call is not False
+    if "project_path" in arguments:
+        return True
+    used = arguments.get("project", project)
+    return used is not None and used.data_policy.mask_sensitive
 
 
 def _call(
@@ -308,11 +368,17 @@ def _call(
     table = None if table_path is None else table_file(served.spec.name, table_path)
     takes_project = "project_path" in served.tool.input_schema["properties"]
     if takes_project:
-        project_path = arguments.pop("project_path", None)
+        # project_path stays in `arguments` until the project is loaded, and the
+        # project replaces it at once, so _masking_on sees the call's masking
+        # whichever step fails.
+        project_path = arguments.get("project_path")
         if project_path is not None:
             project = _load_project(served.spec.name, project_path)
+        arguments.pop("project_path", None)
+        arguments["project"] = project
     data = reader.read(arguments.pop("data_path"))
-    options = validate_json(served.spec, arguments)
+    given = {name: value for name, value in arguments.items() if name != "project"}
+    options = validate_json(served.spec, data, given)
     if options.get("sentinel_values") is not None:
         options["sentinel_values"] = read_iso(data, options["sentinel_values"])
     if takes_project:
@@ -525,11 +591,15 @@ def _response(
     the same facts, since some clients show the model only the structured
     content.
     """
-    text = result._render("mcp")
     record = result.to_dict()
-    if table is not None:
-        written = table.write(result.to_frame())
-        text = f"{text}\n{written.line()}"
+    if table is None:
+        text = result._render("mcp")
+    else:
+        frame = result.to_frame()
+        # The lines the text gains count toward its 40, so the result leaves room.
+        lines = WrittenTable(table.path, len(frame)).lines()
+        text = "\n".join([result._render("mcp", reserve=len(lines)), *lines])
+        written = table.write(frame)
         record[RECORD_KEY] = written.record()
     return types.CallToolResult(
         content=[types.TextContent(text=text)],

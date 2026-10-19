@@ -50,7 +50,7 @@ def test_a_limit_below_1_raises_with_the_valid_range(argument):
         ae.find_candidate_keys(orders(), **options)
 
     assert str(caught.value) == (
-        f"find_candidate_keys got 0 for {argument}, but {argument} must be int with "
+        f"find_candidate_keys got 0 for {argument}, but {argument} must be an integer with "
         f"1 <= {argument}. See help(ae.find_candidate_keys) for every argument."
     )
 

@@ -11,29 +11,37 @@ values are only text, booleans and lists of text, which it writes itself.
 read() requires the [data_policy] table and each of its keys, so that a file
 cut short, such as by a full disk, raises instead of loading with masking off;
 only `name` may be left out. A caller's mistake raises before any file
-changes: InvalidArgumentError for a path or overwrite that can't work,
+changes: InvalidArgumentError for a path or overwrite that can't work, a
+target that isn't a regular file included,
 ProjectFileNotFoundError for a missing file, ProjectFileExistsError for a file
 that save would replace unasked, and ProjectFileError for a file that isn't a
 project file, which names the line or the key at fault, or that read() can't
 read: not a regular file (a named pipe or a device would block or never end),
 refused by the operating system, such as without read permission, or larger
-than MAX_BYTES. Messages never quote
-the file's content, since a data file passed by mistake would put its values
+than MAX_BYTES. A file may
+hold `format_version`, the version of the layout it was written in: write()
+records 1, a file without the key is read as version 1, and a higher version
+raises, naming it. write() replaces a file whole, through a temporary file and
+a rename, and refuses a project that read() would refuse for its size. Messages
+never quote the file's content, since a data file passed by mistake would put its values
 in front of the agent.
 """
 
 import codecs
+import contextlib
+import errno
 import os
 import re
 import stat
 import tomllib
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from agent_eda._columns import closest_names
+from agent_eda._local_files import os_cause
 from agent_eda._registry import _value_text, python_scalar
-from agent_eda._text import Surface, join_items
+from agent_eda._text import Surface, a_or_an, closest_names, join_items
 from agent_eda._wording import message, worded
 from agent_eda.errors import (
     AgentEDAError,
@@ -46,6 +54,10 @@ from agent_eda.errors import (
 # The most a project file may hold. A name and a data policy take a few KiB;
 # a larger file is a data file passed by mistake.
 MAX_BYTES = 1024 * 1024
+
+# The layout version that write() records as `format_version`. A file without the
+# key is version 1, and read() refuses a version above this one.
+FORMAT_VERSION = 1
 
 # The first line of every project file, for whoever opens one.
 _HEADER = "# An agent-eda Project. Load it with ae.Project.load(path)."
@@ -125,10 +137,44 @@ def read(
     """
     given = _file_path("Project.load", path)
     fields = _parse(given, _read_bytes(given))
+    _check_format_version(fields, given)
     _check_keys(fields, given, keys=keys, table=table, table_keys=table_keys)
     _check_table(fields, given, table=table, table_keys=table_keys)
     _check_forms(fields, given, table=table)
     return fields
+
+
+def _check_format_version(fields: dict[str, Any], given: str) -> None:
+    """Take `format_version` out of the fields; raise unless this version reads it.
+
+    A file without the key is version 1, the first layout.
+    """
+    if "format_version" not in fields:
+        return
+    version = fields.pop("format_version")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ProjectFileError(
+            f"Project.load found {_kind(version)} for format_version at the top "
+            f"level of {given!r}, but format_version takes a positive integer, "
+            f"such as format_version = {FORMAT_VERSION}, or can be left out."
+        )
+    if version > FORMAT_VERSION:
+        raise worded(
+            ProjectFileError,
+            lambda surface: (
+                f"Project.load found format_version = {version} in {given!r}, "
+                "written by a newer agent-eda, but this agent-eda reads "
+                f"format_version {FORMAT_VERSION} and below. Upgrade agent-eda "
+                "(pip install --upgrade agent-eda), or "
+                + (
+                    "save the project again with this version, "
+                    "project.save(path, overwrite=True), from a project built in "
+                    "code."
+                    if surface == "python"
+                    else "write the file again with this version's layout."
+                )
+            ),
+        )
 
 
 def _read_bytes(given: str) -> bytes:
@@ -170,12 +216,19 @@ def _read_bytes(given: str) -> bytes:
 
 def _unreadable(given: str, error: OSError) -> str:
     """Say why the operating system refused the file, and how to fix it."""
-    reason = error.strerror or type(error).__name__
-    return (
-        f"Project.load can't read {_where(given)}: {reason}. Give the user that "
-        "runs this process read permission on the file, or pass the path of a "
-        "project file it can read."
-    )
+    if error.errno in (errno.EACCES, errno.EPERM):
+        reason = error.strerror or type(error).__name__
+        fix = (
+            "Give the user that runs this process read permission on the file, or "
+            "pass the path of a project file it can read."
+        )
+    else:
+        cause = os_cause(error)
+        reason = f"{error.strerror} ({cause})" if error.strerror else cause
+        fix = (
+            "Pass the path of a project file the user that runs this process can read."
+        )
+    return f"Project.load can't read {_where(given)}: {reason}. {fix}"
 
 
 def invalid(path: str | os.PathLike[str], error: AgentEDAError) -> ProjectFileError:
@@ -221,18 +274,84 @@ def write(path: object, fields: Mapping[str, Any], *, overwrite: object) -> Path
             f"os.makedirs({str(absolute.parent)!r}), or pass a path in an existing "
             "directory."
         )
-    content = _toml(fields).encode("utf-8")
-    try:
-        # "x" creates the file only if there is none, in one step.
-        with open(absolute, "wb" if overwrite else "xb") as file:
-            file.write(content)
-    except FileExistsError:
-        raise ProjectFileExistsError(
-            f"Project.save found a file at {_where(given)} already, and replaces a "
-            "file only when told to. Pass overwrite=True to replace it, or pass "
-            "another path."
-        ) from None
+    content = _toml({"format_version": FORMAT_VERSION, **fields}).encode("utf-8")
+    if len(content) > MAX_BYTES:
+        raise ProjectFileError(
+            f"Project.save can't write the project to {_where(given)}: it takes "
+            f"{len(content):,} bytes, but Project.load reads at most "
+            f"{MAX_BYTES // 1024 // 1024} MiB ({MAX_BYTES:,} bytes) of a project "
+            "file and would refuse it. Declare fewer sensitive columns, or build "
+            "the project in code in each script instead of saving it."
+        )
+    if not overwrite:
+        # lexists sees a dangling link too, which must not lead the new file
+        # somewhere else; the exclusive creation below refuses it as well.
+        if os.path.lexists(absolute):
+            raise _exists(given)
+        _replace(absolute, content, overwrite=False, given=given)
+        return absolute
+    # A link to a file is followed, so that the file it points to is replaced and
+    # the link stays. A dangling link is replaced itself, not written through.
+    target = Path(os.path.realpath(absolute)) if absolute.exists() else absolute
+    if target.exists() and not stat.S_ISREG(target.stat().st_mode):
+        raise InvalidArgumentError(
+            f"Project.save found {_where(given)}, but it isn't a regular file, "
+            "such as a named pipe or a device, so it can't hold a project "
+            "file, and writing to it could wait for a reader without end. Pass "
+            "the path of a regular file, such as 'project.toml'."
+        )
+    _replace(target, content, overwrite=True, given=given)
     return absolute
+
+
+def _exists(given: str) -> ProjectFileExistsError:
+    return ProjectFileExistsError(
+        f"Project.save found a file at {_where(given)} already, and replaces a "
+        "file only when told to. Pass overwrite=True to replace it, or pass "
+        "another path."
+    )
+
+
+def _replace(target: Path, content: bytes, *, overwrite: bool, given: str) -> None:
+    """Put the content at the target in one step, so that a save cut short, such
+    as by a full disk or an interrupt, leaves the file that was there.
+
+    The content goes to a temporary file in the same directory first. It is
+    readable by its owner only, since a project names sensitive columns, unless
+    a file is replaced: that file's permissions carry over. Without overwrite,
+    a hard link puts the file in place only if nothing is there, not even a
+    dangling link, so a file that appears meanwhile is never replaced.
+    """
+    mode = 0o600
+    if overwrite and target.exists():
+        mode = stat.S_IMODE(target.stat().st_mode)
+    temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        _create(temporary, content, mode)
+        if overwrite:
+            os.replace(temporary, target)
+            return
+        try:
+            os.link(temporary, target)
+        except FileExistsError:
+            raise _exists(given) from None
+        except OSError:
+            # A file system without hard links: create the file exclusively.
+            _create(target, content, mode)
+    except FileExistsError:
+        raise _exists(given) from None
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+
+
+def _create(path: Path, content: bytes, mode: int) -> None:
+    """Create a new file with exactly these permissions, whatever the umask."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    with os.fdopen(descriptor, "wb") as file:
+        file.write(content)
+        if hasattr(os, "fchmod"):
+            os.fchmod(file.fileno(), mode)
 
 
 def _file_path(owner: str, path: object) -> str:
@@ -507,12 +626,14 @@ def _toml(fields: Mapping[str, Any]) -> str:
 
 
 def _value(value: object, field: str) -> str:
-    """A value as TOML writes it: a string, a boolean or an array of them.
+    """A value as TOML writes it: a string, a boolean, an integer or an array.
 
     `field` is where the value sits, such as "data_policy.sensitive_columns[1]".
     """
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
     if isinstance(value, str):
         return _string(value, field)
     if isinstance(value, list):
@@ -522,7 +643,7 @@ def _value(value: object, field: str) -> str:
             f"    {_value(item, f'{field}[{i}]')},\n" for i, item in enumerate(value)
         )
         return "[\n" + "".join(items) + "]"
-    raise TypeError(f"a project file has no form for a {type(value).__name__}")
+    raise TypeError(f"a project file has no form for {a_or_an(type(value).__name__)}")
 
 
 def _string(text: str, field: str) -> str:
