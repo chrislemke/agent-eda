@@ -16,10 +16,9 @@ It is written for three kinds of callers:
 - **Results you can read and parse**: `print(res)` gives at most 40 lines of text, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package from inside Python.
-- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix: a misspelled column or keyword lists the available names and the closest match, and a file path passed as data says to use `pd.read_csv` or `pd.read_parquet`.
+- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix: a misspelled column or keyword lists the available names and the closest match, and a file path passed as data points to `pd.read_csv` or `pd.read_parquet`.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses, in everything a result shows.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that call MCP tools instead of writing Python.
-- **Safe from threads**: concurrent calls from several threads are safe.
 - **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, all preinstalled in AgentCore Code Interpreter.
 
 ## Installation
@@ -35,7 +34,7 @@ pip install dist/agent_eda-0.1.0-py3-none-any.whl
 
 Once it is released, `pip install agent-eda` is enough. The MCP server needs the optional `mcp` extra; see [Use over MCP](#use-over-mcp).
 
-**AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode, with no PyPI access, upload the wheel and run `pip install --no-deps <wheel>`, or, if pip is blocked, put the wheel file on `sys.path` and import from it directly. Installs don't carry over to a new session. Code Interpreter returns only printed output, so `print()` results.
+**AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode, with no PyPI access, upload the wheel and run `pip install --no-deps <wheel>`, or, if pip is blocked, put the wheel on `sys.path` and import from it. Installs don't carry over to a new session. Code Interpreter returns only printed output, so `print()` results.
 
 **AgentCore Runtime.** Add `agent-eda` to the agent's container image or code zip. AWS's example zip command uses the `manylinux2014` platform tag, which installs old numpy and pandas; use `--python-platform aarch64-manylinux_2_28` for current ones.
 
@@ -178,11 +177,11 @@ age = res.columns["age"]  # typed fields, such as age.median and age.std
 
 The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, with totals.
 
-A mistake in a call, such as a misspelled column or an unknown option, raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and a message that says what is wrong and how to fix it. Problems in the data never raise; they show up in the status, findings and limitations.
+A mistake in a call, such as a misspelled column or an unknown option, raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and a message that gives the fix. Problems in the data never raise; they show up in the status, findings and limitations.
 
-Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. Values pandas can't hash, such as lists, are the one place analyses differ, as each docstring says: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
+Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. Values pandas can't hash, such as lists, are the one place analyses differ: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
-`find_candidate_keys` leaves out float columns holding a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; floats holding only whole numbers, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as the column count.
+`find_candidate_keys` leaves out float columns holding a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as that count.
 
 `infer_column_semantics` and `validate_column_types` read text by the same rules:
 
@@ -192,9 +191,9 @@ Every analysis decides which values are equal as pandas does, so `1`, `1.0` and 
 - `identifier_like` is judged without rows that exactly repeat another row, for columns distinct in at least 90% of rows.
 - A declared type that ties with the top candidate matches.
 
-Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record), and an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, printed text and `to_frame()` tables whatever `PYTHONHASHSEED` is. `to_frame()` keeps a set as the object it is, so pandas' `to_csv()` would list it in hash order. A test compares every analysis across two processes with different hash seeds.
+Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record), and an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is. `to_frame()` keeps a set as it is, so pandas' `to_csv()` would list it in hash order. A test compares every analysis across two processes with different hash seeds.
 
-Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, one at a time, so each result gets only its own `numerical_warning` limitation and the caller's warning filters and `warnings.showwarning` stay unchanged.
+Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, so each result gets only its own `numerical_warning` limitation and the caller's warning filters and `warnings.showwarning` stay unchanged.
 
 ## Projects and masking
 
@@ -258,7 +257,7 @@ Masking is a guardrail against accidental exposure, not anonymization or access 
 
 ## Use over MCP
 
-Agents that call MCP tools instead of writing Python, such as Claude Desktop, Cursor or a Claude Code session without a shell, can reach the analyses through a local MCP server. It speaks stdio only: the MCP client starts `agent-eda-mcp` as a subprocess, and the server opens no network connection. [ADR 0006](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0006-local-mcp-server-over-stdio-data-by-path.md) records the design.
+Agents that call MCP tools instead of writing Python, such as Claude Desktop, Cursor or a Claude Code session without a shell, reach the analyses through a local MCP server. It speaks stdio only: the MCP client starts `agent-eda-mcp` as a subprocess, and the server opens no network connection. [ADR 0006](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0006-local-mcp-server-over-stdio-data-by-path.md) records the design.
 
 ### Install and register
 
@@ -268,7 +267,7 @@ The MCP server needs the optional `mcp` extra, adding the MCP Python SDK and pya
 pip install 'agent-eda[mcp]'  # or, in a uv project: uv add 'agent-eda[mcp]'
 ```
 
-Until 0.1 is on PyPI, install the built wheel with it: `pip install 'dist/agent_eda-0.1.0-py3-none-any.whl[mcp]'`. Without the extra, `agent-eda-mcp` exits with the install command on stderr.
+Until 0.1 is on PyPI, install the built wheel with it: `pip install 'dist/agent_eda-0.1.0-py3-none-any.whl[mcp]'`. Without the extra, `agent-eda-mcp` prints the install command on stderr and exits.
 
 Register it with Claude Code, without or with a project:
 
@@ -290,17 +289,17 @@ Claude Desktop, Cursor and most other MCP clients read an `mcpServers` entry fro
 }
 ```
 
-If the client doesn't start it in the environment with the extra, give the full path that `which agent-eda-mcp` prints as `command`.
+If the client doesn't start it in the environment with the extra, give the path that `which agent-eda-mcp` prints as `command`.
 
-Each analysis is an MCP tool with its name. Its description and input schema come from the docstring that `help()` shows, with each argument's type, allowed values and default. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, and `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order.
+Each analysis is an MCP tool with its name. Its description and input schema come from the docstring that `help()` shows, with each argument's type, allowed values and default. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order.
 
 ### Pass data by path
 
 An MCP tool takes `data_path`, the path to a file, where a Python caller passes the DataFrame.
 
 - The extension sets the format, in any case: `.csv`, `.tsv`, `.csv.gz`, `.tsv.gz`, `.parquet` or `.pq`. Any other extension gives the error `unsupported_data_format`.
-- The MCP server reads CSV and TSV files as UTF-8, and only an empty field counts as missing. Values such as `N/A`, `NULL` or `-999` reach the analyses as values, for `detect_missing_sentinels` to find.
-- The MCP server types each CSV or TSV column once, over the whole file, and uses no column as the index:
+- CSV and TSV files are read as UTF-8, and only an empty field counts as missing. Values such as `N/A`, `NULL` or `-999` reach the analyses as values, for `detect_missing_sentinels` to find.
+- Each CSV or TSV column is typed once, over the whole file, and no column becomes the index:
   - A column is read as numbers or booleans (`true` or `false`, in any case) only when every non-empty field parses as one, else it stays text. `inf` and `-inf` read as numbers.
   - A whole number written with a leading zero, such as the postal code `01234` or the ID `007`, is a code, so its column stays text and `find_candidate_keys` tells `"007"` and `"7"` apart. `-5`, `0`, `0.5`, `10` and a decimal such as `05.50` stay numbers.
   - Blank lines are skipped, except in a file with one column, where each is a row with a missing value.
@@ -308,16 +307,16 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
   - A file with one column whose name holds a `;` gives `unreadable_data_file`, hinting that it looks semicolon-separated. The server reads commas, or tabs for a TSV.
   - A row may end in an empty field, as in `A1,Oslo,10,`. A row with any other field past the header's gives `unreadable_data_file` and names the line.
   - A repeated header name stays repeated: `describe_dataset` reports it, and every other analysis asks you to rename the columns in the file.
-- Parquet files keep the dtypes and index that pandas stored in them. A file written without pandas metadata, such as by Spark or DuckDB, gets pandas' default dtypes for its Parquet types (an integer column with nulls becomes float) and a 0-based index.
-- A relative path resolves against the MCP server's working directory, where the MCP client starts it. Pass absolute paths if unsure. A leading `~` is the home directory, in every path argument.
-- A path the operating system refuses comes back as an MCP tool error that names the cause: a name over 255 characters, a directory the server may not search, a symbolic link loop, a NUL character, no read permission, or a path that isn't a regular file. A Parquet file with two columns of one name or bad pandas metadata gives `unreadable_data_file`.
-- The MCP server reads only local files: it reads a URL such as `s3://bucket/data.csv` as a relative path. A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names there.
+- Parquet files keep the dtypes and index pandas stored. A file written without pandas metadata, such as by Spark or DuckDB, gets pandas' default dtypes for its Parquet types (an integer column with nulls becomes float) and a 0-based index.
+- A relative path resolves against the server's working directory, where the MCP client starts it. Pass absolute paths if unsure. A leading `~` is the home directory, in every path argument.
+- A path the operating system refuses gives an MCP tool error that names the cause: a name over 255 characters, a directory the server may not search, a symbolic link loop, a NUL character, no read permission, or a path that isn't a regular file. A Parquet file with two columns of one name or bad pandas metadata gives `unreadable_data_file`.
+- The server reads only local files: it reads a URL such as `s3://bucket/data.csv` as a relative path. A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names there.
 - Row IDs in a result are 0-based data-row numbers for a CSV or TSV file, and the stored index for a Parquet file. `id_column` names rows by a column's values instead.
-- The MCP server keeps the last two files it read in memory, so several analyses of one large file read it once, and reads a file again when its modification time or size changes.
+- The MCP server keeps the last two files it read in memory, so several analyses of one large file read it once, and rereads a file when its modification time or size changes.
 
 ### Pass arguments as JSON
 
-The MCP server reads arguments as an MCP tool's input schema describes them, so a string with the `date-time`, `date` or `duration` format is ISO 8601 text.
+The server reads arguments as an MCP tool's input schema describes them, so a string with the `date-time`, `date` or `duration` format is ISO 8601 text.
 
 - `sentinel_values` takes datetimes, dates and durations as ISO 8601 text, such as `{"sentinel_values": {"born": ["1900-01-01T00:00:00"], "wait": ["PT0S"]}}`. A string is read as one when its column holds datetimes, dates or durations and no text. A string for any other column stays text.
 - A value that `detect_missing_sentinels` shows, such as `1900-01-01T00:00:00` or `P0DT0H0M0S`, can be declared exactly as shown.
@@ -325,12 +324,12 @@ The MCP server reads arguments as an MCP tool's input schema describes them, so 
 
 ### Read the response
 
-A call returns the printed result as text and the whole `to_dict()` record as structured content, equal to the Python record and with the same caps on long lists. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. Some MCP clients show the model only one of the two; Claude Code shows the structured content. A run that doesn't complete, such as `insufficient_data` from `summarize_numeric` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`. The message says what is wrong and what is allowed, as in Python, and gives the fix in MCP terms: `{"task": "regression"}` where Python shows `task='regression'`, the MCP tool's input schema where Python points to `help()`, and `project_path` where Python builds a `Project`.
+A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. Some MCP clients show the model only one of the two; Claude Code shows the structured content. A run that doesn't complete, such as `insufficient_data` from `summarize_numeric` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`. The message says what is wrong and what is allowed, as in Python, and gives the fix in MCP terms: `{"task": "regression"}` where Python shows `task='regression'`, the MCP tool's input schema where Python points to `help()`, and `project_path` where Python builds a `Project`.
 
-To get past the caps, pass `table_path`. The MCP server writes the result's main table, what `res.to_frame()` gives without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
+To get past the caps, pass `table_path`. The server writes the result's main table, what `res.to_frame()` gives without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
 - `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. A symbolic link at the path gives the same error. The directory must exist already.
-- If the server can tell the directory isn't one it may write in, the call gives `invalid_argument` before the analysis runs. A failed write removes its partial file.
+- If the server can tell it may not write in the directory, the call gives `invalid_argument` before the analysis runs. A failed write removes its partial file.
 - In a CSV, a missing value is an empty field and an empty string is the quoted field `""`. Parquet keeps them apart.
 - The line at the end of the text keeps to 120 characters: a path that doesn't fit takes its own line, and one too long for that is left to `table_file.path`.
 - A cell that holds a list or a mapping, such as the columns of a candidate key from `find_candidate_keys`, is written as JSON text. In Parquet, a column whose values mix types, such as numbers and text, is written as text, as in the CSV.
@@ -338,9 +337,9 @@ To get past the caps, pass `table_path`. The MCP server writes the result's main
 
 ### Masking over MCP
 
-The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as the minimum `summarize_numeric` reports for a sensitive column, or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error (a bug in agent-eda) names only the exception's type, since its message could quote a value; the server's log on stderr keeps the traceback.
+The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as the minimum `summarize_numeric` reports for a sensitive column, or index labels. The MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error (a bug in agent-eda) names only the exception's type, as its message could quote a value; the stderr log keeps the traceback.
 
-Masking over MCP is the same guardrail as in Python, not anonymization or access control: whoever can call the MCP server can usually read the data file directly.
+Masking over MCP is the same guardrail as in Python, not anonymization or access control: whoever can call the server can usually read the data file directly.
 
 ## Reference
 
