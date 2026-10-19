@@ -152,6 +152,8 @@ def test_the_instructions_explain_data_paths(instructions):
 
 def test_the_instructions_explain_results_and_statuses(instructions):
     text = unwrapped(instructions)
+    # "a failed write" is about table_path, not the status `failed`.
+    status_text = text.replace("a failed write", "a write that breaks")
 
     # Only the statuses some analysis can return, computed from the registry.
     reachable = {s for info in ae.list_analyses().analyses for s in info.statuses}
@@ -163,7 +165,7 @@ def test_the_instructions_explain_results_and_statuses(instructions):
         "budget_exceeded",
     }
     for status in typing.get_args(Status):
-        assert (status in text) == (status in reachable), status
+        assert (status in status_text) == (status in reachable), status
     for assessment in ["descriptive", "suspected", "violation", "passed", "unknown"]:
         assert assessment in text
     # The text is the printed result, the structured content the record, and
@@ -174,6 +176,25 @@ def test_the_instructions_explain_results_and_statuses(instructions):
     assert "never overwrites" in text
     assert "table_file_exists" in text
     assert "isError" in text
+
+
+def test_the_instructions_hold_the_rules_the_path_descriptions_leave_out(instructions):
+    # data_path, table_path and project_path say one sentence each in the MCP
+    # tools' input schemas; their rules sit here, once.
+    text = unwrapped(instructions)
+
+    for rule in (
+        "a leading ~ is the home directory",
+        "in a directory that exists and is writable",
+        "the main table in full (not an analysis's other tables)",
+        "Full table written to <path> (<n> rows).",
+        "row_count",
+        "never overwrites or writes through a symbolic link",
+        "a failed write leaves no file",
+        "optional top-level name",
+        "[data_policy] table",
+    ):
+        assert rule in text, rule
 
 
 def test_the_instructions_promise_no_part_of_the_response_over_the_other(

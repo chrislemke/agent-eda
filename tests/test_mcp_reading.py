@@ -292,17 +292,20 @@ def test_a_file_read_under_two_names_is_read_in_each_names_format(tmp_path):
     assert [c["column"] for c in second.structured_content["columns"]] == ["a\tb"]
 
 
-def test_the_data_path_description_states_the_reading_rules():
-    async def description():
+def test_the_instructions_state_the_reading_rules_the_data_path_leaves_out():
+    async def texts():
         async with Client(create_server(), mode="legacy") as client:
             tools = await client.list_tools()
-        tool = next(t for t in tools.tools if t.name == "describe_dataset")
-        return tool.input_schema["properties"]["data_path"]["description"]
+            tool = next(t for t in tools.tools if t.name == "describe_dataset")
+            description = tool.input_schema["properties"]["data_path"]["description"]
+            return client.instructions, description
 
-    text = anyio.run(description).lower()
+    instructions, description = anyio.run(texts)
+    text = " ".join(instructions.split()).lower()
 
-    for rule in ("leading zero", "true", "inf", "blank line"):
+    for rule in ("leading zero", "true", "inf", "blank line", "parquet file keeps"):
         assert rule in text
+    assert "leading zero" not in description
     assert "Parquet keeps its dtypes" not in text
 
 

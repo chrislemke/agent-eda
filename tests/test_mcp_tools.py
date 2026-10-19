@@ -7,6 +7,7 @@ arguments returns what the Python call returns.
 """
 
 import inspect
+import json
 import re
 from collections.abc import Callable
 
@@ -25,7 +26,7 @@ import anyio
 import jsonschema
 import pandas as pd
 from mcp import Client
-from python_syntax import json_words, json_words_in
+from python_syntax import json_words, json_words_in, titles_in, without_titles
 from recipes import recipe_for
 from serving import serving
 
@@ -116,7 +117,9 @@ def test_the_input_schema_is_the_arguments_schema_with_a_required_data_path(
     # The server's own property, checked in the test below.
     properties.pop("table_path")
     # The docstrings' None, True and False are null, true and false over MCP.
-    expected = json_words_in(ae.describe_analysis(name).to_dict()["parameters_schema"])
+    expected = without_titles(
+        json_words_in(ae.describe_analysis(name).to_dict()["parameters_schema"])
+    )
     # project becomes project_path (tests/test_mcp_project.py), and the
     # Project's definitions go with it.
     expected_properties = dict(expected["properties"])
@@ -127,8 +130,15 @@ def test_the_input_schema_is_the_arguments_schema_with_a_required_data_path(
         properties.pop("project_path")
         mask_sensitive = dict(properties.pop("mask_sensitive"))
         expected_mask = dict(expected_properties.pop("mask_sensitive"))
-        assert mask_sensitive.pop("description").startswith(
-            expected_mask.pop("description")
+        # The docstring's sentence on the guardrail sits in the instructions,
+        # and the description says where an MCP caller's project comes from.
+        guardrail = (
+            "Masking is a guardrail against accidental exposure, not "
+            "anonymization or access control."
+        )
+        docstring = expected_mask.pop("description").replace(guardrail, "").strip()
+        assert mask_sensitive.pop("description") == (
+            f"{docstring} Over MCP, the project is project_path."
         )
         assert mask_sensitive == expected_mask
     definitions = {
@@ -169,17 +179,72 @@ def test_every_mcp_tool_takes_an_optional_table_path_with_the_mcp_server_text(to
     assert table_path["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert table_path["default"] is None
     description = table_path["description"]
-    for fact in (
-        ".csv",
-        ".parquet",
-        ".pq",
-        "never overwrites",
-        "Full table written to",
-        "table_file",
-        # Over MCP only the main table, the default one, is written.
-        "only the main table",
-    ):
+    # The rules on overwriting, the response line and the table_file record sit
+    # in the instructions (tests/test_mcp_discovery.py).
+    for fact in (".csv", ".parquet", ".pq", "main table"):
         assert fact in description, fact
+
+
+def sentences(text):
+    return re.split(r"(?<=\.) (?=[A-Z])", text)
+
+
+def test_the_path_descriptions_are_one_sentence_each(tools):
+    found = {
+        (tool.name, name): prop["description"]
+        for tool in tools.values()
+        for name, prop in tool.input_schema["properties"].items()
+        if name in ("data_path", "table_path", "project_path")
+    }
+
+    # data_path and table_path on the 11 analysis MCP tools, project_path on the
+    # six that support masking.
+    assert len(found) == 2 * len(ANALYSES) + len(
+        [a for a in ae.list_analyses().analyses if a.supports_masking]
+    )
+    assert {k: v for k, v in found.items() if len(sentences(v)) != 1} == {}
+
+
+def test_no_schema_of_an_mcp_tool_carries_a_pydantic_title(tools):
+    schemas = [
+        (tool.name, kind, schema)
+        for tool in tools.values()
+        for kind, schema in (
+            ("input", tool.input_schema),
+            ("output", tool.output_schema),
+        )
+    ]
+
+    assert [(n, k) for n, k, s in schemas if s is None] == []
+    assert {(n, k): titles_in(s) for n, k, s in schemas if titles_in(s)} == {}
+    # Inside $defs too.
+    assert any("$defs" in schema for _, _, schema in schemas)
+
+
+def definition_size(tools):
+    """The characters of the descriptions plus the input schemas of every MCP
+    tool, the size the audit measured in October 2026 (100,159)."""
+    return sum(
+        len(tool.description or "") + len(json.dumps(tool.input_schema))
+        for tool in tools.values()
+    )
+
+
+# The size of the descriptions plus input schemas once ticket 09 cut the
+# repeated path rules and the pydantic titles (see .scratch/agent-experience/
+# issues/09-smaller-mcp-tool-definitions.md). Raise it on purpose, in the same
+# change as the text that grows, never to make this test pass.
+DEFINITION_SIZE = 84_500
+
+
+def test_the_tool_definitions_stay_within_ten_percent_of_their_recorded_size(tools):
+    size = definition_size(tools)
+
+    assert size <= DEFINITION_SIZE * 1.1, (
+        f"the descriptions and input schemas of the MCP tools come to {size} "
+        f"characters, more than 10% over the {DEFINITION_SIZE} recorded in "
+        "DEFINITION_SIZE; shorten them, or raise DEFINITION_SIZE on purpose"
+    )
 
 
 def test_the_mcp_tools_say_mcp_server_as_the_glossary_does(tools):
