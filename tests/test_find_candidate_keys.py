@@ -1,3 +1,4 @@
+import itertools
 import re
 import sys
 import time
@@ -7,9 +8,9 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
-from hypothesis import given
+from hypothesis import assume, given
 from hypothesis import strategies as st
-from strategies import data_frames
+from strategies import data_frames, nan_as_missing
 
 import agent_eda as ae
 
@@ -111,10 +112,10 @@ def test_hitting_max_combinations_stops_the_search_but_keeps_what_it_found():
     assert res.status_reason is not None
     assert res.status_reason.code == "too_many_combinations"
     assert res.status_reason.message == (
-        "The complete search covers up to 10 column sets, more than "
-        "max_combinations=5 allows; it stopped after examining 5 and kept what it "
-        "found. Lower max_key_size to 1, raise max_combinations to 10, or pass fewer "
-        "columns."
+        "The complete search covers up to 10 column sets, more than the "
+        "max_combinations limit of 5 allows; it stopped after examining 5 and kept "
+        "what it found. Lower max_key_size to 1, raise max_combinations to 10, or "
+        "pass fewer columns."
     )
 
 
@@ -249,6 +250,7 @@ def test_the_counts_of_every_listed_set_match_pandas():
 
     res = ae.find_candidate_keys(df)
 
+    assert len(res.most_unique_column_sets) == 7
     for found in res.most_unique_column_sets:
         reference = pandas_counts(df, found.columns)
         assert (
@@ -287,10 +289,10 @@ def test_a_search_stopped_early_says_so_and_how_to_finish_it():
 
     assert lines[1:6] == [
         "Reason: too_many_combinations: The complete search covers up to 10 column "
-        "sets, more than max_combinations=5 allows; it",
-        "    stopped after examining 5 and kept what it found. Lower max_key_size to 1, "
-        "raise max_combinations to 10, or pass",
-        "    fewer columns.",
+        "sets, more than the max_combinations limit of",
+        "    5 allows; it stopped after examining 5 and kept what it found. Lower "
+        "max_key_size to 1, raise max_combinations to",
+        "    10, or pass fewer columns.",
         "Not exhaustive: max_combinations stopped the search for keys of up to 2 "
         "columns after 5 of up to 10 sets.",
         "Missing values compare equal; a key with missing values can't serve as a "
@@ -396,6 +398,7 @@ def test_declares_the_statuses_it_can_return():
 def test_every_reported_set_counts_as_pandas_does(data):
     df = data.draw(data_frames(), "data")
     max_key_size = data.draw(st.integers(1, 3), "max_key_size")
+    assume(not holds_nul(df))
 
     res = ae.find_candidate_keys(df, max_key_size=max_key_size)
 
@@ -414,18 +417,63 @@ def test_every_reported_set_counts_as_pandas_does(data):
         ) == pandas_counts(df, columns)
 
 
+def holds_nul(df):
+    """Whether any text in the frame has a NUL character. pandas' factorize reads
+    a NUL as the end of a text, so its counts of such text are no reference."""
+    return any(
+        isinstance(value, str) and "\x00" in value
+        for column in df.columns
+        for value in df[column]
+    )
+
+
 def pandas_counts(df, columns):
     """Distinct combinations, rows sharing one and rows with a missing value.
 
     A constant column joins the subset, so that pandas compares through
     factorize even for one column; Series.duplicated tells None and NaN apart.
     """
+    df = nan_as_missing(df)
     keyed_frame = df[columns].assign(_constant=0)
     subset = [*columns, "_constant"]
     return (
         len(keyed_frame.drop_duplicates(subset=subset)),
         int(keyed_frame.duplicated(subset=subset, keep=False).sum()),
         int(df[columns].isna().any(axis=1).sum()),
+    )
+
+
+@given(data=st.data())
+def test_the_keys_are_exactly_the_minimal_sets_whose_rows_are_all_different(data):
+    # Every column set of up to max_key_size columns, tried one by one with pandas.
+    df = data.draw(data_frames(), "data").reset_index(drop=True)
+    max_key_size = data.draw(st.integers(1, 3), "max_key_size")
+
+    assume(not holds_nul(df))
+    res = ae.find_candidate_keys(df, max_key_size=max_key_size)
+
+    assume(res.status == "completed")  # a search at its limit lists what it reached
+    labels = {str(label): label for label in df.columns}
+    # columns=None leaves out columns of other dtypes and floats with fractions.
+    left_out = {*res.left_out_columns, *res.non_integral_float_columns}
+    searched = [name for name in labels if name not in left_out]
+    unique_sets: list[tuple[str, ...]] = []
+    expected_keys, expected_with_missing = [], []
+    for size in range(1, max_key_size + 1):
+        for combination in itertools.combinations(searched, size):
+            if any(set(found) <= set(combination) for found in unique_sets):
+                continue  # not minimal: a smaller set is unique already
+            _, duplicates, missing = pandas_counts(
+                df, [labels[name] for name in combination]
+            )
+            if duplicates == 0:
+                unique_sets.append(combination)
+                (expected_with_missing if missing else expected_keys).append(
+                    list(combination)
+                )
+    assert sorted(key.columns for key in res.keys) == sorted(expected_keys)
+    assert sorted(key.columns for key in res.keys_with_missing_values) == sorted(
+        expected_with_missing
     )
 
 
@@ -600,8 +648,9 @@ def test_a_budget_stop_on_many_columns_suggests_the_key_size_that_fits():
     # 40 + 780 sets of up to 2 columns fit the 10,000; 9,880 more of 3 don't.
     assert res.status_reason.message == (
         "The complete search covers up to 1,099,511,627,775 column sets, more than "
-        "max_combinations=10,000 allows; it stopped after examining 10,000 and kept "
-        "what it found. Lower max_key_size to 2, or pass fewer columns."
+        "the max_combinations limit of 10,000 allows; it stopped after examining "
+        "10,000 and kept what it found. Lower max_key_size to 2, or pass fewer "
+        "columns."
     )
 
 

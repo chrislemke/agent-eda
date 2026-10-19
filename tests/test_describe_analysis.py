@@ -232,8 +232,8 @@ def test_lists_the_result_fields_with_their_meanings():
     assert list(fields) == ["columns", "left_out_columns", "definitions"]
     assert fields["left_out_columns"].type == "list[str]"
     assert fields["left_out_columns"].description.startswith(
-        "Columns that columns=None left out because they aren't numeric or are "
-        "boolean, in DataFrame order;"
+        "Columns that the default column selection left out because they aren't "
+        "numeric or are boolean, in DataFrame order;"
     )
     assert fields["columns"].type == "dict[str, SummarizeNumericColumn]"
     entry = {f.name: f for f in fields["columns"].fields}
@@ -291,21 +291,16 @@ def test_agrees_with_what_list_analyses_records(name):
 
 
 @pytest.mark.parametrize("name", ANALYSES)
-def test_the_example_is_the_docstring_doctest_and_runs(name):
+def test_the_example_is_the_docstring_doctest(name):
+    # tests/test_contract.py runs each docstring's doctest, once.
     doc = inspect.getdoc(getattr(ae, name))
     assert doc
     section = doc.split("\nExamples:\n")[1].split("\nSee Also:\n")[0]
 
     example = ae.describe_analysis(name).example
 
-    parser = doctest.DocTestParser()
-    test = parser.get_doctest(example, {}, name, None, 0)
-    runner = doctest.DocTestRunner(optionflags=doctest.ELLIPSIS)
-    report = []
-    runner.run(test, out=report.append)
     assert example == textwrap.dedent(section).strip("\n")
-    assert runner.tries > 0
-    assert runner.failures == 0, "".join(report)
+    assert doctest.DocTestParser().get_examples(example)
 
 
 def test_the_record_has_a_json_schema_of_the_parameters_other_than_data():
@@ -401,7 +396,7 @@ def test_prints_each_part_compactly_in_plain_text():
 def test_printed_lines_stay_within_120_characters(name):
     description = ae.describe_analysis(name)
 
-    lines = str(description).split("\n")
+    lines = str(description).splitlines()
 
     assert max(len(line) for line in lines) <= 120
     assert lines == [line.rstrip() for line in lines]

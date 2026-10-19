@@ -35,15 +35,21 @@ from agent_eda._columns import (
     column_kind,
     select_columns,
 )
-from agent_eda._parse import ReadFamily, read_as
+from agent_eda._parse import ReadFamily, read_as, read_decimal
 from agent_eda._run import check_distinct
 from agent_eda._text import Surface, join_items, join_labels
 from agent_eda._values import categorical_array, is_arrow_dictionary
 from agent_eda._wording import worded
+from agent_eda._written_form import record_scalar
 from agent_eda.errors import InvalidArgumentError
 
 # The types a declared sentinel value can have.
 SentinelValue = bool | int | float | str | dt.datetime | dt.date | dt.timedelta
+
+# A declared value as the analyses hold it: a decimal too, which text declared
+# for a column of decimals reads as, so that a value float64 can't hold can be
+# declared as the record writes it.
+type DeclaredValue = SentinelValue | Decimal
 
 # How a declared value appears in a result record.
 type JsonSentinel = bool | int | float | str
@@ -126,6 +132,8 @@ class Holds:
     tz: dt.tzinfo | str | None = None
     # The unit a datetime or timedelta dtype stores, such as "ns".
     unit: Unit | None = None
+    # Whether its numbers are decimals, which text can declare exactly.
+    decimals: bool = False
 
 
 def holds(series: pd.Series) -> Holds:
@@ -162,7 +170,12 @@ def holds(series: pd.Series) -> Holds:
         if not present:
             return Holds(shown, None, "no values")
         words = [word for name, word in _WORDS.items() if name in present]
-        return Holds(shown, frozenset(present), join_items(words))
+        return Holds(
+            shown,
+            frozenset(present),
+            join_items(words),
+            decimals=_holds_decimals(series, present),
+        )
     return Holds(shown, frozenset({"other"}), "values no sentinel value can equal")
 
 
@@ -179,7 +192,7 @@ def _numbers(dtype: object, shown: str) -> Holds:
     if kind == "f":
         largest = float(np.finfo(numpy_dtype(dtype)).max)
         return Holds(shown, frozenset({"number"}), "numbers", float_max=largest)
-    return Holds(shown, frozenset({"number"}), "numbers")  # pyarrow decimals
+    return Holds(shown, frozenset({"number"}), "numbers", decimals=True)  # pyarrow
 
 
 def numpy_dtype(dtype: object) -> np.dtype:
@@ -189,7 +202,7 @@ def numpy_dtype(dtype: object) -> np.dtype:
     if isinstance(dtype, pd.SparseDtype):
         return np.dtype(dtype.subtype)
     # Nullable and pyarrow-backed dtypes name their NumPy counterpart.
-    return np.dtype(getattr(dtype, "numpy_dtype"))  # noqa: B009
+    return np.dtype(getattr(dtype, "numpy_dtype"))  # noqa: B009  # dtype is typed object
 
 
 def _datetimes(dtype: object, shown: str) -> Holds:
@@ -219,6 +232,14 @@ def _unit(dtype: object) -> Unit | None:
     else:
         unit = np.datetime_data(str(dtype))[0]
     return next((known for known in _UNIT_WORDS if known == unit), None)
+
+
+def _holds_decimals(series: pd.Series, present: set[Family]) -> bool:
+    """Whether a column of Python objects holds a decimal."""
+    if "number" not in present:
+        return False
+    objects = np.asarray(series.array, dtype=object)
+    return any(issubclass(kind, Decimal) for kind in set(map(type, objects)))
 
 
 def _families_present(series: pd.Series) -> set[Family]:
@@ -258,8 +279,12 @@ def declared_values(
     *,
     hidden: Collection[str] = (),
     id_column: str | None = None,
-) -> dict[str, list[SentinelValue]]:
+) -> dict[str, list[DeclaredValue]]:
     """The declared values of each selected column, checked against the data.
+
+    Text declared for a column of decimals that reads as an exact decimal, such
+    as '12345678901234567.25', is that decimal: float64 can't hold every decimal
+    a column holds, and the record writes one it can't as such text.
 
     The messages never quote the values declared for the `hidden` columns, the
     sensitive columns of a masking call.
@@ -281,10 +306,11 @@ def declared_values(
     if left_out:
         raise InvalidArgumentError(_left_out_message(analysis, left_out, id_column))
     problems: list[_Problem] = []
-    declared: dict[str, list[SentinelValue]] = {}
+    declared: dict[str, list[DeclaredValue]] = {}
     for name, values in sentinel_values.items():
         column = by_name[name]
-        values = list(values)
+        column_holds = holds(data.iloc[:, column.position])
+        values = [_read_decimal(value, column_holds) for value in values]
         # 1 and True are two values, as the matching keeps them apart: values are
         # the same when they are equal and of one family.
         check_distinct(
@@ -296,7 +322,6 @@ def declared_values(
             hide=name in hidden,
             within=name,
         )
-        column_holds = holds(data.iloc[:, column.position])
         problems.extend(
             problem
             for value in values
@@ -334,12 +359,26 @@ def _left_out_message(analysis: str, names: list[str], id_column: str | None) ->
     )
 
 
+def _read_decimal(value: DeclaredValue, column: Holds) -> DeclaredValue:
+    """The exact decimal that text declared for a column of decimals writes, or
+    the value as it is. A column that holds text too keeps the text as text."""
+    if (
+        isinstance(value, str)
+        and column.decimals
+        and "text" not in (column.families or ())
+    ):
+        read = read_decimal(value)
+        if read is not None:
+            return read
+    return value
+
+
 def can_match(value: SentinelValue, column: Holds) -> bool:
     """Whether the value can match a value of the column, as declared_values decides."""
     return _check("", value, column) is None
 
 
-def _check(name: str, value: SentinelValue, column: Holds) -> _Problem | None:
+def _check(name: str, value: DeclaredValue, column: Holds) -> _Problem | None:
     """Why a declared value can never match the column, or None if it can."""
     if value is pd.NaT or (isinstance(value, float) and math.isnan(value)):
         return _Problem(name, value, "missing")
@@ -348,7 +387,7 @@ def _check(name: str, value: SentinelValue, column: Holds) -> _Problem | None:
     if column.families == {"other"}:
         return _Problem(name, value, "limit", column.what, column.dtype)
     if column.families is not None and family(value) not in column.families:
-        likely = likely_value(value, column)
+        likely = None if isinstance(value, Decimal) else likely_value(value, column)
         return _Problem(name, value, "type", column.what, column.dtype, likely)
     if isinstance(value, bool):
         return None
@@ -690,16 +729,13 @@ def _closing(problems: list[_Problem], hidden: set[str], surface: Surface) -> st
     return " ".join(sentences)
 
 
-def json_value(value: SentinelValue) -> JsonSentinel:
-    """A declared value as the record shows it: dates and times as ISO 8601 text."""
-    if isinstance(value, dt.timedelta):
-        return pd.Timedelta(value).isoformat()
-    if isinstance(value, dt.date):  # datetimes and pandas Timestamps too
-        return value.isoformat()
-    return value
+def json_value(value: DeclaredValue) -> JsonSentinel:
+    """A declared value as the record shows it: dates and times as ISO 8601 text,
+    and a decimal as a number or its exact text, as every record writes values."""
+    return record_scalar(value)
 
 
-def matches(series: pd.Series, value: SentinelValue, missing: np.ndarray) -> np.ndarray:
+def matches(series: pd.Series, value: DeclaredValue, missing: np.ndarray) -> np.ndarray:
     """Where the column holds the declared value, as a NumPy bool array.
 
     The value must be one declared_values accepted for the column, and
@@ -726,7 +762,7 @@ def matches(series: pd.Series, value: SentinelValue, missing: np.ndarray) -> np.
     return np.asarray(equal.to_numpy(dtype=bool, na_value=False), dtype=bool) & ~missing
 
 
-def _decimal(value: SentinelValue) -> SentinelValue | Decimal:
+def _decimal(value: DeclaredValue) -> DeclaredValue:
     """A number as the decimal it reads as, such as Decimal('0.1') for 0.1.
 
     A decimal equals a declared number when it equals the number as written:
@@ -738,7 +774,7 @@ def _decimal(value: SentinelValue) -> SentinelValue | Decimal:
 
 
 def _object_matches(
-    series: pd.Series, value: SentinelValue, missing: np.ndarray
+    series: pd.Series, value: DeclaredValue, missing: np.ndarray
 ) -> np.ndarray:
     """Where a column of Python objects holds the value, comparing with NumPy."""
     objects = np.asarray(series.array, dtype=object)
@@ -768,7 +804,7 @@ def _object_matches(
     return found
 
 
-def _equal(item: object, value: SentinelValue) -> bool:
+def _equal(item: object, value: DeclaredValue) -> bool:
     """Whether a Python object equals a declared value of its family."""
     if isinstance(item, Decimal):
         return bool(item == _decimal(value))

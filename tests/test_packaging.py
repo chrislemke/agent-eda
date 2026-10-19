@@ -155,8 +155,10 @@ def test_the_package_and_discovery_import_no_mcp_module(call):
 import sys
 import agent_eda as ae
 {call}
-mcp = {{"mcp", "mcp_types", "agent_eda.mcp", "agent_eda._mcp_server"}}
-print("mcp:", sorted(n for n in sys.modules if n in mcp or n.startswith("mcp.")))
+def is_mcp(name):
+    # mcp, its submodules, mcp_types, and the package's own MCP modules.
+    return name.startswith("mcp.") or name.split(".")[-1].lstrip("_").startswith("mcp")
+print("mcp:", sorted(n for n in sys.modules if is_mcp(n)))
 """
 
     lines = run_python(code, args=("-I", *STRICT_WARNINGS)).splitlines()

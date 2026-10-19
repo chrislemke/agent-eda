@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import numpy as np
@@ -10,6 +11,8 @@ from agent_eda.errors import InvalidArgumentError
 
 # Every analysis whose results can show raw values, and so supports masking.
 MASKING = [info.name for info in ae.list_analyses().analyses if info.supports_masking]
+# The relative tolerance of comparisons with a reference value.
+RTOL = 1e-12
 
 
 CUSTOMERS = ["Ann Lee", "Bob Ray", "Ann Lee", "Cy Fox", "Ann Lee", "Bob Ray"]
@@ -59,8 +62,23 @@ def call(name, df, **arguments):
     return getattr(ae, name)(df, **required, **arguments)
 
 
-def test_both_analyses_that_show_raw_values_support_masking():
-    assert {"summarize_categorical", "find_duplicate_rows"} <= set(MASKING)
+def test_exactly_the_analyses_that_show_raw_values_support_masking():
+    # A new analysis that shows labels, example values or row IDs joins this list
+    # and gets a masking recipe; the other analyses show none.
+    assert sorted(MASKING) == [
+        "detect_missing_sentinels",
+        "find_duplicate_rows",
+        "profile_missing_values",
+        "profile_target",
+        "summarize_categorical",
+        "validate_column_types",
+    ]
+    shows_raw_values = [
+        info.name
+        for info in ae.list_analyses().analyses
+        if ae.describe_analysis(info.name).shows_raw_values
+    ]
+    assert sorted(shows_raw_values) == sorted(MASKING)
 
 
 @pytest.mark.parametrize("name", ["summarize_categorical", "find_duplicate_rows"])
@@ -379,6 +397,12 @@ def test_the_docs_say_index_labels_are_never_masked(name):
     if "id_column" in [p.name for p in docs.parameters]:
         assert "Index labels are never masked" in mask_sensitive.description
         assert "pass a non-sensitive id_column" in docs.when_to_use
+    else:
+        # Without id_column, the result shows no row IDs for index labels to leak
+        # through, and the docs say nothing of them.
+        assert "Index labels" not in mask_sensitive.description
+        record = call(name, tickets()).to_dict()
+        assert "row_ids" not in json.dumps(record)
 
 
 def flowing(text):
@@ -430,7 +454,9 @@ def test_masked_levels_become_numbered_placeholders_in_level_order():
         ("<masked 2>", "str", 2),
         ("<masked 3>", "str", 1),
     ]
-    assert [level.share for level in levels] == pytest.approx([1 / 2, 1 / 3, 1 / 6])
+    assert [level.share for level in levels] == pytest.approx(
+        [1 / 2, 1 / 3, 1 / 6], rel=RTOL
+    )
     assert [level.label for level in res.columns["plan"].levels] == [
         "basic",
         "pro",

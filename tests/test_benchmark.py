@@ -196,6 +196,8 @@ def test_every_analysis_finishes_in_under_5_seconds(name, frame, benchmark_repor
     seconds = time.perf_counter() - start
 
     benchmark_report.append(f"{name}: {seconds:.2f} s, {res.status}")
+    # A run that stopped early, such as at a work limit, would be fast too.
+    assert res.status == "completed"
     assert seconds < LIMIT_SECONDS
 
 

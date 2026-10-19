@@ -244,7 +244,7 @@ def test_orders_labels_of_mixed_types_numbers_first_then_text_then_the_rest():
     # other types by type name and string form. NaN in an object column is
     # missing, so it is no level.
     assert [(level.label, level.label_type) for level in entry.levels] == [
-        ("0.5", "Decimal"),
+        (0.5, "Decimal"),
         (True, "bool"),
         (1.5, "float"),
         (2, "int"),
@@ -790,7 +790,7 @@ def test_text_stays_within_40_lines_of_120_characters():
         }
     )
 
-    lines = str(ae.summarize_categorical(df)).split("\n")
+    lines = str(ae.summarize_categorical(df)).splitlines()
 
     assert len(lines) <= 40
     assert max(len(line) for line in lines) <= 120
@@ -844,7 +844,7 @@ def test_the_result_states_the_level_order():
 
     assert res.level_order == (
         "Count descending, then label. Booleans and numbers come first, by value, "
-        "with False and True as 0 and 1 and NaN last. Text follows, by Unicode code "
+        "with false and true as 0 and 1 and NaN last. Text follows, by Unicode code "
         "point, then labels of any other type, by type name and string form. Labels "
         "that still tie keep their order in the data."
     )

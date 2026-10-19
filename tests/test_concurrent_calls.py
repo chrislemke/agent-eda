@@ -79,7 +79,7 @@ def test_concurrent_calls_leave_the_callers_warning_settings_untouched(capfd):
     assert len(results) == CALLS
     assert warnings.filters == filters
     assert warnings.showwarning is showwarning
-    assert warnings._showwarnmsg_impl is showwarnmsg  # ty: ignore[unresolved-attribute]  # see above
+    assert warnings._showwarnmsg_impl is showwarnmsg  # ty: ignore[unresolved-attribute]  # the same private hook as above
     assert capfd.readouterr().err == ""
     # A warning raised afterwards in the caller is still shown.
     with warnings.catch_warnings(record=True) as seen:

@@ -809,7 +809,7 @@ def test_nan_stored_as_a_value_counts_as_missing_with_a_limitation():
     [limitation] = res.limitations
     assert limitation.code == "nan_counted_as_missing"
     assert limitation.reason == (
-        "1 column stores NaN as a value, which pandas isna() doesn't count as "
+        "1 column stores NaN as a value, which pandas doesn't count as "
         "missing; missing_count counts it: 'x'."
     )
     assert limitation.fields == ["columns['x'].missing_count"]
@@ -918,18 +918,18 @@ def test_invalid_datetimes_that_tie_follow_their_string_forms():
     res = ae.validate_column_types(df, schema={"aware": "integer", "naive": "integer"})
 
     assert [v.value for v in res.columns["aware"].invalid_values] == [
-        "2020-10-25 01:00:00+02:00",
-        "2020-10-25 02:15:00+01:00",
-        "2020-10-25 02:30:00+02:00",
+        "2020-10-25T01:00:00+02:00",
+        "2020-10-25T02:15:00+01:00",
+        "2020-10-25T02:30:00+02:00",
     ]
     assert [v.value for v in res.columns["naive"].invalid_values] == [
-        "2020-10-24 23:00:00",
-        "2020-10-25 00:30:00",
-        "2020-10-25 01:15:00",
+        "2020-10-24T23:00:00",
+        "2020-10-25T00:30:00",
+        "2020-10-25T01:15:00",
     ]
     invalid = res.to_frame(table="invalid_values")
     aware = invalid[invalid["column"] == "aware"]
-    assert [str(value) for value in aware["value"]] == [
+    assert [value.isoformat() for value in aware["value"]] == [
         v.value for v in res.columns["aware"].invalid_values
     ]
     assert aware["value_type"].tolist() == ["Timestamp"] * 3

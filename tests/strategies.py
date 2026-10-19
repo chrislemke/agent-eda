@@ -13,6 +13,7 @@ LABEL_EDGE_FRAMES does the same for column labels that can't serve as names.
 Everything here works on pandas 2.2 and 3.x.
 """
 
+import copy
 import datetime as dt
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass
@@ -42,6 +43,19 @@ def _str_dtype() -> pd.StringDtype:
 
 STR = _str_dtype()
 
+
+def _python_str_dtype() -> pd.StringDtype:
+    """pandas 3's text dtype where pyarrow isn't installed: str stored as Python
+    objects, with NaN as missing. pandas 2.2 has no such dtype, and string[python]
+    is its closest twin."""
+    try:  # pandas 2.3 and later
+        return pd.StringDtype("python", na_value=np.nan)
+    except TypeError:  # pandas 2.2 has no na_value
+        return pd.StringDtype("python")
+
+
+PYTHON_STR = _python_str_dtype()
+
 # Text agents meet: empty and whitespace-only strings, case and space variants,
 # stand-ins for missing values, characters of 1, 2 and 4 bytes, and any other
 # short string. Each listed string is one object that columns and examples share.
@@ -68,6 +82,12 @@ DATETIMES = st.datetimes(dt.datetime(1900, 1, 1), dt.datetime(2200, 1, 1))
 DATES = st.dates(dt.date(1900, 1, 1), dt.date(2200, 1, 1))
 TIMEDELTAS = st.timedeltas(dt.timedelta(days=-1000), dt.timedelta(days=1000))
 DECIMALS = st.decimals(-(10**6), 10**6, places=2, allow_nan=False)
+PERIODS = st.integers(0, 1_200).map(
+    lambda months: pd.Period(year=1990 + months // 12, month=months % 12 + 1, freq="M")
+)
+INTERVALS = st.tuples(
+    st.floats(-1e6, 1e6, allow_nan=False), st.floats(0, 100, allow_nan=False)
+).map(lambda ends: pd.Interval(ends[0], ends[0] + ends[1]))
 
 
 def _series(dtype: str | type | ExtensionDtype) -> Callable[[list], pd.Series]:
@@ -178,6 +198,7 @@ KINDS: dict[str, Kind] = {
     # The dtype pandas infers for text: object on pandas 2, str on pandas 3.
     "inferred text": Kind(TEXT, pd.Series, ["a", None, " ", "a"]),
     "str": Kind(TEXT, _series(STR), _TEXTS),
+    "str (python storage)": Kind(TEXT, _series(PYTHON_STR), _TEXTS),
     "string": Kind(TEXT, _series("string"), _TEXTS),
     "string[pyarrow]": Kind(TEXT, _series("string[pyarrow]"), _TEXTS),
     "arrow string": Kind(TEXT, _arrow(pa.string()), _TEXTS),
@@ -278,6 +299,21 @@ KINDS: dict[str, Kind] = {
         _arrow(pa.date32()),
         [dt.date(2020, 1, 1), None, dt.date(1970, 1, 1), dt.date(2020, 1, 1)],
     ),
+    "period[M]": Kind(
+        PERIODS,
+        _series("period[M]"),
+        [
+            pd.Period("2020-01", "M"),
+            None,
+            pd.Period("1999-12", "M"),
+            pd.Period("2020-01", "M"),
+        ],
+    ),
+    "interval[float64]": Kind(
+        INTERVALS,
+        _series(pd.IntervalDtype("float64", "right")),
+        [pd.Interval(0.0, 1.5), None, pd.Interval(-2.0, 0.0), pd.Interval(0.0, 1.5)],
+    ),
     "timedelta64[ns]": Kind(
         TIMEDELTAS,
         _series("timedelta64[ns]"),
@@ -348,8 +384,28 @@ def data_frames(draw: st.DrawFn, *, any_column_labels: bool = False) -> pd.DataF
         df.columns = draw(column_labels(column_count, any_column_labels))
     # Set afterwards: pd.DataFrame(columns, index=...) would align on the index.
     df.index = draw(indexes(row_count))
-    df.attrs = draw(st.sampled_from(ATTRS))
+    # A copy: examples share no dict or list.
+    df.attrs = copy.deepcopy(draw(st.sampled_from(ATTRS)))
     return df
+
+
+def nan_as_missing(frame: pd.DataFrame) -> pd.DataFrame:
+    """A copy of the frame in which a NaN that a float column stores as a value,
+    as `Float64 with NaN as a value` and double[pyarrow] can, is missing.
+
+    pandas' isna() and duplicated() tell such a NaN from a missing value, but
+    every analysis counts it as missing, so the reference values that tests
+    compute with pandas follow them.
+    """
+    frame = frame.copy()
+    for position in range(frame.shape[1]):
+        column = frame.iloc[:, position]
+        if pd.api.types.is_float_dtype(column.dtype) and not isinstance(
+            column.dtype, np.dtype
+        ):
+            is_nan = np.isnan(column.to_numpy(dtype="float64", na_value=0.0))
+            frame.isetitem(position, column.mask(is_nan))
+    return frame
 
 
 def _frame(columns: list[pd.Series], row_count: int) -> pd.DataFrame:
@@ -459,10 +515,14 @@ def _shared_strings() -> pd.DataFrame:
 
 def _every_kind(values: Callable[[Kind], list], copies: int = 1) -> pd.DataFrame:
     """A column of every kind, `copies` times; later copies get a number."""
+    # A copy of the values for each column: the sample lists and dicts of a kind
+    # are shared by every frame, so no column may hold them itself.
     return pd.DataFrame(
         {
-            f"{name} {copy}" if copy else name: kind.build(values(kind))
-            for copy in range(copies)
+            f"{name} {number}" if number else name: kind.build(
+                copy.deepcopy(values(kind))
+            )
+            for number in range(copies)
             for name, kind in KINDS.items()
         }
     )
@@ -477,6 +537,11 @@ EDGE_FRAMES: dict[str, Callable[[], pd.DataFrame]] = {
     "every kind": lambda: _every_kind(lambda kind: kind.sample),
     # More columns than a printed table shows (10) and a record keeps (100).
     "many columns": lambda: _every_kind(lambda kind: kind.sample, copies=4),
+    # More rows than a record keeps row IDs of (10): the first three samples
+    # again and again, so the same few rows repeat in groups of 13 or 14.
+    "many rows": lambda: _every_kind(
+        lambda kind: [kind.sample[i % 3] for i in range(40)]
+    ),
     "constant": lambda: _every_kind(lambda kind: [kind.sample[0]] * 3),
     "all missing": lambda: pd.DataFrame(
         {name: kind.build([None] * 3) for name, kind in KINDS.items() if kind.missing}

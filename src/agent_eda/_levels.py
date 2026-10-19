@@ -24,7 +24,7 @@ import pandas as pd
 
 from agent_eda._text import placeholder
 from agent_eda._values import categorical_array, value_codes
-from agent_eda._written_form import canonical_text
+from agent_eda._written_form import canonical_text, record_scalar
 
 if TYPE_CHECKING:
     # Result classes build their tables here, so this module imports nothing
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 # How levels are ordered, as results state it.
 LEVEL_ORDER = (
     "Count descending, then label. Booleans and numbers come first, by value, "
-    "with False and True as 0 and 1 and NaN last. Text follows, by Unicode code "
+    "with false and true as 0 and 1 and NaN last. Text follows, by Unicode code "
     "point, then labels of any other type, by type name and string form. Labels "
     "that still tie keep their order in the data."
 )
@@ -413,17 +413,12 @@ def stored_label(label: object) -> object:
 
 
 def record_label(label: object) -> str | bool | int | float:
-    """A label as the record holds it: a JSON scalar, or else its canonical text."""
-    value = stored_label(label)
-    if isinstance(value, bool):
-        return bool(value)
-    if isinstance(value, int):
-        return int(value)
-    if isinstance(value, str):
-        return str(value)
-    if isinstance(value, float) and math.isfinite(value):
-        return float(value)
-    return canonical_text(value)
+    """A label as the record holds it: a JSON scalar, or else its canonical text.
+
+    Datetimes are ISO 8601 text and decimals numbers or exact text, as
+    record_scalar writes them.
+    """
+    return record_scalar(label)
 
 
 def type_name(label: object) -> str:

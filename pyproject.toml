@@ -28,9 +28,14 @@ requires = ["uv_build>=0.10.11,<0.11.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
+# The tests import anyio, jsonschema and annotated_types directly. They come with
+# mcp or pydantic too, but a dependency that drops one must not break the tests.
 dev = [
+    "annotated-types>=0.6.0",
+    "anyio>=4.9",
     "hypothesis>=6.170.1",
     "ipython>=9.0",
+    "jsonschema>=4.20.0",
     "polars>=1.0",
     "pre-commit>=4.7.0",
     "pyarrow>=14.0.1",
