@@ -288,6 +288,14 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
 - Row IDs in a result are 0-based data-row numbers for a CSV or TSV file, and follow the stored index for a Parquet file. `id_column` names rows by a column's values instead.
 - The MCP server keeps the last two files it read in memory, so several analyses of one large file read it once. It reads a file again when its modification time or size changes.
 
+### Pass arguments as JSON
+
+The MCP server reads arguments the way an MCP tool's input schema describes them, so a string with the `date-time`, `date` or `duration` format is an ISO 8601 text.
+
+- `sentinel_values` takes datetimes, dates and durations as ISO 8601 text, such as `{"sentinel_values": {"born": ["1900-01-01T00:00:00"], "wait": ["PT0S"]}}`. A string is read as one when its column holds datetimes, dates or durations and no text. A string for any other column stays text.
+- A value that `detect_missing_sentinels` shows, such as `1900-01-01T00:00:00` or `P0DT0H0M0S`, can be declared exactly as shown.
+- A time zone must match the column: `"1900-01-01T00:00:00Z"` for a column without one gives `invalid_argument`, with the value to pass instead.
+
 ### Read the response
 
 A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The record equals the Python one. The text is worded for an MCP caller: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. Some MCP clients show the model only one of the two. Claude Code, for one, shows only the structured content. A run that doesn't complete, such as `insufficient_data` from `summarize_numeric` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and the `message`. The message says what is wrong and what is allowed as it does in Python, and gives the fix in MCP terms: `{"task": "regression"}` where Python shows `task='regression'`, the MCP tool's input schema where Python points to `help()`, and `project_path` where Python builds a `Project`.
