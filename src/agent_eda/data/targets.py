@@ -264,15 +264,13 @@ def profile_target(
         - `all_labels_distinct`: suspected; the values of a classification
           target that aren't missing are all distinct, as an identifier's or a
           measurement's are, not class labels'.
-        - `case_or_space_variants`: suspected; labels of a classification
-          target differ only by case or surrounding spaces, such as 'Yes' and
-          'yes ', as summarize_categorical finds them.
+        - `case_or_space_variants`: suspected; labels differ only by case or
+          surrounding spaces, such as 'Yes' and 'yes '.
         - `constant_target`: violation; at least two values of a regression
           target aren't missing and all of them are equal, as describe_dataset
           decides it.
         - `two_value_target`: suspected; a regression target holds exactly two
-          distinct finite values, as a binary label does, so it may be class
-          labels coded as numbers.
+          distinct values, so it may be binary labels.
         - `infinite_values`: suspected; a regression target holds inf or -inf,
           which every statistic leaves out.
         - `missing_labels`: descriptive; rows have no target value.

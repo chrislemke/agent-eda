@@ -15,11 +15,11 @@ It is written for three kinds of callers:
 - **11 first-look analyses**: structure, column types, missing values, sentinel values such as -999, distributions, duplicates, keys, the target and associations.
 - **Results you can read and parse**: `print(res)` gives at most 40 lines, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
-- **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package from inside Python.
-- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix: a misspelled column or keyword lists the available names and the closest match, and a file path passed as data points to `pd.read_csv` or `pd.read_parquet`.
-- **Opt-in masking** of sensitive columns, such as e-mail addresses, in everything a result shows.
-- **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that call MCP tools instead of writing Python.
-- **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, all preinstalled in AgentCore Code Interpreter.
+- **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package.
+- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix, such as the closest column name.
+- **Opt-in masking** of sensitive columns, such as e-mail addresses.
+- **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that call MCP tools.
+- **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, preinstalled in AgentCore Code Interpreter.
 
 ## Installation
 
@@ -98,7 +98,7 @@ The analyses are listed in the order `ae.guide()` suggests for a first look at a
 | 7 | `profile_target` | What does the target look like for this task? | `target_column`, `task` |
 | 8 | `compute_association_matrix` | How strongly are pairs of columns associated? | none |
 
-Every analysis takes `columns=` to limit it to some columns, except `describe_dataset`, `profile_target` and `validate_column_types`; the default uses every column it can. [Reference](#reference) lists every function with its arguments, result fields, findings and statuses, and `help(ae.<name>)` and `ae.describe_analysis("<name>")` show all the options.
+Every analysis takes `columns=` to limit it to some columns, except `describe_dataset`, `profile_target` and `validate_column_types`; the default uses every column it can. [Reference](#reference) lists every function with its arguments, result fields, findings and statuses.
 
 Run all 11 first-look analyses on the sample data and print what they suspect:
 
@@ -131,8 +131,6 @@ find_duplicate_rows: 2 rows form 1 duplicate group; 1 is an excess copy (duplica
 ```
 
 The second, third and fourth lines are the three planted problems. The first is expected here: `customer_id` is meant to be an identifier. A finding says what the data suggests; what it means is your call.
-
-`compute_association_matrix` flags nothing here: it flags only pairs with a perfect association, such as a column that duplicates another. For a category and a number its default measure is bias-adjusted: it subtracts the association that many levels give pure noise, so 40 levels over 60 rows of noise score near 0 instead of about 0.8.
 
 ### Other analyses
 
@@ -178,7 +176,7 @@ age = res.columns["age"]  # typed fields, such as age.median and age.std
 
 The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, with totals.
 
-A mistake in a call, such as a misspelled column or an unknown option, raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and a message that gives the fix. Problems in the data never raise; they show up in the status, findings and limitations.
+A mistake in a call raises a subclass of `ae.errors.AgentEDAError`, with a stable `code` and a message that gives the fix. Problems in the data never raise; they show up in the status, findings and limitations.
 
 Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. Values pandas can't hash, such as lists, are the one place analyses differ: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
@@ -320,7 +318,7 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
 The server reads arguments as an MCP tool's input schema describes them, so a string with the `date-time`, `date` or `duration` format is ISO 8601 text.
 
 - `sentinel_values` takes datetimes, dates and durations as ISO 8601 text, such as `{"sentinel_values": {"born": ["1900-01-01T00:00:00"], "wait": ["PT0S"]}}`. A string is read as one when its column holds datetimes, dates or durations and no text. A string for any other column stays text.
-- `profile_target`'s `expected_labels` reads its strings the same way for a target of dates or datetimes, such as a column of dates in a Parquet file: `{"target_column": "joined", "expected_labels": ["2024-01-01", "2024-02-01"]}`. A target of periods can't be declared over MCP.
+- `profile_target`'s `expected_labels` takes ISO 8601 text for dates and datetimes.
 - A value that `detect_missing_sentinels` shows, such as `1900-01-01T00:00:00` or `P0DT0H0M0S`, can be declared exactly as shown.
 - A time zone must match the column: `"1900-01-01T00:00:00Z"` for a column without one gives `invalid_argument` with the value to pass.
 
@@ -578,8 +576,8 @@ What does the target look like for this task?
 - `missing_labels` (descriptive): rows have no target value.
 - `rare_classes` (descriptive): classes have a share below rare_share.
 - `missing_expected_classes` (violation): classes declared in expected_labels have no rows.
-- `case_or_space_variants` (suspected): labels of a classification target differ only by case or surrounding spaces, such as 'Yes' and 'yes ', as summarize_categorical finds them.
-- `two_value_target` (suspected): a regression target holds exactly two distinct finite values, as a binary label does, so it may be class labels coded as numbers.
+- `case_or_space_variants` (suspected): labels differ only by case or surrounding spaces, such as 'Yes' and 'yes '.
+- `two_value_target` (suspected): a regression target holds exactly two distinct values, so it may be binary labels.
 
 **Statuses:** `completed`, `insufficient_data`, `failed`
 
@@ -595,7 +593,7 @@ How strongly are pairs of columns associated?
 | `categorical_columns` | `Sequence[str] \| None` | `None` | Numeric columns to treat as categorical, so that codes such as 1, 2 and 3 are compared as categories instead of correlated as numbers. |
 | `numeric_method` | `str` | `'pearson'` | The measure for two numeric columns: 'pearson', the default, Pearson's r for linear association; 'spearman', Pearson's r of the ranks, tied values sharing their mean rank, for monotonic association; or 'kendall', Kendall's tau-b, which adjusts for ties. |
 | `categorical_method` | `str` | `'cramers_v_bias_corrected'` | The measure for two categorical columns: 'cramers_v_bias_corrected', the default, Cramér's V with Bergsma's (2013) correction, which removes most of the upward bias that few rows and many levels give V; or 'cramers_v', the uncorrected V of scipy.stats.contingency.association. |
-| `mixed_method` | `str` | `'correlation_ratio_bias_corrected'` | The measure for a categorical and a numeric column: 'correlation_ratio_bias_corrected', the default, the square root of epsilon squared, Kelley's (1935) bias-adjusted share of the numeric column's variance that the categories explain, clipped at 0; or 'correlation_ratio', the plain correlation ratio eta, which rises with the number of levels even when the columns are unrelated: 40 levels in 60 rows give about 0.8 for pure noise. |
+| `mixed_method` | `str` | `'correlation_ratio_bias_corrected'` | The measure for a categorical and a numeric column, 'correlation_ratio_bias_corrected' or 'correlation_ratio'. |
 | `max_categories` | `int` | `50` | The most distinct values a categorical column may have; a column with more is skipped with reason too_many_categories. |
 | `max_pairs` | `int` | `5000` | The most pairs the call computes, a work limit. |
 

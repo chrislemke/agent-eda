@@ -261,13 +261,13 @@ def compute_association_matrix(
             (2013) correction, which removes most of the upward bias that few
             rows and many levels give V; or 'cramers_v', the uncorrected V of
             scipy.stats.contingency.association.
-        mixed_method (str): The measure for a categorical and a numeric column:
-            'correlation_ratio_bias_corrected', the default, the square root of
-            epsilon squared, Kelley's (1935) bias-adjusted share of the numeric
-            column's variance that the categories explain, clipped at 0; or
-            'correlation_ratio', the plain correlation ratio eta, which rises
-            with the number of levels even when the columns are unrelated: 40
-            levels in 60 rows give about 0.8 for pure noise.
+        mixed_method (str): The measure for a categorical and a numeric
+            column, 'correlation_ratio_bias_corrected' or 'correlation_ratio'.
+            The default is the square root of epsilon
+            squared, Kelley's (1935) bias-adjusted share of the numeric column's
+            variance that the categories explain, clipped at 0. The plain ratio
+            eta rises with the number of levels even when the columns are
+            unrelated: 40 levels in 60 rows give about 0.8 for pure noise.
         max_categories (int): The most distinct values a categorical column may
             have; a column with more is skipped with reason
             too_many_categories. At least 2; defaults to 50.
