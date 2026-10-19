@@ -16,7 +16,7 @@ It is written for three kinds of callers:
 - **Results you can read and parse**: `print(res)` gives at most 40 lines, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package.
-- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix: a misspelled column lists the available names and the closest match, and a file path as data points to `pd.read_csv` or `pd.read_parquet`.
+- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix: a misspelled column lists the available names and the closest match.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that don't write Python.
 - **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, preinstalled in AgentCore Code Interpreter.
@@ -40,7 +40,7 @@ Once released, `pip install agent-eda` is enough. The MCP server needs the `mcp`
 
 ## Quick start
 
-Pass the DataFrame first and every other argument by keyword. Nothing needs setting up, and analyses never change the DataFrame.
+Pass the DataFrame first and every other argument by keyword. Analyses never change the DataFrame.
 
 ```python
 import pandas as pd
@@ -82,7 +82,7 @@ The mean age of -86.12 is the first sign of trouble. The sample data hides three
 
 ## Analyses
 
-The analyses are listed in the order `ae.guide()` suggests for a first look. Most need nothing but the DataFrame. Those that need project knowledge, such as your schema or target, ask for it; they never guess.
+The analyses are listed in the order `ae.guide()` suggests for a first look. Those that need project knowledge, such as your schema or target, ask for it; they never guess.
 
 | Step | Analysis | What it answers | Required arguments |
 | --- | --- | --- | --- |
@@ -130,7 +130,7 @@ summarize_categorical: 1 column holds labels that differ only by case or surroun
 find_duplicate_rows: 2 rows form 1 duplicate group; 1 is an excess copy (duplicate_share 0.125).
 ```
 
-Lines 2 to 4 are the planted problems. The first is expected: `customer_id` is an identifier. A finding says what the data suggests; what it means is your call.
+Lines 2 to 4 are the planted problems. The first is expected: `customer_id` is an identifier.
 
 ### Other analyses
 
@@ -174,7 +174,7 @@ record = res.to_json()  # the whole result as strict JSON
 age = res.columns["age"]  # typed fields, such as age.median and age.std
 ```
 
-The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, with totals, but it keeps the entries that findings and limitations point at, so every path resolves. It keeps `top_n` levels per column and no fixed prose: a first look on a 1,000 × 30 mixed CSV is 104 KB of JSON, and `summarize_categorical` on 1,000 × 100 with 40 text columns 41 KB.
+The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, with totals, but it keeps the entries that findings and limitations point at, so every path resolves. It keeps `top_n` levels per column and no fixed prose: a first look on a 1,000 × 30 mixed CSV is 104 KB of JSON, and `summarize_categorical` on 1,000 × 100 with 40 text columns 41 KB. The record writes an integer beyond ±2^53 (9,007,199,254,740,991) as a string, in row IDs, labels, values and parameters, so Node-based MCP clients don't round it; the result object keeps the `int`.
 
 A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and the fix. Data problems never raise; they show in the status, findings and limitations.
 
