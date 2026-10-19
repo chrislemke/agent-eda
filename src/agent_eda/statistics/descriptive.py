@@ -14,6 +14,7 @@ from agent_eda._columns import (
     ColumnRule,
     select_columns,
 )
+from agent_eda._findings import constant_columns, infinite_values, mixed_value_types
 from agent_eda._levels import (
     Levels,
     count_levels,
@@ -52,6 +53,7 @@ from agent_eda._result_base import (
     Limitation,
     StatusReason,
     Support,
+    entry_path,
 )
 from agent_eda._status import overall_status
 from agent_eda._text import join_items, join_labels, label_text, plural
@@ -253,8 +255,8 @@ def summarize_numeric(
             *_infinite_values(summaries),
         ],
         limitations=[
-            *read_limitations(read, _entry_path),
-            *null_limitations(summaries, _entry_path),
+            *read_limitations(read, entry_path),
+            *null_limitations(summaries, entry_path),
         ],
         columns=entries,
         left_out_columns=selection.left_out,
@@ -272,52 +274,27 @@ _NO_NUMERIC_COLUMNS = StatusReason(
 )
 
 
-def _entry_path(name: str) -> str:
-    """The result path of a column's entry, such as "columns['age']"."""
-    return f"columns[{name!r}]"
-
-
 def _constant_columns(summaries: dict[str, NumericSummary]) -> list[Finding]:
     names = [name for name, summary in summaries.items() if summary.constant]
-    if not names:
-        return []
-    hold = plural(len(names), "column holds", "columns hold")
-    return [
-        Finding(
-            code="constant_columns",
-            claim=f"{hold} a single distinct non-missing value: {join_labels(names)}.",
-            assessment="suspected",
-            columns=names,
-            fields=[
-                f"{_entry_path(name)}.{field}"
-                for name in names
-                for field in (
-                    ("infinite_count",)
-                    if summaries[name].constant_infinite
-                    else ("min", "max")
-                )
-            ],
-        )
-    ]
+    return constant_columns(
+        names,
+        [
+            f"{entry_path(name)}.{field}"
+            for name in names
+            for field in (
+                ("infinite_count",)
+                if summaries[name].constant_infinite
+                else ("min", "max")
+            )
+        ],
+    )
 
 
 def _infinite_values(summaries: dict[str, NumericSummary]) -> list[Finding]:
     names = [name for name, summary in summaries.items() if summary.infinite_count]
-    if not names:
-        return []
-    hold = plural(len(names), "column holds", "columns hold")
-    return [
-        Finding(
-            code="infinite_values",
-            claim=(
-                f"{hold} infinite values, which every statistic leaves out: "
-                f"{join_labels(names)}."
-            ),
-            assessment="suspected",
-            columns=names,
-            fields=[f"{_entry_path(name)}.infinite_count" for name in names],
-        )
-    ]
+    return infinite_values(
+        names, [f"{entry_path(name)}.infinite_count" for name in names]
+    )
 
 
 _CATEGORICAL = ColumnRule(
@@ -538,7 +515,7 @@ def summarize_categorical(
         limitations=[
             *stored_nan_limitations(
                 stored_nan,
-                [f"{_entry_path(name)}.missing_count" for name in stored_nan],
+                [f"{entry_path(name)}.missing_count" for name in stored_nan],
                 "missing_count counts it",
             ),
             *_unhashable_values(entries),
@@ -677,7 +654,7 @@ def _unhashable_values(
                 f"{join_labels(names)}."
             ),
             fields=[
-                f"{_entry_path(name)}.{field}"
+                f"{entry_path(name)}.{field}"
                 for name in names
                 for field in _LEVEL_COUNTS
             ],
@@ -719,7 +696,7 @@ def _case_or_space_variants(
             ),
             assessment="suspected",
             columns=names,
-            fields=[f"{_entry_path(name)}.case_or_space_variants" for name in names],
+            fields=[f"{entry_path(name)}.case_or_space_variants" for name in names],
         )
     ]
 
@@ -728,23 +705,15 @@ def _mixed_value_types(
     entries: dict[str, SummarizeCategoricalColumn],
 ) -> list[Finding]:
     names = [name for name, entry in entries.items() if entry.mixed_value_types]
-    if not names:
-        return []
-    hold = plural(len(names), "column holds", "columns hold")
     described = [
         f"{label_text(name)} ({', '.join(entries[name].value_types)})" for name in names
     ]
-    return [
-        Finding(
-            code="mixed_value_types",
-            claim=(
-                f"{hold} values of more than one Python type: {join_items(described)}."
-            ),
-            assessment="suspected",
-            columns=names,
-            fields=[f"{_entry_path(name)}.value_types" for name in names],
-        )
-    ]
+    return mixed_value_types(
+        names,
+        [f"{entry_path(name)}.value_types" for name in names],
+        wording="python_types",
+        shown=join_items(described),
+    )
 
 
 def _unused_categories(
@@ -760,6 +729,6 @@ def _unused_categories(
             claim=f"{have} categories that never occur: {join_labels(names)}.",
             assessment="descriptive",
             columns=names,
-            fields=[f"{_entry_path(name)}.unused_categories" for name in names],
+            fields=[f"{entry_path(name)}.unused_categories" for name in names],
         )
     ]

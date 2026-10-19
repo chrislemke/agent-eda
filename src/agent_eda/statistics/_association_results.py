@@ -1,6 +1,7 @@
 """The result of compute_association_matrix."""
 
-from typing import Annotated, Literal
+from collections.abc import Mapping
+from typing import Annotated, ClassVar, Literal
 
 import numpy as np
 import pandas as pd
@@ -15,7 +16,6 @@ from agent_eda._result_base import (
     AnalysisResult,
     ResultModel,
     _Cap,
-    _check_table,
     _entries_frame,
 )
 
@@ -158,6 +158,18 @@ class ComputeAssociationMatrixResult(AnalysisResult):
         "otherwise."
     )
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "pairs": None,
+        "matrix": "has the wide {size} x {size} matrix",
+    }
+
+    def _table_footer_fields(self) -> dict[str, str]:
+        return {"size": f"{len(self.columns):,}"}
+
+    def _text_other_tables(self) -> list[str]:
+        # Nothing was computed without pairs, so the matrix would hold no value.
+        return super()._text_other_tables() if self.pairs else []
+
     def to_frame(self, table: Literal["pairs", "matrix"] = "pairs") -> pd.DataFrame:
         """A complete table of the result, chosen by name.
 
@@ -169,7 +181,7 @@ class ComputeAssociationMatrixResult(AnalysisResult):
                 correlation ratio fills only the cell from its categorical row
                 to its numeric column, and the diagonal is empty.
         """
-        _check_table(table, ("pairs", "matrix"))
+        self._check_table(table)
         if table == "pairs":
             return _entries_frame(self.pairs, AssociationPair)
         names = list(self.columns)
@@ -218,13 +230,6 @@ class ComputeAssociationMatrixResult(AnalysisResult):
                 )
             )
         return facts
-
-    def _text_other_tables(self) -> list[str]:
-        if not self.pairs:
-            # Nothing was computed, so the matrix would hold no value.
-            return []
-        size = len(self.columns)
-        return [f"res.to_frame(table='matrix') has the wide {size:,} x {size:,} matrix"]
 
     def _text_table(self) -> _text.Table:
         return _text.Table(

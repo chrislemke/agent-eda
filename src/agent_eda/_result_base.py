@@ -201,6 +201,12 @@ LimitationCode = Literal[
 ]
 
 
+def entry_path(name: str) -> str:
+    """The result path of a column's entry in a result's `columns`, such as
+    "columns['age']"."""
+    return f"columns[{name!r}]"
+
+
 # The start of a field path that points at a table entry of a column, as a
 # position, columns[2], or as a label, columns['age'].
 _ENTRY_PATH = re.compile(
@@ -267,6 +273,10 @@ class _Cap:
 _ROW_IDS = _Cap(10)
 _EXAMPLE_VALUES = _Cap(5)
 _ENTRIES = _Cap(100)
+# The record keeps this many row IDs and example values per list; the analyses
+# that cut their lists read the number here.
+ROW_IDS_KEPT = _ROW_IDS.limit
+EXAMPLES_KEPT = _EXAMPLE_VALUES.limit
 # For parameters: list and mapping arguments, but not data's shape or the
 # project, which is recorded whole.
 _LISTS_INSIDE = _Cap(100, each_list=True, whole=("data", "project"))
@@ -551,7 +561,7 @@ _FRAME_DTYPES: dict[Any, str] = {
 }
 
 
-def _check_table(table: object, tables: Sequence[str]) -> None:
+def _reject_table(table: object, tables: Sequence[str]) -> None:
     """Raise unless `table` names one of a result's tables; the first is the default.
 
     Results with more than one table take the name in to_frame(table=...).
@@ -1125,6 +1135,14 @@ class AnalysisResult(_PrintedRecord):
     )
     execution: Execution = Field(description="Library versions used for the run.")
 
+    # The tables to_frame can return, by name: the first is the default and the
+    # name to_frame accepts as `table`. Each table after the first has a clause
+    # for the printed text's footer, such as "has every candidate", where
+    # {name} fills in a value from _table_footer_fields; the key table's
+    # footer comes from its own text table, so its clause is None. A result
+    # with one table declares it too, so the check names it in its message.
+    TABLES: ClassVar[Mapping[str, str | None]] = {}
+
     @model_validator(mode="after")
     def _reason_matches_status(self) -> Self:
         _check_status_reason(self.status, self.status_reason)
@@ -1229,6 +1247,14 @@ class AnalysisResult(_PrintedRecord):
         """The complete main table of the result as a DataFrame."""
         raise NotImplementedError(f"{type(self).__name__} has no table")
 
+    def _check_table(self, table: object) -> None:
+        """Raise unless `table` is one of the names in TABLES."""
+        _reject_table(table, tuple(self.TABLES))
+
+    def _table_footer_fields(self) -> dict[str, str]:
+        """The values the footer clauses in TABLES fill in, by field name."""
+        return {}
+
     def _by_interest[T](self, entries: Sequence[T], names: Sequence[str]) -> list[T]:
         """The entries of a table of columns, those with a finding or a limitation
         first and the rest after them, each group in its own order.
@@ -1267,8 +1293,13 @@ class AnalysisResult(_PrintedRecord):
 
     def _text_other_tables(self) -> list[str]:
         """What to_frame(table=...) returns besides the key table, as clauses for
-        the footer; analyses with more than one table override this."""
-        return []
+        the footer: one for each table after the first that has a clause."""
+        fields = self._table_footer_fields()
+        return [
+            f"res.to_frame(table={name!r}) {clause.format(**fields)}"
+            for name, clause in list(self.TABLES.items())[1:]
+            if clause is not None
+        ]
 
     def to_dict(self) -> dict[str, Any]:
         """The result record as JSON-compatible Python objects.
@@ -1391,6 +1422,27 @@ class MaskableResult(AnalysisResult):
     def _masked(self, column: str) -> bool:
         """Whether placeholders stand for this column's values in the result."""
         return self.masking.applied and column in self.masking.columns
+
+    def _shown(self, value: object, value_type: str, column: str | None) -> str:
+        """A value of `column` as the text shows it: text quoted, unless the
+        column is masked and the value a placeholder. `value_type` is the type
+        name the result records beside the value."""
+        masked = column is not None and self._masked(column)
+        return _text.shown_value(value, value_type, masked=masked)
+
+    def _row_id_source(self) -> str:
+        """Where the row IDs come from, as "values of id_column 'order'" or
+        "index labels"."""
+        id_column = self.settings.id_column
+        if id_column is None:
+            return "index labels"
+        return f"values of id_column {id_column!r}"
+
+    def _ids_quoted(self) -> bool:
+        """Whether the text quotes row IDs: not when they are the placeholders
+        of a masked id_column."""
+        id_column = self.settings.id_column
+        return not (id_column is not None and self._masked(id_column))
 
 
 def share_text(name: str, share: float | None) -> str:

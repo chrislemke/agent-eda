@@ -1,6 +1,7 @@
 """The result of find_duplicate_rows."""
 
-from typing import Annotated, Literal
+from collections.abc import Mapping
+from typing import Annotated, ClassVar, Literal
 
 import pandas as pd
 from pydantic import (
@@ -15,7 +16,6 @@ from agent_eda._result_base import (
     MaskableResult,
     ResultModel,
     RowId,
-    _check_table,
 )
 
 
@@ -62,6 +62,10 @@ class FindDuplicateRowsResult(MaskableResult):
         "null when nothing was compared: no rows, or no column to compare."
     )
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "rows": None,
+    }
+
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = []
         if self.compared_columns:
@@ -80,19 +84,12 @@ class FindDuplicateRowsResult(MaskableResult):
                     indent="    ",
                 )
             )
-        id_column = self.settings.id_column
-        source = (
-            f"values of id_column {id_column!r}"
-            if id_column is not None
-            else "index labels"
-        )
-        facts.append(f"Row IDs: {source}.")
+        facts.append(f"Row IDs: {self._row_id_source()}.")
         return facts
 
     def _text_table(self) -> _text.Table:
         rows = self.duplicate_group_row_count
-        id_column = self.settings.id_column
-        quote = not (id_column is not None and self._masked(id_column))
+        quote = self._ids_quoted()
         return _text.Table(
             title="Duplicate groups",
             unit=("group", "groups"),
@@ -118,7 +115,7 @@ class FindDuplicateRowsResult(MaskableResult):
         Args:
             table: 'rows', the only table.
         """
-        _check_table(table, ("rows",))
+        self._check_table(table)
         numbers = [
             number
             for number, group in enumerate(self.duplicate_groups)

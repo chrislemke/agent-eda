@@ -2,8 +2,8 @@
 
 An analysis that works column by column ends with one status for the run, which
 `overall_status` picks from the columns', and one that stops at a work limit says
-why with `budget_exceeded_reason`. `NO_ROWS` is the reason shared by every
-analysis of data without rows.
+why with `budget_exceeded_reason`. `NO_ROWS` and `NO_COLUMNS` are the reasons
+shared by every analysis of data without rows or columns.
 """
 
 from collections.abc import Sequence
@@ -23,6 +23,8 @@ _PRECEDENCE: tuple[Status, ...] = ("failed", "insufficient_data", "not_applicabl
 
 # Why an analysis of data without rows ends with insufficient_data.
 NO_ROWS = StatusReason(code="no_rows", message="The data has no rows.")
+# Why an analysis that reads the columns it is given has none to read.
+NO_COLUMNS = StatusReason(code="no_columns", message="The data has no columns.")
 
 
 def overall_status(
