@@ -131,20 +131,34 @@ def budget_exceeded_reason(
     limit: int,
     consequence: str,
     narrow: str,
+    lower: tuple[str, int] | None = None,
+    raise_up_to: int | None = None,
 ) -> StatusReason:
-    """Why a run hit its work limit: the work it needs, the limit and both fixes.
+    """Why a run ended at its work limit: the work it needs, the limit and the fixes.
 
     The message reads "<needs> <required> <unit>, more than <parameter>=<limit>
     allows; <consequence>. Raise <parameter> to <required>, or <narrow>.", such as
     "The complete search covers up to 10 column sets, more than
     max_combinations=5 allows; it stopped after examining 5 and kept what it
     found. Raise max_combinations to 10, or pass fewer columns."
+
+    `lower` is another argument that shrinks the work, with the value that fits
+    the limit, and comes first: "Lower max_key_size to 2, raise ...". Raising the
+    limit is suggested only when `required` is at most `raise_up_to`, so that no
+    message asks for a limit no run could use; None means any value will do.
     """
+    steps = []
+    if lower is not None:
+        steps.append(f"lower {lower[0]} to {lower[1]:,}")
+    if raise_up_to is None or required <= raise_up_to:
+        steps.append(f"raise {parameter} to {required:,}")
+    steps.append(narrow)
+    fix = ", ".join(steps[:-1]) + (", or " if len(steps) > 1 else "") + steps[-1]
     return StatusReason(
         code=code,
         message=(
             f"{needs} {plural(required, *unit)}, more than {parameter}={limit:,} "
-            f"allows; {consequence}. Raise {parameter} to {required:,}, or {narrow}."
+            f"allows; {consequence}. {fix[0].upper()}{fix[1:]}."
         ),
     )
 
