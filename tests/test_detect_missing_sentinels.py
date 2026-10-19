@@ -157,7 +157,7 @@ LISTED_TEXT = [
     "MISSING",
 ]
 # Text that only resembles them.
-UNLISTED_TEXT = ["Lyon", "N/A ", " NA", "n.a.", "--", "??", "-999", "none yet", "0"]
+UNLISTED_TEXT = ["Lyon", "n.a.", "--", "??", "12", "none yet", "0"]
 TEXT_DTYPES = [object, "string", "string[pyarrow]", STR, pd.ArrowDtype(pa.string())]
 
 

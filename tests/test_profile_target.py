@@ -1510,11 +1510,11 @@ def test_a_datetime_label_without_rows_is_missing_and_one_outside_is_unexpected(
     )
 
     assert [(u.label, u.count) for u in filled(res.unexpected_labels)] == [
-        (str(STAMPS[1]), 2)
+        (STAMPS[1].isoformat(), 2)
     ]
     assert [(c.label, c.count) for c in filled(res.classes)] == [
-        (str(STAMPS[0]), 2),
-        (str(other), 0),
+        (STAMPS[0].isoformat(), 2),
+        (other.isoformat(), 0),
     ]
 
 

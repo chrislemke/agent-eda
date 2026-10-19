@@ -912,18 +912,18 @@ def test_invalid_datetimes_that_tie_follow_their_string_forms():
     res = ae.validate_column_types(df, schema={"aware": "integer", "naive": "integer"})
 
     assert [v.value for v in res.columns["aware"].invalid_values] == [
-        "2020-10-25 01:00:00+02:00",
-        "2020-10-25 02:15:00+01:00",
-        "2020-10-25 02:30:00+02:00",
+        "2020-10-25T01:00:00+02:00",
+        "2020-10-25T02:15:00+01:00",
+        "2020-10-25T02:30:00+02:00",
     ]
     assert [v.value for v in res.columns["naive"].invalid_values] == [
-        "2020-10-24 23:00:00",
-        "2020-10-25 00:30:00",
-        "2020-10-25 01:15:00",
+        "2020-10-24T23:00:00",
+        "2020-10-25T00:30:00",
+        "2020-10-25T01:15:00",
     ]
     invalid = res.to_frame(table="invalid_values")
     aware = invalid[invalid["column"] == "aware"]
-    assert [str(value) for value in aware["value"]] == [
+    assert [value.isoformat() for value in aware["value"]] == [
         v.value for v in res.columns["aware"].invalid_values
     ]
     assert aware["value_type"].tolist() == ["Timestamp"] * 3
