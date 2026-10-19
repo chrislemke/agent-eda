@@ -42,6 +42,8 @@ from agent_eda._numeric import (
     numeric_support,
     read_limitations,
     read_numeric,
+    stored_nan_count,
+    stored_nan_limitations,
     summarize_values,
 )
 from agent_eda._registry import analysis
@@ -222,7 +224,10 @@ def profile_target(
         without a label, and a share without rows is null, with a
         `too_few_values` limitation. Labels are kept exactly as stored. With
         index labels as row IDs, df.loc[row_ids] shows the rows, and an
-        `ambiguous_row_ids` limitation flags row IDs that repeat. `masking`
+        `ambiguous_row_ids` limitation flags row IDs that repeat. NaN is a
+        missing label, also NaN that a pyarrow-backed or nullable float column
+        stores as a value, which pandas' `isna` doesn't count; the
+        `nan_counted_as_missing` limitation names such a target. `masking`
         says whether masking was on and names the sensitive columns whose
         values the result shows; with masking on, their labels and row IDs
         are placeholders in the printed text, `to_dict`, `to_json` and
@@ -241,8 +246,9 @@ def profile_target(
           target that aren't missing are all distinct, as an identifier's or a
           measurement's are, not class labels'.
         - `constant_target`: violation; at least two values of a regression
-          target aren't missing and all of them are equal, as describe_dataset
-          decides it.
+          target aren't missing and all of them are equal, decided on the stored
+          values as every analysis does: distinct integers beyond 2^53 aren't
+          equal, and NaN is missing.
         - `infinite_values`: suspected; a regression target holds inf or -inf,
           which every statistic leaves out.
         - `missing_labels`: descriptive; rows have no target value.
@@ -701,6 +707,11 @@ def _classification(
         ],
         limitations=[
             *ambiguous,
+            *stored_nan_limitations(
+                [target.name] if stored_nan_count(series) else [],
+                ["missing_count"],
+                "missing_count counts it",
+            ),
             *([_NO_EXPECTED_LABELS] if labels is None else []),
             *([_NO_RARE_SHARE] if rare_share is None else []),
             *_null_shares(row_count, valid_count),
@@ -1082,7 +1093,7 @@ def _regression(data: pd.DataFrame, target: Column) -> _Profile:
     """summarize_numeric's entry for the target, with its defaults."""
     column = read_numeric(data.iloc[:, target.position])
     summary = summarize_values(
-        column.values,
+        column,
         quantiles=list(DEFAULT_QUANTILES),
         quantile_method=DEFAULT_QUANTILE_METHOD,
         trim_fraction=DEFAULT_TRIM_FRACTION,

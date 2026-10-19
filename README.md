@@ -356,7 +356,7 @@ What does this dataset contain?
 - `multiindex_columns` (suspected): the column labels form a MultiIndex.
 - `non_unique_index` (suspected): index labels repeat, so they don't identify rows.
 - `all_missing_columns` (suspected): a column holds only missing values.
-- `constant_columns` (suspected): a column holds a single distinct non-missing value in at least two rows.
+- `constant_columns` (suspected): a column holds a single distinct non-missing value in at least two rows, decided on the stored values (distinct integers beyond 2^53 are not constant) with NaN as missing.
 
 **Statuses:** `completed`, `failed`
 
@@ -374,7 +374,7 @@ What kind of values does each column hold?
 **Fields:** `columns` (`column`, `status`, `status_reason`, `dtype`, `inferred_logical_type`, `declared_logical_type`, `matches_declared`, `candidates`, `flags`, `evidence`), `missing_declared_columns`
 
 - `identifier_like_columns` (suspected): every value is distinct, there are at least two, and the top candidate is integer or text without spaces, as for IDs.
-- `constant_columns` (suspected): a single distinct value in at least two rows.
+- `constant_columns` (suspected): a single distinct value in at least two rows, with NaN counted as missing, as every analysis decides it.
 - `all_missing_columns` (suspected): no value in at least one row.
 - `numbers_as_text` (suspected): the top candidate is integer or float and some of the numbers are stored as text.
 - `dates_as_text` (suspected): the top candidate is datetime and some of the datetimes are ISO 8601 text.
@@ -468,7 +468,7 @@ How are the values in each numeric column distributed?
 
 **Fields:** `columns` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `left_out_columns`, `definitions`
 
-- `constant_columns` (suspected): a column holds a single distinct non-missing value in at least two rows, as describe_dataset decides it.
+- `constant_columns` (suspected): a column holds a single distinct non-missing value in at least two rows, decided on the stored values, so distinct integers beyond 2^53 aren't constant, with NaN as missing.
 - `infinite_values` (suspected): a column holds inf or -inf, which every statistic leaves out.
 
 **Statuses:** `completed`, `partial`, `insufficient_data`, `not_applicable`, `failed`
@@ -557,7 +557,7 @@ What does the target look like for this task?
 - `unexpected_labels` (violation): labels lie outside expected_labels.
 - `no_unexpected_labels` (passed): every label that isn't missing is in expected_labels.
 - `all_labels_distinct` (suspected): the values of a classification target that aren't missing are all distinct, as an identifier's or a measurement's are, not class labels'.
-- `constant_target` (violation): at least two values of a regression target aren't missing and all of them are equal, as describe_dataset decides it.
+- `constant_target` (violation): at least two values of a regression target aren't missing and all of them are equal, decided on the stored values as every analysis does: distinct integers beyond 2^53 aren't equal, and NaN is missing.
 - `infinite_values` (suspected): a regression target holds inf or -inf, which every statistic leaves out.
 - `missing_labels` (descriptive): rows have no target value.
 - `rare_classes` (descriptive): classes have a share below rare_share.

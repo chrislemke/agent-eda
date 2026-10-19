@@ -15,6 +15,7 @@ from agent_eda._keys import (
     SetCounts,
     hashable,
 )
+from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._run import (
     budget_exceeded_reason,
@@ -124,7 +125,9 @@ def find_candidate_keys(
         until the bounds prove that no other set ranks higher. If that would
         hash more rows than 100 passes over the data, or 100,000,000, it stops
         with a `ranking_not_proven` limitation. `unhashable_values` names the
-        columns left out.
+        columns left out. `nan_counted_as_missing` names the columns that store
+        NaN as a value, which counts as missing here though pandas' `isna`
+        doesn't count it.
 
         Every finding is descriptive:
 
@@ -257,6 +260,11 @@ def find_candidate_keys(
             ),
         ],
         limitations=[
+            *stored_nan_limitations(
+                [name for name in values if stored_nan_count(values[name])],
+                ["keys_with_missing_values", "most_unique_column_sets"],
+                "missing_row_count counts it",
+            ),
             *_unhashable_values(left_out),
             *_ranking_not_proven(ranking, tally),
         ],

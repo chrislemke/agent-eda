@@ -798,6 +798,15 @@ def test_text_stays_within_40_lines_of_120_characters():
     assert max(len(line) for line in lines) <= 120
 
 
+def stored_nan_as_missing(values: pd.Series) -> pd.Series:
+    """The column with NaN that it stores as a value made missing, as pandas won't."""
+    dtype = values.dtype
+    if isinstance(dtype, pd.api.extensions.ExtensionDtype) and dtype.kind == "f":
+        floats = values.to_numpy(dtype="float64", na_value=np.nan)
+        return values.mask(np.isnan(floats))
+    return values
+
+
 @given(df=data_frames(), top_n=st.integers(1, 100))
 def test_any_columns_levels_match_value_counts_and_each_other(df, top_n):
     countable = names(df, has_countable_values)
@@ -812,6 +821,7 @@ def test_any_columns_levels_match_value_counts_and_each_other(df, top_n):
         if entry.status == "not_applicable":  # values that can't be hashed
             continue
         values = df.iloc[:, labels.index(name)]
+        values = stored_nan_as_missing(values)
         counts = values.value_counts(dropna=True)
         rows = frame[frame["column"] == name]
         assert sorted(rows["count"]) == sorted(c for c in counts if c)
@@ -852,14 +862,14 @@ def test_orders_numbers_by_value_with_infinities_at_the_ends_and_nan_last():
 
     entry = ae.summarize_categorical(df, columns=["x"]).columns["x"]
 
-    # pyarrow keeps NaN as a value, apart from the missing value.
+    # pyarrow keeps NaN as a value, apart from the missing value; the analysis
+    # counts both as missing.
     assert [(level.label, level.label_type) for level in entry.levels] == [
         ("-inf", "float"),
         (1.5, "float"),
         ("inf", "float"),
-        ("nan", "float"),
     ]
-    assert entry.missing_count == 1
+    assert entry.missing_count == 2
 
 
 def test_identical_calls_in_processes_with_different_hash_seeds_give_the_same_json():

@@ -106,7 +106,7 @@ def check_column(
         if kind == "numeric" and series.dtype.kind == "f"
         else None
     )
-    stored_nan = stored_nan_count(series, floats)
+    stored_nan = stored_nan_count(series)
     uniform = _uniform_verdict(series, kind, declared)
     if uniform is not None:
         missing = (
