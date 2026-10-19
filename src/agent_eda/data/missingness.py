@@ -429,9 +429,8 @@ def _not_declared(
     else:
         reason = (
             "No sentinel values were declared, so sentinel_count is null and "
-            "missing_count counts only native missing values (None, NaN, NaT and "
-            "pd.NA). Declare stand-ins for missing values, such as -999 or 'N/A', "
-            "in sentinel_values."
+            "missing_count counts only native missing values. Declare stand-ins for "
+            "missing values, such as -999 or 'N/A', in sentinel_values."
         )
     return [
         Limitation(

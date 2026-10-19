@@ -501,7 +501,7 @@ def test_nan_stored_as_a_value_is_native_missing_and_a_limitation_says_so():
     ]
     assert limitation.fields == ["columns['x'].native_missing_count"]
     assert limitation.reason == (
-        "1 column stores NaN as a value, which pandas isna() doesn't count as "
+        "1 column stores NaN as a value, which pandas doesn't count as "
         "missing; native_missing_count counts it: 'x'."
     )
 
@@ -621,9 +621,8 @@ def test_without_declared_values_sentinel_counts_are_null_and_a_limitation_says_
     ]
     assert limitation.reason == (
         "No sentinel values were declared, so sentinel_count is null and "
-        "missing_count counts only native missing values (None, NaN, NaT and pd.NA). "
-        "Declare stand-ins for missing values, such as -999 or 'N/A', in "
-        "sentinel_values."
+        "missing_count counts only native missing values. Declare stand-ins for "
+        "missing values, such as -999 or 'N/A', in sentinel_values."
     )
 
 

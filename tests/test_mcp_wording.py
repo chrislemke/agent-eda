@@ -52,7 +52,7 @@ def served():
     return anyio.run(listed)
 
 
-def test_no_mcp_tool_description_or_input_schema_holds_python_syntax(served):
+def test_no_mcp_tool_description_or_schema_holds_python_syntax(served):
     _, tools = served
 
     leaks = [
@@ -61,6 +61,7 @@ def test_no_mcp_tool_description_or_input_schema_holds_python_syntax(served):
         for path, text in [
             ("description", tool.description),
             *strings_in(tool.input_schema, "input_schema"),
+            *strings_in(tool.output_schema, "output_schema"),
         ]
         for found in python_in(text)
     ]

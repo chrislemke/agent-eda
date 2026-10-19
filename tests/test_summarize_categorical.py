@@ -846,7 +846,7 @@ def test_the_result_states_the_level_order():
 
     assert res.level_order == (
         "Count descending, then label. Booleans and numbers come first, by value, "
-        "with False and True as 0 and 1 and NaN last. Text follows, by Unicode code "
+        "with false and true as 0 and 1 and NaN last. Text follows, by Unicode code "
         "point, then labels of any other type, by type name and string form. Labels "
         "that still tie keep their order in the data."
     )
