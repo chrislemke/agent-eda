@@ -44,7 +44,12 @@ from agent_eda._table_files import (
 )
 from agent_eda._text import closest_names, join_alternatives, join_items
 from agent_eda._version import __version__
-from agent_eda._wording import json_words, json_words_in, see_every, without_titles
+from agent_eda._wording import (
+    SeeArguments,
+    json_words,
+    json_words_in,
+    without_titles,
+)
 from agent_eda._wording import message as worded_message
 from agent_eda.discovery import list_analyses, search_analyses
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
@@ -410,7 +415,7 @@ def _check_arguments(served: _AnalysisTool, arguments: dict[str, Any]) -> None:
             served.spec,
             names,
             fix=f"in the MCP tool's arguments, such as {{{example}}}",
-            see=see_every(served.spec.name, "argument", "mcp"),
+            see=SeeArguments(served.spec.name).render("mcp"),
         )
 
     _check_names(served.tool, arguments, missing=missing)

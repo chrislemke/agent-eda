@@ -20,7 +20,7 @@ from agent_eda._declarations import Declaration, keyword_signature
 from agent_eda._registry import checked_keywords, python_scalar
 from agent_eda._run import check_distinct
 from agent_eda._text import a_or_an
-from agent_eda._wording import worded
+from agent_eda._wording import DeclareSensitive, Words, mistake
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 
 
@@ -71,7 +71,7 @@ class DataPolicy(Declaration):
         }
     )
 
-    _example = "ae.DataPolicy(sensitive_columns=['email'], mask_sensitive=True)"
+    _example = DeclareSensitive(["email"], of="policy").render("python")
     _field_types: ClassVar[dict[str, object]] = {
         "sensitive_columns": Sequence[str] | None,
         "mask_sensitive": bool,
@@ -140,17 +140,14 @@ class DataPolicy(Declaration):
         if self.mask_sensitive and not self.sensitive_columns:
             # An MCP caller's data policy comes from a project file, so its
             # message shows the TOML.
-            texts = {
-                "python": ("mask_sensitive=True", self._example),
-                "mcp": ("mask_sensitive = true", _project_file.TOML_EXAMPLE),
-            }
-            raise worded(
+            raise mistake(
                 InvalidArgumentError,
-                lambda surface: (
-                    f"DataPolicy got {texts[surface][0]} but no "
-                    "sensitive_columns, so there would be nothing to mask. Name the "
-                    f"sensitive columns, such as {texts[surface][1]}."
-                ),
+                "DataPolicy got ",
+                Words("mask_sensitive=True", "mask_sensitive = true"),
+                " but no sensitive_columns, so there would be nothing to mask. "
+                "Name the sensitive columns, such as ",
+                DeclareSensitive(["email"], of="policy"),
+                ".",
             )
         return self
 

@@ -23,7 +23,12 @@ PRIVATE_TEXT = re.compile(r"agent_eda(?:[./]\w+)*?[./]_[A-Za-z]")
 # Where a test may reach a private name of the package, and which ones: the one
 # helper that serves stand-in analyses through the hook create_server keeps
 # private, and lists them as registered ones through the hook of the registry.
-ALLOWED_PRIVATE = {"serving.py": {"_create_server", "_stand_ins"}}
+ALLOWED_PRIVATE = {
+    "serving.py": {"_create_server", "_stand_ins"},
+    # The renderer that words every mistake for both surfaces, and the two fixes
+    # that other modules define, are tested as the private parts they are.
+    "test_wording.py": {"_wording", "_registry", "_sentinels"},
+}
 
 
 def private_uses(source, *, allowed=frozenset()):

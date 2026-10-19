@@ -61,7 +61,6 @@ from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, data_shape, execution, overall_status
 from agent_eda._text import (
-    Surface,
     closest_names,
     join_alternatives,
     join_items,
@@ -70,7 +69,7 @@ from agent_eda._text import (
     plural,
 )
 from agent_eda._values import is_constant, value_codes
-from agent_eda._wording import as_written, worded
+from agent_eda._wording import Pass, Words, mistake
 from agent_eda._written_form import row_id_list
 from agent_eda.data._validation_results import (
     ColumnEvidence,
@@ -201,12 +200,11 @@ class ColumnSpec(Declaration):
             and not any(problem["type"] == "extra_forbidden" for problem in problems)
         ):
             allowed = join_alternatives([repr(t) for t in _LOGICAL_TYPES])
-            return worded(
+            return mistake(
                 InvalidArgumentError,
-                lambda surface: (
-                    f"ColumnSpec needs logical_type, one of {allowed}, such "
-                    f"as {_spec_example(surface)}."
-                ),
+                f"ColumnSpec needs logical_type, one of {allowed}, such as ",
+                _SPEC_EXAMPLE,
+                ".",
                 code="invalid_call",
             )
         return super()._rejected(fields, problems)
@@ -217,14 +215,14 @@ class ColumnSpec(Declaration):
         if text is None:
             return self
         if self.logical_type != "datetime":
-            raise worded(
+            raise mistake(
                 InvalidArgumentError,
-                lambda surface: (
-                    f"ColumnSpec got datetime_format {text!r} with "
-                    f"logical_type {self.logical_type!r}, but a datetime_format applies "
-                    "only to logical_type 'datetime'. Leave datetime_format out, or "
-                    f"declare {as_written(surface, logical_type='datetime')}."
-                ),
+                f"ColumnSpec got datetime_format {text!r} with "
+                f"logical_type {self.logical_type!r}, but a datetime_format applies "
+                "only to logical_type 'datetime'. Leave datetime_format out, or "
+                "declare ",
+                Pass(logical_type="datetime"),
+                ".",
             )
         directives = _DIRECTIVE.findall(text)
         unknown = [d for d in directives if d not in _KNOWN_DIRECTIVES]
@@ -266,10 +264,9 @@ ColumnSpec.__signature__ = inspect.Signature(
 )
 
 
-def _spec_example(surface: Surface) -> str:
-    """A ColumnSpec as the caller writes one."""
-    fields = as_written(surface, logical_type="integer", nullable=False)
-    return f"ae.ColumnSpec({fields})" if surface == "python" else fields
+# A ColumnSpec as the caller writes one.
+_SPEC_FIELDS = Pass(logical_type="integer", nullable=False)
+_SPEC_EXAMPLE = Words(("ae.ColumnSpec(", _SPEC_FIELDS, ")"), _SPEC_FIELDS)
 
 
 # Every column can be read for what it holds.
@@ -1559,13 +1556,13 @@ def validate_column_types(
             column.
     """
     if not schema:
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                "validate_column_types got an empty schema, which "
-                "declares no column to check. Declare the logical type of at least one "
-                f"column, such as {as_written(surface, schema={'age': 'integer'})}."
-            ),
+            "validate_column_types got an empty schema, which "
+            "declares no column to check. Declare the logical type of at least one "
+            "column, such as ",
+            Pass(schema={"age": "integer"}),
+            ".",
         )
     masking = resolve_masking("validate_column_types", project, mask_sensitive)
     row_ids = read_row_ids("validate_column_types", data, id_column)

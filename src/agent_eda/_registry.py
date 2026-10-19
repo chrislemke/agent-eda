@@ -55,7 +55,16 @@ from agent_eda._text import (
     plural,
     short_repr,
 )
-from agent_eda._wording import echoed, message, see_every, worded
+from agent_eda._wording import (
+    Fix,
+    Of,
+    PathInto,
+    SeeArguments,
+    Wording,
+    Words,
+    echoed,
+    mistake,
+)
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 
 _CODE = re.compile(r"[a-z][a-z0-9_]*")
@@ -380,7 +389,7 @@ def _missing_message(spec: AnalysisSpec, missing: list[str]) -> str:
         spec,
         missing,
         fix=f"by keyword, such as ae.{spec.name}(df, {example})",
-        see=see_every(spec.name, "argument", "python"),
+        see=SeeArguments(spec.name).render("python"),
     )
 
 
@@ -516,15 +525,10 @@ def _validate(
             own = _own_error(problem)
             if own is not None and len(problem["loc"]) == 1:
                 raise own from None
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: invalid_message(
-                spec.name,
-                spec.annotations,
-                options,
-                problems,
-                single=single,
-                surface=surface,
+            invalid_message(
+                spec.name, spec.annotations, options, problems, single=single
             ),
         ) from None
     return {name: getattr(validated, name) for name in spec.parameters[1:]}
@@ -603,8 +607,7 @@ def invalid_message(
     *,
     noun: str = "argument",
     single: Collection[str] = (),
-    surface: Surface = "python",
-) -> str:
+) -> Wording:
     """Say what is wrong with an option, what it allows and how to fix it.
 
     `problems` are pydantic's errors for the options; the first one is shown,
@@ -618,28 +621,26 @@ def invalid_message(
     location = problem["loc"]
     name = str(location[0]) if location else "?"
     annotation = annotations.get(name)
-    none = "None" if surface == "python" else "null"
     value, steps, inner = _locate(options.get(name), annotation, location[1:])
-    path = _path_text(steps, surface)
-    if name in single and steps == [0]:
-        path = ""
+    # Steps into the option; none for a single value that became a list of one.
+    inside = [] if name in single and steps == [0] else steps
+    path = PathInto(inside)
     own = _own_error(problem)
     if own is not None:
         # The package's own check, such as ColumnSpec's, says it best.
-        own_message = message(own, surface)
-        return (
-            f"{owner} got an invalid value at {name}{path}: {own_message}"
-            if path
-            else own_message
-        )
-    if path:
+        if not inside:
+            return Of(own)
+        return f"{owner} got an invalid value at {name}", path, ": ", Of(own)
+    where: Wording
+    rule: Wording
+    if inside:
         # A value inside a list option, or inside a mapping or its lists.
-        where = f"at {name}{path}"
-        rule = f"each value in {name} must be {allowed_text(inner, 'value', none=none)}"
+        where = f"at {name}", path
+        rule = f"each value in {name} must be ", _allowed(inner, "value")
     else:
         where = f"for {name}"
-        rule = f"{name} must be {allowed_text(annotation, name, none=none)}"
-    detail = ""
+        rule = f"{name} must be ", _allowed(annotation, name)
+    detail: Wording = ""
     if problem["type"] == "literal_error":
         # The choices of the Literal, alone or in a union such as a logical type
         # or a ColumnSpec.
@@ -652,23 +653,37 @@ def invalid_message(
         closest = closest_names(value, choices)[:1] if isinstance(value, str) else []
         detail = f" Did you mean {closest[0]!r}?" if closest else ""
     if name == "project" and isinstance(value, str | os.PathLike):
-        rule, detail = (
-            "project must be a Project, not a path",
-            _load_fix(value, surface),
-        )
+        rule, detail = "project must be a Project, not a path", _load_fix(value)
     return (
-        f"{owner} got {_value_text(value, surface)} {where}, but {rule}.{detail} "
-        f"{see_every(owner, noun, surface)}"
+        f"{owner} got ",
+        ShownValue(value),
+        " ",
+        where,
+        ", but ",
+        rule,
+        ".",
+        detail,
+        " ",
+        SeeArguments(owner, noun),
     )
 
 
-def _load_fix(path: str | os.PathLike[str], surface: Surface) -> str:
+def _allowed(annotation: object, subject: str) -> Fix:
+    """What an option allows, in words, with None as the caller writes it."""
+    return Words(
+        allowed_text(annotation, subject, none="None"),
+        allowed_text(annotation, subject, none="null"),
+    )
+
+
+def _load_fix(path: str | os.PathLike[str]) -> Fix:
     """The fix for a path given where a Project belongs: load the file."""
-    if surface == "mcp":
-        return " Pass the path of the project file as project_path instead."
     text = os.fspath(path)
     shown = repr(text) if len(text) <= 80 else "path"
-    return f" Load the file first, as project=ae.Project.load({shown})."
+    return Words(
+        f" Load the file first, as project=ae.Project.load({shown}).",
+        " Pass the path of the project file as project_path instead.",
+    )
 
 
 def _own_error(problem: Any) -> AgentEDAError | None:
@@ -698,14 +713,6 @@ def _locate(
             break  # such as the name of a union's member
         taken.append(step)
     return value, taken, annotation
-
-
-def _path_text(steps: Sequence[object], surface: Surface) -> str:
-    """The steps into an option as the caller writes them: ['age'][1] in Python,
-    and over MCP /age/1, a JSON pointer, since JSON has no subscripts."""
-    if surface == "python":
-        return "".join(f"[{step!r}]" for step in steps)
-    return "".join(f"/{step}" for step in steps)
 
 
 def _normalize(
@@ -868,6 +875,16 @@ def _column_name(item: object) -> object:
     if isinstance(item, str) or not isinstance(item, Hashable):
         return item
     return str(item)
+
+
+class ShownValue(Fix):
+    """A scalar argument as a message shows it, and a larger one by its type."""
+
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def render(self, surface: Surface) -> str:
+        return _value_text(self.value, surface)
 
 
 def _value_text(value: object, surface: Surface = "python") -> str:

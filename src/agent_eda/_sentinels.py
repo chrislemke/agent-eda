@@ -39,7 +39,7 @@ from agent_eda._parse import ReadFamily, read_as, read_decimal
 from agent_eda._run import check_distinct
 from agent_eda._text import Surface, join_items, join_labels
 from agent_eda._values import categorical_array, is_arrow_dictionary
-from agent_eda._wording import worded
+from agent_eda._wording import Fix, Wording, Words, mistake
 from agent_eda._written_form import record_scalar
 from agent_eda.errors import InvalidArgumentError
 
@@ -344,9 +344,8 @@ def declared_values(
             declared[name] = values
     if problems:
         hidden_columns = set(hidden)
-        raise worded(
-            InvalidArgumentError,
-            lambda surface: _message(analysis, problems, hidden_columns, surface),
+        raise mistake(
+            InvalidArgumentError, _message(analysis, problems, hidden_columns)
         )
     return declared
 
@@ -640,13 +639,21 @@ def literal(value: object, surface: Surface = "python") -> str:
     return text
 
 
+class Declared(Fix):
+    """A value as the caller declares it, in the form of `literal`."""
+
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def render(self, surface: Surface) -> str:
+        return literal(self.value, surface)
+
+
 def _is_sentinel_value(value: object) -> TypeGuard[SentinelValue]:
     return isinstance(value, bool | int | float | str | dt.date | dt.timedelta)
 
 
-def _message(
-    analysis: str, problems: list[_Problem], hidden: set[str], surface: Surface
-) -> str:
+def _message(analysis: str, problems: list[_Problem], hidden: set[str]) -> Wording:
     """Say which declared values can't be used, why, and how to fix the call.
 
     The values declared for a hidden column are never quoted, nor the values
@@ -655,71 +662,100 @@ def _message(
     if len(problems) == 1:
         [problem] = problems
         masked = problem.column in hidden
-        value = "a value" if masked else literal(problem.value, surface)
-        it = "it" if masked else value
-        head = (
-            f"{analysis} got {value} for column {problem.column!r} in sentinel_values"
+        value: Wording = "a value" if masked else Declared(problem.value)
+        it: Wording = "it" if masked else value
+        head: tuple[Wording, ...] = (
+            f"{analysis} got ",
+            value,
+            f" for column {problem.column!r} in sentinel_values",
         )
+        why: tuple[Wording, ...]
         if problem.problem == "missing":
-            why = f"{it} is a missing value itself, not a stand-in for one."
+            why = (it, " is a missing value itself, not a stand-in for one.")
         elif problem.problem == "infinite":
-            why = f"{it} is an infinite value, not a stand-in for a missing one."
+            why = (it, " is an infinite value, not a stand-in for a missing one.")
         else:
             why = (
                 f"{problem.column!r} holds {problem.holds} (dtype {problem.dtype}), "
-                "so it can never match."
+                "so it can never match.",
             )
             if problem.likely is not None and not masked:
-                why += f" Did you mean {literal(problem.likely, surface)}?"
-        return f"{head}, but {why} {_closing(problems, hidden, surface)}"
-    fragments = [
-        _fragment(problem, hidden, surface) for problem in problems[:_MAX_LISTED]
+                why += (" Did you mean ", Declared(problem.likely), "?")
+        return (*head, ", but ", *why, " ", _closing(problems, hidden))
+    fragments: list[Wording] = [
+        _fragment(problem, hidden) for problem in problems[:_MAX_LISTED]
     ]
     if len(problems) > _MAX_LISTED:
         fragments.append(f"and {len(problems) - _MAX_LISTED:,} more")
     return (
-        f"{analysis} can't use {len(problems):,} values in sentinel_values: "
-        f"{'; '.join(fragments)}. {_closing(problems, hidden, surface)}"
+        f"{analysis} can't use {len(problems):,} values in sentinel_values: ",
+        _separated(fragments, "; "),
+        ". ",
+        _closing(problems, hidden),
     )
 
 
-def _fragment(problem: _Problem, hidden: set[str], surface: Surface) -> str:
+def _separated(items: Sequence[Wording], separator: str) -> list[Wording]:
+    """The items with the separator between them."""
+    joined: list[Wording] = []
+    for item in items:
+        if joined:
+            joined.append(separator)
+        joined.append(item)
+    return joined
+
+
+def _fragment(problem: _Problem, hidden: set[str]) -> Wording:
     """A value the call can't use and why, as one item of a list."""
     masked = problem.column in hidden
-    shown = "a value" if masked else literal(problem.value, surface)
-    named = f"{shown} for {problem.column!r}"
+    shown: Wording = "a value" if masked else Declared(problem.value)
+    named: tuple[Wording, ...] = (shown, f" for {problem.column!r}")
     if problem.problem == "missing":
-        return f"{named}, a missing value itself"
+        return (*named, ", a missing value itself")
     if problem.problem == "infinite":
-        return f"{named}, an infinite value"
-    likely = (
-        f"; did you mean {literal(problem.likely, surface)}?"
+        return (*named, ", an infinite value")
+    likely: tuple[Wording, ...] = (
+        ("; did you mean ", Declared(problem.likely), "?")
         if problem.likely is not None and not masked
-        else ""
+        else ()
     )
-    return f"{named}, which holds {problem.holds} (dtype {problem.dtype}{likely})"
+    return (
+        *named,
+        f", which holds {problem.holds} (dtype {problem.dtype}",
+        *likely,
+        ")",
+    )
 
 
-def _closing(problems: list[_Problem], hidden: set[str], surface: Surface) -> str:
+def _closing(problems: list[_Problem], hidden: set[str]) -> Wording:
     """How to fix each kind of problem, in a fixed order."""
     kinds = {problem.problem for problem in problems}
-    sentences = []
+    sentences: list[Wording] = []
     if "type" in kinds:
-        sentence = "Declare each value as the type its column holds"
+        sentence: list[Wording] = ["Declare each value as the type its column holds"]
         [first] = problems if len(problems) == 1 else [None]
         if (
             first is not None
             and first.likely is not None
             and first.column not in hidden
         ):
-            likely = literal(first.likely, surface)
-            sentence += (
-                f', such as {{"sentinel_values": {{{json.dumps(first.column)}: '
-                f"[{likely}]}}}}"
-                if surface == "mcp"
-                else f", such as sentinel_values={{{first.column!r}: [{likely}]}}"
+            sentence.append(
+                Words(
+                    (
+                        f", such as sentinel_values={{{first.column!r}: [",
+                        Declared(first.likely),
+                        "]}",
+                    ),
+                    (
+                        ', such as {"sentinel_values": {'
+                        f"{json.dumps(first.column)}: [",
+                        Declared(first.likely),
+                        "]}}",
+                    ),
+                )
             )
-        sentences.append(f"{sentence}.")
+        sentence.append(".")
+        sentences.append(sentence)
     if "limit" in kinds:
         sentences.append(
             "Leave it out of sentinel_values, or declare a value the column can hold."
@@ -727,19 +763,23 @@ def _closing(problems: list[_Problem], hidden: set[str], surface: Surface) -> st
             else "Leave out the values their columns can't hold."
         )
     if "missing" in kinds:
-        stand_ins = "-999 or 'N/A'" if surface == "python" else '-999 or "N/A"'
         sentences.append(
-            f"Declare only stand-ins for missing values, such as {stand_ins}."
+            (
+                "Declare only stand-ins for missing values, such as ",
+                Words("-999 or 'N/A'", '-999 or "N/A"'),
+                ".",
+            )
         )
     if "infinite" in kinds:
         sentences.append(
-            "Replace infinite values with NaN first if they mean missing, such as "
-            "df.replace([np.inf, -np.inf], np.nan)."
-            if surface == "python"
-            else "Leave infinite values out of sentinel_values: the analyses read "
-            "them as numbers, never as missing."
+            Words(
+                "Replace infinite values with NaN first if they mean missing, such "
+                "as df.replace([np.inf, -np.inf], np.nan).",
+                "Leave infinite values out of sentinel_values: the analyses read "
+                "them as numbers, never as missing.",
+            )
         )
-    return " ".join(sentences)
+    return _separated(sentences, " ")
 
 
 def json_value(value: DeclaredValue) -> JsonSentinel:
