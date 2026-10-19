@@ -12,14 +12,12 @@ from annotated_types import Gt, Lt
 from pydantic.json_schema import SkipJsonSchema
 
 from agent_eda._columns import (
-    ALL_KINDS,
     TO_LABELS,
     TO_NUMBERS,
     Column,
     ColumnKind,
     ColumnRule,
     select_columns,
-    sentence,
 )
 from agent_eda._levels import (
     Levels,
@@ -64,15 +62,15 @@ from agent_eda._result_base import (
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, check_distinct
 from agent_eda._sentinels import (
+    Declared,
     Family,
     SentinelValue,
     family,
     holds,
     likely_value,
-    literal,
 )
-from agent_eda._text import Surface, format_number, join_items, placeholder, plural
-from agent_eda._wording import as_written, worded
+from agent_eda._text import format_number, join_items, placeholder, plural
+from agent_eda._wording import Listed, Pass, PythonOnly, Say, Wording, Words, mistake
 from agent_eda._written_form import row_id_list
 from agent_eda.data._targets_results import (
     ProfileTargetClass,
@@ -90,14 +88,77 @@ Task = Literal["binary_classification", "multiclass_classification", "regression
 # JSON Schema leaves it out.
 Label = str | bool | int | float | dt.datetime | dt.date | SkipJsonSchema[pd.Period]
 
-# target_column may name a column of any dtype; the task decides which it takes.
-_ANY_COLUMN = ColumnRule(
-    default=frozenset(),
-    default_text="no column",
-    accepted=ALL_KINDS,
-    accepted_text="a column of any dtype",
-    fixes={},
+# The kinds of column whose values can be class labels.
+_LABEL_KINDS: frozenset[ColumnKind] = frozenset(
+    {"numeric", "boolean", "text", "object", "categorical"}
 )
+_CLASSIFY_BINARY = Say(
+    "If its values are class labels, pass ", Pass(task="binary_classification")
+)
+_CLASSIFY = Say(
+    _CLASSIFY_BINARY,
+    " or ",
+    Pass(task="multiclass_classification"),
+)
+# An MCP caller can't convert a column, so it picks another column.
+_NUMBERS_INSTEAD = "Pass a column of numbers instead"
+_LABELS_INSTEAD = "Pass a column of labels instead"
+
+
+def _to_numbers(kind: ColumnKind) -> PythonOnly:
+    """The conversion to numbers of the shared ones, and for an MCP caller
+    another column."""
+    return PythonOnly(TO_NUMBERS[kind].code, otherwise=_NUMBERS_INSTEAD)
+
+
+def _to_labels(kind: ColumnKind) -> PythonOnly:
+    return PythonOnly(TO_LABELS[kind].code, otherwise=_LABELS_INSTEAD)
+
+
+# What a target may hold depends on the task, so each task has its own rule: a
+# regression target holds numbers; class labels can be text, numbers, booleans
+# or categories. The task is never inferred from the dtype, so numbers can be
+# class labels. The target is named in the call, so columns=None selects none.
+_TASK_RULES: dict[str, ColumnRule] = {
+    "regression": ColumnRule(
+        default=frozenset(),
+        default_text="no column",
+        accepted=frozenset({"numeric"}),
+        accepted_text=(
+            "numbers: integer or float columns, nullable and pyarrow-backed ones of "
+            "those kinds included"
+        ),
+        rejection="{analysis} can't use {what} as a regression target, which must "
+        "hold {accepted}.",
+        fixes={
+            "text": (_CLASSIFY, TO_NUMBERS["text"]),
+            "object": (_CLASSIFY, TO_NUMBERS["object"]),
+            "categorical": (_CLASSIFY, TO_NUMBERS["categorical"]),
+            "boolean": (_CLASSIFY_BINARY, TO_NUMBERS["boolean"]),
+            "timedelta": (_to_numbers("timedelta"),),
+            "datetime": (_to_numbers("datetime"),),
+            "other": (Say(_NUMBERS_INSTEAD),),
+        },
+        leave_out=False,
+    ),
+    "classification": ColumnRule(
+        default=frozenset(),
+        default_text="no column",
+        accepted=_LABEL_KINDS,
+        accepted_text=(
+            "text, numbers, booleans or categories, nullable and pyarrow-backed "
+            "ones of those kinds included"
+        ),
+        rejection="{analysis} can't use {what} as a classification target, whose "
+        "labels must be {accepted}.",
+        fixes={
+            "datetime": (_to_labels("datetime"),),
+            "timedelta": (_to_labels("timedelta"),),
+            "other": (_to_labels("other"),),
+        },
+        leave_out=False,
+    ),
+}
 # The classes and unexpected labels each result keeps; to_frame() has every label.
 _KEPT_LABELS = 100
 # The row IDs each unexpected label keeps.
@@ -322,9 +383,12 @@ def profile_target(
     labels = None if expected_labels is None else list(expected_labels)
     _check_options(task, labels, rare_share, hide=masking.masks(target_column))
     [target] = select_columns(
-        "profile_target", data, [target_column], _ANY_COLUMN, parameter="target_column"
+        "profile_target",
+        data,
+        [target_column],
+        _TASK_RULES["regression" if task == "regression" else "classification"],
+        parameter="target_column",
     ).columns
-    _check_target(target, task)
     row_ids = read_row_ids("profile_target", data, id_column)
     if task == "regression":
         profile = _regression(data, target)
@@ -398,29 +462,27 @@ def _check_options(
         ]
         if given:
             them = "it" if len(given) == 1 else "them"
-            raise worded(
+            raise mistake(
                 InvalidArgumentError,
-                lambda surface: (
-                    f"profile_target got {join_items(given)} for a "
-                    f"regression task, which has no class labels to check. Leave {them} "
-                    f"out, or pass {_classification_tasks(surface)} if the target holds "
-                    "class labels."
-                ),
+                f"profile_target got {join_items(given)} for a "
+                f"regression task, which has no class labels to check. Leave {them} "
+                "out, or pass ",
+                Pass(task="binary_classification"),
+                " or ",
+                Pass(task="multiclass_classification"),
+                " if the target holds class labels.",
             )
         return
     if labels is None:
         return
     if not labels:
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                "profile_target got an empty list for expected_labels. "
-                "List the labels the task allows, or "
-                + (
-                    "pass expected_labels=None to leave the check out."
-                    if surface == "python"
-                    else "leave expected_labels out to skip the check."
-                )
+            "profile_target got an empty list for expected_labels. "
+            "List the labels the task allows, or ",
+            Words(
+                "pass expected_labels=None to leave the check out.",
+                "leave expected_labels out to skip the check.",
             ),
         )
     not_finite = [
@@ -437,14 +499,13 @@ def _check_options(
     check_distinct("profile_target", "expected_labels", labels, "label", hide=hide)
     given = plural(len(labels), "label", "labels")
     if task == "binary_classification" and len(labels) != 2:
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"profile_target got {given} in expected_labels for a "
-                "binary_classification task, which has 2 classes. List its 2 "
-                "labels, or pass "
-                f"{as_written(surface, task='multiclass_classification')}."
-            ),
+            f"profile_target got {given} in expected_labels for a "
+            "binary_classification task, which has 2 classes. List its 2 "
+            "labels, or pass ",
+            Pass(task="multiclass_classification"),
+            ".",
         )
     if len(labels) < 2:
         raise InvalidArgumentError(
@@ -485,35 +546,35 @@ def _check_label_types(
         f"(dtype {column.dtype})"
     )
 
-    def message(surface: Surface) -> str:
-        if len(unusable) == 1:
-            shown = "a label" if hide else literal(unusable[0], surface)
-            problem = (
-                f"got {shown} in expected_labels, but {holding}, so it can never "
-                "equal a label."
-            )
-        else:
-            listed = (
-                ""
-                if hide
-                else f": {join_items([literal(x, surface) for x in unusable])}"
-            )
-            problem = (
-                f"can't use {len(unusable):,} labels in expected_labels{listed}, "
-                f"since {holding}, so they can never equal a label."
-            )
-        hint = (
-            ""
-            if hint_values is None
-            else " Did you mean "
-            f"{join_items([literal(value, surface) for value in hint_values])}?"
+    problem: tuple[Wording, ...]
+    if len(unusable) == 1:
+        shown: Wording = "a label" if hide else Declared(unusable[0])
+        problem = (
+            "got ",
+            shown,
+            f" in expected_labels, but {holding}, so it can never equal a label.",
         )
-        return (
-            f"profile_target {problem}{hint} Declare each label as the type the "
-            "target holds."
+    else:
+        listed: Wording = (
+            "" if hide else (": ", Listed(Declared(label) for label in unusable))
         )
-
-    raise worded(InvalidArgumentError, message)
+        problem = (
+            f"can't use {len(unusable):,} labels in expected_labels",
+            listed,
+            f", since {holding}, so they can never equal a label.",
+        )
+    hint: Wording = (
+        ""
+        if hint_values is None
+        else (" Did you mean ", Listed(Declared(value) for value in hint_values), "?")
+    )
+    raise mistake(
+        InvalidArgumentError,
+        "profile_target ",
+        *problem,
+        hint,
+        " Declare each label as the type the target holds.",
+    )
 
 
 def _label_families(label: object) -> set[Family]:
@@ -530,92 +591,6 @@ def _what(what: str, allowed: frozenset[Family], levels: Levels) -> str:
         return what
     names = sorted({label_type_name(label) for label in levels.objects()})
     return f"{join_items(names)} values" if names else "values of another type"
-
-
-# The kinds of column whose values can be class labels.
-_LABEL_KINDS: frozenset[ColumnKind] = frozenset(
-    {"numeric", "boolean", "text", "object", "categorical"}
-)
-_CLASSIFY = (
-    "If its values are class labels, pass task='binary_classification' or "
-    "task='multiclass_classification'"
-)
-_CLASSIFY_BINARY = "If its values are class labels, pass task='binary_classification'"
-# How to fix a regression task on a column of each kind that isn't numeric;
-# {column} becomes the code for the column. The conversions are the package's
-# shared ones.
-_REGRESSION_FIXES: dict[ColumnKind, str] = {
-    "text": f"{_CLASSIFY}; or {TO_NUMBERS['text']}",
-    "object": f"{_CLASSIFY}; or {TO_NUMBERS['object']}",
-    "categorical": f"{_CLASSIFY}; or {TO_NUMBERS['categorical']}",
-    "boolean": f"{_CLASSIFY_BINARY}; or {TO_NUMBERS['boolean']}",
-    "timedelta": sentence(TO_NUMBERS["timedelta"]),
-    "datetime": sentence(TO_NUMBERS["datetime"]),
-    "other": "Pass a column of numbers instead",
-}
-
-
-def _classification_tasks(surface: Surface) -> str:
-    """The two classification tasks as the caller passes them."""
-    return " or ".join(
-        as_written(surface, task=task)
-        for task in ("binary_classification", "multiclass_classification")
-    )
-
-
-# How an MCP caller fixes a regression task on a column of each kind that
-# isn't numeric: converting the column is Python, so it picks another task or
-# another column.
-_MCP_CLASSIFY = f"If its values are class labels, pass {_classification_tasks('mcp')}"
-_MCP_REGRESSION_FIXES: dict[ColumnKind, str] = {
-    "text": _MCP_CLASSIFY,
-    "object": _MCP_CLASSIFY,
-    "categorical": _MCP_CLASSIFY,
-    "boolean": (
-        "If its values are class labels, pass "
-        f"{as_written('mcp', task='binary_classification')}"
-    ),
-    "timedelta": "Pass a column of numbers instead",
-    "datetime": "Pass a column of numbers instead",
-    "other": "Pass a column of numbers instead",
-}
-
-
-def _check_target(target: Column, task: Task) -> None:
-    """Raise unless the task can take the target column's dtype.
-
-    A regression target holds numbers; class labels can be text, numbers,
-    booleans or categories. The task is never inferred from the dtype, so
-    numbers can be class labels.
-    """
-    code = f"df[{target.label!r}]"
-    what = f"column {target.name!r} with dtype {target.dtype}"
-    if task == "regression" and target.kind != "numeric":
-        fixes = {
-            "python": _REGRESSION_FIXES[target.kind].format(column=code),
-            "mcp": _MCP_REGRESSION_FIXES[target.kind],
-        }
-        raise worded(
-            ColumnTypeError,
-            lambda surface: (
-                f"profile_target can't use {what} as a regression "
-                "target, which must hold numbers: integer or float columns, nullable "
-                f"and pyarrow-backed ones of those kinds included. {fixes[surface]}."
-            ),
-        )
-    if task != "regression" and target.kind not in _LABEL_KINDS:
-        fixes = {
-            "python": sentence(TO_LABELS[target.kind]).format(column=code),
-            "mcp": "Pass a column of labels instead",
-        }
-        raise worded(
-            ColumnTypeError,
-            lambda surface: (
-                f"profile_target can't use {what} as a classification "
-                "target, whose labels must be text, numbers, booleans or categories, "
-                f"nullable and pyarrow-backed ones of those kinds included. {fixes[surface]}."
-            ),
-        )
 
 
 @dataclass

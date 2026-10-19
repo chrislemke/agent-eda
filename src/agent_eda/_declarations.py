@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from agent_eda._registry import invalid_message, python_scalar, unknown_name_message
 from agent_eda._text import a_or_an
-from agent_eda._wording import worded
+from agent_eda._wording import mistake
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 
 
@@ -157,15 +157,10 @@ class Declaration(BaseModel):
             name: list(value) if isinstance(value, tuple) else value
             for name, value in fields.items()
         }
-        return worded(
+        return mistake(
             InvalidArgumentError,
-            lambda surface: invalid_message(
-                cls.__name__,
-                cls._field_types,
-                given,
-                problems,
-                noun="field",
-                surface=surface,
+            invalid_message(
+                cls.__name__, cls._field_types, given, problems, noun="field"
             ),
         )
 

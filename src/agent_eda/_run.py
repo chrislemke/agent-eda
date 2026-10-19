@@ -16,8 +16,8 @@ from agent_eda._result_base import (
     StatusReason,
     StatusReasonCode,
 )
-from agent_eda._text import Surface, join_items, join_labels, plural
-from agent_eda._wording import echoed, worded
+from agent_eda._text import join_labels, plural
+from agent_eda._wording import Echo, Listed, Wording, Words, mistake
 from agent_eda.errors import InvalidArgumentError
 
 # When no column completed and their statuses differ, the first of these that
@@ -190,23 +190,24 @@ def check_distinct(
     if not repeated:
         return
 
-    def text(surface: Surface) -> str:
-        if hide:
-            named = (
-                f"{plural(len(repeated), noun, noun + 's')} (not shown: masking "
-                "hides the values of a sensitive column)"
-            )
-        else:
-            named = join_items([echoed(value, surface) for value in repeated])
-        where = parameter
-        if within is not None:
-            where = (
-                f"{parameter}[{within!r}]"
-                if surface == "python"
-                else f"the {parameter} list for {json.dumps(within)}"
-            )
-        return (
-            f"{analysis} got {named} more than once in {where}. List each {noun} once."
+    if hide:
+        named: Wording = (
+            f"{plural(len(repeated), noun, noun + 's')} (not shown: masking "
+            "hides the values of a sensitive column)"
         )
-
-    raise worded(InvalidArgumentError, text)
+    else:
+        named = Listed(Echo(value) for value in repeated)
+    where: Wording = parameter
+    if within is not None:
+        where = Words(
+            f"{parameter}[{within!r}]",
+            f"the {parameter} list for {json.dumps(within)}",
+        )
+    raise mistake(
+        InvalidArgumentError,
+        f"{analysis} got ",
+        named,
+        " more than once in ",
+        where,
+        f". List each {noun} once.",
+    )

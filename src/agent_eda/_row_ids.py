@@ -17,7 +17,7 @@ import pandas as pd
 from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
 from agent_eda._result_base import Limitation
 from agent_eda._values import hashable_values, value_codes
-from agent_eda._wording import worded
+from agent_eda._wording import Words, mistake
 from agent_eda.errors import ColumnTypeError
 
 # id_column may name a column of any dtype.
@@ -65,18 +65,15 @@ def read_row_ids(analysis: str, data: pd.DataFrame, id_column: str | None) -> Ro
     ).columns
     labels = data.iloc[:, column.position]
     if value_codes(labels, unhashable="unsupported") is None:
-        raise worded(
+        raise mistake(
             ColumnTypeError,
-            lambda surface: (
-                f"{analysis} can't use column {column.name!r} with dtype "
-                f"{column.dtype} as id_column: it holds values that can't be hashed, "
-                "such as lists or dicts, and so can't identify rows. Pass a column of IDs "
-                "such as numbers or strings, or "
-                + (
-                    "leave id_column=None to use the index labels."
-                    if surface == "python"
-                    else "leave id_column out to use the default row IDs."
-                )
+            f"{analysis} can't use column {column.name!r} with dtype "
+            f"{column.dtype} as id_column: it holds values that can't be hashed, "
+            "such as lists or dicts, and so can't identify rows. Pass a column of "
+            "IDs such as numbers or strings, or ",
+            Words(
+                "leave id_column=None to use the index labels.",
+                "leave id_column out to use the default row IDs.",
             ),
         ) from None
     repeated = duplicated_labels(labels, keep=False)

@@ -318,8 +318,9 @@ def _message_records() -> dict[str, Entry]:
 
 
 def _stable(text: str, directory: Path) -> str:
-    """The text without the temporary directory a mistake ran in."""
-    return text.replace(str(directory), "<tmp>")
+    """The text without the temporary directory a mistake ran in, and without
+    the working directory a message names."""
+    return text.replace(str(directory), "<tmp>").replace(str(Path.cwd()), "<cwd>")
 
 
 def collect(*, full: bool = False) -> dict[str, Entry]:

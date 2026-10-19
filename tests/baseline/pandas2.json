@@ -954,7 +954,7 @@
   "code": "data_file_not_found",
   "error": "True",
   "expected_code": "data_file_not_found",
-  "message": "data_path leads to <tmp>/folder.csv, which is a directory, not a file. Pass the path of an existing file, absolute or relative to the MCP server's working directory, /Users/chris/Developer/agent-eda/.claude/worktrees/agent-a3406852ea8570f65."
+  "message": "data_path leads to <tmp>/folder.csv, which is a directory, not a file. Pass the path of an existing file, absolute or relative to the MCP server's working directory, <cwd>."
  },
  "mcp: data-path-that-is-a-number": {
   "code": "invalid_argument",
@@ -1110,7 +1110,7 @@
   "code": "invalid_argument",
   "error": "True",
   "expected_code": "invalid_argument",
-  "message": "table_path leads to <tmp>/missing/table.csv, but its directory, <tmp>/missing, doesn't exist, and the MCP server doesn't create directories. Create it first, or pass a path in an existing directory, absolute or relative to the MCP server's working directory, /Users/chris/Developer/agent-eda/.claude/worktrees/agent-a3406852ea8570f65."
+  "message": "table_path leads to <tmp>/missing/table.csv, but its directory, <tmp>/missing, doesn't exist, and the MCP server doesn't create directories. Create it first, or pass a path in an existing directory, absolute or relative to the MCP server's working directory, <cwd>."
  },
  "mcp: table-path-of-another-format": {
   "code": "invalid_argument",

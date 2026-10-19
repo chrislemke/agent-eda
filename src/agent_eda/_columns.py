@@ -16,7 +16,6 @@ import pandas as pd
 from agent_eda._run import check_distinct
 from agent_eda._text import (
     MAX_UNKNOWN_NAMED,
-    Surface,
     closest_names,
     join_alternatives,
     join_items,
@@ -25,7 +24,17 @@ from agent_eda._text import (
     short_repr,
 )
 from agent_eda._values import is_arrow_dictionary, value_codes
-from agent_eda._wording import left_out, worded
+from agent_eda._wording import (
+    NONE,
+    Fix,
+    LeaveOut,
+    OneOf,
+    Part,
+    PythonOnly,
+    Wording,
+    Words,
+    mistake,
+)
 from agent_eda.errors import ColumnNotFoundError, ColumnTypeError, InvalidArgumentError
 
 # Error messages name at most this many of the data's columns.
@@ -45,32 +54,36 @@ ColumnKind = Literal[
 ALL_KINDS: frozenset[ColumnKind] = frozenset(typing.get_args(ColumnKind))
 
 # How to convert a column of a kind that an analysis rejects, in one wording for
-# every analysis. {column} becomes the code for the column. An analysis picks
-# the kinds it rejects from these, and builds its other advice around them.
+# every analysis: pandas code, which only a Python caller can run. {column}
+# becomes the code for the column. An analysis picks the kinds it rejects from
+# these, and builds its other advice around them.
 _STRFTIME_MONTHS = "{column}.dt.strftime('%Y-%m')"
-TO_NUMBERS: Mapping[ColumnKind, str] = {
-    "text": "convert numbers stored as text with pd.to_numeric({column}, errors='coerce')",
-    "object": "convert numbers stored as text with pd.to_numeric({column}, errors='coerce')",
-    "categorical": "convert numeric categories with {column}.astype(float)",
-    "boolean": "convert False and True to 0 and 1 with {column}.astype(float)",
-    "datetime": (
+TO_NUMBERS: Mapping[ColumnKind, PythonOnly] = {
+    "text": PythonOnly(
+        "convert numbers stored as text with pd.to_numeric({column}, errors='coerce')"
+    ),
+    "object": PythonOnly(
+        "convert numbers stored as text with pd.to_numeric({column}, errors='coerce')"
+    ),
+    "categorical": PythonOnly("convert numeric categories with {column}.astype(float)"),
+    "boolean": PythonOnly(
+        "convert False and True to 0 and 1 with {column}.astype(float)"
+    ),
+    "datetime": PythonOnly(
         "convert datetimes to numbers with ({column} - {column}.min()).dt.total_seconds()"
     ),
-    "timedelta": "convert durations to numbers with {column}.dt.total_seconds()",
+    "timedelta": PythonOnly(
+        "convert durations to numbers with {column}.dt.total_seconds()"
+    ),
 }
-TO_LABELS: Mapping[ColumnKind, str] = {
-    "datetime": (
+TO_LABELS: Mapping[ColumnKind, PythonOnly] = {
+    "datetime": PythonOnly(
         "convert datetimes to labels with {column}.astype(str), or to months with "
         + _STRFTIME_MONTHS
     ),
-    "timedelta": "convert durations to labels with {column}.astype(str)",
-    "other": "convert its values to labels with {column}.astype(str)",
+    "timedelta": PythonOnly("convert durations to labels with {column}.astype(str)"),
+    "other": PythonOnly("convert its values to labels with {column}.astype(str)"),
 }
-
-
-def sentence(fix: str) -> str:
-    """A conversion from TO_NUMBERS or TO_LABELS, started with a capital."""
-    return f"{fix[0].upper()}{fix[1:]}"
 
 
 class Labels:
@@ -131,21 +144,18 @@ def first_positions(labels: Labels, positions: list[int]) -> list[int]:
 
 def check_column_labels(analysis: str, columns: pd.Index) -> None:
     """Raise unless every column can be named by the string form of its label."""
-    fix_elsewhere = "describe_dataset describes data with any labels."
+    fix_elsewhere = " describe_dataset describes data with any labels."
     if isinstance(columns, pd.MultiIndex):
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"{analysis} refers to columns by name, but the column "
-                f"labels form a MultiIndex with {columns.nlevels} levels. "
-                + (
-                    "Flatten them first, such as df.columns = ['_'.join(map(str, c)) "
-                    "for c in df.columns]. "
-                    if surface == "python"
-                    else "Flatten them in the data file first. "
-                )
-                + fix_elsewhere
+            f"{analysis} refers to columns by name, but the column "
+            f"labels form a MultiIndex with {columns.nlevels} levels. ",
+            Words(
+                "Flatten them first, such as df.columns = ['_'.join(map(str, c)) "
+                "for c in df.columns]. ",
+                "Flatten them in the data file first. ",
             ),
+            fix_elsewhere.lstrip(),
             code="ambiguous_column_labels",
         )
     labels = Labels(columns)
@@ -175,20 +185,17 @@ def check_column_labels(analysis: str, columns: pd.Index) -> None:
         fixes.append(f"df = df.rename(columns={{{label!r}: {renamed!r}}})")
         in_file.append("the columns that share a string form")
     if problems:
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"{analysis} refers to columns by name, the string form of each "
-                "label, so labels must be unique and distinct as strings, but "
-                f"{', and '.join(problems)}. "
-                + (
-                    f"Rename them first, such as {' and '.join(fixes)}."
-                    if surface == "python"
-                    else f"Rename {' and '.join(in_file)} in the file, then pass "
-                    "its path again."
-                )
-                + f" {fix_elsewhere}"
+            f"{analysis} refers to columns by name, the string form of each "
+            "label, so labels must be unique and distinct as strings, but "
+            f"{', and '.join(problems)}. ",
+            Words(
+                f"Rename them first, such as {' and '.join(fixes)}.",
+                f"Rename {' and '.join(in_file)} in the file, then pass its path "
+                "again.",
             ),
+            fix_elsewhere,
             code="ambiguous_column_labels",
         )
 
@@ -250,12 +257,18 @@ class ColumnRule:
     # What a column named in the call may hold, and how to say it: "It accepts ...".
     accepted: frozenset[ColumnKind]
     accepted_text: str
-    # For a rejected kind, how to fix the call, such as "convert durations to numbers with
-    # {column}.dt.total_seconds()"; {column} becomes the code for the column.
-    fixes: Mapping[ColumnKind, str]
+    # For a rejected kind, how to fix the call, such as PythonOnly("convert durations
+    # to numbers with {column}.dt.total_seconds()"): a fix, or the fixes in order;
+    # {column} becomes the code for the column.
+    fixes: Mapping[ColumnKind, Fix | tuple[Fix, ...]]
     # For a rejected kind, the analysis that fits it, such as
     # "summarize_categorical" for text; the message names it first.
     alternatives: Mapping[ColumnKind, str] = field(default_factory=dict)
+    # What the message says of the rejected column, with {analysis}, {what} and
+    # {accepted} filled in.
+    rejection: str = "{analysis} can't use {what}. It accepts {accepted}."
+    # Whether the fix can also be to leave the column out of the call.
+    leave_out: bool = True
 
 
 @dataclass(frozen=True)
@@ -301,36 +314,31 @@ def select_columns(
             },
         )
     if not requested:
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"{analysis} got an empty list for {parameter}. Name at "
-                f"least one column, or {left_out(parameter, surface)} for "
-                f"{rule.default_text}."
-            ),
+            f"{analysis} got an empty list for {parameter}. Name at least one "
+            "column, or ",
+            LeaveOut(parameter),
+            f" for {rule.default_text}.",
         )
     check_distinct(analysis, parameter, requested, "column")
     by_name = {column.name: column for column in columns}
     unknown = [name for name in requested if name not in by_name]
     if unknown:
-        raise worded(
+        raise mistake(
             ColumnNotFoundError,
-            lambda surface: _not_found(
+            _not_found(
                 analysis,
                 parameter,
                 unknown,
                 list(by_name),
                 index_names=[str(n) for n in data.index.names if n is not None],
-                surface=surface,
             ),
         )
     selected = [by_name[name] for name in requested]
     rejected = [column for column in selected if column.kind not in rule.accepted]
     if rejected:
-        raise worded(
-            ColumnTypeError,
-            lambda surface: _wrong_type(analysis, parameter, rejected, rule, surface),
-        )
+        raise mistake(ColumnTypeError, _wrong_type(analysis, parameter, rejected, rule))
     return Selection(columns=selected, left_out=[])
 
 
@@ -341,8 +349,7 @@ def _not_found(
     names: list[str],
     *,
     index_names: Sequence[str] = (),
-    surface: Surface = "python",
-) -> str:
+) -> Wording:
     if names:
         listed = join_items([repr(n) for n in names], limit=MAX_LISTED_COLUMNS)
         available = f"The data has {plural(len(names), 'column', 'columns')}: {listed}."
@@ -361,20 +368,30 @@ def _not_found(
         if parameter == "id_column" and name in index_names:
             return (
                 f"{analysis} got id_column {name!r}, which names the index, not a "
-                f"column. The index labels are already the row IDs: "
-                f"{left_out(parameter, surface)} to use them. To use the index as a "
-                f"column instead, {_as_column(surface)}. {available}"
+                "column. The index labels are already the row IDs: ",
+                LeaveOut(parameter),
+                " to use them. To use the index as a column instead, ",
+                PythonOnly(
+                    "call df.reset_index() first",
+                    otherwise="write it as a column in the data file",
+                ),
+                f". {available}",
             )
-        hint = f" Did you mean {matches[name]}?" if matches[name] else ""
+        hint: tuple[Wording, ...] = (
+            (f" Did you mean {matches[name]}?",) if matches[name] else ()
+        )
         if name == "None" and parameter.endswith("columns"):
-            none = "None" if surface == "python" else "null"
             hint += (
-                f" To select every suitable column, {left_out(parameter, surface)} "
-                f"rather than a list holding {none}."
+                " To select every suitable column, ",
+                LeaveOut(parameter),
+                " rather than a list holding ",
+                NONE,
+                ".",
             )
         return (
-            f"{analysis} got an unknown column {short_repr(name)} in {parameter}."
-            f"{hint} {available}"
+            f"{analysis} got an unknown column {short_repr(name)} in {parameter}.",
+            *hint,
+            f" {available}",
         )
     described = [
         f"{short_repr(name)} (did you mean {match}?)" if match else short_repr(name)
@@ -387,20 +404,9 @@ def _not_found(
     )
 
 
-def _as_column(surface: Surface) -> str:
-    """How to turn the index into a column, for the surface."""
-    if surface == "python":
-        return "call df.reset_index() first"
-    return "write it as a column in the data file"
-
-
 def _wrong_type(
-    analysis: str,
-    parameter: str,
-    rejected: list[Column],
-    rule: ColumnRule,
-    surface: Surface,
-) -> str:
+    analysis: str, parameter: str, rejected: list[Column], rule: ColumnRule
+) -> Wording:
     # Each analysis that fits some of the columns, with the columns it fits.
     fitting: dict[str, list[str]] = {}
     for column in rejected:
@@ -409,11 +415,14 @@ def _wrong_type(
             fitting.setdefault(other, []).append(repr(column.name))
     # Each fix once, shown with the first column it applies to. A fix is
     # pandas code, which only a Python caller can run.
-    fixes: dict[str, str] = {}
-    for column in rejected if surface == "python" else []:
-        template = rule.fixes.get(column.kind)
-        if template is not None and template not in fixes:
-            fixes[template] = template.format(column=f"df[{column.label!r}]")
+    fixes: dict[str, Part] = {}
+    for column in rejected:
+        given = rule.fixes.get(column.kind, ())
+        for template in given if isinstance(given, tuple) else (given,):
+            fixes.setdefault(
+                template.render("python"),
+                template.bind(column=f"df[{column.label!r}]"),
+            )
     if len(rejected) == 1:
         [column] = rejected
         what = f"column {column.name!r} with dtype {column.dtype}"
@@ -423,18 +432,16 @@ def _wrong_type(
         listed = join_items(named, limit=MAX_LISTED_COLUMNS)
         what = f"{len(rejected):,} columns: {listed}"
         leave = f"leave them out of {parameter}"
-    steps = [
+    steps: list[Wording] = [
         f"use {other} for {join_items(names, limit=MAX_LISTED_COLUMNS)} instead"
         for other, names in fitting.items()
     ]
     steps.extend(fixes.values())
-    if not steps:
-        fix = leave
-    elif len(steps) == 1:
-        fix = f"{steps[0]}, or {leave}"
-    else:
-        fix = "; ".join([*steps, f"or {leave}"])
     return (
-        f"{analysis} can't use {what}. It accepts {rule.accepted_text}. "
-        f"{sentence(fix)}."
+        rule.rejection.format(
+            analysis=analysis, what=what, accepted=rule.accepted_text
+        ),
+        " ",
+        OneOf(steps, last=leave if rule.leave_out else None, capital=True),
+        ".",
     )

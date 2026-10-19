@@ -43,7 +43,7 @@ from agent_eda._text import (
     wrap,
 )
 from agent_eda._version import __version__
-from agent_eda._wording import as_written, echoed, type_of, worded
+from agent_eda._wording import Echo, Pass, TypeOf, Words, mistake
 from agent_eda.errors import InvalidArgumentError, UnknownAnalysisError
 
 # The order for a first look at a new dataset: what each step covers and the
@@ -391,13 +391,14 @@ def describe_analysis(name: str) -> AnalysisDescription:
     )
 
 
-def _search_example(surface: Surface, limit: int | None = None) -> str:
+def _search_example(limit: int | None = None) -> Words:
     """A search for missing values as the caller writes it."""
     options = {} if limit is None else {"limit": limit}
-    if surface == "mcp":
-        return as_written(surface, query="missing values", **options)
-    more = f", {as_written(surface, **options)}" if options else ""
-    return f"ae.search_analyses('missing values'{more})"
+    more = f", {Pass(**options).render('python')}" if options else ""
+    return Words(
+        f"ae.search_analyses('missing values'{more})",
+        Pass(query="missing values", **options),
+    )
 
 
 @checked_keywords
@@ -450,26 +451,23 @@ def search_analyses(query: str, limit: int = 5) -> SearchListing:
         Try other words, or call ae.guide() for every analysis and where to start.
     """
     if not isinstance(query, str):
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                "search_analyses takes the query as a string, such as "
-                f"{_search_example(surface)}, but got "
-                + (
-                    f"a value of type {type_of(query, surface)}."
-                    if surface == "python"
-                    else f"{type_of(query, surface)}."
-                )
-            ),
+            "search_analyses takes the query as a string, such as ",
+            _search_example(),
+            ", but got ",
+            Words(("a value of type ", TypeOf(query), "."), (TypeOf(query), ".")),
         )
     if isinstance(limit, bool) or not isinstance(limit, numbers.Integral) or limit < 1:
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"search_analyses got {echoed(limit, surface)} for limit, but limit "
-                f"must be {'an int' if surface == 'python' else 'an integer'} of at "
-                f"least 1, such as {_search_example(surface, 3)}."
-            ),
+            "search_analyses got ",
+            Echo(limit),
+            " for limit, but limit must be ",
+            Words("an int", "an integer"),
+            " of at least 1, such as ",
+            _search_example(3),
+            ".",
         )
     limit = int(limit)
     every_term = terms(query)
