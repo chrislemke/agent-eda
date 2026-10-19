@@ -16,6 +16,7 @@ from agent_eda._keys import (
     SetCounts,
     hashable,
 )
+from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._run import (
     budget_exceeded_reason,
@@ -141,6 +142,8 @@ def find_candidate_keys(
         columns left out for unhashable values, with an `unhashable_values`
         limitation, and `non_integral_float_columns` the float columns left out
         for their fractions, with a `non_integral_float_columns` limitation.
+        `nan_counted_as_missing` names the columns that store NaN as a value,
+        which counts as missing here though pandas' `isna` doesn't count it.
 
         Every finding is descriptive:
 
@@ -287,6 +290,11 @@ def find_candidate_keys(
             ),
         ],
         limitations=[
+            *stored_nan_limitations(
+                [name for name in names if stored_nan_count(values[name])],
+                ["keys_with_missing_values", "most_unique_column_sets"],
+                "missing_row_count counts it",
+            ),
             *_non_integral_float_columns(measurements),
             *_unhashable_values(left_out),
             *_ranking_not_proven(ranking, tally),

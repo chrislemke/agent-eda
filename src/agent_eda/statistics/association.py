@@ -61,7 +61,7 @@ _ASSOCIATION = ColumnRule(
     accepted=_PAIRED_KINDS,
     accepted_text=(
         "numeric, boolean, text, object and categorical columns, nullable and "
-        "pyarrow-backed ones included"
+        "pyarrow-backed ones of those kinds included"
     ),
     fixes={
         "datetime": (
@@ -98,7 +98,11 @@ _SKIP_MESSAGES: dict[SkipReason, str] = {
     "timedelta": (
         "Durations have no measure here; convert them with .dt.total_seconds() first."
     ),
-    "unsupported_dtype": "Its dtype holds neither numbers nor categories.",
+    "unsupported_dtype": (
+        "Its dtype holds neither numbers nor categories: Arrow times of day, "
+        "binary and nested types and sparse arrays of text or objects are none "
+        "of them."
+    ),
     "all_missing": "Every value is missing.",
     "no_finite_values": "Every value is missing, inf or -inf.",
     "unhashable_values": (
@@ -315,7 +319,7 @@ def compute_association_matrix(
         would explain the other column perfectly and trivially. The limitations
         `too_few_values`, `zero_variance` and `one_row_per_level` name those
         pairs, each with its own reason.
-        `float_precision` flags integers beyond ±2^53 read as float64, and
+        `float_precision` flags integers or decimals beyond ±2^53 read as float64, and
         `nan_counted_as_missing` NaN that a column stores as a value. There are
         no p-values or intervals.
 

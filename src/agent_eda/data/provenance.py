@@ -7,11 +7,12 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._columns import Labels, first_positions
+from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._row_ids import duplicated_labels
 from agent_eda._run import data_shape, execution
 from agent_eda._text import plural
-from agent_eda._values import value_codes
+from agent_eda._values import is_constant, nan_as_missing, value_codes
 from agent_eda.results import (
     ColumnSupport,
     DescribeDatasetColumn,
@@ -96,7 +97,9 @@ def describe_dataset(
         DescribeDatasetResult: Read `row_count`, `column_count` and
         `memory_bytes` (columns plus index) for the size. `columns` has one
         entry per column in DataFrame order with its `dtype` as pandas reports
-        it, `non_missing_count`, `missing_count` (what pandas' `isna` counts),
+        it, `non_missing_count`, `missing_count` (what pandas' `isna` counts, plus NaN that a pyarrow-backed
+        or nullable float column stores as a value, with a `nan_counted_as_missing`
+        limitation naming such columns),
         `distinct_count` (distinct non-missing values; null, with an
         `unhashable_values` limitation, when values such as lists can't be
         hashed) and `memory_bytes`. `index` holds the index dtype, whether its
@@ -117,7 +120,7 @@ def describe_dataset(
           rows.
         - `all_missing_columns`: suspected; a column holds only missing values.
         - `constant_columns`: suspected; a column holds a single distinct non-missing
-          value in at least two rows.
+          value in at least two rows; NaN is missing.
 
     Statuses:
         completed: The description finished, also for data with no rows, no
@@ -220,7 +223,10 @@ def describe_dataset(
             ],
         ),
         findings=findings,
-        limitations=_unhashable_values(columns, labels),
+        limitations=[
+            *_stored_nan(data, labels),
+            *_unhashable_values(columns, labels),
+        ],
         execution=execution(("numpy", "pandas")),
         row_count=row_count,
         column_count=len(columns),
@@ -251,7 +257,8 @@ def _describe_column(
             np.asarray(series.array, dtype=object)
         )
     else:
-        missing = int(series.isna().sum())
+        # NaN that the column stores as a value is missing, as in every analysis.
+        missing = int(nan_as_missing(series).isna().sum())
         distinct = _distinct_count(series)
         memory = _memory_bytes(series)
     return DescribeDatasetColumn(
@@ -335,6 +342,11 @@ def _memory_bytes(values: pd.Series | pd.Index) -> int:
         return int(categorical.codes.nbytes) + _memory_bytes(categorical.categories)
     if _holds_python_objects(values.dtype):
         return _object_bytes(np.asarray(values.array, dtype=object))
+    if isinstance(values.dtype, pd.SparseDtype) and values.dtype.subtype.kind == "O":
+        # pandas can't size the Python objects behind a sparse array.
+        sparse = cast("pd.arrays.SparseArray", values.array)
+        stored = np.asarray(sparse.sp_values, dtype=object)
+        return int(sparse.nbytes) + _object_bytes(stored) - int(stored.nbytes)
     if isinstance(values, pd.Index):
         # The explicit dtype stops pandas 3 from turning object text into str.
         values = pd.Series(values.array, copy=False, dtype=values.dtype)
@@ -505,6 +517,19 @@ def _all_missing_columns(
     ]
 
 
+def _stored_nan(data: pd.DataFrame, labels: Labels) -> list[Limitation]:
+    positions = [
+        position
+        for position in range(data.shape[1])
+        if stored_nan_count(data.iloc[:, position])
+    ]
+    return stored_nan_limitations(
+        [labels.labels[p] for p in positions],
+        [f"columns[{p}].missing_count" for p in positions],
+        "missing_count counts it",
+    )
+
+
 def _unhashable_values(
     columns: list[DescribeDatasetColumn], labels: Labels
 ) -> list[Limitation]:
@@ -531,7 +556,7 @@ def _constant_columns(
     positions = [
         c.position
         for c in columns
-        if c.non_missing_count >= 2 and c.distinct_count == 1
+        if is_constant(c.non_missing_count, c.distinct_count)
     ]
     if not positions:
         return []

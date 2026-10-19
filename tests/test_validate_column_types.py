@@ -157,6 +157,62 @@ RULES = [
         (0, 2, 1, 0),
     ),
     ("category of text", pd.Series(["a", "b"], dtype="category"), "text", (0, 2, 0, 0)),
+    # A category is read by its label, so a stored category is never compatible
+    # with the other types, and each row counts as its category does.
+    (
+        "category of booleans as booleans",
+        pd.Series([True, False, None, True], dtype="category"),
+        "boolean",
+        (0, 3, 0, 1),
+    ),
+    (
+        "category of booleans as integers",
+        pd.Series([True, False, None, True], dtype="category"),
+        "integer",
+        (0, 0, 3, 1),
+    ),
+    (
+        "category of datetimes as datetimes",
+        pd.Series([DAY, DAY, None, dt.datetime(2021, 1, 1)], dtype="category"),
+        "datetime",
+        (0, 3, 0, 1),
+    ),
+    (
+        "category of datetimes as durations",
+        pd.Series([DAY, DAY, None, dt.datetime(2021, 1, 1)], dtype="category"),
+        "timedelta",
+        (0, 0, 3, 1),
+    ),
+    (
+        "category of durations as durations",
+        pd.Series([dt.timedelta(1), dt.timedelta(2), None], dtype="category"),
+        "timedelta",
+        (0, 2, 0, 1),
+    ),
+    (
+        "category of durations as text",
+        pd.Series([dt.timedelta(1), dt.timedelta(2), None], dtype="category"),
+        "text",
+        (0, 2, 0, 1),
+    ),
+    (
+        "category of mixed values as floats",
+        pd.Series(["a", 1, 2.5, dt.date(2020, 1, 1)], dtype="category"),
+        "float",
+        (0, 2, 2, 0),
+    ),
+    (
+        "category of mixed values as datetimes",
+        pd.Series(["a", 1, 2.5, dt.date(2020, 1, 1)], dtype="category"),
+        "datetime",
+        (0, 1, 3, 0),
+    ),
+    (
+        "category of mixed values as text",
+        pd.Series(["a", 1, 2.5, dt.date(2020, 1, 1)], dtype="category"),
+        "text",
+        (0, 4, 0, 0),
+    ),
     # Objects are read by their own type, though pandas counts 1, 1.0 and True as one.
     (
         "mixed objects as integers",

@@ -80,16 +80,13 @@ LimitationCode = Literal[
     "too_few_values",
     # Every value is equal, so a statistic such as skewness is undefined and null.
     "zero_variance",
-    # Integers beyond ±2^53 were read as float64, which rounds them.
+    # Integers or decimals beyond ±2^53 were read as float64, which rounds them.
     "float_precision",
     # Booleans were read as numbers: 0 for False and 1 for True.
     "boolean_as_numeric",
     # A column stores NaN as a value, which pandas' isna() doesn't count as
-    # missing; a numeric summary counts it as missing all the same.
+    # missing; every analysis counts it as missing all the same.
     "nan_counted_as_missing",
-    # A column stores NaN as a value, which pandas' isna() doesn't count as
-    # missing, and neither does a count of native missing values.
-    "nan_not_counted_as_missing",
     # A categorical column has a level for every complete row of a pair, such as
     # an ID, so it would explain the other column trivially and the pair's
     # value is null.
@@ -1206,8 +1203,9 @@ class DescribeDatasetColumn(ResultModel):
     dtype: str = Field(description="The dtype as pandas reports it, such as 'int64'.")
     non_missing_count: int = Field(description="Values that are not missing.")
     missing_count: int = Field(
-        description="Missing values as pandas isna() counts them: None, NaN, NaT "
-        "and pd.NA."
+        description="Missing values: None, NaN, NaT and pd.NA, including NaN that "
+        "a pyarrow-backed or nullable float column stores as a value, which "
+        "pandas isna() doesn't count."
     )
     distinct_count: int | None = Field(
         description="Distinct non-missing values; null when the values can't be "
@@ -2171,7 +2169,9 @@ class ProfileMissingValuesColumn(ColumnResult):
     """What profile_missing_values found in one column."""
 
     native_missing_count: int = Field(
-        description="Values pandas isna() counts as missing: None, NaN, NaT and pd.NA."
+        description="Values that are missing: None, NaN, NaT and pd.NA, including "
+        "NaN that a pyarrow-backed or nullable float column stores as a value, "
+        "which pandas isna() doesn't count."
     )
     sentinel_count: int | None = Field(
         description="Values equal to a sentinel value declared for the column; null "

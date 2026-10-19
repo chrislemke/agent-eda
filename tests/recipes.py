@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pytest
 from hypothesis import strategies as st
 
@@ -159,6 +160,13 @@ def hashable_names(data: pd.DataFrame) -> list[str]:
     return found
 
 
+def is_dictionary(dtype: Any) -> bool:
+    """pyarrow's dictionary type: the Arrow form of a categorical."""
+    return isinstance(dtype, pd.ArrowDtype) and pa.types.is_dictionary(
+        dtype.pyarrow_dtype
+    )
+
+
 def is_number_or_boolean(dtype: Any) -> bool:
     """Integers, floats and booleans, nullable and pyarrow-backed ones included."""
     if isinstance(dtype, pd.CategoricalDtype):
@@ -171,7 +179,7 @@ def is_number_or_boolean(dtype: Any) -> bool:
 
 def is_pairable(dtype: Any) -> bool:
     """Numbers, booleans, text, objects and categoricals, whatever their storage."""
-    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype):
+    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype) or is_dictionary(dtype):
         return True
     if is_number_or_boolean(dtype):
         return True
@@ -205,10 +213,12 @@ def association_options(data: pd.DataFrame) -> st.SearchStrategy[Arguments]:
 
 def has_countable_values(dtype: Any) -> bool:
     """Text, object, categorical, boolean and numeric columns, pyarrow ones too."""
-    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype):
+    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype) or is_dictionary(dtype):
         return True
     if isinstance(dtype, pd.ArrowDtype):
         return dtype.kind in "biufU" or pd.api.types.is_numeric_dtype(dtype)
+    if isinstance(dtype, pd.SparseDtype):  # only sparse numbers and booleans
+        return dtype.kind in "biuf"
     return dtype.kind in "biufO"
 
 

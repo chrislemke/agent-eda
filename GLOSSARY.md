@@ -75,7 +75,7 @@ A distinct non-missing value of a column, counted as pandas' `value_counts` and 
 _Avoid_: category (unless you mean a category of a pandas categorical dtype), unique value (a level can occur many times), factor
 
 **Native missing value**:
-A value pandas `isna()` counts as missing: None, NaN, NaT or pd.NA. A sentinel value is not one until the caller declares it, and then it is counted apart.
+A value that is missing without a declaration: None, NaN, NaT or pd.NA. pandas `isna()` counts all of them but NaN that a pyarrow-backed or nullable float column stores as a value; analyses count that NaN as missing too, and a `nan_counted_as_missing` limitation names such columns. A sentinel value is not one until the caller declares it, and then it is counted apart.
 _Avoid_: null (in results, null means a field that has no value for the data), NA, empty value
 
 **Compatible value**, **convertible value** and **invalid value**:

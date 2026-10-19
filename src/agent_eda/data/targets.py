@@ -45,6 +45,8 @@ from agent_eda._numeric import (
     numeric_support,
     read_limitations,
     read_numeric,
+    stored_nan_count,
+    stored_nan_limitations,
     summarize_values,
 )
 from agent_eda._registry import analysis
@@ -182,9 +184,9 @@ def profile_target(
             none. A value matches a label equal to it, as Python's == decides,
             so 1 matches 1.0 and True, and text matches with its case and
             surrounding spaces. A target of datetimes, dates or periods, such
-            as a categorical column of them, takes labels of that type; NaN,
-            NaT and infinity can't be labels. A label of a type
-            the target never holds, such as '1' for an integer column, raises
+            as a categorical column of them, takes labels of that type, which
+            an MCP call writes as ISO 8601 text; NaN, NaT and infinity can't be
+            labels. A label of a type the target never holds, such as '1' for an integer column, raises
             errors.InvalidArgumentError naming the label you likely meant.
             None, the default, leaves the check out: unexpected_labels is null,
             and a limitation says so.
@@ -244,7 +246,10 @@ def profile_target(
         without a label, and a share without rows is null, with a
         `too_few_values` limitation. Labels are kept exactly as stored. With
         index labels as row IDs, df.loc[row_ids] shows the rows, and an
-        `ambiguous_row_ids` limitation flags row IDs that repeat. `masking`
+        `ambiguous_row_ids` limitation flags row IDs that repeat. NaN is a
+        missing label, also NaN that a pyarrow-backed or nullable float column
+        stores as a value, which pandas' `isna` doesn't count; the
+        `nan_counted_as_missing` limitation names such a target. `masking`
         says whether masking was on and names the sensitive columns whose
         values the result shows; with masking on, their labels and row IDs
         are placeholders in the printed text, `to_dict`, `to_json` and
@@ -265,11 +270,10 @@ def profile_target(
           target that aren't missing are all distinct, as an identifier's or a
           measurement's are, not class labels'.
         - `case_or_space_variants`: suspected; labels differ only by case or
-          surrounding spaces, such as 'Yes' and 'yes '.
+          surrounding spaces.
         - `constant_target`: violation; at least two values of a regression
-          target aren't missing and all of them are equal, as describe_dataset
-          decides it.
-        - `two_value_target`: suspected; a regression target holds exactly two
+          target aren't missing and all of them are equal; NaN is missing.
+        - `two_value_target`: suspected; a regression target holds two
           distinct values, so it may be binary labels.
         - `infinite_values`: suspected; a regression target holds inf or -inf,
           which every statistic leaves out.
@@ -632,7 +636,7 @@ def _check_target(target: Column, task: Task) -> None:
             lambda surface: (
                 f"profile_target can't use {what} as a regression "
                 "target, which must hold numbers: integer or float columns, nullable "
-                f"and pyarrow-backed ones included. {fixes[surface]}."
+                f"and pyarrow-backed ones of those kinds included. {fixes[surface]}."
             ),
         )
     if task != "regression" and target.kind not in _LABEL_KINDS:
@@ -645,7 +649,7 @@ def _check_target(target: Column, task: Task) -> None:
             lambda surface: (
                 f"profile_target can't use {what} as a classification "
                 "target, whose labels must be text, numbers, booleans or categories, "
-                f"nullable and pyarrow-backed ones included. {fixes[surface]}."
+                f"nullable and pyarrow-backed ones of those kinds included. {fixes[surface]}."
             ),
         )
 
@@ -767,6 +771,11 @@ def _classification(
         ],
         limitations=[
             *ambiguous,
+            *stored_nan_limitations(
+                [target.name] if stored_nan_count(series) else [],
+                ["missing_count"],
+                "missing_count counts it",
+            ),
             *([_NO_EXPECTED_LABELS] if labels is None else []),
             *([_NO_RARE_SHARE] if rare_share is None else []),
             *_null_shares(row_count, valid_count, len(empty_positions)),
@@ -1256,7 +1265,7 @@ def _regression(data: pd.DataFrame, target: Column) -> _Profile:
     """summarize_numeric's entry for the target, with its defaults."""
     column = read_numeric(data.iloc[:, target.position])
     summary = summarize_values(
-        column.values,
+        column,
         quantiles=list(DEFAULT_QUANTILES),
         quantile_method=DEFAULT_QUANTILE_METHOD,
         trim_fraction=DEFAULT_TRIM_FRACTION,
