@@ -42,6 +42,7 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 
 ### Changed in records
 
+- An integer beyond ±2^53 (9,007,199,254,740,991) is a string in every JSON record, in row IDs, labels, values and parameters, so that Node-based MCP clients, which read JSON numbers as float64, don't round IDs such as 1234567890123456789. Integers within ±9,007,199,254,740,991 stay numbers. `to_dict()`, `to_json()`, the MCP structured content and the discovery records follow the rule; the result objects keep the exact Python ints. The field descriptions and the output schemas say so.
 - A capped record keeps the entries that findings and limitations point at, then the first of the others, up to 100. Field paths name a mapping entry by its key (`columns['c115'].min`) and an association pair by its two columns (`pairs['a', 'b'].value`); every path resolves in `to_dict()`.
 - Lists and mappings inside a mapping argument of `parameters` are capped at 100 at any depth. A `<key>_total` appears beside them only when entries were dropped. `project` is recorded whole.
 - `to_frame()` gives every row ID: the `row_ids` column of `detect_missing_sentinels`, the `invalid_row_ids` column of `validate_column_types`, and a new `row_ids` column in `profile_target`, with the rows that hold a label outside `expected_labels`. A result rebuilt from its record raises `result_table_unavailable` when it would lack them.

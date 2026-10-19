@@ -27,7 +27,7 @@ from pydantic import (
 from agent_eda import _text
 from agent_eda._annotations import TypeName, python_literal
 from agent_eda._levels import LEVEL_ORDER, Levels, level_rows, levels_frame
-from agent_eda._written_form import row_id_json, row_id_list
+from agent_eda._written_form import record_integers, row_id_json, row_id_list
 from agent_eda.errors import InvalidArgumentError, ResultTableUnavailableError
 
 Status = Literal[
@@ -197,6 +197,15 @@ _ENTRIES = _Cap(100)
 # For parameters: list and mapping arguments, but not data's shape or the
 # project, which is recorded whole.
 _LISTS_INSIDE = _Cap(100, each_list=True, whole=("data", "project"))
+
+# Said in every field description whose record can hold such an integer.
+_BIG_INTEGERS = "The record writes an integer beyond ±2^53 as a string."
+
+# Said in the output schema, for every field of the record at once.
+_RECORD_INTEGERS = (
+    "Every integer beyond ±2^53 (9,007,199,254,740,991), in row IDs, labels, "
+    "values and parameters, is a string."
+)
 
 _RECORD = "agent_eda_record"
 # In the serialization context: which entries of the result's capped fields the
@@ -754,7 +763,8 @@ class AnalysisResult(ResultModel):
         "appears only as its row_count and column_count, and project whole. In "
         "the record, a list or mapping argument keeps its first 100 entries and "
         "gains <name>_total; a list inside a mapping argument keeps its first "
-        "100 entries too, and gains <key>_total beside it when it lost some."
+        "100 entries too, and gains <key>_total beside it when it lost some. "
+        + _BIG_INTEGERS
     )
     support: Support = Field(description="The counts behind the result.")
     findings: Annotated[list[Finding], _ENTRIES] = Field(
@@ -902,7 +912,7 @@ class AnalysisResult(ResultModel):
             mode="json", context={_RECORD: True, _POINTED: pointed}
         )
         self._renumber_paths(record, pointed)
-        return record
+        return record_integers(record)
 
     def to_json(self) -> str:
         """The result record from to_dict() as strict JSON, without NaN or Infinity."""
@@ -965,6 +975,9 @@ class AnalysisResult(ResultModel):
         each MCP tool as the output schema.
         """
         schema = cls.model_json_schema(mode="validation")
+        schema["description"] = (
+            f"{schema.get('description', '')} {_RECORD_INTEGERS}".strip()
+        )
         definitions = schema.get("$defs", {})
         for model in _models_in(cls, {}):
             target = schema if model is cls else definitions[model.__name__]
@@ -1021,7 +1034,7 @@ class _DiscoveryRecord(ResultModel):
 
     def to_dict(self) -> dict[str, Any]:
         """The record as JSON-compatible Python objects."""
-        return self.model_dump(mode="json")
+        return record_integers(self.model_dump(mode="json"))
 
     def to_json(self) -> str:
         """The record from to_dict() as strict JSON, without NaN or Infinity."""
@@ -1743,7 +1756,7 @@ class SummarizeCategoricalLevel(ResultModel):
         "can't hold it as written, its exact text; any other value JSON can't "
         "hold appears as its string form. label_type names its type. "
         "With masking on, a sensitive column's labels are numbered placeholders, "
-        "'<masked 1>' for its first level in level order and so on."
+        "'<masked 1>' for its first level in level order and so on. " + _BIG_INTEGERS
     )
     label_type: str = Field(
         description="The Python type of the stored value, such as 'str', 'int' or "
@@ -1814,7 +1827,7 @@ class SummarizeCategoricalColumn(ColumnResult):
         description="Categories of a categorical dtype that no value takes, in "
         "category order, each written as a level's label is; empty for other "
         "dtypes. With masking on, a sensitive column's are placeholders numbered "
-        "on from its levels'."
+        "on from its levels'. " + _BIG_INTEGERS
     )
     value_types: Annotated[list[str], _ENTRIES] = Field(
         description="The Python types of the non-missing values by name, sorted, "
@@ -1921,7 +1934,7 @@ class DuplicateGroup(ResultModel):
         "id_column when it is given. With masking on and a sensitive id_column, "
         "numbered placeholders, '<masked 1>' for the first ID the groups show "
         "and so on, equal IDs alike. The record keeps the first 10 and adds "
-        "row_ids_total."
+        "row_ids_total. " + _BIG_INTEGERS
     )
 
 
@@ -2033,7 +2046,7 @@ class ProfileTargetClass(ResultModel):
         "can't hold it as written, its exact text; any other label JSON can't "
         "hold appears as its string form. label_type names its type. With "
         "masking on and a sensitive target, a numbered placeholder, '<masked 1>' "
-        "for the target's first label in level order and so on."
+        "for the target's first label in level order and so on. " + _BIG_INTEGERS
     )
     label_type: str = Field(
         description="The Python type of the stored label, such as 'str', 'int' or "
@@ -2052,7 +2065,7 @@ class ProfileTargetUnexpectedLabel(ResultModel):
     label: str | bool | int | float = Field(
         description="The label exactly as stored, written as a class's label is. "
         "With masking on and a sensitive target, a numbered placeholder, numbered "
-        "together with the classes in level order."
+        "together with the classes in level order. " + _BIG_INTEGERS
     )
     label_type: str = Field(
         description="The Python type of the stored label, such as 'str' or 'int'."
@@ -2063,7 +2076,7 @@ class ProfileTargetUnexpectedLabel(ResultModel):
         "index labels, or values of id_column when it is given. count counts "
         "every row, and the record adds it as row_ids_total. With masking on and "
         "a sensitive id_column, numbered placeholders, '<masked 1>' for the first "
-        "ID the labels show and so on, equal IDs alike."
+        "ID the labels show and so on, equal IDs alike. " + _BIG_INTEGERS
     )
 
 
@@ -2433,7 +2446,7 @@ class DeclaredSentinelValue(ResultModel):
         "8601 text, and a decimal as a number or, when float64 can't hold it as "
         "written, its exact text. With masking on, a sensitive column's values "
         "are numbered placeholders, '<masked 1>', '<masked 2>' and so on, in the "
-        "order declared."
+        "order declared. " + _BIG_INTEGERS
     )
     value_type: str = Field(
         description="The Python type of the declared value, such as 'int', 'bool', "
@@ -2630,7 +2643,7 @@ class SentinelCandidate(ResultModel):
         "stored. Dates, datetimes and durations appear as ISO 8601 text, and a "
         "decimal as a number or, when float64 can't hold it as written, its exact "
         "text; value_type names the type. A text stand-in keeps the surrounding "
-        "whitespace it occurs with."
+        "whitespace it occurs with. " + _BIG_INTEGERS
     )
     value_type: str = Field(
         description="The Python type of the value, such as 'int', 'float', 'str', "
@@ -2657,7 +2670,7 @@ class SentinelCandidate(ResultModel):
     row_ids: Annotated[list[RowId], _Cap(10, total="count")] = Field(
         description="The IDs of the first 10 rows that hold the value, in row "
         "order: index labels, or values of id_column when it is given. The "
-        "record adds row_ids_total, which equals count."
+        "record adds row_ids_total, which equals count. " + _BIG_INTEGERS
     )
 
 
@@ -3511,7 +3524,7 @@ class InvalidValue(ResultModel):
         "value JSON can't hold appears as its string form. value_type names "
         "its type. With masking on, a sensitive column's values "
         "are numbered placeholders, '<masked 1>' for its first invalid value in "
-        "level order and so on."
+        "level order and so on. " + _BIG_INTEGERS
     )
     value_type: str = Field(
         description="The Python type of the stored value, such as 'str' or 'float'; "
@@ -3565,7 +3578,7 @@ class ValidateColumnTypesColumn(ResultModel):
         "order: index labels, or values of id_column when it is given. "
         "invalid_count counts them all, and the record adds it as "
         "invalid_row_ids_total. With masking on and a sensitive id_column, "
-        "numbered placeholders, equal IDs alike."
+        "numbered placeholders, equal IDs alike. " + _BIG_INTEGERS
     )
     invalid_distinct_count: int | None = Field(
         description="Distinct invalid values; values of different types count "
