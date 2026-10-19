@@ -14,8 +14,9 @@ from agent_eda._numeric import stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, data_shape, execution, overall_status
-from agent_eda._sentinel_rules import read_by_rules, record_value, suspects
+from agent_eda._sentinel_rules import read_by_rules, suspects
 from agent_eda._sentinels import (
+    DeclaredValue,
     JsonSentinel,
     SentinelValue,
     declared_values,
@@ -25,6 +26,7 @@ from agent_eda._sentinels import (
 )
 from agent_eda._text import join_labels, plural
 from agent_eda._values import stored_nan_mask
+from agent_eda._written_form import record_scalar
 from agent_eda.project import Project
 from agent_eda.results import (
     ColumnSupport,
@@ -104,7 +106,8 @@ def profile_missing_values(
             timedelta as its ISO 8601 text, such as '1900-01-01T00:00:00', '1900-01-01'
             or 'PT0S': it is read as one for a column that holds such values and no
             text. List each value once: -999 and -999.0 are one value, while true and 1
-            are two. Every column named must be selected. A value that can never match
+            are two. For a column of decimals, text that writes an exact decimal, such as
+            '12345678901234567.25', declares it. Every column named must be selected. A value that can never match
             its column is rejected, naming the value you likely meant, such as -999 for
             the text '-999' in an integer column, and so are NaN, NaT and infinite
             values. None, the default, declares none: then sentinel_count is null and
@@ -133,7 +136,9 @@ def profile_missing_values(
           null when the column has none declared.
         - `missing_count`, both together, and `missing_share`, that count over
           all rows.
-        - `sentinel_values`, each declared value with its count; with masking
+        - `sentinel_values`, each declared value with its `value_type` and
+          count, which tell apart values that print the same, such as the date
+          2020-01-01 and the text '2020-01-01'; with masking
           on, a sensitive column's values are numbered placeholders.
 
         For all selected columns together, `missing_count` and `missing_share` count
@@ -255,7 +260,9 @@ def profile_missing_values(
                 found |= match
                 counted.append(
                     DeclaredSentinelValue(
-                        value=cast("JsonSentinel", shown_value), count=int(match.sum())
+                        value=cast("JsonSentinel", shown_value),
+                        value_type=type_name(value),
+                        count=int(match.sum()),
                     )
                 )
             sentinel = int(found.sum())
@@ -429,9 +436,8 @@ def _not_declared(
     else:
         reason = (
             "No sentinel values were declared, so sentinel_count is null and "
-            "missing_count counts only native missing values (None, NaN, NaT and "
-            "pd.NA). Declare stand-ins for missing values, such as -999 or 'N/A', "
-            "in sentinel_values."
+            "missing_count counts only native missing values. Declare stand-ins for "
+            "missing values, such as -999 or 'N/A', in sentinel_values."
         )
     return [
         Limitation(
@@ -514,8 +520,9 @@ def detect_missing_sentinels(
             MCP, write a datetime, date or timedelta as its ISO 8601 text, such as
             '1900-01-01T00:00:00', '1900-01-01' or 'PT0S': it is read as one for a
             column that holds such values and no text. List each value once: -999 and
-            -999.0 are one value, while true and 1 are two. Every column named must be
-            checked. A value that can never match its column is rejected, naming the
+            -999.0 are one value, while true and 1 are two. For a column of decimals, text
+            that writes an exact decimal, such as '12345678901234567.25', declares it.
+            Every column named must be checked. A value that can never match its column is rejected, naming the
             value you likely meant, such as -999 for the text '-999' in an integer
             column, and so are NaN, NaT and infinite values. The declared values a
             column holds come back with confirmation 'declared', and the rules read the
@@ -545,8 +552,9 @@ def detect_missing_sentinels(
         stand in for missing ones, column by column in the order checked:
         first the declared values a column holds, in the order given, then
         the suspected ones, most frequent first. Each candidate has its
-        `column`; its `value`, with dates and times as ISO 8601 text and
-        `value_type` naming the type; its `count` and its `share` of all rows;
+        `column`; its `value`, with dates and times as ISO 8601 text, a decimal
+        as a number or, when float64 can't hold it as written, as its exact text
+        such as '12345678901234567.25', and `value_type` naming the type; its `count` and its `share` of all rows;
         its `evidence` codes; its `confirmation`, declared or suspected; and
         in `row_ids` the IDs of the first 10 rows that hold it. Row IDs are
         index labels, or id_column values when given. The record keeps the
@@ -563,15 +571,22 @@ def detect_missing_sentinels(
         - `declared`: the value is declared in sentinel_values.
         - `builtin_list`: the value is on the built-in list: the numbers -9,
           -99, -999, -9999, 99, 999, 9999, 99999 and 999999 when they are the
-          column's minimum or maximum; the text '', whitespace only, 'NA',
-          'N/A', 'NULL', 'None', 'nan', '-', '?', 'unknown' and 'missing',
-          compared case-insensitively; and the dates 1900-01-01, 1970-01-01,
-          2099-12-31 and 9999-12-31, as dates or as datetimes at midnight in
-          their own time zone or in UTC.
-        - `isolated_extreme`: a number that occurs more than once as the
-          column's minimum or maximum and lies farther from the nearest other
-          value than the other values span; they must hold two distinct
-          values, so a column of 0 and 1 has none.
+          column's minimum or maximum, in a text column among the texts that
+          parse as numbers, such as '-999'; the text '', whitespace only, 'NA',
+          'N/A', 'NULL', 'None', 'nan', '-', '?', 'unknown', 'missing' and
+          pandas' other default NA strings '#N/A', '#N/A N/A', '#NA', '<NA>',
+          '-NaN', '-nan', '1.#IND', '1.#QNAN', '-1.#IND' and '-1.#QNAN',
+          compared case-insensitively and after stripping surrounding
+          whitespace, so ' N/A', 'N/A ' and 'N/A\\n' match; each raw form
+          that occurs is its own candidate; and the dates 1900-01-01,
+          1970-01-01, 2099-12-31 and 9999-12-31, as dates or as datetimes at
+          midnight in their own time zone or in UTC.
+        - `isolated_extreme`: a number, or number text in a text column, that
+          occurs more than once as the column's minimum or maximum and lies
+          farther from the nearest other value than the other values span;
+          they must hold two distinct values, so a column of 0 and 1 has none.
+          Number text is read by value: '-999' and '-999.0' are one number and
+          two candidates.
 
         The rules read the finite values that are neither missing nor
         declared, and a column of Python objects value by value: numbers as
@@ -669,15 +684,15 @@ def detect_missing_sentinels(
     shown = [candidate.positions[:_ROW_IDS] for candidate in found]
     view = _View(
         declared={
-            name: [json_value(value) for value in values]
-            for name, values in (sentinel_values or {}).items()
+            name: [json_value(value) for value in declared.get(name, [])]
+            for name in sentinel_values or {}
         },
         values=[candidate.record_value() for candidate in found],
         row_ids=[row_ids.at(positions) for positions in shown],
     )
     for name in _shown_columns(found, sentinel_values, row_ids.id_column):
         if masking.masks(name):
-            view = _masked(view, name, found, sentinel_values, row_ids.id_column)
+            view = _masked(view, name, found, declared, row_ids.id_column)
     candidates = [
         SentinelCandidate(
             column=candidate.column,
@@ -770,10 +785,8 @@ class _Candidate:
     declared: bool
 
     def record_value(self) -> JsonSentinel:
-        """The value as the record shows it, dates and times as ISO 8601 text."""
-        if self.declared:
-            return json_value(cast("SentinelValue", self.value))
-        return record_value(self.value)
+        """The value as the record shows it, as every record writes a value."""
+        return record_scalar(self.value)
 
 
 @dataclass(frozen=True)
@@ -806,7 +819,7 @@ def _masked(
     view: _View,
     name: str,
     found: list[_Candidate],
-    sentinel_values: Mapping[str, Sequence[SentinelValue]] | None,
+    declared: Mapping[str, Sequence[DeclaredValue]],
     id_column: str | None,
 ) -> _View:
     """The view with placeholders in place of the values of column `name`.
@@ -815,8 +828,8 @@ def _masked(
     values, then each candidate's value and, when the column is id_column, its
     row IDs, so a value shows as the same placeholder everywhere.
     """
-    declared = list((sentinel_values or {}).get(name, []))
-    raw: list[object] = list(declared)
+    own = declared.get(name, [])
+    raw: list[object] = list(own)
     for candidate, ids in zip(found, view.row_ids, strict=True):
         if candidate.column == name:
             raw.append(candidate.value)
@@ -830,7 +843,7 @@ def _masked(
 
     masked_declared = dict(view.declared)
     if name in masked_declared:
-        masked_declared[name] = [placeholder() for _ in declared]
+        masked_declared[name] = [placeholder() for _ in own]
     values: list[JsonSentinel] = []
     row_ids: list[list[object]] = []
     for candidate, value, ids in zip(found, view.values, view.row_ids, strict=True):
@@ -854,7 +867,7 @@ class _Checked:
 
 
 def _check_column(
-    series: pd.Series, column: Column, declared: list[SentinelValue]
+    series: pd.Series, column: Column, declared: list[DeclaredValue]
 ) -> _Checked:
     """The declared values a column holds, in the order given, then the values
     the rules suspect among the rest.

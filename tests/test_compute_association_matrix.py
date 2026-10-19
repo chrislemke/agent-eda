@@ -195,8 +195,8 @@ def test_skips_categorical_columns_with_more_levels_than_max_categories():
         ("codes", "too_many_categories"),
     ]
     assert res.left_out_columns[0].message == (
-        "It has more distinct values than max_categories=3; raise max_categories "
-        "to pair it."
+        "It has more distinct values than the max_categories limit of 3; raise "
+        "max_categories to pair it."
     )
     assert list(res.columns) == ["few", "x"]
     assert res.columns["few"].distinct_count == 2
@@ -701,8 +701,9 @@ def test_more_pairs_than_max_pairs_stops_before_computing_any():
     assert res.status_reason is not None
     assert res.status_reason.code == "too_many_pairs"
     assert res.status_reason.message == (
-        "The 4 paired columns make 6 pairs, more than max_pairs=5 allows; no pair "
-        "was computed. Raise max_pairs to 6, or name fewer columns in columns."
+        "The 4 paired columns make 6 pairs, more than the max_pairs limit of 5 "
+        "allows; no pair was computed. Raise max_pairs to 6, or name fewer "
+        "columns in columns."
     )
     assert res.pairs == []
     assert list(res.columns) == ["age", "region", "zip", "income"]
@@ -1333,9 +1334,9 @@ def test_rank_methods_count_each_numeric_pair_once_per_10000_rows(method):
     assert res.status_reason.message == (
         f"The 12 paired columns make 66 pairs, and {method} ranks each of the 66 "
         "numeric ones on 200,000 rows, which counts as 20 pairs, so the call "
-        "counts 1,320 pairs, more than max_pairs=1,000 allows; no pair was "
-        "computed. Raise max_pairs to 1,320, or name fewer columns in columns, or "
-        "use numeric_method='pearson', which counts each pair once."
+        "counts 1,320 pairs, more than the max_pairs limit of 1,000 allows; no "
+        "pair was computed. Raise max_pairs to 1,320, or name fewer columns in "
+        "columns, or set numeric_method to pearson, which counts each pair once."
     )
 
 

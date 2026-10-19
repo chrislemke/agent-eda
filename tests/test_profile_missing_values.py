@@ -164,7 +164,11 @@ def test_to_frame_has_one_row_per_column_in_the_selected_order():
             "sentinel_count": pd.array([None, 1, 1], dtype="Int64"),
             "missing_count": [2, 2, 1],
             "missing_share": [0.4, 0.4, 0.2],
-            "sentinel_values": [{}, {"N/A": 1}, {-999: 1}],
+            "sentinel_values": [
+                [],
+                [{"value": "N/A", "value_type": "str", "count": 1}],
+                [{"value": -999, "value_type": "int", "count": 1}],
+            ],
         }
     )
     pd.testing.assert_frame_equal(frame, expected)
@@ -501,7 +505,7 @@ def test_nan_stored_as_a_value_is_native_missing_and_a_limitation_says_so():
     ]
     assert limitation.fields == ["columns['x'].native_missing_count"]
     assert limitation.reason == (
-        "1 column stores NaN as a value, which pandas isna() doesn't count as "
+        "1 column stores NaN as a value, which pandas doesn't count as "
         "missing; native_missing_count counts it: 'x'."
     )
 
@@ -621,9 +625,8 @@ def test_without_declared_values_sentinel_counts_are_null_and_a_limitation_says_
     ]
     assert limitation.reason == (
         "No sentinel values were declared, so sentinel_count is null and "
-        "missing_count counts only native missing values (None, NaN, NaT and pd.NA). "
-        "Declare stand-ins for missing values, such as -999 or 'N/A', in "
-        "sentinel_values."
+        "missing_count counts only native missing values. Declare stand-ins for "
+        "missing values, such as -999 or 'N/A', in sentinel_values."
     )
 
 
@@ -674,7 +677,7 @@ def test_each_column_lists_its_declared_values_and_how_often_each_occurs():
     # The record shows dates and times as ISO 8601 text.
     record = res.to_dict()
     assert record["columns"]["born"]["sentinel_values"] == [
-        {"value": "1900-01-01T00:00:00", "count": 2}
+        {"value": "1900-01-01T00:00:00", "value_type": "datetime", "count": 2}
     ]
     assert record["parameters"]["sentinel_values"] == {
         "code": ["N/A", "", "?"],
@@ -1283,10 +1286,10 @@ def test_masking_puts_placeholders_in_place_of_declared_values_of_sensitive_colu
         ("<masked 2>", 1),
     ]
     assert res.columns["age"].sentinel_values[0].value == -999
-    assert res.to_frame()["sentinel_values"].tolist()[0] == {
-        "<masked 1>": 2,
-        "<masked 2>": 1,
-    }
+    assert res.to_frame()["sentinel_values"].tolist()[0] == [
+        {"value": "<masked 1>", "value_type": "str", "count": 2},
+        {"value": "<masked 2>", "value_type": "str", "count": 1},
+    ]
     assert "N/A" not in everything_shown(res)
     # Counts and shares stay.
     assert res.columns["email"].sentinel_count == 3

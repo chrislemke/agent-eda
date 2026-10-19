@@ -5,12 +5,16 @@ str() of a set differs between runs. An object's default repr holds its memory
 address, which differs too. The record writes a row ID as JSON with row_id_json
 and a label as text with canonical_text, and both order a set's items by their
 JSON text, so one value reads the same wherever it shows up.
+
+A value of a column, such as a label, a declared sentinel value or a suspected
+one, is written with record_scalar: one rule for every analysis.
 """
 
 import datetime as dt
 import json
 import math
 import re
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -59,6 +63,60 @@ def row_id_json(value: object) -> JsonValue:
         number = float(value)
         return number if math.isfinite(number) else repr(number)
     return canonical_text(value)
+
+
+# The largest integer, in magnitude, that float64 holds exactly.
+_EXACT_INTEGER = 2**53
+
+
+def record_scalar(value: object) -> str | bool | int | float:
+    """A value of a column as a record writes it: a JSON scalar, the same in
+    every analysis.
+
+    Booleans, integers, finite floats and text stay as they are, NumPy scalars
+    as the Python ones they hold. Datetimes, dates and durations become ISO 8601
+    text: '2020-01-01T05:30:00', '2020-01-01' and 'P0DT3H0M0S'. A decimal
+    becomes a number when float64 holds it as written, so that the float reads
+    back as the same decimal, such as 2.5 or 19.99, and its exact text otherwise,
+    such as '12345678901234567.25'. Anything else is its canonical_text.
+    """
+    if isinstance(value, np.generic) and not isinstance(
+        value, np.datetime64 | np.timedelta64
+    ):
+        value = value.item()
+    if isinstance(value, bool):
+        return bool(value)
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, str):
+        return str(value)
+    if isinstance(value, float):
+        return float(value) if math.isfinite(value) else canonical_text(value)
+    if isinstance(value, Decimal):
+        return _decimal_scalar(value)
+    if isinstance(value, np.datetime64):
+        return pd.Timestamp(value).isoformat()
+    if isinstance(value, dt.date):  # datetimes and Timestamps too
+        return value.isoformat()
+    if isinstance(value, dt.timedelta | np.timedelta64):
+        try:
+            return pd.Timedelta(value).isoformat()
+        except (ValueError, OverflowError):
+            return canonical_text(value)
+    return canonical_text(value)
+
+
+def _decimal_scalar(value: Decimal) -> str | int | float:
+    """A decimal as a number float64 holds as written, else as its exact text."""
+    if not value.is_finite():
+        return canonical_text(value)
+    if value == value.to_integral_value() and abs(value) <= _EXACT_INTEGER:
+        return int(value)
+    number = float(value)
+    # The float's shortest text, which JSON readers give back, is this decimal.
+    if math.isfinite(number) and Decimal(repr(number)) == value:
+        return number
+    return str(value)
 
 
 def canonical_text(value: object) -> str:

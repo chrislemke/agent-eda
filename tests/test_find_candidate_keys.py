@@ -111,10 +111,10 @@ def test_hitting_max_combinations_stops_the_search_but_keeps_what_it_found():
     assert res.status_reason is not None
     assert res.status_reason.code == "too_many_combinations"
     assert res.status_reason.message == (
-        "The complete search covers up to 10 column sets, more than "
-        "max_combinations=5 allows; it stopped after examining 5 and kept what it "
-        "found. Lower max_key_size to 1, raise max_combinations to 10, or pass fewer "
-        "columns."
+        "The complete search covers up to 10 column sets, more than the "
+        "max_combinations limit of 5 allows; it stopped after examining 5 and kept "
+        "what it found. Lower max_key_size to 1, raise max_combinations to 10, or "
+        "pass fewer columns."
     )
 
 
@@ -298,10 +298,10 @@ def test_a_search_stopped_early_says_so_and_how_to_finish_it():
 
     assert lines[1:6] == [
         "Reason: too_many_combinations: The complete search covers up to 10 column "
-        "sets, more than max_combinations=5 allows; it",
-        "    stopped after examining 5 and kept what it found. Lower max_key_size to 1, "
-        "raise max_combinations to 10, or pass",
-        "    fewer columns.",
+        "sets, more than the max_combinations limit of",
+        "    5 allows; it stopped after examining 5 and kept what it found. Lower "
+        "max_key_size to 1, raise max_combinations to",
+        "    10, or pass fewer columns.",
         "Not exhaustive: max_combinations stopped the search for keys of up to 2 "
         "columns after 5 of up to 10 sets.",
         "Missing values compare equal; a key with missing values can't serve as a "
@@ -618,8 +618,9 @@ def test_a_budget_stop_on_many_columns_suggests_the_key_size_that_fits():
     # 40 + 780 sets of up to 2 columns fit the 10,000; 9,880 more of 3 don't.
     assert res.status_reason.message == (
         "The complete search covers up to 1,099,511,627,775 column sets, more than "
-        "max_combinations=10,000 allows; it stopped after examining 10,000 and kept "
-        "what it found. Lower max_key_size to 2, or pass fewer columns."
+        "the max_combinations limit of 10,000 allows; it stopped after examining "
+        "10,000 and kept what it found. Lower max_key_size to 2, or pass fewer "
+        "columns."
     )
 
 

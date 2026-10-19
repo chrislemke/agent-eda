@@ -747,8 +747,7 @@ def test_repeated_row_ids_are_a_limitation_when_the_result_can_show_row_ids():
     assert ambiguous.fields == ["unexpected_labels[0].row_ids"]
     assert ambiguous.reason == (
         "2 rows share an index label, so a row ID can match several rows: use a "
-        "unique id_column. Or make the index unique, such as with "
-        "df.reset_index(drop=True)."
+        "unique id_column. Or make the index unique."
     )
     # Without expected_labels, the result shows no row ID.
     assert "ambiguous_row_ids" not in [lim.code for lim in unchecked.limitations]
@@ -1510,11 +1509,11 @@ def test_a_datetime_label_without_rows_is_missing_and_one_outside_is_unexpected(
     )
 
     assert [(u.label, u.count) for u in filled(res.unexpected_labels)] == [
-        (str(STAMPS[1]), 2)
+        (STAMPS[1].isoformat(), 2)
     ]
     assert [(c.label, c.count) for c in filled(res.classes)] == [
-        (str(STAMPS[0]), 2),
-        (str(other), 0),
+        (STAMPS[0].isoformat(), 2),
+        (other.isoformat(), 0),
     ]
 
 

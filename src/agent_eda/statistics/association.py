@@ -96,7 +96,7 @@ _SKIP_MESSAGES: dict[LeftOutReason, str] = {
         "name the column in columns."
     ),
     "timedelta": (
-        "Durations have no measure here; convert them with .dt.total_seconds() first."
+        "Durations have no measure here; convert them to numbers of seconds first."
     ),
     "unsupported_dtype": (
         "Its dtype holds neither numbers nor categories: Arrow times of day, "
@@ -110,8 +110,8 @@ _SKIP_MESSAGES: dict[LeftOutReason, str] = {
         "compared as categories."
     ),
     "too_many_categories": (
-        "It has more distinct values than max_categories={max_categories}; "
-        "raise max_categories to pair it."
+        "It has more distinct values than the max_categories limit of "
+        "{max_categories}; raise max_categories to pair it."
     ),
 }
 # A column with more rows than this first counts the distinct values in this
@@ -445,7 +445,7 @@ def compute_association_matrix(
                 "the call counts"
             )
             narrow = (
-                "name fewer columns in columns, or use numeric_method='pearson', "
+                "name fewer columns in columns, or set numeric_method to pearson, "
                 "which counts each pair once"
             )
         reason = budget_exceeded_reason(

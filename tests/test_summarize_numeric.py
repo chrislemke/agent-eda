@@ -138,7 +138,7 @@ def test_a_boolean_column_named_in_columns_is_read_as_0_and_1():
         "columns['arrow']",
     ]
     assert limitation.reason == (
-        "3 boolean columns were read as 0 for False and 1 for True: 'member', "
+        "3 boolean columns were read as 0 for false and 1 for true: 'member', "
         "'flag' and 'arrow'."
     )
 
@@ -253,7 +253,7 @@ def test_nan_stored_as_a_value_counts_as_missing_with_a_limitation():
     ]
     assert limitation.fields == ["columns['x'].missing_count"]
     assert limitation.reason == (
-        "1 column stores NaN as a value, which pandas isna() doesn't count as "
+        "1 column stores NaN as a value, which pandas doesn't count as "
         "missing; missing_count counts it: 'x'."
     )
 
@@ -972,10 +972,12 @@ def test_the_result_states_each_statistics_definition():
         "excess_kurtosis",
     ]
     assert "ddof 1" in definitions["std"]
-    assert "scipy.stats.trim_mean" in definitions["trimmed_mean"]
+    assert "SciPy's trimmed mean" in definitions["trimmed_mean"]
     assert "1.4826" in definitions["mad_scaled"]
-    assert "bias=False" in definitions["skewness"]
-    assert "bias=False" in definitions["excess_kurtosis"]
+    assert "SciPy's skewness with bias correction" in definitions["skewness"]
+    assert (
+        "SciPy's excess kurtosis with bias correction" in definitions["excess_kurtosis"]
+    )
 
 
 def test_the_record_is_strict_json_without_nan_or_infinity():
