@@ -20,9 +20,10 @@ TESTS = sorted(Path(__file__).parent.glob("*.py"))
 # or a path, such as agent_eda, a dot or slash and a name that starts with one
 # underscore. Dunder names such as __init__ are public.
 PRIVATE_TEXT = re.compile(r"agent_eda(?:[./]\w+)*?[./]_[A-Za-z]")
-# Where a test may reach a private name of the package, and which one: the one
-# helper that serves stand-in analyses through the hook create_server keeps private.
-ALLOWED_PRIVATE = {"serving.py": {"_create_server"}}
+# Where a test may reach a private name of the package, and which ones: the one
+# helper that serves stand-in analyses through the hook create_server keeps
+# private, and lists them as registered ones through the hook of the registry.
+ALLOWED_PRIVATE = {"serving.py": {"_create_server", "_stand_ins"}}
 
 
 def private_uses(source, *, allowed=frozenset()):

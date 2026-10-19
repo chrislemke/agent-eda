@@ -6,6 +6,7 @@ They read the registry and each analysis's docstring, so there is no second copy
 to keep in sync, and none of them imports SciPy, statsmodels or scikit-learn.
 """
 
+import importlib
 import inspect
 import numbers
 import typing
@@ -16,13 +17,14 @@ from pydantic_core import to_jsonable_python
 
 from agent_eda._annotations import choices, python_literal, type_text, valid_range
 from agent_eda._registry import AnalysisSpec, checked_keywords, registered
-from agent_eda._search import rank, terms
+from agent_eda._search import MAX_TERMS, asks_for_first_look, rank, terms
 from agent_eda._text import (
     Surface,
     closest_names,
     join_alternatives,
     join_items,
     plural,
+    wrap,
 )
 from agent_eda._version import __version__
 from agent_eda._wording import as_written, echoed, type_of, worded
@@ -69,7 +71,9 @@ Call an analysis with the DataFrame first and every other argument by keyword:
     res = ae.summarize_numeric(df, columns=["age", "income"])
     print(res)
 columns=None, the default, selects every column the analysis can use. A mistake in a call raises an
-ae.errors.AgentEDAError whose message says how to fix it."""
+ae.errors.AgentEDAError whose message says how to fix it.
+Reading a CSV: pd.read_csv turns 'N/A', 'NULL' and other default NA strings into missing values before any analysis
+sees them, so detect_missing_sentinels can't find them. pd.read_csv(path, keep_default_na=False) keeps them as text."""
 
 _GUIDE_RESULTS = """\
 Read the result:
@@ -82,31 +86,44 @@ Read the result:
 - res.to_frame() returns the complete table; res.to_dict() and res.to_json() return the whole record."""
 
 _GUIDE_MASKING = """\
-Masking: analyses marked [supports masking] can show raw values, such as labels or row IDs. Create a project:
+Masking: analyses that ae.list_analyses() marks [supports masking] can show raw values, such as labels or row IDs.
+Create a project:
     project = ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"], mask_sensitive=True))
 and pass project=project to show <masked 1> and so on, a guardrail against accidental exposure, not anonymization
 or access control. Save it with project.save("project.toml") and in a later script ae.Project.load("project.toml")."""
 
 _GUIDE_MORE = """\
-Find more:
-  ae.search_analyses("nulls per column")  finds analyses for a question in your own words
   ae.describe_analysis("summarize_numeric")  its parameters, statuses, result fields and an example
-  ae.list_analyses()  every analysis with what it declares; .to_frame() gives it as a table
   help(ae.summarize_numeric)  the full docstring"""
+
+# How the overview says to reach the analyses it doesn't list.
+_FIND_MORE: dict[Surface, str] = {
+    "python": """\
+Find the rest:
+  ae.search_analyses("nulls per column")  finds analyses for a question in your own words
+  ae.list_analyses()  lists every analysis with its summary and what it declares; .to_frame() gives a table""",
+    "mcp": (
+        "Find the rest: search_analyses finds analyses for a question in your own "
+        'words, such as "nulls per column", and list_analyses lists them with their '
+        "summaries and what each declares. Each MCP tool's description and input "
+        "schema hold its docs."
+    ),
+}
 
 
 @checked_keywords
 def guide() -> None:
     """Print one page on agent-eda: what it does, how to call and read analyses.
 
-    The page covers what the package is, the call pattern, how to read a result
-    and its status, every analysis grouped by module with the question it
-    answers, how to mask the values of sensitive columns and keep the project
-    for later scripts, and an order for a first look at a new dataset that
-    names every first-look analysis. It stays within about 60 lines of at most
-    120 characters. Start here when you are new to the package; then find an
-    analysis with search_analyses() and learn how to call it with
-    describe_analysis().
+    The page covers what the package is, the call pattern, how to read a CSV
+    without losing 'N/A' and 'NULL', how to read a result and its status, how to
+    mask the values of sensitive columns and keep the project for later
+    scripts, each area of analyses with how many it holds and what it covers,
+    an order for a first look at a new dataset that names every first-look
+    analysis, and how to reach the rest. It stays within about 60 lines of at
+    most 120 characters however many analyses exist. Start here when you are
+    new to the package; then find an analysis with search_analyses() and learn
+    how to call it with describe_analysis().
 
     Returns:
         None: The page is printed, since Code Interpreter returns only what is
@@ -125,8 +142,6 @@ def guide() -> None:
 
 
 def _guide_text() -> str:
-    listing = list_analyses()
-    first_look = _first_look_lines(listing)
     return "\n".join(
         [
             _GUIDE_INTRO.format(version=__version__),
@@ -135,16 +150,62 @@ def _guide_text() -> str:
             "",
             _GUIDE_RESULTS,
             "",
-            str(listing),
-            "",
             _GUIDE_MASKING,
             "",
-            "A first look at a new dataset, in this order:",
-            *first_look,
-            "",
+            *overview("python"),
             _GUIDE_MORE,
         ]
     )
+
+
+def overview(surface: Surface) -> list[str]:
+    """The overview that ae.guide() and the MCP server's instructions share.
+
+    It gives each area with how many analyses it holds and what it covers, the
+    first-look order, and how to reach the analyses it doesn't list. Its length
+    depends on the number of areas and first-look steps, not on the number of
+    analyses, so both stay within one page as analyses are added. Each adds its
+    own text around it: the guide Python, the instructions MCP text.
+    """
+    listing = list_analyses()
+    return [
+        *_area_lines(listing),
+        "",
+        "A first look at a new dataset, in this order:",
+        *_first_look_lines(listing),
+        "",
+        *(
+            _FIND_MORE[surface].splitlines()
+            if surface == "python"
+            else wrap(_FIND_MORE[surface])
+        ),
+    ]
+
+
+def _area_lines(listing: AnalysisListing) -> list[str]:
+    """The analysis count, then one wrapped line per area: its name, how many
+    analyses it holds and what it covers.
+
+    An area is a subpackage of agent_eda, such as data or statistics, and what it
+    covers is the first paragraph of the subpackage's docstring.
+    """
+    counts: dict[str, int] = {}
+    for info in listing.analyses:
+        area = info.module.split(".")[1]
+        counts[area] = counts.get(area, 0) + 1
+    total = plural(len(listing.analyses), "analysis", "analyses")
+    lines = [f"{total} in {plural(len(counts), 'area', 'areas')}:"]
+    for area, count in counts.items():
+        subpackage = importlib.import_module(f"agent_eda.{area}")
+        covers = " ".join((subpackage.__doc__ or "").split("\n\n")[0].split())
+        lines.extend(
+            wrap(
+                f"{area} ({plural(count, 'analysis', 'analyses')}): {covers}".rstrip(),
+                first="  ",
+                indent="    ",
+            )
+        )
+    return lines
 
 
 def _first_look_lines(listing: AnalysisListing) -> list[str]:
@@ -306,16 +367,22 @@ def _search_example(surface: Surface, limit: int | None = None) -> str:
 def search_analyses(query: str, limit: int = 5) -> SearchListing:
     """Find the analyses that best match a question in your own words.
 
-    The query's words, without common ones such as 'the' and 'of', are matched
-    against each analysis's name, tags, summary and When to use: text, after
-    lowercasing and dropping plural endings. A small curated list adds
-    synonyms: nulls and NaN find missing values, dupes find duplicates,
-    correlation finds association and label finds target. A word scores 4 in a
-    name, 3 in a tag, 2 in the summary and 1 in the When to use: text, and an
-    analysis's score is the sum. An analysis whose name is the query comes
-    first; ties go to the alphabetically first name. The search is keyword
-    based, without embeddings or network, so the same query always gives the
-    same ranking.
+    The query's words, without common ones such as 'the' and 'of' and without
+    one-letter words, are matched against each analysis's name, tags, summary
+    and When to use: text, after lowercasing and dropping plural endings. A
+    small curated list adds synonyms: nulls, NaN and missingness find missing
+    values, dupes find duplicates, correlation finds association, label finds
+    target and PII or privacy find masking. A word scores 4 in a name, 3 in a
+    tag, 2 in the summary and 1 in the When to use: text; a tag the query
+    holds whole scores 5; generic words such as 'column', 'values', 'rows',
+    'data' and 'count' score at most 1; and an analysis's score is the sum. A
+    match that rests on generic words or on the When to use: text alone is
+    marked weak. An analysis whose name is the query comes first; ties go to
+    the alphabetically first name. A query that asks where to start, such as
+    'first look' or 'EDA', matches no analysis and points to the guide. Only
+    the first 20 distinct words are searched, and the printed text cuts the
+    query to 40 characters. The search is keyword based, without embeddings or
+    network, so the same query always gives the same ranking.
 
     Args:
         query (str): What you want to know, such as 'nulls per column'.
@@ -323,9 +390,11 @@ def search_analyses(query: str, limit: int = 5) -> SearchListing:
 
     Returns:
         SearchListing: `matches` holds the best matches, best first, each with
-        its `name`, `summary`, `score` and `matched_terms`. `match_count`
-        counts every match, also those beyond the limit, and `terms` shows the
-        words searched for with their synonyms. With no match, `matches` is
+        its `name`, `summary`, `score`, `matched_terms` and `weak`; read the
+        summary before you rely on a weak match. `match_count` counts every
+        match, also those beyond the limit, and `terms` shows the words
+        searched for with their synonyms, out of `term_count`. `first_look` is
+        true for a query that asks where to start. With no match, `matches` is
         empty and the printed listing points to ae.guide().
 
     Raises:
@@ -366,14 +435,18 @@ def search_analyses(query: str, limit: int = 5) -> SearchListing:
             ),
         )
     limit = int(limit)
-    searched = terms(query)
-    ranked = rank(registered(), searched, query)
+    every_term = terms(query)
+    searched = every_term[:MAX_TERMS]
+    first_look = asks_for_first_look(query)
+    ranked = [] if first_look else rank(registered(), searched, query)
     return SearchListing(
         query=query,
         terms=[
             SearchTerm(term=term.word, synonyms=list(term.synonyms))
             for term in searched
         ],
+        term_count=len(every_term),
+        first_look=first_look,
         limit=limit,
         match_count=len(ranked),
         matches=[
@@ -383,6 +456,7 @@ def search_analyses(query: str, limit: int = 5) -> SearchListing:
                 summary=match.spec.summary,
                 score=match.score,
                 matched_terms=match.matched_terms,
+                weak=match.weak,
             )
             for match in ranked[:limit]
         ],

@@ -1089,6 +1089,19 @@ class AnalysisListing(_DiscoveryRecord):
         return _entries_frame(self.analyses, AnalysisInfo)
 
 
+# The text of a search listing stays within the printed text's 40 lines, however
+# long the query is: the query echo and each word are cut, and so are the lists.
+_QUERY_ECHO_LENGTH = 40
+_WORD_LENGTH = 30
+_MATCHED_SHOWN = 6
+_SEARCH_LINES = 40
+
+
+def _cut(text: str, length: int) -> str:
+    """The text, or its first `length` characters and an ellipsis."""
+    return text if len(text) <= length else text[:length].rstrip() + "…"
+
+
 class SearchMatch(ResultModel):
     """An analysis that matched a search, with what matched."""
 
@@ -1099,11 +1112,17 @@ class SearchMatch(ResultModel):
     )
     score: int = Field(
         description="How well it matched: the sum over the matched query terms of "
-        "the weight of the best field each occurs in (name 4, tags 3, summary 2, "
-        "When to use: text 1)."
+        "the weight of the best field each occurs in (a tag the query holds whole "
+        "5, name 4, tags 3, summary 2, When to use: text 1; a generic word such as "
+        "'column' or 'rows' at most 1)."
     )
     matched_terms: list[str] = Field(
         description="The query terms that matched, in query order."
+    )
+    weak: bool = Field(
+        description="Whether the match is weak: only generic words such as 'column' "
+        "or 'rows' matched, or the words matched only in the When to use: text. "
+        "Read the summary before you rely on a weak match."
     )
 
 
@@ -1123,7 +1142,17 @@ class SearchListing(_DiscoveryRecord):
     query: str = Field(description="The query as given.")
     terms: list[SearchTerm] = Field(
         description="The words searched for, in query order, without common words "
-        "such as 'the' and 'of', each with its synonyms."
+        "such as 'the' and 'of' and without one-letter words, each with its "
+        "synonyms. Only the first 20 distinct words are searched."
+    )
+    term_count: int = Field(
+        description="How many distinct words the query holds, without common and "
+        "one-letter words; more than the length of terms when the query is long."
+    )
+    first_look: bool = Field(
+        description="Whether the query asks where to start, such as 'first look' or "
+        "'EDA'. No single analysis answers it, so matches is empty; the guide "
+        "(the MCP server's instructions) gives the order for a first look."
     )
     limit: int = Field(description="The most matches the listing keeps.")
     match_count: int = Field(
@@ -1134,22 +1163,48 @@ class SearchListing(_DiscoveryRecord):
         "when nothing matched."
     )
 
+    def _searched(self) -> str:
+        """The words searched for, each cut and the list counted when capped."""
+        if not self.terms:
+            return (
+                "no words, since common ones such as 'the' and 'of' and single "
+                "letters don't count"
+            )
+        listed = ", ".join(
+            f"{_cut(term.term, _WORD_LENGTH)} (also {', '.join(term.synonyms)})"
+            if term.synonyms
+            else _cut(term.term, _WORD_LENGTH)
+            for term in self.terms
+        )
+        if self.term_count > len(self.terms):
+            return (
+                f"the first {len(self.terms):,} of {self.term_count:,} words, {listed}"
+            )
+        return listed
+
     def _render(self, surface: _text.Surface) -> str:
         python = surface == "python"
-        searched = (
-            ", ".join(
-                f"{term.term} (also {', '.join(term.synonyms)})"
-                if term.synonyms
-                else term.term
-                for term in self.terms
+        echo = _cut(self.query, _QUERY_ECHO_LENGTH)
+        searched = f"Searched for: {self._searched()}."
+        if self.first_look:
+            return "\n".join(
+                [
+                    *_text.wrap(
+                        f"No analysis matches {echo!r}: it asks where to start, "
+                        "which no single analysis answers.",
+                        first="",
+                        indent="    ",
+                    ),
+                    "ae.guide() prints the order for a first look at a new dataset."
+                    if python
+                    else "The MCP server's instructions give the order for a first "
+                    "look at a new dataset.",
+                ]
             )
-            if self.terms
-            else "no words, since common ones such as 'the' and 'of' don't count"
-        )
         if not self.matches:
             lines = [
                 *_text.wrap(
-                    f"No analysis matches {self.query!r}. Searched for: {searched}.",
+                    f"No analysis matches {echo!r}. {searched}",
                     first="",
                     indent="    ",
                 ),
@@ -1160,29 +1215,64 @@ class SearchListing(_DiscoveryRecord):
                 "the MCP server's instructions say where to start.",
             ]
             return "\n".join(lines)
+        # Show as many matches as fit within the line cap.
+        for shown in range(len(self.matches), 0, -1):
+            lines = self._lines(python, echo, searched, shown)
+            if len(lines) <= _SEARCH_LINES:
+                break
+        return "\n".join(lines)
+
+    def _lines(self, python: bool, echo: str, searched: str, shown: int) -> list[str]:
+        """The text with the first `shown` matches."""
         lines = _text.wrap(
-            f"Analyses matching {self.query!r} ({len(self.matches):,} of "
-            f"{self.match_count:,} shown, best first):",
+            f"Analyses matching {echo!r} ({shown:,} of {self.match_count:,} shown, "
+            "best first):",
             first="",
             indent="    ",
         )
-        for match in self.matches:
+        for match in self.matches[:shown]:
+            matched = [_cut(term, _WORD_LENGTH) for term in match.matched_terms]
+            if len(matched) > _MATCHED_SHOWN:
+                rest = len(matched) - _MATCHED_SHOWN
+                matched = [*matched[:_MATCHED_SHOWN], f"and {rest:,} more"]
+            marker = " (weak match)" if match.weak else ""
             lines.extend(
                 _text.wrap(
-                    f"{match.name}: {match.summary} Matched: "
-                    f"{', '.join(match.matched_terms)}.",
+                    f"{match.name}{marker}: {match.summary} Matched: "
+                    f"{', '.join(matched)}.",
                     first="  ",
                     indent="    ",
                 )
             )
-        lines.extend(_text.wrap(f"Searched for: {searched}.", first="", indent="    "))
-        if self.match_count > len(self.matches):
+        if all(match.weak for match in self.matches[:shown]):
+            lines.extend(
+                _text.wrap(
+                    "Every match shown is weak: it rests on generic words such as "
+                    "'column' or 'rows', or on the When to use: text alone. Try "
+                    "more specific words.",
+                    first="",
+                    indent="    ",
+                )
+            )
+        lines.extend(_text.wrap(searched, first="", indent="    "))
+        if shown < len(self.matches):
+            lines.extend(
+                _text.wrap(
+                    f"More: {len(self.matches) - shown:,} more matches are in "
+                    + (
+                        "to_dict()['matches']." if python else "the structured content."
+                    ),
+                    first="",
+                    indent="    ",
+                )
+            )
+        elif self.match_count > len(self.matches):
             lines.extend(
                 _text.wrap(
                     f"More: ae.search_analyses({self.query!r}, "
                     f"limit={self.match_count}) shows all {self.match_count:,} "
                     "matches."
-                    if python
+                    if python and echo == self.query
                     else f"More: search_analyses with limit {self.match_count} "
                     f"shows all {self.match_count:,} matches.",
                     first="",
@@ -1200,7 +1290,7 @@ class SearchListing(_DiscoveryRecord):
                 indent="    ",
             )
         )
-        return "\n".join(lines)
+        return lines
 
 
 class ParameterDescription(ResultModel):

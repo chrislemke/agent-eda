@@ -297,6 +297,8 @@ def test_search_text_follows_the_fixed_template():
     listing = SearchListing(
         query="nulls",
         terms=[SearchTerm(term="nulls", synonyms=["missing"])],
+        term_count=1,
+        first_look=False,
         limit=1,
         match_count=2,
         matches=[
@@ -306,6 +308,7 @@ def test_search_text_follows_the_fixed_template():
                 summary="How many values are missing?",
                 score=4,
                 matched_terms=["nulls"],
+                weak=False,
             )
         ],
     )

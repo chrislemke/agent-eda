@@ -70,10 +70,10 @@ def find_duplicate_rows(
         raw values, so when id_column holds personal data, such as email addresses,
         declare it sensitive in a project and switch masking on. Index labels are never
         masked: when the index holds sensitive values, pass a non-sensitive id_column.
-        `describe_dataset` reports duplicated column labels and a non-unique index, and
-        columns whose values duplicate or derive from each other show up as perfect
-        associations in `compute_association_matrix`; `list_analyses` lists the other
-        analyses.
+        `describe_dataset` reports duplicated column labels and a non-unique index,
+        `find_candidate_keys` the columns that identify rows, and
+        `compute_association_matrix` the columns whose values duplicate or derive from
+        each other.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -179,11 +179,12 @@ def find_duplicate_rows(
         ['<masked 1>', '<masked 2>', '<masked 3>']
 
     See Also:
-        describe_dataset: Dtypes, missing and distinct counts and memory of
-            every column, a non-unique index and duplicated column labels.
-        compute_association_matrix: How strongly pairs of columns are
-            associated, with columns that duplicate each other flagged.
-        list_analyses: Every analysis, with the question each one answers.
+        find_candidate_keys: Which columns, alone or combined, identify rows; the rows
+            behind a near-key's duplicate count are listed here.
+        describe_dataset: Dtypes, missing and distinct counts and memory of every
+            column, a non-unique index and duplicated column labels.
+        compute_association_matrix: How strongly pairs of columns are associated, with
+            columns that duplicate each other flagged.
     """
     masking = resolve_masking("find_duplicate_rows", project, mask_sensitive)
     row_ids = read_row_ids("find_duplicate_rows", data, id_column)

@@ -825,13 +825,19 @@ def test_groups_and_counts_match_pandas_when_few_rows_repeat():
     check_against_pandas(df, ["x", "y", "when"])
 
 
-def test_describe_dataset_points_to_it_for_repeated_rows():
-    doc = inspect.getdoc(ae.describe_dataset) or ""
-    when_to_use = doc.split("When to use:")[1].split("Args:")[0]
-    see_also = doc.split("See Also:")[1]
+def test_find_candidate_keys_points_to_it_for_the_rows_behind_a_near_key():
+    doc = inspect.getdoc(ae.find_candidate_keys) or ""
 
-    assert "`find_duplicate_rows`" in when_to_use
-    assert "\n    find_duplicate_rows: " in see_also
+    assert (
+        "`find_duplicate_rows`"
+        in ae.describe_analysis("find_candidate_keys").when_to_use
+    )
+    assert "\n    find_duplicate_rows: " in doc.split("See Also:")[1]
+    # And back: its See Also names the analysis whose near-key it lists rows for.
+    assert (
+        "\n    find_candidate_keys: "
+        in (inspect.getdoc(ae.find_duplicate_rows) or "").split("See Also:")[1]
+    )
 
 
 def test_describe_analysis_names_the_type_of_row_ids():

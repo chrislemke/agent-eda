@@ -14,7 +14,7 @@ It is written for three kinds of callers:
 
 - **11 first-look analyses**: structure, column types, missing values, sentinel values such as -999, distributions, duplicates, keys, the target and associations.
 - **Results you can read and parse**: `print(res)` gives at most 40 lines, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
-- **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
+- **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package.
 - **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix: a misspelled column lists the available names and the closest match.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses.
@@ -134,7 +134,7 @@ Lines 2 to 4 are the planted problems. The first is expected: `customer_id` is a
 
 ### Other analyses
 
-Analyses outside the first look, by module. The [planned analyses](https://github.com/chrislemke/agent-eda/blob/main/docs/planned-analyses.md) are not listed here until they ship.
+Analyses outside the first look. The [planned analyses](https://github.com/chrislemke/agent-eda/blob/main/docs/planned-analyses.md) are not listed here until they ship.
 
 | Module | Analysis | What it answers | Required arguments |
 | --- | --- | --- | --- |
@@ -143,12 +143,12 @@ No analysis outside the first look ships yet.
 
 ## Discovery
 
-Four functions describe the package from inside Python, so an agent needn't read the source:
+Four functions describe the package from inside Python:
 
 | Function | What it gives you |
 | --- | --- |
-| `ae.guide()` | Prints one page: how to call an analysis and read its result, every analysis, and the first-look order. |
-| `ae.search_analyses(query)` | The analyses that best match a question in your own words, such as "nulls per column". |
+| `ae.guide()` | Prints one page: how to call an analysis and read its result, the areas with their analysis counts, and the first-look order. |
+| `ae.search_analyses(query)` | The analyses that best match a question in your own words, such as "nulls per column"; weak matches are marked. |
 | `ae.describe_analysis(name)` | An analysis's parameters, statuses, result fields, finding codes and an example. |
 | `ae.list_analyses()` | Every analysis with its module, question and masking support; `.to_frame()` gives a table. |
 
@@ -157,6 +157,8 @@ ae.guide()
 print(ae.search_analyses("nulls per column"))
 print(ae.describe_analysis("profile_missing_values"))
 ```
+
+`pd.read_csv` turns "N/A" and "NULL" into missing values; `keep_default_na=False` keeps them as text for `detect_missing_sentinels`.
 
 ## Reading a result
 
@@ -194,13 +196,13 @@ A pyarrow dictionary column is a categorical like pandas' own. Arrow time-of-day
 
 Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples; an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is; a test compares every analysis across two seeds. `to_frame()` keeps a set as it is, so `to_csv()` would list it in hash order.
 
-A record writes a datetime as ISO 8601 text (`2020-01-01T05:30:00`), and a decimal as a number when float64 holds it as written, else as exact text (`"12345678901234567.25"`). `detect_missing_sentinels` gives number text such as `"-999"` the numeric-code rule, lists pandas' default NA strings (`#N/A`, `<NA>`, `1.#QNAN` and more), and matches text stand-ins after stripping whitespace, showing the raw form that occurred (`" N/A"`).
+A record writes a datetime as ISO 8601 text (`2020-01-01T05:30:00`), and a decimal as a number when float64 holds it as written, else as exact text (`"12345678901234567.25"`). `detect_missing_sentinels` gives number text such as `"-999"` the numeric-code rule, lists pandas' default NA strings, and matches text stand-ins after stripping whitespace, showing the raw form that occurred (`" N/A"`).
 
 Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, one at a time, so each result gets only its own `numerical_warning` limitation and the caller's warning filters and `warnings.showwarning` stay unchanged.
 
 ## Projects and masking
 
-Six analyses can show raw values, such as labels, row IDs or declared sentinel values: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
+Six analyses can show raw values, such as labels, row IDs or declared sentinel values: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.list_analyses()` marks them `[supports masking]`.
 
 A `Project` holds settings that stay the same across calls. Its data policy names the sensitive columns, and masking replaces their values with numbered placeholders; counts and shares stay:
 
@@ -233,10 +235,10 @@ How masking is decided:
 - `mask_sensitive=True` or `False` in a call overrides the project.
 - It covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
 - It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` if the index holds sensitive values. The other analyses, such as `summarize_numeric`, don't read a project.
-- A sensitive column matches by exact name. When a name misses a column only by case or Unicode form, such as `'Email'` for `'email'`, nothing is masked for it, and the printed masking text and `masking.near_miss_columns` say "did you mean 'email'?" instead of claiming no sensitive value is shown.
+- A sensitive column matches by exact name. A near miss in case or Unicode form, such as `'Email'` for `'email'`, masks nothing; the printed masking text and `masking.near_miss_columns` then say "did you mean 'email'?".
 - With masking on, no error message quotes a value of a sensitive column. A message listing unknown column names lists at most 3, cut to 40 characters, and an option ending in `column` or `columns` refuses a Series, an Index or an array without showing it.
 
-Save the project once and load it in every later script, which helps an agent that runs each script in a new process:
+Save the project once and load it in later scripts, which helps an agent that runs each script in a new process:
 
 ```python
 project.save("project.toml")
@@ -301,7 +303,7 @@ Each analysis is an MCP tool of the same name. Its description and input schema 
 
 ### Pass data by path
 
-An MCP tool takes `data_path`, the path to a file, where a Python caller passes the DataFrame.
+An MCP tool takes `data_path`, a file path, where Python passes the DataFrame.
 
 - The extension sets the format, in any case: `.csv`, `.tsv`, `.csv.gz`, `.tsv.gz`, `.parquet` or `.pq`. Any other extension gives the error `unsupported_data_format`.
 - CSV and TSV files are read as UTF-8, and only an empty field counts as missing. Values such as `N/A`, `NULL` or `-999` reach the analyses as values, for `detect_missing_sentinels` to find, `-999` too in a column that `N/A` made text.
@@ -330,7 +332,7 @@ The server reads arguments as an MCP tool's input schema describes them, so a st
 
 ### Read the response
 
-A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. A run that doesn't complete, such as `insufficient_data`, is a normal response. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`. The message says what is wrong and what is allowed, as in Python, and gives the fix in MCP terms: `{"task": "regression"}` for `task='regression'`, the input schema for `help()`, and `project_path` for a `Project`. No message, MCP tool description, schema or record text (status reasons, limitation reasons, finding claims) holds Python syntax, and tests scan them all. In an MCP tool's description, `to_dict` is the structured content and `to_frame` is what `table_path` writes.
+A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. A run that doesn't complete, such as `insufficient_data`, is a normal response. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`. The message says what is wrong and what is allowed, as in Python, and gives the fix in MCP terms: `{"task": "regression"}` for `task='regression'`, the input schema for `help()`, and `project_path` for a `Project`. No message, MCP tool description, schema or record text holds Python syntax, and tests scan them all. In an MCP tool's description, `to_dict` is the structured content and `to_frame` is what `table_path` writes.
 
 To get past the caps, pass `table_path`. The server writes the result's main table, what `res.to_frame()` gives without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
@@ -629,7 +631,7 @@ Find the analyses that best match a question in your own words.
 | `query` | `str` | required | What you want to know, such as 'nulls per column'. |
 | `limit` | `int` | `5` | The most matches to return, at least 1; defaults to 5. |
 
-**Returns:** `matches` holds the best matches, best first, each with its `name`, `summary`, `score` and `matched_terms`.
+**Returns:** `matches` holds the best matches, best first, each with its `name`, `summary`, `score`, `matched_terms` and `weak`; read the summary before you rely on a weak match.
 
 #### `describe_analysis`
 

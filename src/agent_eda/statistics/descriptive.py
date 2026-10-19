@@ -82,7 +82,11 @@ _NUMERIC = ColumnRule(
 @analysis(
     statuses=("completed", "partial", "insufficient_data", "not_applicable", "failed"),
     finding_codes=("constant_columns", "infinite_values"),
-    tags=("distribution", "mean", "standard deviation", "quantiles", "numeric"),
+    tags=(
+        *("distribution", "mean", "standard deviation", "quantiles", "numeric"),
+        *("percentiles", "median", "skewed", "skewness", "kurtosis", "outliers"),
+        *("variance", "spread"),
+    ),
 )
 def summarize_numeric(
     data: pd.DataFrame,
@@ -95,25 +99,17 @@ def summarize_numeric(
     """How are the values in each numeric column distributed?
 
     When to use:
-        Call it after `describe_dataset` for the distribution of every numeric
-        column: missing, infinite, zero and negative counts; the mean and
-        standard deviation; the extremes, quantiles and median; a trimmed mean
-        and the median absolute deviation, which outliers barely move; and
-        skewness and excess kurtosis. The result states how each statistic is
-        defined. Booleans are left out unless named in columns. Statistics of
-        identifiers or codes stored as numbers mean nothing, and numbers stored
-        as text are left out: `infer_column_semantics` finds both. A text,
-        categorical or datetime column named in columns is rejected. For which values occur in text, categorical
-        and boolean columns and how often, call `summarize_categorical`
-        instead; `describe_dataset` covers every dtype, and `list_analyses`
-        lists the other analyses. For missing values in columns of every dtype
-        and per row, counting stand-ins such as -999 that you declare, call
-        `profile_missing_values`. Stand-ins count here as values and distort
-        every statistic: `detect_missing_sentinels` finds the likely ones. For
-        how strongly pairs of columns move together, call
-        `compute_association_matrix`. For the column a model will predict,
-        call `profile_target` with the task: it gives a regression target
-        these statistics and checks that the target fits the task.
+        Call it for the distribution of every numeric column: missing, infinite, zero
+        and negative counts; the mean and standard deviation; the extremes, quantiles
+        and median; a trimmed mean and the median absolute deviation, which outliers
+        barely move; and skewness and excess kurtosis. The result states how each
+        statistic is defined. Booleans are left out unless named in columns. Statistics
+        of identifiers or codes stored as numbers mean nothing, and numbers stored as
+        text are left out: `infer_column_semantics` finds both. A text, categorical or
+        datetime column named in columns is rejected. For which values occur in text,
+        categorical and boolean columns and how often, call `summarize_categorical`
+        instead. Stand-ins count here as values and distort every statistic:
+        `detect_missing_sentinels` finds the likely ones.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -221,22 +217,12 @@ def summarize_numeric(
         59.625
 
     See Also:
-        summarize_categorical: Each level's count and share and the most common
-            levels of every text, categorical and boolean column.
-        describe_dataset: Dtypes, missing and distinct counts and memory of every
-            column, whatever its dtype.
-        infer_column_semantics: Which columns hold identifiers, codes or numbers
-            stored as text rather than measurements.
-        profile_missing_values: Missing values per column and per row, counting
-            declared sentinel values.
-        detect_missing_sentinels: Values that look like stand-ins for missing
-            ones, such as -999 at a column's minimum.
-        compute_association_matrix: How strongly every pair of numeric and
-            categorical columns is associated, strongest first.
-        profile_target: These statistics for a regression target, or the class
-            counts and imbalance of a classification target, checked against
-            the task.
-        list_analyses: Every analysis, with the question each one answers.
+        summarize_categorical: Each level's count and share and the most common levels
+            of every text, categorical and boolean column.
+        infer_column_semantics: Which columns hold identifiers, codes or numbers stored
+            as text rather than measurements.
+        profile_target: These statistics for a regression target, or the class counts
+            and imbalance of a classification target, checked against the task.
     """
     levels = list(quantiles)
     check_distinct("summarize_numeric", "quantiles", levels, "level")
@@ -379,6 +365,10 @@ _CATEGORICAL = ColumnRule(
         "most common values",
         "unused categories",
         "case variants",
+        "capitalization",
+        "whitespace",
+        "typos",
+        "mixed types",
     ),
     masking=True,
 )
@@ -393,26 +383,20 @@ def summarize_categorical(
     """Which values occur in each categorical column, and how often?
 
     When to use:
-        Call it after `describe_dataset` for the values of every text, object,
-        categorical and boolean column: each level with its count and its share
-        of the non-missing values, the missing count, the distinct_count and the
-        most common levels. It also flags labels that differ only by case or
-        surrounding spaces, such as 'Yes', 'yes ' and 'YES', which a model
-        treats as different categories; values of different Python types in one
-        column, such as 1 and '1'; and categories of a categorical dtype that
-        never occur. Name a numeric column in columns to count its values, such
-        as codes 1, 2 and 3. Levels are raw values, so for columns that hold
-        personal data, such as names, declare them sensitive in a project and
-        switch masking on. Labels that stand in for missing values, such as
-        'N/A' or 'unknown', count here as levels: `detect_missing_sentinels`
-        finds them. For how numeric values are distributed, call
-        `summarize_numeric` instead; for how strongly categorical columns are
-        associated with each other and with numeric ones, call
-        `compute_association_matrix`. For the classes of the column a model
-        will predict, call `profile_target` instead: it checks them against
-        the task and the labels you expect, and measures their imbalance.
-        `describe_dataset` gives distinct counts for every dtype, and
-        `list_analyses` lists the other analyses.
+        Call it for the values of every text, object, categorical and boolean column:
+        each level with its count and its share of the non-missing values, the missing
+        count, the distinct_count and the most common levels. It also flags labels that
+        differ only by case or surrounding spaces, such as 'Yes', 'yes ' and 'YES',
+        which a model treats as different categories; values of different Python types
+        in one column, such as 1 and '1'; and categories of a categorical dtype that
+        never occur. Name a numeric column in columns to count its values, such as codes
+        1, 2 and 3. Levels are raw values, so for columns that hold personal data, such
+        as names, declare them sensitive in a project and switch masking on. Labels that
+        stand in for missing values, such as 'N/A' or 'unknown', count here as levels:
+        `detect_missing_sentinels` finds them. For how numeric values are distributed,
+        call `summarize_numeric` instead. For the classes of the column a model will
+        predict, call `profile_target` instead: it checks them against the task and the
+        labels you expect, and measures their imbalance.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -546,18 +530,12 @@ def summarize_categorical(
         ['<masked 1>', '<masked 2>', '<masked 3>']
 
     See Also:
-        summarize_numeric: Counts, mean, spread, quantiles and shape of every
-            numeric column.
-        describe_dataset: Dtypes, missing and distinct counts and memory of every
-            column, whatever its dtype.
-        detect_missing_sentinels: Values that look like stand-ins for missing
-            ones, such as 'N/A', 'unknown' or empty text.
-        compute_association_matrix: How strongly every pair of numeric and
-            categorical columns is associated, Cramér's V between categorical
-            ones.
-        profile_target: The class counts, shares and imbalance of a target
-            column, checked against the task and the labels you expect.
-        list_analyses: Every analysis, with the question each one answers.
+        find_duplicate_rows: Groups of rows that are equal in every column, with their
+            row IDs.
+        infer_column_semantics: Which columns hold mixed types, identifiers or numbers
+            stored as text.
+        detect_missing_sentinels: Values that look like stand-ins for missing ones, such
+            as 'N/A', 'unknown' or empty text.
     """
     masking = resolve_masking("summarize_categorical", project, mask_sensitive)
     selection = select_columns("summarize_categorical", data, columns, _CATEGORICAL)

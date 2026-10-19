@@ -85,7 +85,7 @@ Google style. Every public analysis has these sections, in this order, under the
 6. `Examples:` a runnable doctest that prints a result.
 7. `See Also:` related analyses.
 
-`When to use:` and `See Also:` name only analyses that exist; when a new analysis is the better choice for a neighbour's question, update the neighbour's sections too. A contract test enforces all of this. `guide()`, `search_analyses()` and `describe_analysis()` read the docstring at runtime, so it is the only hand-written copy. The README's Reference is generated from the docstrings, the signatures and `ae.errors`: after you change one, run the Reference generator (`scripts/generate_reference.py`, under Commands) and commit the README. A test fails when the Reference is stale.
+`When to use:` names the trigger and at most three alternatives, and `See Also:` lists at most three analyses, among them the analysis's natural next step in the first-look order. Both name only analyses that exist, never `list_analyses` or another discovery function, since search and the guide reach the rest. When a new analysis is the better choice for a neighbour's question, update the neighbour's sections too, dropping the weakest alternative if it would make a fourth. A contract test enforces all of this. `guide()`, `search_analyses()` and `describe_analysis()` read the docstring at runtime, so it is the only hand-written copy. The README's Reference is generated from the docstrings, the signatures and `ae.errors`: after you change one, run the Reference generator (`scripts/generate_reference.py`, under Commands) and commit the README. A test fails when the Reference is stale.
 
 ## Implementation
 

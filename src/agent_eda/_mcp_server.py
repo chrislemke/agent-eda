@@ -145,15 +145,19 @@ _DISCOVERY_ANNOTATIONS = types.ToolAnnotations(
 _SEARCH_DESCRIPTION = """\
 {summary}
 
-The query's words, without common ones such as 'the' and 'of', are matched against each analysis's name, tags, \
-summary and When to use: text. A few synonyms help: nulls and NaN find missing values, dupes find duplicates, \
-correlation finds association and label finds target. The search is keyword based, so the same query always gives \
-the same ranking.
+The query's words, without common ones such as 'the' and 'of' and one-letter words, are matched against each \
+analysis's name, tags, summary and When to use: text. A few synonyms help: nulls, NaN and missingness find missing \
+values, dupes find duplicates, correlation finds association, label finds target and PII or privacy find masking. \
+Generic words such as 'column', 'values' and 'rows' count little, and a match that rests on them or on the When to \
+use: text alone is marked weak. A query that asks where to start, such as 'first look', matches no analysis: the MCP \
+server's instructions give the first-look order. The search is keyword based, so the same query always gives the \
+same ranking.
 
 Returns:
 The text lists the best matches, best first, as name: summary with the words each matched. The structured content \
-holds matches, each with its name, module, summary, score and matched_terms; match_count, which counts every match, \
-also those beyond limit; and terms, the words searched for with their synonyms. Each name is an MCP tool name."""
+holds matches, each with its name, module, summary, score, matched_terms and weak; match_count, which counts every \
+match, also those beyond limit; terms, the words searched for with their synonyms; term_count; and first_look. Each \
+name is an MCP tool name."""
 
 _LIST_DESCRIPTION = """\
 {summary}

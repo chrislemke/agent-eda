@@ -330,8 +330,8 @@ def test_text_names_the_first_8_numbers_of_missing_values_per_row_and_counts_the
     )
 
 
-@pytest.mark.parametrize("neighbour", ["describe_dataset", "summarize_numeric"])
-def test_nearby_analyses_point_to_it_for_missing_values(neighbour):
+def test_nearby_analyses_point_to_it_for_missing_values():
+    neighbour = "describe_dataset"
     doc = inspect.getdoc(getattr(ae, neighbour))
     assert doc
 
