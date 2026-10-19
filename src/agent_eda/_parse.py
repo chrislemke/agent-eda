@@ -12,8 +12,11 @@ stripping surrounding whitespace, and only ASCII text parses:
 
 - A number is a decimal number such as 42, -3.5, .5, 1e-3 or +4.2E1. Thousands
   separators (1,000), decimal commas (3,5), hexadecimal, inf and nan don't
-  parse, and neither do whole numbers written with a leading zero, such as 007
-  or 01234: they are codes, which a number would change by dropping the zeros.
+  parse, and neither do numbers that float64 can't hold, such as 1e400. A number
+  written as digits alone with a leading zero, such as 007, -007 or 01234, is a
+  code, which a number would change by dropping the zeros, so it doesn't parse
+  either. Numbers with a decimal point or an exponent, such as 05.50 or 01e2,
+  are numbers.
 - A whole number is a number without a fractional part, such as 42, 42.0 or
   4.2e1, decided on the digits, not on a float.
 - An ISO 8601 date is a calendar date YYYY-MM-DD, alone or followed by T or a
@@ -167,6 +170,8 @@ def _read(text: str) -> int:
     if stripped.isdigit():
         if len(stripped) > 1 and stripped[0] == "0":
             return _LEADING_ZERO_BIT
+        if len(stripped) >= _OVERFLOW_DIGITS and math.isinf(float(stripped)):
+            return 0
         bits = _NUMBER_BIT | _WHOLE_BIT
         return bits | _BOOLEAN_BIT if stripped in ("0", "1") else bits
     if stripped.lower() in BOOLEAN_WORDS:
@@ -183,21 +188,46 @@ def _read(text: str) -> int:
 
 
 def _number_bits(match: re.Match[str]) -> int:
-    """Whether a matched number is whole and equal to 0 or 1, from its digits."""
+    """Whether a matched number is whole and equal to 0 or 1, from its digits.
+
+    Only a number written as digits alone, with a leading zero, is a code, such
+    as 007 or -007; 05.50 and 01e2 are numbers. A number that float64 can't
+    hold, such as 1e400, isn't one either.
+    """
     integer = match["integer"] or ""
-    if len(integer) > 1 and integer[0] == "0":
+    if (
+        len(integer) > 1
+        and integer[0] == "0"
+        and match["fraction"] is None
+        and match["exponent"] is None
+    ):
         return _LEADING_ZERO_BIT
     fraction = match["fraction"] or match["point_fraction"] or ""
     digits = integer + fraction
     significant = digits.rstrip("0")
     if not significant.strip("0"):  # the value is zero
         return _NUMBER_BIT | _WHOLE_BIT | _BOOLEAN_BIT
+    if _overflows(match, integer):
+        return 0
     # The power of ten of the last significant digit.
     scale = int(match["exponent"] or 0) - len(fraction) + len(digits) - len(significant)
     if scale < 0:
         return _NUMBER_BIT
     one = scale == 0 and significant.lstrip("0") == "1" and match["sign"] != "-"
     return _NUMBER_BIT | _WHOLE_BIT | (_BOOLEAN_BIT if one else 0)
+
+
+def _overflows(match: re.Match[str], integer: str) -> bool:
+    """Whether a matched number is too large for float64, which reads it as inf."""
+    # Short numbers with a short exponent always fit.
+    if len(integer) < _OVERFLOW_DIGITS and len(match["exponent"] or "") < 3:
+        return False
+    return math.isinf(float(match.string))
+
+
+# A float64 holds numbers up to about 1.8e308: no shorter integer part, and no
+# exponent of fewer than three digits, can overflow.
+_OVERFLOW_DIGITS = 308
 
 
 def _exists(match: re.Match[str]) -> bool:

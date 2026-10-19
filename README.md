@@ -184,6 +184,14 @@ Every analysis decides which values are equal the same way, as pandas does, so `
 
 `find_candidate_keys` treats floats as measurements. With `columns=None` it leaves out every float column in which some finite value isn't a whole number (such as `0.5`), names those columns in `non_integral_float_columns` and says so in a `non_integral_float_columns` limitation; name one in `columns` to search it. A float column that holds only whole numbers, `NaN` allowed, stays a candidate, since integer IDs often turn float when a value is missing. Any `max_key_size` works: values above the number of searched columns count as that number, and when `max_combinations` stops the search, the message names the largest `max_key_size` that fits.
 
+`infer_column_semantics` and `validate_column_types` read text by the same rules:
+
+- A column ranks boolean only when every value is a boolean, a 0 or 1, or a word such as `yes` or `f`, and at least two values differ: grades `A, B, F` and a column of only 1s are not boolean.
+- Digits alone with a leading zero, such as `01234`, are a code. `05.50` is a number, and `1e400`, which float64 can't hold, is no number.
+- Dates that aren't ISO 8601, such as `01/02/2020`, are never parsed and never `identifier_like`, unless a `ColumnSpec` declares their `datetime_format`.
+- `identifier_like` is judged without rows that exactly repeat another row, for columns distinct in at least 90% of rows.
+- A declared type that ties with the top candidate matches.
+
 Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record), and an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, printed text and `to_frame()` tables whatever `PYTHONHASHSEED` is; `to_frame()` keeps a set as the object it is, so write such a table with its own cells in mind, since pandas' `to_csv()` would list a set in hash order. A test runs every analysis in two processes with different hash seeds and compares them.
 
 Concurrent calls from several threads are safe. An analysis captures the warnings it raises under one lock, so captures run one at a time, each result gets only its own `numerical_warning` limitation, and the caller's warning filters and `warnings.showwarning` stay as they were.
@@ -294,12 +302,15 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
 - The MCP server reads CSV and TSV files as UTF-8, and only an empty field counts as missing. Values such as `N/A`, `NULL` or `-999` reach the analyses as values, so `detect_missing_sentinels` can find them.
 - The MCP server types each CSV or TSV column once, over the whole file, and uses no column as the index:
   - A column is read as numbers or booleans (`true` or `false`, in any case) only when every non-empty field parses as one. Otherwise it stays text. `inf` and `-inf` read as numbers.
-  - A whole number written with a leading zero, such as the postal code `01234` or the ID `007`, is a code, so its column stays text and `find_candidate_keys` tells `"007"` and `"7"` apart. `-5`, `0`, `0.5` and `10` stay numbers.
+  - A whole number written with a leading zero, such as the postal code `01234` or the ID `007`, is a code, so its column stays text and `find_candidate_keys` tells `"007"` and `"7"` apart. `-5`, `0`, `0.5`, `10` and a decimal such as `05.50` stay numbers.
   - Blank lines are skipped, except in a file with one column, where each is a row with a missing value.
+  - A quoted empty field (`""`) is an empty string, not a missing value, and its column stays text.
+  - A file with one column whose name holds a `;` gives `unreadable_data_file`, hinting that it looks semicolon-separated. The server reads commas (tabs for a TSV).
   - A row may end in an empty field, as in `A1,Oslo,10,`. A row with any other field past the header's gives `unreadable_data_file` and names the line.
   - A repeated header name stays repeated. `describe_dataset` reports it, and every other analysis asks you to rename the repeated columns in the file.
 - Parquet files keep the dtypes and the index that pandas stored in them. A file written without pandas metadata, such as by Spark or DuckDB, gets pandas' default dtypes for its Parquet types (an integer column with nulls becomes float) and a 0-based index.
-- A relative path resolves against the MCP server's working directory, the directory the MCP client starts it in. Pass absolute paths if you don't know which directory that is.
+- A relative path resolves against the MCP server's working directory, the directory the MCP client starts it in. Pass absolute paths if unsure. A leading `~` is the home directory, in every path argument.
+- A path the operating system refuses comes back as an MCP tool error that names the cause: a name over 255 characters, a directory the server may not search, a symbolic link loop, a NUL character, no read permission, or a path that isn't a regular file. A Parquet file with two columns of one name, or with bad pandas metadata, gives `unreadable_data_file`.
 - The MCP server reads only local files. It reads a URL such as `s3://bucket/data.csv` as a relative file path, so the call fails with `data_file_not_found`.
 - A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names in its directory.
 - Row IDs in a result are 0-based data-row numbers for a CSV or TSV file, and follow the stored index for a Parquet file. `id_column` names rows by a column's values instead.
@@ -319,7 +330,10 @@ A call returns the printed result as text and the whole `to_dict()` record as st
 
 To get past the caps, pass `table_path`. The MCP server writes the result's main table, the one `res.to_frame()` gives in Python without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
-- `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. The directory must exist already.
+- `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. A symbolic link at the path gives the same error. The directory must exist already.
+- The directory must be one the MCP server may write in, or the call gives `invalid_argument` before the analysis runs, where the server can tell. A failed write removes its partial file.
+- In a CSV, a missing value is an empty field and an empty string is the quoted field `""`. Parquet keeps the two apart.
+- The line at the end of the text keeps to 120 characters: a path that doesn't fit takes a line of its own, and one too long for that is left to `table_file.path`.
 - A cell that holds a list or a mapping, such as the columns of a candidate key from `find_candidate_keys`, is written as JSON text. In Parquet, a column whose values mix types, such as numbers and text, is written as text, as in the CSV.
 - An analysis with several tables writes only its main one. `compute_association_matrix` writes its pairs, for example, and its wide matrix stays a Python-only table.
 
@@ -379,12 +393,12 @@ What kind of values does each column hold?
 - `constant_columns` (suspected): a single distinct value in at least two rows.
 - `all_missing_columns` (suspected): no value in at least one row.
 - `numbers_as_text` (suspected): the top candidate is integer or float and some of the numbers are stored as text.
-- `dates_as_text` (suspected): the top candidate is datetime and some of the datetimes are ISO 8601 text.
+- `dates_as_text` (suspected): the top candidate is datetime and some of the datetimes are text, in ISO 8601 or the declared datetime_format.
 - `non_iso_date_text` (suspected): at least half the values look like dates, and some of them aren't ISO 8601, such as 01/02/2020 or 5 Jan 2020; they are never parsed.
 - `boolean_like_columns` (descriptive): the top candidate is boolean and some values are numbers or text that read as booleans, such as 0/1 or yes/no.
 - `mixed_value_types` (suspected): the values have more than one Python type, such as int and str: evidence value_types lists them, as summarize_categorical does.
-- `declared_type_mismatch` (suspected): a declared column's top candidate differs from its declared logical type.
-- `declared_type_match` (passed): a declared column's top candidate is its declared logical type.
+- `declared_type_mismatch` (suspected): a declared column's declared logical type scores below its top candidate, or isn't a candidate.
+- `declared_type_match` (passed): a declared column's top candidate, or a candidate tied with it, is its declared logical type.
 - `declared_type_unchecked` (unknown): a declared column has no candidate to compare, since it has no values or none fits.
 - `declared_columns_missing` (violation): declared_schema names columns the data doesn't have, listed in `missing_declared_columns`.
 
