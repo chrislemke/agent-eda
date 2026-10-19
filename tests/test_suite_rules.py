@@ -31,15 +31,46 @@ def test_test_function_names_never_reuse_an_analysis_name():
     clashes = [
         f"{path.name}: {node.name}"
         for path in TESTS
-        for node in ast.walk(ast.parse(path.read_text()))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.FunctionDef) and node.name in analyses
     ]
 
     assert clashes == []
 
 
+def test_text_files_are_read_and_written_as_utf_8():
+    # Without encoding=, Python uses the locale's: cp1252 on Windows, not UTF-8.
+    found = [
+        f"{path.name}:{node.lineno}"
+        for path in TESTS
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call)
+        and is_text_file_call(node)
+        and not any(keyword.arg == "encoding" for keyword in node.keywords)
+    ]
+
+    assert found == [], 'Pass encoding="utf-8" to these calls.'
+
+
+def is_text_file_call(call):
+    """Whether a call reads or writes a file as text: read_text, write_text or open."""
+    name = call.func.attr if isinstance(call.func, ast.Attribute) else ""
+    if name in ("read_text", "write_text"):
+        return True
+    if name != "open" and getattr(call.func, "id", "") != "open":
+        return False
+    # open(file, mode) takes the mode second, Path.open(mode) first.
+    mode_args = call.args[:1] if name == "open" else call.args[1:2]
+    modes = [
+        arg.value
+        for arg in [*mode_args, *(k.value for k in call.keywords if k.arg == "mode")]
+        if isinstance(arg, ast.Constant)
+    ]
+    return not any("b" in mode for mode in modes)
+
+
 def imported_modules(path):
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
             yield from (alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
@@ -89,7 +120,7 @@ def test_test_names_say_the_mcp_server():
     found = [
         f"{path.name}: {node.name}"
         for path in TESTS
-        for node in ast.walk(ast.parse(path.read_text()))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
         and BARE_SERVER.search(node.name.replace("_", " "))
     ]
@@ -111,7 +142,7 @@ def test_package_texts_say_the_mcp_server():
 
 
 def identifiers(path):
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Name):
             yield node.id
         elif isinstance(node, ast.arg):
@@ -126,6 +157,6 @@ def identifiers(path):
 
 def strings(path):
     """The text constants of a module: docstrings, messages and the like."""
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             yield node.value
