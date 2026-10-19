@@ -16,10 +16,10 @@ It is written for three kinds of callers:
 - **Results you can read and parse**: `print(res)` gives at most 40 lines, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package.
-- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix, such as the closest column name, or `pd.read_csv` for a file path passed as data.
+- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix: a misspelled column lists the available names and the closest match, and a file path as data points to `pd.read_csv` or `pd.read_parquet`.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that don't write Python.
-- **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, all preinstalled in AgentCore Code Interpreter.
+- **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, preinstalled in AgentCore Code Interpreter.
 
 ## Installation
 
@@ -130,7 +130,7 @@ summarize_categorical: 1 column holds labels that differ only by case or surroun
 find_duplicate_rows: 2 rows form 1 duplicate group; 1 is an excess copy (duplicate_share 0.125).
 ```
 
-Lines 2 to 4 are the three planted problems. The first is expected: `customer_id` is meant to be an identifier. A finding says what the data suggests; what it means is your call.
+Lines 2 to 4 are the planted problems. The first is expected: `customer_id` is an identifier. A finding says what the data suggests; what it means is your call.
 
 ### Other analyses
 
@@ -178,7 +178,7 @@ The printed text stays within 40 lines of 120 characters however large the data,
 
 A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and a message with the fix. Data problems never raise; they show in the status, findings and limitations.
 
-Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python, and NaN that a pyarrow-backed or nullable float column stores as a value is missing, with a limitation. Values pandas can't hash, such as lists, are the one place analyses differ: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
+Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. NaN stored as a value in a pyarrow-backed or nullable float column is missing, with a limitation. Values pandas can't hash, such as lists, are the exception: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
 `find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as that count.
 
@@ -192,7 +192,7 @@ A pyarrow dictionary column, such as Parquet gives for a categorical with `dtype
 - `identifier_like` is judged without rows that exactly repeat another row, for columns distinct in at least 90% of rows.
 - A declared type tied with the top candidate matches.
 
-Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record); an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is. `to_frame()` keeps a set as it is, so pandas' `to_csv()` would list it in hash order. A test compares every analysis across two hash seeds.
+Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record); an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is. `to_frame()` keeps a set as it is, so `to_csv()` would list it in hash order. A test compares every analysis across two hash seeds.
 
 Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, one at a time, so each result gets only its own `numerical_warning` limitation and the caller's warning filters and `warnings.showwarning` stay unchanged.
 
@@ -252,7 +252,7 @@ sensitive_columns = [
 mask_sensitive = true
 ```
 
-`format_version` is the file's layout. A file without it loads as version 1; one from a newer agent-eda raises `invalid_project_file`, naming its version. `project.save` writes through a temporary file and a rename, so an interrupted save keeps the old file. A new file is owner-readable only, and a replaced file keeps its permissions. It refuses a target that isn't a regular file, such as a named pipe, and a project over 1 MiB. `Project.load` raises `invalid_project_file` for a file that isn't a regular file, is over 1 MiB, can't be read (for example without permission) or has a newer `format_version`, and for invalid TOML and missing or wrong keys.
+`format_version` is the file's layout. A file without it loads as version 1; one from a newer agent-eda raises `invalid_project_file`, naming its version. `project.save` writes through a temporary file and a rename, so an interrupted save keeps the old file. A new file is owner-readable only, and a replaced file keeps its permissions. It refuses a target that isn't a regular file, such as a named pipe, and a project over 1 MiB. `Project.load` raises `invalid_project_file` for such a file, one that can't be read (for example without permission) or has a newer `format_version`, invalid TOML, and missing or wrong keys.
 
 Masking is a guardrail against accidental exposure, not anonymization or access control. The package runs in the agent's own process, so an agent that can call it can read the data directly. [ADR 0001](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0001-data-policy-is-a-guardrail.md) records why.
 
@@ -292,7 +292,7 @@ Claude Desktop, Cursor and most MCP clients read an `mcpServers` entry from thei
 
 If the client doesn't start it in the environment with the extra, give the path that `which agent-eda-mcp` prints as `command`.
 
-Each analysis is an MCP tool of the same name. Its description and input schema come from the docstring that `help()` shows, with each argument's type, allowed values and default. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order.
+Each analysis is an MCP tool of that name. Its description and input schema come from the `help()` docstring, with each argument's type, allowed values and default. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order.
 
 ### Pass data by path
 
@@ -325,7 +325,7 @@ The server reads arguments as an MCP tool's input schema describes them, so a st
 
 ### Read the response
 
-A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. A run that doesn't complete, such as `insufficient_data` from `summarize_numeric` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`. The message says what is wrong and what is allowed, as in Python, and gives the fix in MCP terms: `{"task": "regression"}` for `task='regression'`, the input schema for `help()`, and `project_path` for a `Project`.
+A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. Some MCP clients show the model only one of the two; Claude Code shows the structured content. A run that doesn't complete, such as `insufficient_data` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`. The message says what is wrong and what is allowed, as in Python, and gives the fix in MCP terms: `{"task": "regression"}` for `task='regression'`, the input schema for `help()`, and `project_path` for a `Project`.
 
 To get past the caps, pass `table_path`. The server writes the result's main table, what `res.to_frame()` gives without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
@@ -576,9 +576,9 @@ What does the target look like for this task?
 - `infinite_values` (suspected): a regression target holds inf or -inf, which every statistic leaves out.
 - `missing_labels` (descriptive): rows have no target value.
 - `rare_classes` (descriptive): classes have a share below rare_share.
-- `missing_expected_classes` (violation): classes declared in expected_labels have no rows.
+- `missing_expected_classes` (violation): declared classes have no rows.
 - `case_or_space_variants` (suspected): labels differ only by case or surrounding spaces.
-- `two_value_target` (suspected): a regression target holds two distinct values, so it may be binary labels.
+- `two_value_target` (suspected): a regression target has two distinct values, so it may be binary labels.
 
 **Statuses:** `completed`, `insufficient_data`, `failed`
 

@@ -261,8 +261,8 @@ def profile_target(
           a classifier has nothing to tell apart.
         - `more_than_two_classes`: violation; a binary_classification target
           has more than two classes. One class gives single_class instead.
-        - `missing_expected_classes`: violation; classes declared in
-          expected_labels have no rows.
+        - `missing_expected_classes`: violation; declared classes have no
+          rows.
         - `unexpected_labels`: violation; labels lie outside expected_labels.
         - `no_unexpected_labels`: passed; every label that isn't missing is in
           expected_labels.
@@ -273,7 +273,7 @@ def profile_target(
           surrounding spaces.
         - `constant_target`: violation; at least two values of a regression
           target aren't missing and all of them are equal; NaN is missing.
-        - `two_value_target`: suspected; a regression target holds two
+        - `two_value_target`: suspected; a regression target has two
           distinct values, so it may be binary labels.
         - `infinite_values`: suspected; a regression target holds inf or -inf,
           which every statistic leaves out.
