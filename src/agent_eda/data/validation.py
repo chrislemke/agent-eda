@@ -48,7 +48,7 @@ from agent_eda._registry import (
 )
 from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
-from agent_eda._run import data_shape, execution, overall_status
+from agent_eda._run import NO_ROWS, data_shape, execution, overall_status
 from agent_eda._text import (
     Surface,
     closest_names,
@@ -291,7 +291,7 @@ _TIE_ORDER: tuple[LogicalType, ...] = (
 
 
 @analysis(
-    statuses=("completed", "partial", "insufficient_data", "not_applicable", "failed"),
+    statuses=("completed", "partial", "insufficient_data", "not_applicable"),
     finding_codes=(
         "identifier_like_columns",
         "constant_columns",
@@ -452,14 +452,14 @@ def infer_column_semantics(
         completed: Every selected column has values and a candidate scoring
             above 0.
         partial: Some selected columns have no values or no candidate; their
-            entries have status insufficient_data or not_applicable.
+            entries have status insufficient_data or not_applicable. Reason
+            code: `incomplete_columns`.
         insufficient_data: The data has no rows, or no selected column has a
-            value that isn't missing.
+            value that isn't missing. Reason codes: `no_rows` and `no_values`.
         not_applicable: The data has no columns, or no logical type fits any
             selected column: the values are of other types, such as lists or
-            intervals, and aren't category labels repeated over rows.
-        failed: An anticipated computation failure stopped the analysis, and
-            `status_reason` gives its code and message. No such failure is known today.
+            intervals, and aren't category labels repeated over rows. Reason
+            codes: `no_columns` and `unsupported_values`.
 
     Examples:
         >>> import pandas as pd
@@ -570,7 +570,7 @@ def infer_column_semantics(
             *_flag_findings(entries),
             *_declared_findings(entries, missing_declared, names),
         ],
-        limitations=_limitations(readings),
+        limitations=_limitations(readings, entries, schema is None),
         execution=execution(("numpy", "pandas")),
         columns=entries,
         missing_declared_columns=missing_declared,
@@ -1298,8 +1298,41 @@ def _missing_columns_claim(missing: list[str], names: list[str]) -> str:
     )
 
 
-def _limitations(readings: dict[str, _Reading]) -> list[Limitation]:
+def _limitations(
+    readings: dict[str, _Reading],
+    entries: dict[str, InferColumnSemanticsColumn],
+    no_schema: bool,
+) -> list[Limitation]:
     limitations = []
+    if no_schema and entries:
+        limitations.append(
+            Limitation(
+                code="schema_not_declared",
+                reason=(
+                    "No schema was declared, so no column was compared with a "
+                    "declared logical type and matches_declared is null."
+                ),
+                # Every column, so none is named: a path per column would make
+                # each look like the one with a limitation.
+                fields=["columns"],
+            )
+        )
+    untyped = [
+        name for name, entry in entries.items() if entry.inferred_logical_type is None
+    ]
+    if untyped:
+        has = plural(len(untyped), "column has", "columns have")
+        limitations.append(
+            Limitation(
+                code="type_not_inferred",
+                reason=(
+                    f"{has} no inferred logical type, since no value is left after "
+                    "the missing ones or no logical type fits the values: "
+                    f"{join_labels(untyped)}."
+                ),
+                fields=[f"{_path(name)}.inferred_logical_type" for name in untyped],
+            )
+        )
     empty = [name for name, reading in readings.items() if not reading.non_missing]
     if empty:
         limitations.append(
@@ -1352,7 +1385,7 @@ _FINDING_CODES = (
 
 
 @analysis(
-    statuses=("completed", "failed"),
+    statuses=("completed", "insufficient_data"),
     finding_codes=_FINDING_CODES,
     tags=(
         "schema",
@@ -1486,10 +1519,10 @@ def validate_column_types(
 
     Statuses:
         completed: Every declared column was checked, also when the data lacks
-            some of them or has no rows; the findings say what the checks
-            found.
-        failed: An anticipated computation failure stopped the analysis, and
-            `status_reason` gives its code and message. No such failure is known today.
+            some of them; the findings say what the checks found.
+        insufficient_data: The data has no rows, so there is no value to check;
+            the counts are 0, and a declared column the data lacks is still
+            reported. Reason code: `no_rows`.
 
     Examples:
         >>> import pandas as pd
@@ -1536,7 +1569,8 @@ def validate_column_types(
         - violation non_nullable_missing_values: 1 column declared non-nullable has missing values: 'ordered'.
         - descriptive convertible_values: 3 columns hold convertible values: 'qty', 'ordered' and 'paid'.
         - passed passing_columns: 1 column passes every check: 'paid'.
-        Limitations (1 of 1 shown):
+        Limitations (2 of 2 shown):
+        - nullable_not_declared: nullable wasn't declared, so missing values weren't checked: 'qty', 'paid' and 'customer'.
         - column_not_in_data: 1 declared column isn't in the data, so its dtype and counts are null: 'customer'.
         More: res.to_frame() has all 4 declared columns; res.to_frame(table='invalid_values') counts every distinct invalid
             value; res.findings, res.limitations and res.to_json() have the rest.
@@ -1609,8 +1643,8 @@ def validate_column_types(
     result = ValidateColumnTypesResult(
         analysis="validate_column_types",
         method=None,
-        status="completed",
-        status_reason=None,
+        status="completed" if len(data) else "insufficient_data",
+        status_reason=None if len(data) else NO_ROWS,
         parameters={
             "data": data_shape(data),
             "schema": {
@@ -1639,7 +1673,7 @@ def validate_column_types(
         findings=_validation_findings(entries, absent, names),
         limitations=[
             *ambiguous_row_ids(row_ids, ambiguous),
-            *_validation_limitations(checks, absent),
+            *_validation_limitations(checks, absent, entries),
         ],
         execution=execution(("numpy", "pandas")),
         masking=masking.record(_shown_columns(entries, row_ids.id_column), data),
@@ -1880,9 +1914,23 @@ def _validation_findings(
 
 
 def _validation_limitations(
-    checks: dict[str, Check], absent: list[str]
+    checks: dict[str, Check],
+    absent: list[str],
+    entries: dict[str, ValidateColumnTypesColumn],
 ) -> list[Limitation]:
     limitations = []
+    open_nullable = [name for name, entry in entries.items() if entry.nullable is None]
+    if open_nullable:
+        limitations.append(
+            Limitation(
+                code="nullable_not_declared",
+                reason=(
+                    "nullable wasn't declared, so missing values weren't checked: "
+                    f"{join_labels(open_nullable)}."
+                ),
+                fields=[f"{_path(name)}.nullable" for name in open_nullable],
+            )
+        )
     stored = [name for name, check in checks.items() if check.stored_nan]
     limitations += stored_nan_limitations(
         stored,

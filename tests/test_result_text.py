@@ -12,7 +12,9 @@ from agent_eda.results import (
     Finding,
     FindingCodeDescription,
     Limitation,
+    LimitationCodeDescription,
     ParameterDescription,
+    ReasonCodeDescription,
     ResultFieldDescription,
     SearchListing,
     SearchMatch,
@@ -62,16 +64,16 @@ def test_a_long_status_reason_wraps_instead_of_losing_its_end():
         {
             **res.model_dump(),
             "status": "failed",
-            "status_reason": {"code": "too_much_work", "message": message},
+            "status_reason": {"code": "too_many_pairs", "message": message},
         }
     )
 
     lines = str(failed).splitlines()
 
     assert lines[1:3] == [
-        "Reason: too_much_work: The run needs more work than its limit allows. The run "
-        "needs more work than its limit allows. The",
-        "    run needs more work than its limit allows. Raise the limit.",
+        "Reason: too_many_pairs: The run needs more work than its limit allows. The run "
+        "needs more work than its limit allows.",
+        "    The run needs more work than its limit allows. Raise the limit.",
     ]
     assert max(len(line) for line in lines) <= 120
 
@@ -183,7 +185,7 @@ def reason_of(line_count):
     words = []
     while True:
         words.append("raise_the_limit")
-        text = f"Reason: too_much_work: {' '.join(words)}"
+        text = f"Reason: too_many_pairs: {' '.join(words)}"
         wrapped = textwrap.wrap(text, width=120, subsequent_indent="    ")
         if len(wrapped) == line_count:
             return " ".join(words)
@@ -209,7 +211,7 @@ def full_sections(reason_lines):
         Limitation(code="unhashable_values", reason=f"Reason {i}.", fields=[])
         for i in range(7)
     ]
-    reason = StatusReason(code="too_much_work", message=reason_of(reason_lines))
+    reason = StatusReason(code="too_many_pairs", message=reason_of(reason_lines))
     filled = res.model_copy(
         update={
             "status": "failed",
@@ -353,11 +355,27 @@ def test_description_text_follows_the_fixed_template():
         ],
         parameters_schema={},
         statuses=[
-            StatusDescription(status="completed", reason="The rows were counted.")
+            StatusDescription(
+                status="completed", reason="The rows were counted.", reason_codes=[]
+            ),
+            StatusDescription(
+                status="insufficient_data",
+                reason="The data has no rows.",
+                reason_codes=[
+                    ReasonCodeDescription(
+                        code="no_rows", meaning="The data has no rows."
+                    )
+                ],
+            ),
         ],
         finding_codes=[
             FindingCodeDescription(
                 code="few_rows", description="suspected; the data has fewer than 3 rows"
+            )
+        ],
+        limitation_codes=[
+            LimitationCodeDescription(
+                code="zero_variance", meaning="Every value is equal."
             )
         ],
         result_class="CountRowsResult",
@@ -395,8 +413,12 @@ def test_description_text_follows_the_fixed_template():
             "    The most rows to count.",
             "Statuses:",
             "  completed: The rows were counted.",
+            "  insufficient_data: The data has no rows.",
+            "    no_rows: The data has no rows.",
             "Finding codes:",
             "  few_rows: suspected; the data has fewer than 3 rows",
+            "Limitation codes:",
+            "  zero_variance: Every value is equal.",
             "Result: CountRowsResult. Besides the fields every result has (status), "
             "it has:",
             "  row_count: int",

@@ -14,7 +14,7 @@ import textwrap
 
 from agent_eda._data_files import supported_extensions
 from agent_eda._version import __version__
-from agent_eda.discovery import overview
+from agent_eda.discovery import overview, status_lines
 
 # Which project a call uses, in every MCP text that names project_path.
 PRECEDENCE = (
@@ -50,8 +50,7 @@ Read the response: an MCP client may show you its text, its structured content o
 - table_path, a new .csv, .parquet or .pq file, gets the main table in full, lists as JSON text, and the record's
   table_file says where. It never overwrites: an existing file gives the error table_file_exists.
 - A description's `to_dict` record is the structured content, and its `to_frame` table is what table_path writes.
-- status says how the run ended: completed, partial, insufficient_data, not_applicable, missing_prerequisites,
-  budget_exceeded, blocked_by_policy or failed; status_reason says why it didn't complete. That is not an error.
+{status}
 - findings are claims about the data, each with a code and an assessment: descriptive, suspected, violation, passed
   or unknown. limitations say what limits how far the numbers can be read.
 - A mistake in the call comes back with isError true, a stable code and a message that says how to fix the call."""
@@ -79,7 +78,9 @@ def instructions() -> str:
                 )
             ),
             "",
-            _RESULTS,
+            _RESULTS.format(
+                status="\n".join(status_lines("", " That is not an error."))
+            ),
             "",
             _fill(_MASKING),
             "",

@@ -43,7 +43,7 @@ from agent_eda._table_files import (
     WrittenTable,
     table_file,
 )
-from agent_eda._text import closest_names, join_alternatives
+from agent_eda._text import closest_names, join_alternatives, join_items
 from agent_eda._version import __version__
 from agent_eda._wording import json_words, json_words_in, see_every
 from agent_eda._wording import message as worded_message
@@ -574,12 +574,26 @@ def _no_json_schema(spec: AnalysisSpec) -> str:
     raise AssertionError(f"{spec.name} has a parameter without a JSON Schema")
 
 
+def _reason_codes(codes: tuple[str, ...]) -> str:
+    """The sentence that ends a Statuses: entry and names its reason codes."""
+    if not codes:
+        return ""
+    return (
+        f" Reason {'code' if len(codes) == 1 else 'codes'}: "
+        + join_items([f"`{code}`" for code in codes])
+        + "."
+    )
+
+
 def _description(spec: AnalysisSpec) -> str:
     """The docstring an MCP caller needs: summary, When to use:, Returns:,
     Statuses: and See Also:, in that order. Args: goes into the input schema,
     and Examples: is left out because it is Python."""
     doc = spec.docstring
-    statuses = [f"{status}: {doc.statuses.get(status, '')}" for status in spec.statuses]
+    statuses = [
+        f"{status}: {doc.statuses.get(status, '')}{_reason_codes(doc.status_codes.get(status, ()))}"
+        for status in spec.statuses
+    ]
     see_also = [f"{name}: {text}" for name, text in doc.see_also.items()]
     return json_words(
         "\n\n".join(

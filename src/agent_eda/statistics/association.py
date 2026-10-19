@@ -36,6 +36,7 @@ from agent_eda.results import (
     AssociationType,
     ColumnSupport,
     ComputeAssociationMatrixResult,
+    ExclusionReason,
     Finding,
     LeftOutColumn,
     LeftOutReason,
@@ -123,7 +124,7 @@ PROBE_ROWS = 20_000
 RANK_PAIR_ROWS = 10_000
 
 _FEWER_THAN_TWO_COLUMNS = StatusReason(
-    code="fewer_than_two_columns",
+    code="no_columns",
     message=(
         "Fewer than two columns can be paired: numeric, boolean, text, object "
         "and categorical columns can, and left_out_columns says why the others "
@@ -131,7 +132,7 @@ _FEWER_THAN_TWO_COLUMNS = StatusReason(
     ),
 )
 _NO_DEFINED_PAIRS = StatusReason(
-    code="no_defined_pairs",
+    code="no_values",
     message=(
         "No pair has a value: each pair's undefined_reason says why, such as "
         "too_few_rows."
@@ -162,14 +163,11 @@ class _Paired:
     codes: np.ndarray | None
 
     def support(self, row_count: int) -> ColumnSupport:
-        excluded = {
-            reason: count
-            for reason, count in (
-                ("missing", self.entry.missing_count),
-                ("infinite", self.entry.infinite_count),
-            )
-            if count
-        }
+        excluded: dict[ExclusionReason, int] = {}
+        if self.entry.missing_count:
+            excluded["missing"] = self.entry.missing_count
+        if self.entry.infinite_count:
+            excluded["infinite"] = self.entry.infinite_count
         return ColumnSupport(
             column=self.entry.column,
             eligible_count=row_count,
@@ -185,7 +183,6 @@ class _Paired:
         "budget_exceeded",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ),
     finding_codes=("perfect_associations",),
     tags=(
@@ -329,13 +326,12 @@ def compute_association_matrix(
         completed: At least one pair has a value.
         budget_exceeded: The paired columns make more pairs than max_pairs, so
             none was computed; `status_reason` gives the count and the limit.
+            Reason code: `too_many_pairs`.
         insufficient_data: The data has no rows, or no pair has a value, such
-            as when every pair has fewer than 3 complete rows.
+            as when every pair has fewer than 3 complete rows. Reason codes:
+            `no_rows` and `no_values`.
         not_applicable: Fewer than two columns can be paired; left_out_columns
-            says why the others can't.
-        failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. No such failure is known today:
-            a value that can't be computed is null, with its reason, instead.
+            says why the others can't. Reason code: `no_columns`.
 
     Examples:
         >>> import pandas as pd
@@ -415,7 +411,9 @@ def compute_association_matrix(
                     eligible_count=row_count,
                     evaluated_count=0,
                     excluded_count=row_count,
-                    excluded_by_reason={read: row_count} if row_count else {},
+                    excluded_by_reason=_left_out_exclusions(
+                        data.iloc[:, column.position], read
+                    ),
                 )
             )
     if columns is None:
@@ -631,6 +629,31 @@ def _codes(series: pd.Series, *, numbers: bool) -> _Levels | None:
             codes = np.where(codes >= 0, renumbered[codes], -1)
             return _Levels(codes, int((~is_nan).sum()))
     return _Levels(codes, len(uniques))
+
+
+def _left_out_exclusions(
+    series: pd.Series, reason: LeftOutReason
+) -> dict[ExclusionReason, int]:
+    """Why every value of a column left out of the pairs is excluded, and how many.
+
+    A column with no finite value holds only missing and infinite values; the
+    other reasons exclude every row for one reason.
+    """
+    rows = len(series)
+    if not rows:
+        return {}
+    if reason == "all_missing":
+        return {"missing": rows}
+    if reason == "no_finite_values":
+        missing = int(np.isnan(read_numeric(series).values).sum())
+        return {
+            key: count
+            for key, count in (("missing", missing), ("infinite", rows - missing))
+            if count
+        }
+    if reason == "unhashable_values":
+        return {"unhashable_values": rows}
+    return {"too_many_categories": rows}
 
 
 def _left_out(

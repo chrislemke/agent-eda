@@ -32,6 +32,10 @@ _Avoid_: output, report, response
 How an analysis run ended, for example completed or not applicable. It says nothing about whether the data passed a check.
 _Avoid_: outcome, result state
 
+**Status reason**:
+Why a run ended with a status other than completed: a stable code from the `StatusReasonCode` list and a one-sentence message. Nothing to work on is `no_rows`, `no_columns` or `no_values`, and the message says which. Each analysis names the codes it returns in its `Statuses:` section.
+_Avoid_: error code (that names a raised error), failure reason
+
 **Finding**:
 A claim in an analysis result, backed by the result fields that support it and carrying an assessment.
 _Avoid_: insight, issue, alert

@@ -33,17 +33,17 @@ def test_result_names_its_analysis_and_how_the_run_ended(result):
 
 def test_a_failed_result_carries_an_error_code_and_a_message(result):
     record = result.model_dump()
-    reason = {"code": "overflow", "message": "The memory total overflowed."}
+    reason = {"code": "numerical_failure", "message": "The memory total overflowed."}
 
     failed = type(result).model_validate(
         {**record, "status": "failed", "status_reason": reason}
     )
 
     assert failed.status_reason is not None
-    assert failed.status_reason.code == "overflow"
+    assert failed.status_reason.code == "numerical_failure"
     assert str(failed).splitlines()[:2] == [
         "describe_dataset: failed on 3 rows x 2 columns",
-        "Reason: overflow: The memory total overflowed.",
+        "Reason: numerical_failure: The memory total overflowed.",
     ]
 
 
@@ -62,7 +62,7 @@ def test_an_unexpected_exception_propagates_instead_of_becoming_a_result():
     ("status", "reason"),
     [
         ("failed", None),
-        ("completed", {"code": "overflow", "message": "Overflowed."}),
+        ("completed", {"code": "numerical_failure", "message": "Overflowed."}),
         ("cancelled", None),
     ],
     ids=["failed-without-reason", "completed-with-reason", "unknown-status"],

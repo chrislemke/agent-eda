@@ -379,7 +379,6 @@ def test_declares_its_statuses_and_parameters():
         "partial",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
     assert info.parameters == [
         "data",
@@ -483,7 +482,7 @@ def test_data_without_text_categorical_or_boolean_columns_is_not_applicable(df):
     assert res.status == "not_applicable"
     assert res.status_reason is not None
     assert (res.status_reason.code, res.status_reason.message) == (
-        "no_categorical_columns",
+        "no_columns",
         "The data has no text, object, categorical or boolean columns. Name a "
         "numeric column in columns to count its values.",
     )
@@ -570,7 +569,7 @@ def test_support_counts_the_values_each_column_left_out():
         for c in support.columns
     ] == [
         ("plan", 4, 2, 2, {"missing": 2}),
-        ("tags", 4, 0, 4, {"missing": 1, "unhashable": 3}),
+        ("tags", 4, 0, 4, {"missing": 1, "unhashable_values": 3}),
     ]
 
 

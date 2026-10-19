@@ -40,6 +40,7 @@ from agent_eda.results import (
     DescribeDatasetColumn,
     DescribeDatasetIndex,
     DescribeDatasetResult,
+    ExclusionReason,
     FindCandidateKeysResult,
     Finding,
     KeySearch,
@@ -72,7 +73,6 @@ _ANY_COLUMN = ColumnRule(
         "budget_exceeded",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ),
     finding_codes=("keys_found", "keys_with_missing_values", "no_key_found"),
     tags=(
@@ -174,13 +174,13 @@ def find_candidate_keys(
             max_combinations allows. It stopped at the limit and kept what it
             found, and `status_reason` says how many sets the complete search
             covers and the largest max_key_size that fits max_combinations.
-        insufficient_data: The data has fewer than 2 rows, which any column
-            identifies.
+            Reason code: `too_many_combinations`.
+        insufficient_data: The data has no rows, or just 1 row, which any
+            column identifies. Reason codes: `no_rows` and `one_row`.
         not_applicable: No column can be searched: the data has no columns,
             every selected column holds values that can't be hashed, or
             the default columns left out every column for holding fractions.
-        failed: An anticipated computation failure stopped the search, and
-            `status_reason` gives its code and message. No such failure is known today.
+            Reason codes: `no_columns` and `unhashable_values`.
 
     Examples:
         >>> import pandas as pd
@@ -439,7 +439,7 @@ _ONLY_MEASUREMENTS = StatusReason(
     ),
 )
 _NO_HASHABLE_COLUMNS = StatusReason(
-    code="no_hashable_columns",
+    code="unhashable_values",
     message=(
         "No selected column can be searched: their values can't be hashed, such as "
         "lists or dicts."
@@ -480,7 +480,9 @@ def _candidate(counts: SetCounts, names: list[str], row_count: int) -> Candidate
 
 def _support(name: str, row_count: int, left_out: bool) -> ColumnSupport:
     """Every row of a searched column is evaluated; a column left out has none."""
-    excluded = {"unhashable_values": row_count} if left_out and row_count else {}
+    excluded: dict[ExclusionReason, int] = (
+        {"unhashable_values": row_count} if left_out and row_count else {}
+    )
     return ColumnSupport(
         column=name,
         eligible_count=row_count,
@@ -552,7 +554,7 @@ def _unhashable_values(left_out: list[str]) -> list[Limitation]:
 
 
 @analysis(
-    statuses=("completed", "failed"),
+    statuses=("completed",),
     finding_codes=(
         "empty_data",
         "duplicated_column_labels",
@@ -642,10 +644,8 @@ def describe_dataset(
 
     Statuses:
         completed: The description finished, also for data with no rows, no
-            columns or neither.
-        failed: An anticipated computation failure stopped the description, and
-            `status_reason` gives its code and message. No such failure is known today:
-            a count that can't be computed is null, with a limitation, instead.
+            columns or neither; a count that can't be computed is null, with a
+            limitation.
 
     Examples:
         >>> import pandas as pd

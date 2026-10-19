@@ -689,7 +689,6 @@ def test_declares_its_statuses():
         "budget_exceeded",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
 
 
@@ -732,7 +731,7 @@ def test_fewer_than_two_paired_columns_is_not_applicable():
 
     assert res.status == "not_applicable"
     assert res.status_reason is not None
-    assert res.status_reason.code == "fewer_than_two_columns"
+    assert res.status_reason.code == "no_columns"
     assert res.status_reason.message == (
         "Fewer than two columns can be paired: numeric, boolean, text, object and "
         "categorical columns can, and left_out_columns says why the others can't."
@@ -759,7 +758,7 @@ def test_no_pair_with_a_value_is_insufficient_data():
 
     assert res.status == "insufficient_data"
     assert res.status_reason is not None
-    assert res.status_reason.code == "no_defined_pairs"
+    assert res.status_reason.code == "no_values"
     assert res.status_reason.message == (
         "No pair has a value: each pair's undefined_reason says why, such as "
         "too_few_rows."
@@ -923,7 +922,7 @@ def test_support_counts_the_values_each_column_gives_and_leaves_out():
         "eligible_count": 5,
         "evaluated_count": 0,
         "excluded_count": 5,
-        "excluded_by_reason": {"all_missing": 5},
+        "excluded_by_reason": {"missing": 5},
     }
     entry = res.columns["x"]
     assert (entry.value_count, entry.missing_count, entry.infinite_count) == (3, 1, 1)

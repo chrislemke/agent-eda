@@ -594,7 +594,6 @@ def test_the_declared_statuses_are_the_four_the_ticket_names():
         "completed",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
 
 
@@ -640,7 +639,7 @@ def test_no_column_to_compare_gives_not_applicable(df, id_column, message):
 
     assert res.status == "not_applicable"
     assert res.status_reason is not None
-    assert res.status_reason.code == "no_columns_to_compare"
+    assert res.status_reason.code == "no_columns"
     assert res.status_reason.message == message
     assert res.findings == []
     assert res.duplicate_groups == []

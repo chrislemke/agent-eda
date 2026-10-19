@@ -18,7 +18,13 @@ from agent_eda._text import Surface, join_items, join_labels, plural
 from agent_eda._version import __version__
 from agent_eda._wording import echoed, worded
 from agent_eda.errors import InvalidArgumentError
-from agent_eda.results import ColumnResult, Execution, Status, StatusReason
+from agent_eda.results import (
+    ColumnResult,
+    Execution,
+    Status,
+    StatusReason,
+    StatusReasonCode,
+)
 
 # When no column completed and their statuses differ, the first of these that
 # occurs is the result's status.
@@ -125,7 +131,7 @@ def watch_warnings() -> Generator[list[str], None, None]:
 
 def budget_exceeded_reason(
     *,
-    code: str,
+    code: StatusReasonCode,
     needs: str,
     required: int,
     unit: tuple[str, str],

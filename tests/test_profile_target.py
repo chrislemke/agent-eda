@@ -207,12 +207,14 @@ def test_without_expected_labels_or_rare_share_the_result_says_they_werent_check
             ["unexpected_label_count", "unexpected_labels"],
         ),
         ("rare_share_not_declared", ["rare_class_count", "rare_classes"]),
+        ("not_applicable_to_task", ["statistics", "non_finite_count"]),
     ]
     assert [lim.reason for lim in res.limitations] == [
         "Labels outside an expected set weren't checked: pass expected_labels to "
         "check them.",
         "Rare classes weren't checked: pass rare_share, the share below which a "
         "class is rare.",
+        "The task is binary_classification, so the regression fields are null.",
     ]
     # Each printed limitation keeps its fix within the 120-character line.
     assert all(not line.endswith("...") for line in str(res).splitlines())
@@ -236,7 +238,7 @@ def test_with_expected_labels_and_rare_share_both_checks_run():
     assert res.unexpected_label_count == 0
     assert res.rare_classes == []
     assert res.rare_class_count == 0
-    assert res.limitations == []
+    assert [lim.code for lim in res.limitations] == ["not_applicable_to_task"]
 
 
 def findings_of(res):
@@ -1003,10 +1005,10 @@ def flowing(text):
 TASKS = ["binary_classification", "multiclass_classification", "regression"]
 
 
-def test_the_declared_statuses_are_completed_insufficient_data_and_failed():
+def test_the_declared_statuses_are_completed_and_insufficient_data():
     [info] = [i for i in ae.list_analyses().analyses if i.name == "profile_target"]
 
-    assert info.statuses == ["completed", "insufficient_data", "failed"]
+    assert info.statuses == ["completed", "insufficient_data"]
 
 
 def too_few_values(res):
@@ -1041,7 +1043,7 @@ def test_a_classification_target_without_labels_gives_insufficient_data():
     assert res.status == "insufficient_data"
     assert res.status_reason is not None
     assert (res.status_reason.code, res.status_reason.message) == (
-        "no_labels",
+        "no_values",
         "Every target value is missing, so there are no labels to count.",
     )
     assert (res.classes, res.class_count, res.valid_label_count) == ([], 0, 0)
@@ -1071,7 +1073,7 @@ def test_a_classification_target_without_an_expected_label_gives_insufficient_da
     assert res.status == "insufficient_data"
     assert res.status_reason is not None
     assert (res.status_reason.code, res.status_reason.message) == (
-        "no_valid_labels",
+        "no_values",
         "No target value is in expected_labels; unexpected_labels lists the labels "
         "found.",
     )
@@ -1086,7 +1088,7 @@ def test_a_regression_target_without_a_finite_value_gives_insufficient_data():
 
     assert res.status == "insufficient_data"
     assert res.status_reason is not None
-    assert res.status_reason.code == "no_finite_values"
+    assert res.status_reason.code == "no_values"
     assert res.statistics is not None
     assert res.statistics.mean is None
     assert res.non_finite_count == 3

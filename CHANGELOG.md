@@ -68,3 +68,20 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 - `InferColumnSemanticsResult.inferred_schema()`, a `schema` for `validate_column_types` that leaves out columns without an inferred type.
 - `DetectMissingSentinelsResult.sentinel_values(columns=None)`, the `sentinel_values` for `profile_missing_values`. Masked candidates are left out and named in the returned mapping's `note`.
 - `rich` is a dev dependency, for the test of the Rich display.
+
+### Statuses and codes
+
+- No analysis declares or returns `failed` any more, and the `Statuses:` sections drop it. `Status` still defines it, with the reason code `numerical_failure`, for an analysis with an anticipated numerical failure. `ae.guide()`, the README and the MCP instructions list only the statuses some registered analysis can return: `completed`, `partial`, `insufficient_data`, `not_applicable` and `budget_exceeded`.
+- `StatusReason.code` is one of the `StatusReasonCode` list, with a meaning for each code. Each analysis's `Statuses:` entries name the reason codes they return (`ae.describe_analysis` shows them in `StatusDescription.reason_codes`), and the registry raises when a result returns one that isn't declared. The six spellings of "nothing to work on" are merged:
+
+  | Before | After |
+  | --- | --- |
+  | `no_columns_to_compare`, `no_columns_to_check`, `no_numeric_columns`, `no_categorical_columns`, `fewer_than_two_columns` | `no_columns` |
+  | `no_finite_values`, `no_labels`, `no_valid_labels`, `no_defined_pairs` | `no_values` |
+  | `no_hashable_columns` | `unhashable_values` |
+
+- `ae.describe_analysis` and the README's Reference show the meaning of each limitation code (`AnalysisDescription.limitation_codes`).
+- `excluded_by_reason` is typed (`ExclusionReason`) with one spelling per reason: `missing`, `infinite`, `unexpected_label`, `unhashable_values` and `too_many_categories`. `summarize_categorical`'s `unhashable` is `unhashable_values`, and `compute_association_matrix`'s `all_missing` and `no_finite_values` are `missing` and `infinite`.
+- Checks that didn't run, and nulls, carry a limitation: `sentinel_values_not_declared` in `detect_missing_sentinels` without `sentinel_values`, `schema_not_declared` and `type_not_inferred` in `infer_column_semantics`, `nullable_not_declared` in `validate_column_types`, and `not_applicable_to_task` in `profile_target`.
+- `find_duplicate_rows`' `duplicate_share` is null, with a `too_few_values` limitation, when nothing was compared. It was 0.0 when the data had no column to compare.
+- `validate_column_types` returns `insufficient_data` with `no_rows` for data without rows. It returned `completed`. `describe_dataset` stays `completed`, with its `empty_data` finding, since it describes data of any shape.

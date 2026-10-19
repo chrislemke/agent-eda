@@ -100,7 +100,7 @@ _KEPT_ROW_IDS = 10
 
 
 @analysis(
-    statuses=("completed", "insufficient_data", "failed"),
+    statuses=("completed", "insufficient_data"),
     finding_codes=(
         "single_class",
         "more_than_two_classes",
@@ -278,10 +278,7 @@ def profile_target(
             value, whether or not it fits the task.
         insufficient_data: The data has no rows, every target value is
             missing, no label is in expected_labels, or a regression target has
-            no finite value.
-        failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. No such failure is known today:
-            a statistic that can't be computed is null, with a limitation, instead.
+            no finite value. Reason codes: `no_rows` and `no_values`.
 
     Examples:
         >>> import pandas as pd
@@ -315,7 +312,8 @@ def profile_target(
         - violation unexpected_labels: 1 label in 1 row is outside expected_labels.
         - suspected case_or_space_variants: 1 group of labels differs only by case or surrounding spaces: 'no' and 'No'.
         - descriptive missing_labels: 1 of 8 rows has no label: its target value is missing (missing_share 0.125).
-        Limitations: none
+        Limitations (1 of 1 shown):
+        - not_applicable_to_task: The task is binary_classification, so the regression fields are null.
         More: res.to_frame() has all 3 labels; res.findings, res.limitations and res.to_json() have the rest.
         >>> res.imbalance_ratio
         2.0
@@ -366,7 +364,7 @@ def profile_target(
         },
         support=Support(row_count=len(data), column_count=1, columns=[profile.support]),
         findings=profile.findings,
-        limitations=profile.limitations,
+        limitations=[*profile.limitations, _other_task_limitation(task)],
         execution=execution(("numpy", "pandas")),
         masking=masking.record(profile.shown, data),
         **fields,
@@ -378,7 +376,7 @@ def profile_target(
 
 
 # The result fields that only one of the tasks fills.
-_TASK_FIELDS = (
+_CLASSIFICATION_FIELDS = (
     "valid_label_count",
     "class_count",
     "classes",
@@ -389,9 +387,20 @@ _TASK_FIELDS = (
     "unexpected_labels",
     "rare_class_count",
     "rare_classes",
-    "statistics",
-    "non_finite_count",
 )
+_REGRESSION_FIELDS = ("statistics", "non_finite_count")
+_TASK_FIELDS = (*_CLASSIFICATION_FIELDS, *_REGRESSION_FIELDS)
+
+
+def _other_task_limitation(task: Task) -> Limitation:
+    """Why the fields of the task that wasn't profiled are null."""
+    regression = task == "regression"
+    other = "classification" if regression else "regression"
+    return Limitation(
+        code="not_applicable_to_task",
+        reason=f"The task is {task}, so the {other} fields are null.",
+        fields=list(_CLASSIFICATION_FIELDS if regression else _REGRESSION_FIELDS),
+    )
 
 
 def _check_options(
@@ -966,11 +975,11 @@ def _classification_status(
 
 
 _NO_LABELS = StatusReason(
-    code="no_labels",
+    code="no_values",
     message="Every target value is missing, so there are no labels to count.",
 )
 _NO_VALID_LABELS = StatusReason(
-    code="no_valid_labels",
+    code="no_values",
     message=(
         "No target value is in expected_labels; unexpected_labels lists the labels "
         "found."

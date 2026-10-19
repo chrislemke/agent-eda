@@ -706,7 +706,6 @@ def test_declares_the_four_statuses_the_ticket_names_and_its_finding_codes():
         "completed",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
     assert info.finding_codes == [
         "sentinel_values_present",
@@ -752,7 +751,7 @@ def test_no_column_to_check_gives_not_applicable(df, id_column, message):
 
     assert res.status == "not_applicable"
     assert res.status_reason is not None
-    assert res.status_reason.code == "no_columns_to_check"
+    assert res.status_reason.code == "no_columns"
     assert res.status_reason.message == message
 
 
@@ -790,7 +789,10 @@ def test_a_named_id_column_is_checked_too():
     assert (stand_in.value, stand_in.count) == (-999, 2)
     # Both rows show the stand-in as their row ID, which the result says.
     assert stand_in.row_ids == [-999, -999]
-    assert [lim.code for lim in res.limitations] == ["ambiguous_row_ids"]
+    assert [lim.code for lim in res.limitations] == [
+        "ambiguous_row_ids",
+        "sentinel_values_not_declared",
+    ]
 
 
 def test_an_unknown_id_column_raises_with_the_closest_names():
@@ -819,7 +821,7 @@ def test_repeated_index_labels_make_the_row_ids_that_repeat_ambiguous():
 
     res = ae.detect_missing_sentinels(df)
 
-    [limitation] = res.limitations
+    [limitation, _] = res.limitations
     assert limitation.code == "ambiguous_row_ids"
     assert limitation.reason == (
         "2 rows share an index label, so a row ID can match several rows: use a "

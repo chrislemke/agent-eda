@@ -87,53 +87,120 @@ ColumnFlag = Literal[
     "mixed_value_types",
 ]
 
-# The package-wide list of limitation codes. Codes are public API: renaming one
-# follows the rule for renamed names.
-LimitationCode = Literal[
-    # Values such as lists or dicts can't be hashed, so distinct values weren't
-    # counted and the affected counts are null.
+# The package-wide list of status reason codes: why a run, or one column of it,
+# ended with a status other than completed. Codes are public API: renaming one
+# follows the rule for renamed names. Each analysis's Statuses: section names
+# the codes it returns, and describe_analysis shows them with these meanings.
+StatusReasonCode = Literal[
+    # The data has no rows.
+    "no_rows",
+    # No column is left to work on: the data has none, the call's column
+    # selection or the analysis's column rules leave none, or too few can be
+    # paired. The message says which.
+    "no_columns",
+    # No value is left to work on in a column, the target or the pairs: every
+    # value is missing, infinite or outside the declared labels, or no pair has
+    # a value. The message says which.
+    "no_values",
+    # The data has one row, which every column identifies, so a key search has
+    # nothing to find.
+    "one_row",
+    # The values, such as lists or dicts, can't be hashed, so they can't be
+    # counted as levels.
     "unhashable_values",
-    # A key search left out float columns that hold fractions, which are
-    # measurements rather than IDs, because columns=None doesn't select them.
+    # No logical type fits the values: they are of other types, such as lists
+    # or intervals, and aren't category labels repeated over rows.
+    "unsupported_values",
+    # Some columns didn't complete, so the result is partial; each column's
+    # status_reason says why.
+    "incomplete_columns",
+    # The paired columns make more pairs than the max_pairs limit allows, so no
+    # pair was computed.
+    "too_many_pairs",
+    # The complete key search covers more column sets than the max_combinations
+    # limit allows, so it stopped early.
+    "too_many_combinations",
+    # An anticipated numerical failure stopped the analysis. The status failed
+    # is the only one that carries it, and no analysis returns that status yet.
+    "numerical_failure",
+]
+
+# Why a value was left out of the counts behind a column's result. One spelling
+# per reason, in every analysis.
+ExclusionReason = Literal[
+    # The value is missing.
+    "missing",
+    # The value is infinite (inf or -inf).
+    "infinite",
+    # A target label isn't in the declared expected labels.
+    "unexpected_label",
+    # The values can't be hashed, such as lists or dicts, so they can't be
+    # compared or counted as levels.
+    "unhashable_values",
+    # The column has more distinct values than the max_categories limit, so
+    # the column was left out.
+    "too_many_categories",
+]
+
+# The package-wide list of limitation codes. The first sentence of each comment
+# is the code's short meaning, which the README's Reference prints. Codes are
+# public API: renaming one follows the rule for renamed names.
+LimitationCode = Literal[
+    # Values can't be hashed, so counts of distinct values are null. Lists and
+    # dicts are such values.
+    "unhashable_values",
+    # A key search left out float columns that hold fractions. They are
+    # measurements rather than IDs, and the default columns don't select them.
     "non_integral_float_columns",
-    # A statistic needs more values than a column has, such as a standard
-    # deviation of one value, so it is null.
+    # A statistic needs more values than the column has, so it is null. A
+    # standard deviation of one value is an example.
     "too_few_values",
-    # Every value is equal, so a statistic such as skewness is undefined and null.
+    # Every value is equal, so a statistic such as skewness is null.
     "zero_variance",
-    # Integers or decimals beyond ±2^53 were read as float64, which rounds them.
+    # Numbers beyond ±2^53 were read as float64, which rounds them. Integers and
+    # decimals are such numbers.
     "float_precision",
     # Booleans were read as numbers: 0 for False and 1 for True.
     "boolean_as_numeric",
-    # A column stores NaN as a value, which pandas' isna() doesn't count as
-    # missing; every analysis counts it as missing all the same.
+    # A column stores NaN as a value, which every analysis counts as missing,
+    # unlike isna().
     "nan_counted_as_missing",
-    # A categorical column has a level for every complete row of a pair, such as
-    # an ID, so it would explain the other column trivially and the pair's
-    # value is null.
-    "one_row_per_level",
-    # A computation overflowed float64 or failed numerically (division by zero,
-    # an invalid value, precision loss), so the values it affects are null.
-    "numerical_warning",
-    # Index labels or id_column values repeat, so a row ID can match more than
-    # one row.
-    "ambiguous_row_ids",
-    # No sentinel values were declared for a column, so its sentinel count is
-    # null and stand-ins such as -999 don't count as missing.
-    "sentinel_values_not_declared",
-    # A ranking stopped at its work limit before bounds proved it, so a set it
-    # didn't count could rank higher than one it lists.
-    "ranking_not_proven",
-    # No expected labels were declared for a classification target, so labels
-    # outside the expected set weren't checked and the fields that list them are
+    # A categorical column has one level per row of a pair, so its value is
     # null.
+    "one_row_per_level",
+    # A computation overflowed or failed, so the values it affects are null.
+    # Division by zero, an invalid value and precision loss are examples; the
+    # fields are empty when no value could be named.
+    "numerical_warning",
+    # Index labels or id_column values repeat, so a row ID can match several
+    # rows.
+    "ambiguous_row_ids",
+    # No sentinel values were declared, so counts are null or candidates stay
+    # suspected. Stand-ins such as -999 don't count as missing.
+    "sentinel_values_not_declared",
+    # A ranking stopped at its work limit before it was proven. An uncounted
+    # set could outrank a listed one.
+    "ranking_not_proven",
+    # No expected labels were declared, so labels outside them weren't checked.
+    # The fields that list those labels are null.
     "expected_labels_not_declared",
-    # No rare_share was declared for a classification target, so rare classes
-    # weren't checked and the fields that list them are null.
+    # No rare_share was declared, so rare classes weren't checked. The fields
+    # that list them are null.
     "rare_share_not_declared",
-    # A declared column isn't in the data, so the dtype and counts that describe
-    # its values are null.
+    # A declared column isn't in the data, so its dtype and counts are null.
     "column_not_in_data",
+    # No schema was declared, so no column was compared with a declared type.
+    # The fields that hold the comparison are null.
+    "schema_not_declared",
+    # nullable wasn't declared for a column, so its missing values weren't
+    # checked and its nullable field is null.
+    "nullable_not_declared",
+    # A column has no inferred logical type, so the field is null. No value is
+    # left after the missing ones, or none fits.
+    "type_not_inferred",
+    # A field belongs to the other task, so it is null. The tasks are
+    # classification and regression.
+    "not_applicable_to_task",
 ]
 
 
@@ -741,8 +808,9 @@ class Limitation(ResultModel):
 class StatusReason(ResultModel):
     """Why a run ended with a status other than completed."""
 
-    code: str = Field(
-        description="Stable code for the reason; for failed, the error code."
+    code: StatusReasonCode = Field(
+        description="Stable code from the package-wide list, StatusReasonCode. "
+        "Each analysis's Statuses: section names the codes it returns."
     )
     message: str = Field(description="One sentence on what happened.")
 
@@ -754,8 +822,9 @@ class ColumnSupport(ResultModel):
     eligible_count: int = Field(description="Values eligible for the analysis.")
     evaluated_count: int = Field(description="Values the analysis evaluated.")
     excluded_count: int = Field(description="Eligible values left out.")
-    excluded_by_reason: dict[str, int] = Field(
-        description="Excluded values per reason code, such as 'missing'."
+    excluded_by_reason: dict[ExclusionReason, int] = Field(
+        description="Excluded values per reason: missing, infinite, "
+        "unexpected_label, unhashable_values or too_many_categories."
     )
 
 
@@ -962,9 +1031,9 @@ class AnalysisResult(ResultModel):
         description="The method used, or null when the analysis has no methods."
     )
     status: Status = Field(
-        description="How the run ended: completed, partial, insufficient_data, "
-        "not_applicable, missing_prerequisites, budget_exceeded, blocked_by_policy "
-        "or failed. It says nothing about whether the data passed a check."
+        description="How the run ended. Each analysis's Statuses: section lists "
+        "the ones it can return and why. It says nothing about whether the data "
+        "passed a check."
     )
     status_reason: StatusReason | None = Field(
         description="Why the run didn't complete; null when status is completed."
@@ -1537,6 +1606,23 @@ class ParameterDescription(ResultModel):
     )
 
 
+class ReasonCodeDescription(ResultModel):
+    """A status reason code an analysis can return, and what it means."""
+
+    code: StatusReasonCode = Field(description="The status reason code.")
+    meaning: str = Field(
+        description="What it means for every analysis that returns it, from the "
+        "StatusReasonCode list; the status_reason message says the rest."
+    )
+
+
+class LimitationCodeDescription(ResultModel):
+    """A limitation code that results can carry, and what it means."""
+
+    code: LimitationCode = Field(description="The limitation code.")
+    meaning: str = Field(description="What it means, from the LimitationCode list.")
+
+
 class StatusDescription(ResultModel):
     """A status an analysis can return, and why it returns it."""
 
@@ -1544,6 +1630,10 @@ class StatusDescription(ResultModel):
     reason: str = Field(
         description="When the analysis returns it, from the docstring's Statuses: "
         "section."
+    )
+    reason_codes: list[ReasonCodeDescription] = Field(
+        description="The status reason codes it returns the status with, each "
+        "with its meaning; empty for completed, which has no status_reason."
     )
 
 
@@ -1602,6 +1692,10 @@ class AnalysisDescription(_DiscoveryRecord):
     )
     finding_codes: list[FindingCodeDescription] = Field(
         description="Every finding code it can report, in the order it declares them."
+    )
+    limitation_codes: list[LimitationCodeDescription] = Field(
+        description="Every limitation code a result can carry, with its meaning. "
+        "The list is the same for every analysis."
     )
     result_class: str = Field(
         description="The name of its result class in agent_eda.results."
@@ -1667,9 +1761,20 @@ class AnalysisDescription(_DiscoveryRecord):
         lines.append("Statuses:")
         for status in self.statuses:
             lines.extend(_entry_lines(status.status, status.reason))
+            for reason_code in status.reason_codes:
+                lines.extend(
+                    _text.wrap(
+                        f"{reason_code.code}: {reason_code.meaning}",
+                        first="    ",
+                        indent="        ",
+                    )
+                )
         lines.append("Finding codes:" if self.finding_codes else "Finding codes: none")
         for finding in self.finding_codes:
             lines.extend(_entry_lines(finding.code, finding.description))
+        lines.append("Limitation codes:")
+        for limitation in self.limitation_codes:
+            lines.extend(_entry_lines(limitation.code, limitation.meaning))
         shared = _text.join_items(
             [field.name for field in self.shared_result_fields],
             limit=len(self.shared_result_fields),
@@ -2297,7 +2402,7 @@ class FindDuplicateRowsResult(MaskableResult):
     )
     duplicate_share: float | None = Field(
         description="excess_copy_count over all rows, from 0 up to but excluding 1; "
-        "null when the data has no rows."
+        "null when nothing was compared: no rows, or no column to compare."
     )
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:

@@ -316,7 +316,13 @@ def test_the_reference_gives_each_analysis_signature_summary_and_statuses():
         assert f"\n`{call}`\n" in entry, info.name
         assert f"\n{description.summary}\n" in entry, info.name
         assert statuses, info.name
-        assert re.findall(r"`(\w+)`", statuses[1]) == info.statuses, info.name
+        # Each status, then the reason codes it returns in parentheses.
+        listed = re.findall(r"`(\w+)`(?: \(([^)]*)\))?", statuses[1])
+        assert [status for status, _ in listed] == info.statuses, info.name
+        assert [re.findall(r"`(\w+)`", codes) for _, codes in listed] == [
+            [code.code for code in status.reason_codes]
+            for status in description.statuses
+        ], info.name
 
 
 def test_the_reference_gives_each_argument_type_default_and_meaning():

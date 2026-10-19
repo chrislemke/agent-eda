@@ -55,7 +55,7 @@ _EVERY_COLUMN = ColumnRule(
 
 
 @analysis(
-    statuses=("completed", "insufficient_data", "not_applicable", "failed"),
+    statuses=("completed", "insufficient_data", "not_applicable"),
     finding_codes=("all_missing_columns", "sentinel_values_present"),
     tags=(
         *("missing values", "completeness", "per column", "per row", "gaps"),
@@ -168,10 +168,9 @@ def profile_missing_values(
         completed: The data has rows and columns, and every selected column was
             profiled.
         insufficient_data: The data has no rows; every count is 0 and every
-            share is null.
-        not_applicable: The data has rows but no columns.
-        failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. No such failure is known today.
+            share is null. Reason code: `no_rows`.
+        not_applicable: The data has rows but no columns. Reason code:
+            `no_columns`.
 
     Examples:
         >>> import pandas as pd
@@ -458,7 +457,7 @@ _ANY_COLUMN = ColumnRule(
 
 
 @analysis(
-    statuses=("completed", "insufficient_data", "not_applicable", "failed"),
+    statuses=("completed", "insufficient_data", "not_applicable"),
     finding_codes=("sentinel_values_present", "suspected_sentinel_values"),
     tags=(
         "sentinel",
@@ -604,11 +603,10 @@ def detect_missing_sentinels(
         completed: The data has rows and a column to check, whether or not a
             candidate turns up.
         insufficient_data: The data has no rows, so there is no value to
-            check.
+            check. Reason code: `no_rows`.
         not_applicable: There is no column to check: the data has no columns,
-            or only id_column, which the default columns leave out.
-        failed: An anticipated failure stopped the analysis, and `status_reason`
-            gives its code and message. No such failure is known today.
+            or only id_column, which the default columns leave out. Reason
+            code: `no_columns`.
 
     Examples:
         >>> import pandas as pd
@@ -633,7 +631,8 @@ def detect_missing_sentinels(
         city    'n/a'      1  0.1667  suspected     builtin_list                    4
         Findings (1 of 1 shown):
         - suspected suspected_sentinel_values: 4 values in 2 columns may stand in for missing values: 'age' and 'city'.
-        Limitations: none
+        Limitations (1 of 1 shown):
+        - sentinel_values_not_declared: No sentinel values were declared, so every candidate is suspected, not confirmed.
         More: res.to_frame() has all 4 candidates; res.findings, res.limitations and res.to_json() have the rest.
         >>> declared = ae.detect_missing_sentinels(df, sentinel_values={"age": [-999]})
         >>> [
@@ -756,6 +755,7 @@ def detect_missing_sentinels(
                 ["support.columns"],
                 "support counts it as missing",
             ),
+            *([_NO_DECLARED_SENTINELS] if sentinel_values is None else []),
         ],
         execution=execution(("numpy", "pandas")),
         masking=masking.record(
@@ -943,7 +943,14 @@ def _check_status(
             f"The data has no column to check besides id_column {id_column!r}, "
             "which the default columns leave out. Name the columns to check in columns."
         )
-    return "not_applicable", StatusReason(code="no_columns_to_check", message=message)
+    return "not_applicable", StatusReason(code="no_columns", message=message)
+
+
+_NO_DECLARED_SENTINELS = Limitation(
+    code="sentinel_values_not_declared",
+    reason="No sentinel values were declared, so every candidate is suspected, not confirmed.",
+    fields=["candidates"],
+)
 
 
 def _candidate_findings(candidates: list[SentinelCandidate]) -> list[Finding]:

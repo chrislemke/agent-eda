@@ -35,7 +35,7 @@ _ANY_COLUMN = ColumnRule(
 
 
 @analysis(
-    statuses=("completed", "insufficient_data", "not_applicable", "failed"),
+    statuses=("completed", "insufficient_data", "not_applicable"),
     finding_codes=("duplicate_rows",),
     tags=(
         "duplicates",
@@ -110,9 +110,10 @@ def find_duplicate_rows(
         the rows in them. `excess_copy_count` counts the rows beyond the first of each
         group, the ones that removing duplicates would drop, and `duplicate_share` is
         the excess copies over all rows; it is null, with a `too_few_values` limitation,
-        when the data has no rows. `compared_columns` names the columns compared.
-        Missing values of every kind (None, NaN, NaT and NA) equal each other, and
-        lists, dicts and sets compare by content.
+        when nothing was compared: no rows, or no column to compare.
+        `compared_columns` names the columns compared. Missing values of every
+        kind (None, NaN, NaT and NA) equal each other, and lists, dicts and sets
+        compare by content.
         `to_frame` returns every row in a duplicate group with its group number. The
         record keeps the first 100 groups and the first 10 row IDs of each, with their
         totals.
@@ -138,13 +139,10 @@ def find_duplicate_rows(
 
     Statuses:
         completed: The rows were compared, whether or not any repeat.
-        insufficient_data: The data has no rows.
+        insufficient_data: The data has no rows. Reason code: `no_rows`.
         not_applicable: There is no column to compare: the data has no
             columns, or only id_column, which the default columns leave out.
-        failed: An anticipated failure stopped the comparison, and
-            `status_reason` gives its code and message. No such failure is known today:
-            values that can't be hashed, such as lists, compare by content
-            instead.
+            Reason code: `no_columns`.
 
     Examples:
         >>> import pandas as pd
@@ -255,7 +253,7 @@ def find_duplicate_rows(
                 ["duplicate_groups"],
                 "it equals every missing value",
             ),
-            *([] if row_count else [_NO_SHARE]),
+            *([] if status == "completed" else [_no_share(row_count)]),
         ],
         execution=execution(("numpy", "pandas")),
         # The row IDs are the only values the result shows, if it has groups.
@@ -268,18 +266,22 @@ def find_duplicate_rows(
         duplicate_group_count=len(sizes),
         duplicate_group_row_count=len(positions),
         excess_copy_count=excess,
-        duplicate_share=excess / row_count if row_count else None,
+        duplicate_share=excess / row_count if status == "completed" else None,
     )
 
 
-_NO_SHARE = Limitation(
-    code="too_few_values",
-    reason=(
-        "The data has no rows, so duplicate_share, the excess copies over all "
-        "rows, doesn't exist."
-    ),
-    fields=["duplicate_share"],
-)
+def _no_share(row_count: int) -> Limitation:
+    """Why duplicate_share is null: nothing was compared."""
+    why = (
+        "The data has no rows"
+        if not row_count
+        else "No column was compared, so no row can repeat another"
+    )
+    return Limitation(
+        code="too_few_values",
+        reason=f"{why}, so duplicate_share, the excess copies over all rows, doesn't exist.",
+        fields=["duplicate_share"],
+    )
 
 
 def _status(
@@ -299,7 +301,7 @@ def _status(
             f"The data has no column to compare besides id_column {id_column!r}, "
             "which the default columns leave out. Name the columns to compare in columns."
         )
-    return "not_applicable", StatusReason(code="no_columns_to_compare", message=message)
+    return "not_applicable", StatusReason(code="no_columns", message=message)
 
 
 def _findings(
