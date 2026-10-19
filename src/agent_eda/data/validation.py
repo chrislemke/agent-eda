@@ -95,8 +95,7 @@ class ColumnSpec(Declaration):
     alone, which is short for a ColumnSpec with only logical_type.
     infer_column_semantics compares what it infers with the declared logical
     type, and never overwrites it. Fields other than logical_type are optional,
-    and None declares nothing, so no check depends on them. An invalid spec
-    raises InvalidArgumentError, code invalid_argument.
+    and None declares nothing, so no check depends on them. An invalid spec is rejected with the code invalid_argument.
 
     Examples:
         >>> import agent_eda as ae
@@ -345,15 +344,14 @@ def infer_column_semantics(
             strings and a single level; describe_dataset reports labels that
             aren't. It is never modified.
         columns (Sequence[str] | None): Names of the columns to read, in the
-            order to report them: a list, a tuple, a pandas Index such as
-            df.columns[:3], or a single name. A label that isn't a string can
-            be given as itself, such as 0, or as its string form. Columns of
-            every dtype are accepted. None, the default, selects every column,
-            in DataFrame order.
+            order to report them: a list or a single name. A label that isn't a string
+            can be given as itself, such as 0, or as its string form. Columns of every
+            dtype are accepted. None, the default, selects every column, in DataFrame
+            order.
         declared_schema (Mapping[str, str | ColumnSpec] | None): The logical
             types you declare, by column name: 'boolean', 'integer', 'float',
             'categorical', 'text', 'datetime' or 'timedelta', or a
-            ColumnSpec (a dict of its fields works too), whose logical_type is
+            ColumnSpec (a mapping of its fields works too), whose logical_type is
             the one compared. Each declared column's top candidate is compared
             with its declaration, which is never overwritten: a declaration that
             ties with the top candidate matches. A ColumnSpec with a
@@ -366,7 +364,7 @@ def infer_column_semantics(
 
     Returns:
         InferColumnSemanticsResult: `columns` maps each selected column name to
-        its entry, such as res.columns["zip"]. An entry holds:
+        its entry. An entry holds:
 
         - `inferred_logical_type`, the top candidate: a guess from the values,
           null when no candidate scores above 0.
@@ -386,31 +384,28 @@ def infer_column_semantics(
           and `value_types`, the names of the values' Python types.
         - `status` and `status_reason`, the column's own.
 
-        Scores lie between 0 and 1 and come from fixed rules over the evidence;
-        they are heuristic, not probabilities. Every share is of the
-        non-missing values. boolean scores 1 when every value is a boolean, a
-        number equal to 0 or 1, or true, false, t, f, yes, no, y or n in any
-        case, and the column holds at least two distinct values, so a column of
-        F and M, grades with some F, or only 1s isn't boolean; a column stored
-        as booleans is always boolean. Otherwise it has no boolean candidate.
-        integer scores integer_share, the values that are or parse as whole
-        numbers, and float number_share, the values that are or parse as
-        decimal numbers that float64 can hold: text such as 1e400 parses as
-        neither. datetime scores datetime_share: datetimes, and text in
-        ISO 8601, YYYY-MM-DD with an optional time and offset, or in the
-        datetime_format of a ColumnSpec declared for the column. No other date
-        format parses, so day and month order is never guessed. timedelta
-        scores timedelta_share. categorical scores 1 - uniqueness_share, high
-        when a few values repeat over many rows. text scores (plain_text_share
-        * uniqueness_share + multi_word_share) / 2, high for mostly distinct
-        text with several words. When a text value is a whole number written
-        as digits alone with a leading zero, such as 01234, the column holds
-        codes: integer and float score 0, and its numbers count as plain text.
-        A decimal such as 05.50 is a number, not a code. Ties go to
-        boolean, then integer, float, datetime, timedelta, categorical and
-        text. Text is parsed once per distinct value, weighted by how often it
-        occurs. `to_frame` returns every column's evidence, and with
-        table="candidates" every candidate with its reasons.
+        Scores lie between 0 and 1 and come from fixed rules over the evidence; they are
+        heuristic, not probabilities. Every share is of the non-missing values. boolean
+        scores 1 when every value is a boolean, a number equal to 0 or 1, or true,
+        false, t, f, yes, no, y or n in any case, and the column holds at least two
+        distinct values, so a column of F and M, grades with some F, or only 1s isn't
+        boolean; a column stored as booleans is always boolean. Otherwise it has no
+        boolean candidate. integer scores integer_share, the values that are or parse as
+        whole numbers, and float number_share, the values that are or parse as decimal
+        numbers that float64 can hold: text such as 1e400 parses as neither. datetime
+        scores datetime_share: datetimes, and text in ISO 8601, YYYY-MM-DD with an
+        optional time and offset, or in the datetime_format of a ColumnSpec declared for
+        the column. No other date format parses, so day and month order is never
+        guessed. timedelta scores timedelta_share. categorical scores 1 -
+        uniqueness_share, high when a few values repeat over many rows. text scores
+        (plain_text_share * uniqueness_share + multi_word_share) / 2, high for mostly
+        distinct text with several words. When a text value is a whole number written as
+        digits alone with a leading zero, such as 01234, the column holds codes: integer
+        and float score 0, and its numbers count as plain text. A decimal such as 05.50
+        is a number, not a code. Ties go to boolean, then integer, float, datetime,
+        timedelta, categorical and text. Text is parsed once per distinct value,
+        weighted by how often it occurs. `to_frame` returns every column's evidence, and
+        its Python-only table `candidates` every candidate with its reasons.
 
         A share is null for a column without values, with a `too_few_values`
         limitation. `unhashable_values` means values such as lists left the
@@ -466,7 +461,7 @@ def infer_column_semantics(
             selected column: the values are of other types, such as lists or
             intervals, and aren't category labels repeated over rows.
         failed: An anticipated computation failure stopped the analysis, and
-            `status_reason` gives its code and message. None is known today.
+            `status_reason` gives its code and message. No such failure is known today.
 
     Examples:
         >>> import pandas as pd
@@ -1409,8 +1404,8 @@ def validate_column_types(
         schema (Mapping[str, str | ColumnSpec]): The logical type each column
             should hold, by column name, in the order to report them:
             'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or
-            'timedelta', or a ColumnSpec (a dict of its fields works too).
-            A ColumnSpec with nullable=False makes missing values a violation,
+            'timedelta', or a ColumnSpec (a mapping of its fields works too).
+            A ColumnSpec declared non-nullable makes missing values a violation,
             and one with a datetime_format, a datetime.strptime format such as
             '%d/%m/%Y', lets datetime text in that format convert as ISO 8601
             text does; strptime reads each distinct text, which takes about 4
@@ -1438,7 +1433,7 @@ def validate_column_types(
 
     Returns:
         ValidateColumnTypesResult: `columns` maps each declared column, in
-        declared order, to its entry, such as res.columns["qty"]. An entry
+        declared order, to its entry. An entry
         holds the declaration (`declared_logical_type`, `nullable`,
         `datetime_format`), `present`, `dtype` and four counts that add up to
         the rows:
@@ -1453,7 +1448,7 @@ def validate_column_types(
           one, and `invalid_values`, the first 5 distinct ones with their
           counts, most frequent first, then by value as summarize_categorical
           orders levels; `invalid_distinct_count` counts them.
-        - `missing_count`: None, NaN, NaT and pd.NA, and NaN that a float
+        - `missing_count`: None, NaN, NaT and NA, and NaN that a float
           column stores as a value.
 
         Each entry's `assessment` is violation, unknown or passed, as its
@@ -1461,23 +1456,22 @@ def validate_column_types(
         out, which aren't checked. A declared column the data lacks has a null
         dtype and null counts, with a `column_not_in_data` limitation.
 
-        What converts: to boolean, numbers equal to 0 or 1 and text such as
-        yes, no, true, false, t, f, y, n, 0 or 1 in any case; to integer, whole
-        floats and decimals and text that parses as a whole number; to float,
-        any other number and text that parses as a number; to datetime, text
-        in ISO 8601 (YYYY-MM-DD with an optional time and offset) or in the
-        declared datetime_format; to timedelta, nothing; to categorical, any
-        value that can be hashed; to text, booleans, numbers, datetimes and
-        durations. The values of a categorical dtype are compatible with
-        'categorical' and convert to the types their categories convert to.
-        A whole number written with a leading zero, such as 01234, is a code
-        that doesn't convert to a number, and no date format other than ISO
-        8601 and the declared one parses, so day and month order is never
-        guessed. Text is read after stripping surrounding whitespace, once
-        per distinct value, by the rules infer_column_semantics reads it with.
-        Values of different types count apart, so 1 and True are two values.
-        `to_frame` returns one row per declared column, and with
-        table="invalid_values" every distinct invalid value with its count.
+        What converts: to boolean, numbers equal to 0 or 1 and text such as yes, no,
+        true, false, t, f, y, n, 0 or 1 in any case; to integer, whole floats and
+        decimals and text that parses as a whole number; to float, any other number and
+        text that parses as a number; to datetime, text in ISO 8601 (YYYY-MM-DD with an
+        optional time and offset) or in the declared datetime_format; to timedelta,
+        nothing; to categorical, any value that can be hashed; to text, booleans,
+        numbers, datetimes and durations. The values of a categorical dtype are
+        compatible with 'categorical' and convert to the types their categories convert
+        to. A whole number written with a leading zero, such as 01234, is a code that
+        doesn't convert to a number, and no date format other than ISO 8601 and the
+        declared one parses, so day and month order is never guessed. Text is read after
+        stripping surrounding whitespace, once per distinct value, by the rules
+        infer_column_semantics reads it with. Values of different types count apart, so
+        1 and true are two values. `to_frame` returns one row per declared column, and
+        its Python-only table `invalid_values` every distinct invalid value with its
+        count.
 
         `masking` says whether masking was on and names the sensitive columns
         whose values the result shows. With masking on, their invalid values
@@ -1487,7 +1481,7 @@ def validate_column_types(
         - `invalid_values`: violation; columns that hold invalid values.
         - `declared_columns_missing`: violation; declared columns the data doesn't have,
           each with the closest names.
-        - `non_nullable_missing_values`: violation; columns declared with nullable=False
+        - `non_nullable_missing_values`: violation; columns declared non-nullable
           that have missing values.
         - `unchecked_columns`: unknown; columns without a value to check, as when every
           value is missing.
@@ -1501,7 +1495,7 @@ def validate_column_types(
             some of them or has no rows; the findings say what the checks
             found.
         failed: An anticipated computation failure stopped the analysis, and
-            `status_reason` gives its code and message. None is known today.
+            `status_reason` gives its code and message. No such failure is known today.
 
     Examples:
         >>> import pandas as pd

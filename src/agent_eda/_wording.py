@@ -9,8 +9,11 @@ the MCP one.
 """
 
 import json
+import re
 from collections.abc import Callable
 from typing import Any
+
+import numpy as np
 
 from agent_eda._text import Surface
 from agent_eda.errors import AgentEDAError
@@ -57,3 +60,62 @@ def left_out(name: str, surface: Surface) -> str:
     """How a caller passes None for an option: pass columns=None in Python, and
     leave columns out over MCP, where null is the default."""
     return f"pass {name}=None" if surface == "python" else f"leave {name} out"
+
+
+def echoed(value: object, surface: Surface) -> str:
+    """A value a message quotes, as the caller wrote it: Python's repr, and over MCP
+    the JSON words for null and the booleans, such as null and true. Everything
+    else shows as its repr."""
+    if surface == "mcp":
+        if isinstance(value, np.generic):
+            value = value.item()
+        if value is None or isinstance(value, bool):
+            return json.dumps(value)
+    return repr(value)
+
+
+def type_of(value: object, surface: Surface) -> str:
+    """What a message calls the type of a value: Python's type name, and over MCP
+    the JSON type, with its article."""
+    if surface == "python":
+        return type(value).__name__
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "a boolean"
+    if isinstance(value, int | float):
+        return "a number"
+    if isinstance(value, str):
+        return "a string"
+    if isinstance(value, list | tuple):
+        return "an array"
+    if isinstance(value, dict):
+        return "an object"
+    return type(value).__name__
+
+
+# None, True or False as a word of the docs; a quoted or backticked one is a
+# value of the data, such as the text 'None' among the stand-ins for missing
+# values.
+_CONSTANT = re.compile(r"(?<![\w'\"`])(None|True|False)(?![\w'\"`])")
+_JSON_WORDS = {"None": "null", "True": "true", "False": "false"}
+
+
+def json_words(text: str) -> str:
+    """The text with Python's None, True and False written as JSON's null, true and
+    false, the words an MCP caller passes."""
+    return _CONSTANT.sub(lambda match: _JSON_WORDS[match[0]], text)
+
+
+def json_words_in(schema: Any) -> Any:
+    """The JSON Schema with json_words applied to each description in it."""
+    if isinstance(schema, dict):
+        return {
+            key: json_words(value)
+            if key == "description" and isinstance(value, str)
+            else json_words_in(value)
+            for key, value in schema.items()
+        }
+    if isinstance(schema, list):
+        return [json_words_in(item) for item in schema]
+    return schema

@@ -633,7 +633,7 @@ def test_data_without_rows_gives_insufficient_data_and_a_null_share():
             pd.DataFrame({"order": [1, 2, 3]}),
             "order",
             "The data has no column to compare besides id_column 'order', which "
-            "columns=None leaves out. Name the columns to compare in columns.",
+            "the default columns leave out. Name the columns to compare in columns.",
         ),
     ],
     ids=["no-columns", "only-the-id-column"],

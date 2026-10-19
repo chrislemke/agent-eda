@@ -70,7 +70,7 @@ def profile_missing_values(
     When to use:
         Call it after `describe_dataset` to learn how complete the data really
         is, per column and per row. It counts the values pandas treats as
-        missing (None, NaN, NaT and pd.NA) together with the sentinel values you
+        missing (None, NaN, NaT and NA) together with the sentinel values you
         declare, stand-ins for missing values such as -999, 'N/A' or an empty
         string, and counts no value twice. Shares are over all rows. Per row,
         it counts how many selected values each row misses, which shows whether
@@ -89,28 +89,25 @@ def profile_missing_values(
             strings and a single level; describe_dataset reports labels that
             aren't. It is never modified.
         columns (Sequence[str] | None): Names of the columns to profile, in the
-            order to report them: a list, a tuple, a pandas Index such as
-            df.columns[:3], or a single name. A label that isn't a string can
-            be given as itself, such as 0, or as its string form. Columns of
-            every dtype are accepted. None, the default, selects every column,
-            in DataFrame order.
+            order to report them: a list or a single name. A label that isn't a string
+            can be given as itself, such as 0, or as its string form. Columns of every
+            dtype are accepted. None, the default, selects every column, in DataFrame
+            order.
         sentinel_values (Mapping[str, Sequence[bool | int | float | str | datetime | date | timedelta]] | None):
-            The sentinel values to count as missing, by column name, such as
-            {'age': [-999], 'city': ['N/A', '']}: one value or a list of values
-            per column, each a bool, int, float, str, datetime (pd.Timestamp
-            too), date or timedelta (pd.Timedelta too). A value matches exactly:
-            text with its case and surrounding spaces, numbers by value (-999
-            matches -999.0 but never True), datetimes by the instant they name.
-            Over MCP, write a datetime, date or timedelta as its ISO 8601 text,
-            such as '1900-01-01T00:00:00', '1900-01-01' or 'PT0S': it is read as
-            one for a column that holds such values and no text. List each value
-            once: -999 and -999.0 are one value, while True and 1 are two. Every
-            column named must be selected. A value that can never match
-            its column raises errors.InvalidArgumentError naming the value you
-            likely meant, such as -999 for the text '-999' in an integer
-            column, and so do NaN, NaT and infinite values. None, the default,
-            declares none: then sentinel_count is null and only native missing
-            values count, which the result records as a limitation.
+            The sentinel values to count as missing, by column name, such as {'age':
+            [-999], 'city': ['N/A', '']}: one value or a list of values per column, each
+            a bool, int, float, str, datetime (pandas Timestamp too), date or timedelta
+            (pandas Timedelta too). A value matches exactly: text with its case and
+            surrounding spaces, numbers by value (-999 matches -999.0 but never true),
+            datetimes by the instant they name. Over MCP, write a datetime, date or
+            timedelta as its ISO 8601 text, such as '1900-01-01T00:00:00', '1900-01-01'
+            or 'PT0S': it is read as one for a column that holds such values and no
+            text. List each value once: -999 and -999.0 are one value, while true and 1
+            are two. Every column named must be selected. A value that can never match
+            its column is rejected, naming the value you likely meant, such as -999 for
+            the text '-999' in an integer column, and so are NaN, NaT and infinite
+            values. None, the default, declares none: then sentinel_count is null and
+            only native missing values count, which the result records as a limitation.
         project (Project | None): The project, whose data policy names the
             sensitive columns and says whether to mask them. None, the
             default, declares no sensitive column, so nothing is masked.
@@ -125,10 +122,10 @@ def profile_missing_values(
 
     Returns:
         ProfileMissingValuesResult: `columns` maps each selected column name to
-        its entry, such as res.columns["age"], which holds:
+        its entry, which holds:
 
         - `native_missing_count`, the values pandas' `isna` counts as missing:
-          None, NaN, NaT and pd.NA.
+          None, NaN, NaT and NA.
         - `sentinel_count`, the values equal to a declared sentinel value;
           null when the column has none declared.
         - `missing_count`, both together, and `missing_share`, that count over
@@ -136,14 +133,13 @@ def profile_missing_values(
         - `sentinel_values`, each declared value with its count; with masking
           on, a sensitive column's values are numbered placeholders.
 
-        For all selected columns together, `missing_count` and `missing_share`
-        count every selected value, `complete_row_count` and
-        `complete_row_share` the rows that miss none, and `row_distribution`
-        how many rows miss each number of values, fewest first. Shares lie
-        between 0 and 1, and a share without rows is null. The printed table
-        shows the columns with the most missing values first. `to_frame`
-        returns the per-column table in the selected order, and with
-        table='row_distribution' the rows per number of missing values.
+        For all selected columns together, `missing_count` and `missing_share` count
+        every selected value, `complete_row_count` and `complete_row_share` the rows
+        that miss none, and `row_distribution` how many rows miss each number of values,
+        fewest first. Shares lie between 0 and 1, and a share without rows is null. The
+        printed table shows the columns with the most missing values first. `to_frame`
+        returns the per-column table in the selected order, and its Python-only table
+        `row_distribution` the rows per number of missing values.
 
         `masking` says whether masking was on and names the sensitive columns
         whose declared values the result shows.
@@ -167,7 +163,7 @@ def profile_missing_values(
             share is null.
         not_applicable: The data has rows but no columns.
         failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. None is known today.
+            `status_reason` gives its code and message. No such failure is known today.
 
     Examples:
         >>> import pandas as pd
@@ -515,36 +511,32 @@ def detect_missing_sentinels(
             strings and a single level; describe_dataset reports labels that
             aren't. It is never modified.
         columns (Sequence[str] | None): Names of the columns to check, in the
-            order to report them: a list, a tuple, a pandas Index such as
-            df.columns[:3], or a single name. A label that isn't a string can
-            be given as itself, such as 0, or as its string form. Columns of
-            every dtype are accepted. None, the default, checks every column
-            except id_column, in DataFrame order.
+            order to report them: a list or a single name. A label that isn't a string
+            can be given as itself, such as 0, or as its string form. Columns of every
+            dtype are accepted. None, the default, checks every column except id_column,
+            in DataFrame order.
         sentinel_values (Mapping[str, Sequence[bool | int | float | str | datetime | date | timedelta]] | None):
-            The sentinel values you declare, by column name, such as
-            {'age': [-999], 'city': ['N/A', '']}, as profile_missing_values
-            takes them: one value or a list of values per column, each a bool,
-            int, float, str, datetime (pd.Timestamp too), date or timedelta
-            (pd.Timedelta too). A value matches exactly: text with its case and
-            surrounding spaces, numbers by value (-999 matches -999.0 but never
-            True), datetimes by the instant they name. Over MCP, write a
-            datetime, date or timedelta as its ISO 8601 text, such as
-            '1900-01-01T00:00:00', '1900-01-01' or 'PT0S': it is read as one for
-            a column that holds such values and no text. List each value once:
-            -999 and -999.0 are one value, while True and 1 are two. Every
-            column named must be checked. A value that can never match its
-            column raises
-            errors.InvalidArgumentError naming the value you likely meant, such
-            as -999 for the text '-999' in an integer column, and so do NaN,
-            NaT and infinite values. The declared values a column holds come
-            back with confirmation 'declared', and the rules read the column as
-            if they were missing. None, the default, declares none.
+            The sentinel values you declare, by column name, such as {'age': [-999],
+            'city': ['N/A', '']}, as profile_missing_values takes them: one value or a
+            list of values per column, each a bool, int, float, str, datetime (pandas
+            Timestamp too), date or timedelta (pandas Timedelta too). A value matches
+            exactly: text with its case and surrounding spaces, numbers by value (-999
+            matches -999.0 but never true), datetimes by the instant they name. Over
+            MCP, write a datetime, date or timedelta as its ISO 8601 text, such as
+            '1900-01-01T00:00:00', '1900-01-01' or 'PT0S': it is read as one for a
+            column that holds such values and no text. List each value once: -999 and
+            -999.0 are one value, while true and 1 are two. Every column named must be
+            checked. A value that can never match its column is rejected, naming the
+            value you likely meant, such as -999 for the text '-999' in an integer
+            column, and so are NaN, NaT and infinite values. The declared values a
+            column holds come back with confirmation 'declared', and the rules read the
+            column as if they were missing. None, the default, declares none.
         id_column (str | None): Name of a column whose values identify rows,
-            such as an order number; row IDs are then its values, and
-            columns=None leaves it out of the check. Its values must be
-            hashable, such as numbers or strings; a column of lists raises. A
-            label that isn't a string can be given as itself or as its string
-            form. None, the default, uses the index labels as row IDs.
+            such as an order number; row IDs are then its values, and the default
+            columns leave it out of the check. Its values must be hashable, such as
+            numbers or strings; a column of lists raises. A label that isn't a string
+            can be given as itself or as its string form. None, the default, uses the
+            index labels as row IDs.
         project (Project | None): The project, whose data policy names the
             sensitive columns and says whether to mask them. None, the
             default, declares no sensitive column, so nothing is masked.
@@ -560,20 +552,18 @@ def detect_missing_sentinels(
             accidental exposure, not anonymization or access control.
 
     Returns:
-        DetectMissingSentinelsResult: `candidates` lists the values that may
-        stand in for missing ones, column by column in the order checked:
-        first the declared values a column holds, in the order given, then
-        the suspected ones, most frequent first. Each candidate has its
-        `column`; its `value`, with dates and times as ISO 8601 text and
-        `value_type` naming the type; its `count` and its `share` of all rows;
-        its `evidence` codes; its `confirmation`, declared or suspected; and
-        in `row_ids` the IDs of the first 10 rows that hold it. With index
-        labels as row IDs, df.loc[row_ids] shows the rows. The record keeps the
-        first 100 candidates and adds candidates_total; `to_frame` returns
-        every candidate, and the printed table shows the most frequent first.
-        `columns_without_rules` names the checked columns whose values no
-        rule reads, such as booleans and durations, where only declared values
-        were looked for.
+        DetectMissingSentinelsResult: `candidates` lists the values that may stand in
+        for missing ones, column by column in the order checked: first the declared
+        values a column holds, in the order given, then the suspected ones, most
+        frequent first. Each candidate has its `column`; its `value`, with dates and
+        times as ISO 8601 text and `value_type` naming the type; its `count` and its
+        `share` of all rows; its `evidence` codes; its `confirmation`, declared or
+        suspected; and in `row_ids` the IDs of the first 10 rows that hold it. Row IDs
+        are index labels, or id_column values when given. The record keeps the first 100
+        candidates and adds candidates_total; `to_frame` returns every candidate, and
+        the printed table shows the most frequent first. `columns_without_rules` names
+        the checked columns whose values no rule reads, such as booleans and durations,
+        where only declared values were looked for.
 
         The evidence codes, and the rules behind them:
 
@@ -611,9 +601,9 @@ def detect_missing_sentinels(
         insufficient_data: The data has no rows, so there is no value to
             check.
         not_applicable: There is no column to check: the data has no columns,
-            or only id_column, which columns=None leaves out.
+            or only id_column, which the default columns leave out.
         failed: An anticipated failure stopped the analysis, and `status_reason`
-            gives its code and message. None is known today.
+            gives its code and message. No such failure is known today.
 
     Examples:
         >>> import pandas as pd
@@ -905,7 +895,7 @@ def _check_status(
     else:
         message = (
             f"The data has no column to check besides id_column {id_column!r}, "
-            "which columns=None leaves out. Name the columns to check in columns."
+            "which the default columns leave out. Name the columns to check in columns."
         )
     return "not_applicable", StatusReason(code="no_columns_to_check", message=message)
 

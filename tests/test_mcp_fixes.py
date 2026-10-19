@@ -5,7 +5,6 @@ differs: an MCP caller passes JSON arguments and files, so its message points to
 them, and a Python caller's message keeps the Python fix.
 """
 
-import re
 import warnings
 
 import pytest
@@ -22,18 +21,13 @@ pytest.importorskip(
 import anyio
 import pandas as pd
 from mcp import Client
+from python_syntax import python_in
 
 import agent_eda as ae
 from agent_eda.errors import AgentEDAError
 from agent_eda.mcp import create_server
 
 CSV = "order,city,score\nA1,Oslo,1.5\nA2,Lyon,2.5\nA3,Oslo,\nA4,Oslo,4.0\n"
-
-# What only a Python caller can do: call ae or help, build a value with keyword
-# syntax such as task='regression', or work on the DataFrame.
-PYTHON_FIX = re.compile(
-    r"\bae\.|\bhelp\(|\b\w+=(None|True|False|'|\{|\[)|\bdf\b|\bpd\.|\.astype\("
-)
 
 # Each mistake: the MCP tool, its arguments besides data_path and project_path,
 # and each fix the Python message gives with the MCP fix that takes its place.
@@ -276,6 +270,14 @@ def test_a_mistake_over_mcp_gives_the_python_message_with_an_mcp_fix(tmp_path, m
     for python_fix, mcp_fix in fixes.items():
         assert python_fix in expected
         expected = expected.replace(python_fix, mcp_fix)
+    # A key of a mapping is written as a JSON pointer, schema/score.
+    expected = expected.replace("schema['score']", "schema/score")
+    shown = repr(str(project_path))
+    if shown in expected:
+        # The MCP server reads the file project_path leads to, not Project.load.
+        expected = expected.replace("Project.load", "The MCP server").replace(
+            shown, f"the project_path file {shown}"
+        )
 
     response = anyio.run(call, name, arguments)
 
@@ -284,7 +286,7 @@ def test_a_mistake_over_mcp_gives_the_python_message_with_an_mcp_fix(tmp_path, m
     assert [block.text for block in response.content] == [
         response.structured_content["message"]
     ]
-    assert PYTHON_FIX.findall(response.structured_content["message"]) == []
+    assert python_in(response.structured_content["message"]) == []
 
 
 def call_in_python(name, data, arguments):

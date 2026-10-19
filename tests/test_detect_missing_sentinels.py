@@ -742,7 +742,7 @@ def test_data_without_rows_gives_insufficient_data():
             pd.DataFrame({"id": [1, 2, 3]}),
             "id",
             "The data has no column to check besides id_column 'id', which "
-            "columns=None leaves out. Name the columns to check in columns.",
+            "the default columns leave out. Name the columns to check in columns.",
         ),
     ],
     ids=["no-columns", "only-id-column"],

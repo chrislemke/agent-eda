@@ -16,10 +16,10 @@ It is written for three kinds of callers:
 - **Results you can read and parse**: `print(res)` gives at most 40 lines of text, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package from inside Python.
-- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix that works: a misspelled column or keyword lists the available names and the closest match, and a file path passed as data says to read it with `pd.read_csv` or `pd.read_parquet`.
+- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix that works, with the closest names for a misspelling.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses, in everything a result shows.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that call MCP tools instead of writing Python.
-- **Safe from threads**: concurrent calls from several threads are safe, and each result keeps its own limitations.
+- **Safe from threads**: concurrent calls from several threads are safe.
 - **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, all preinstalled in AgentCore Code Interpreter.
 
 ## Installation
@@ -132,11 +132,11 @@ find_duplicate_rows: 2 rows form 1 duplicate group; 1 is an excess copy (duplica
 compute_association_matrix: 3 pairs are perfectly associated, an absolute value of 1, so one column may duplicate or derive from the other: ('email', 'age'), ('email', 'income') and ('email', 'churned').
 ```
 
-The second, third and fourth lines are the three planted problems. The other two are worth a glance but expected here: `customer_id` is meant to be an identifier, and `email` is unique for all but the duplicated customer, so it "predicts" every other column perfectly. A finding says what the data suggests; deciding what it means is your call.
+The second, third and fourth lines are the three planted problems. The other two are expected here: `customer_id` is meant to be an identifier, and `email` is unique for all but the duplicated customer, so it "predicts" every other column. A finding says what the data suggests; what it means is your call.
 
 ### Other analyses
 
-Analyses outside the first look, by module. A new analysis goes in the first-look table when `ae.guide()` makes it a step of the first look, and in this table otherwise. The [planned analyses](https://github.com/chrislemke/agent-eda/blob/main/docs/planned-analyses.md) are not listed here until they ship.
+Analyses outside the first look, by module. The [planned analyses](https://github.com/chrislemke/agent-eda/blob/main/docs/planned-analyses.md) are not listed here until they ship.
 
 | Module | Analysis | What it answers | Required arguments |
 | --- | --- | --- | --- |
@@ -190,7 +190,7 @@ Every analysis decides which values are equal the same way, as pandas does, so `
 - `identifier_like` is judged without rows that exactly repeat another row, for columns distinct in at least 90% of rows.
 - A declared type that ties with the top candidate matches.
 
-Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record), and an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, printed text and `to_frame()` tables whatever `PYTHONHASHSEED` is; `to_frame()` keeps a set as the object it is, so write such a table with its own cells in mind, since pandas' `to_csv()` would list a set in hash order. A test runs every analysis in two processes with different hash seeds and compares them.
+Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record), and an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, printed text and `to_frame()` tables whatever `PYTHONHASHSEED` is; `to_frame()` keeps a set as the object it is, so pandas' `to_csv()` would list a set in hash order. A test runs every analysis in two processes with different hash seeds and compares them.
 
 Concurrent calls from several threads are safe. An analysis captures the warnings it raises under one lock, so captures run one at a time, each result gets only its own `numerical_warning` limitation, and the caller's warning filters and `warnings.showwarning` stay as they were.
 
@@ -227,7 +227,7 @@ How masking is decided:
 - It covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
 - It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` when the index holds sensitive values. The other analyses, such as `summarize_numeric`, don't read a project.
 - A sensitive column matches by its exact name. When a name misses a column only by case or Unicode form, such as `'Email'` for `'email'`, nothing is masked for it, and the printed masking text and `masking.near_miss_columns` say "did you mean 'email'?" instead of claiming that no sensitive value is shown.
-- With masking on, no error message quotes a value of a sensitive column, such as an expected label or a declared sentinel value. A message that lists unknown column names names at most 3, each cut to 40 characters, and an option that ends in `column` or `columns` refuses a Series, an Index or an array of a column's values, without showing them, and shows the fix.
+- With masking on, no error message quotes a value of a sensitive column, such as an expected label or a declared sentinel value. A message that lists unknown column names names at most 3, each cut to 40 characters, and a column option refuses a Series, an Index or an array of values without showing them.
 
 Save the project once and load it in every later script, which helps an agent that runs each script in a new process:
 
@@ -250,13 +250,13 @@ sensitive_columns = [
 mask_sensitive = true
 ```
 
-`format_version` is the layout of the file. A file without it loads as version 1, and a file from a newer agent-eda raises an `invalid_project_file` error that names its version. `project.save` writes through a temporary file and a rename, so an interrupted save leaves the file that was there. A new file is readable by its owner only, and a replaced file keeps its permissions. It refuses a target that isn't a regular file, such as a named pipe, and a project bigger than the 1 MiB that `Project.load` reads. `Project.load` raises `invalid_project_file` when the file isn't a regular file, holds more than 1 MiB, can't be read (for example without permission) or has a newer `format_version`, as well as for invalid TOML and missing or wrong keys.
+`format_version` is the layout of the file: a file without it is version 1, and a newer one raises `invalid_project_file`, naming its version. `project.save` writes through a temporary file and a rename, so an interrupted save leaves the file that was there. A new file is readable by its owner only, and a replaced file keeps its permissions. It refuses a target that isn't a regular file and a project bigger than the 1 MiB that `Project.load` reads. `Project.load` raises `invalid_project_file` for a file that isn't a regular file, holds more than 1 MiB, can't be read, has a newer `format_version`, isn't valid TOML or has missing or wrong keys.
 
 Masking is a guardrail against accidental exposure, not anonymization or access control. The package runs in the agent's own Python process, so an agent that can call it can also read the data directly. [ADR 0001](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0001-data-policy-is-a-guardrail.md) records why.
 
 ## Use over MCP
 
-Agents that call MCP tools instead of writing Python, such as Claude Desktop, Cursor or a Claude Code session without a shell, can reach the analyses through a local MCP server. It speaks stdio only. The MCP client starts `agent-eda-mcp` as a subprocess, and the MCP server opens no network connection. [ADR 0006](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0006-local-mcp-server-over-stdio-data-by-path.md) records the design.
+Agents that call MCP tools instead of writing Python, such as Claude Desktop, Cursor or a Claude Code session without a shell, can reach the analyses through a local MCP server. The MCP client starts `agent-eda-mcp` as a subprocess and talks to it over stdio; the MCP server opens no network connection. [ADR 0006](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0006-local-mcp-server-over-stdio-data-by-path.md) records the design.
 
 ### Install and register
 
@@ -308,7 +308,7 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
   - A repeated header name stays repeated. `describe_dataset` reports it, and every other analysis asks you to rename the repeated columns in the file.
 - Parquet files keep the dtypes and the index that pandas stored in them. A file written without pandas metadata, such as by Spark or DuckDB, gets pandas' default dtypes for its Parquet types (an integer column with nulls becomes float) and a 0-based index.
 - A relative path resolves against the MCP server's working directory, the directory the MCP client starts it in. Pass absolute paths if unsure. A leading `~` is the home directory, in every path argument.
-- A path the operating system refuses comes back as an MCP tool error that names the cause: a name over 255 characters, a directory the server may not search, a symbolic link loop, a NUL character, no read permission, or a path that isn't a regular file. A Parquet file with two columns of one name, or with bad pandas metadata, gives `unreadable_data_file`.
+- A path the operating system refuses comes back as an MCP tool error that names the cause, such as a name over 255 characters, a symbolic link loop, a NUL character or no read permission. A Parquet file with two columns of one name, or with bad pandas metadata, gives `unreadable_data_file`.
 - The MCP server reads only local files. It reads a URL such as `s3://bucket/data.csv` as a relative file path, so the call fails with `data_file_not_found`.
 - A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names in its directory.
 - Row IDs in a result are 0-based data-row numbers for a CSV or TSV file, and follow the stored index for a Parquet file. `id_column` names rows by a column's values instead.
@@ -324,7 +324,7 @@ The MCP server reads arguments the way an MCP tool's input schema describes them
 
 ### Read the response
 
-A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The record equals the Python one. The text is worded for an MCP caller: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. Some MCP clients show the model only one of the two. Claude Code, for one, shows only the structured content. A run that doesn't complete, such as `insufficient_data` from `summarize_numeric` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and the `message`. The message says what is wrong and what is allowed as it does in Python, and gives the fix in MCP terms: `{"task": "regression"}` where Python shows `task='regression'`, the MCP tool's input schema where Python points to `help()`, and `project_path` where Python builds a `Project`.
+A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps as in Python; the record equals the Python one. The text is worded for an MCP caller: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. Some MCP clients show the model only one of the two; Claude Code shows only the structured content. A run that doesn't complete, such as `insufficient_data` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and the `message`. The message says what is wrong and what is allowed as it does in Python, and gives the fix in MCP terms: `{"task": "regression"}` where Python shows `task='regression'`, the MCP tool's input schema where Python points to `help()`, and `project_path` where Python builds a `Project`. No message, MCP tool description or input schema holds Python syntax, and a test scans them all. In an MCP tool's description, `to_dict` is the structured content and `to_frame` is what `table_path` writes.
 
 To get past the caps, pass `table_path`. The MCP server writes the result's main table, the one `res.to_frame()` gives in Python without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
@@ -337,7 +337,7 @@ To get past the caps, pass `table_path`. The MCP server writes the result's main
 
 ### Masking over MCP
 
-The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as the minimum `summarize_numeric` reports for a sensitive column, or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error, which is a bug in agent-eda, names only the exception's type, since its message could quote a value; the server's log on stderr keeps the traceback.
+The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error, which is a bug in agent-eda, names only the exception's type, since its message could quote a value; the server's log on stderr keeps the traceback.
 
 Masking over MCP is the same guardrail as in Python: it guards against accidental exposure and is not anonymization or access control. The MCP server enforces nothing, since whoever can call it can usually read the data file directly.
 
@@ -382,8 +382,8 @@ What kind of values does each column hold?
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to read, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
-| `declared_schema` | `Mapping[str, str \| ColumnSpec] \| None` | `None` | The logical types you declare, by column name: 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec (a dict of its fields works too), whose logical_type is the one compared. |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to read, in the order to report them: a list or a single name. |
+| `declared_schema` | `Mapping[str, str \| ColumnSpec] \| None` | `None` | The logical types you declare, by column name: 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec (a mapping of its fields works too), whose logical_type is the one compared. |
 
 **Fields:** `columns` (`column`, `status`, `status_reason`, `dtype`, `inferred_logical_type`, `declared_logical_type`, `matches_declared`, `candidates`, `flags`, `evidence`), `missing_declared_columns`
 
@@ -410,7 +410,7 @@ Do the columns hold the logical types I declared?
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `schema` | `Mapping[str, str \| ColumnSpec]` | required | The logical type each column should hold, by column name, in the order to report them: 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec (a dict of its fields works too). |
+| `schema` | `Mapping[str, str \| ColumnSpec]` | required | The logical type each column should hold, by column name, in the order to report them: 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec (a mapping of its fields works too). |
 | `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as an order number; row IDs are then its values. |
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces the invalid values of sensitive columns, and row IDs taken from a sensitive id_column, with numbered placeholders, '<masked 1>' and so on, equal values alike, and needs a project that declares sensitive columns; False shows them as stored. |
@@ -419,7 +419,7 @@ Do the columns hold the logical types I declared?
 
 - `invalid_values` (violation): columns that hold invalid values.
 - `declared_columns_missing` (violation): declared columns the data doesn't have, each with the closest names.
-- `non_nullable_missing_values` (violation): columns declared with nullable=False that have missing values.
+- `non_nullable_missing_values` (violation): columns declared non-nullable that have missing values.
 - `unchecked_columns` (unknown): columns without a value to check, as when every value is missing.
 - `convertible_values` (descriptive): columns with values stored as another type; convert them before you use them as the declared type.
 - `valid_columns` (passed): columns that pass every check: only compatible and convertible values, and none missing when declared non-nullable.
@@ -434,8 +434,8 @@ How much data is missing, and where?
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to profile, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
-| `sentinel_values` | `Mapping[str, Sequence[bool \| int \| float \| str \| datetime \| date \| timedelta]] \| None` | `None` | The sentinel values to count as missing, by column name, such as {'age': [-999], 'city': ['N/A', '']}: one value or a list of values per column, each a bool, int, float, str, datetime (pd.Timestamp too), date or timedelta (pd.Timedelta too). |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to profile, in the order to report them: a list or a single name. |
+| `sentinel_values` | `Mapping[str, Sequence[bool \| int \| float \| str \| datetime \| date \| timedelta]] \| None` | `None` | The sentinel values to count as missing, by column name, such as {'age': [-999], 'city': ['N/A', '']}: one value or a list of values per column, each a bool, int, float, str, datetime (pandas Timestamp too), date or timedelta (pandas Timedelta too). |
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each declared sentinel value of a sensitive column, in parameters and in the columns table, with a numbered placeholder, '<masked 1>' for the first value declared and so on, and needs a project that declares sensitive columns; False shows the values as declared. |
 
@@ -454,9 +454,9 @@ Which values look like stand-ins for missing data?
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to check, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
-| `sentinel_values` | `Mapping[str, Sequence[bool \| int \| float \| str \| datetime \| date \| timedelta]] \| None` | `None` | The sentinel values you declare, by column name, such as {'age': [-999], 'city': ['N/A', '']}, as profile_missing_values takes them: one value or a list of values per column, each a bool, int, float, str, datetime (pd.Timestamp too), date or timedelta (pd.Timedelta too). |
-| `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as an order number; row IDs are then its values, and columns=None leaves it out of the check. |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to check, in the order to report them: a list or a single name. |
+| `sentinel_values` | `Mapping[str, Sequence[bool \| int \| float \| str \| datetime \| date \| timedelta]] \| None` | `None` | The sentinel values you declare, by column name, such as {'age': [-999], 'city': ['N/A', '']}, as profile_missing_values takes them: one value or a list of values per column, each a bool, int, float, str, datetime (pandas Timestamp too), date or timedelta (pandas Timedelta too). |
+| `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as an order number; row IDs are then its values, and the default columns leave it out of the check. |
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each value of a sensitive column that the result shows, its candidate values, its declared values in parameters and its values as row IDs when it is id_column, with a numbered placeholder, '<masked 1>' for the first value in result order and so on, equal values alike, and needs a project that declares sensitive columns; False shows the values as stored. |
 
@@ -475,10 +475,10 @@ How are the values in each numeric column distributed?
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to summarize, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to summarize, in the order to report them: a list or a single name. |
 | `quantiles` | `Sequence[float]` | `(0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99)` | Quantile levels, each from 0 to 1 and listed once, in the order to report them; an empty list computes none. |
 | `quantile_method` | `str` | `'linear'` | How numpy.quantile picks or interpolates between values: Hyndman and Fan's definitions 1 to 9 as 'inverted_cdf', 'averaged_inverted_cdf', 'closest_observation', 'interpolated_inverted_cdf', 'hazen', 'weibull', 'linear', 'median_unbiased' and 'normal_unbiased', or 'lower', 'higher', 'midpoint' and 'nearest'. |
-| `trim_fraction` | `float` | `0.1` | The share of the finite values cut from each end for the trimmed mean: int(trim_fraction * n) values each, as scipy.stats.trim_mean cuts. |
+| `trim_fraction` | `float` | `0.1` | The share of the finite values cut from each end for the trimmed mean: trim_fraction times n, rounded down, values each, as SciPy's trim_mean cuts. |
 
 **Fields:** `columns` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `left_out_columns`, `definitions`
 
@@ -495,7 +495,7 @@ Which values occur in each categorical column, and how often?
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to summarize, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to summarize, in the order to report them: a list or a single name. |
 | `top_n` | `int` | `10` | How many of each column's most common levels most_common_levels holds and the printed text shows, from 1 to 100; defaults to 10. |
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each level of a sensitive column with a numbered placeholder, '<masked 1>' for the most common and so on in level order, and needs a project that declares sensitive columns; False shows the levels as stored. |
@@ -516,8 +516,8 @@ Are there exact duplicate rows?
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `columns` | `Sequence[str] \| None` | `None` | Names of the columns in which two rows must be equal to count as duplicates, in the order to compare them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
-| `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as an order number; row IDs are then its values, and columns=None leaves it out of the comparison. |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns in which two rows must be equal to count as duplicates, in the order to compare them: a list or a single name. |
+| `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as an order number; row IDs are then its values, and the default columns leave it out of the comparison. |
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each row ID taken from a sensitive id_column with a numbered placeholder, '<masked 1>' for the first ID the result shows and so on, equal IDs alike, and needs a project that declares sensitive columns; False shows the IDs as stored. |
 
@@ -586,7 +586,7 @@ How strongly are pairs of columns associated?
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to pair, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:10], or a single name. |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to pair, in the order to report them: a list or a single name. |
 | `categorical_columns` | `Sequence[str] \| None` | `None` | Numeric columns to treat as categorical, so that codes such as 1, 2 and 3 are compared as categories instead of correlated as numbers. |
 | `numeric_method` | `str` | `'pearson'` | The measure for two numeric columns: 'pearson', the default, Pearson's r for linear association; 'spearman', Pearson's r of the ranks, tied values sharing their mean rank, for monotonic association; or 'kendall', Kendall's tau-b, which adjusts for ties. |
 | `categorical_method` | `str` | `'cramers_v_bias_corrected'` | The measure for two categorical columns: 'cramers_v_bias_corrected', the default, Cramér's V with Bergsma's (2013) correction, which removes most of the upward bias that few rows and many levels give V; or 'cramers_v', the uncorrected V of scipy.stats.contingency.association. |
@@ -723,10 +723,10 @@ Exceptions that agent-eda raises when a call is wrong.
 | `column_not_found` | `ColumnNotFoundError` | A column name isn't in the data. |
 | `unsupported_column_type` | `ColumnTypeError` | A named column has a dtype the analysis can't use, or an id_column holds values that can't be hashed, such as lists. |
 | `unknown_analysis` | `UnknownAnalysisError` | describe_analysis got a name that isn't an analysis. |
-| `invalid_project_file` | `ProjectFileError` | Project.load got a file that isn't UTF-8 TOML, and the message gives the line at fault, that lacks the [data_policy] table or one of its keys, or that holds a value a Project can't take, that isn't a regular file, that holds more than 1 MiB, that the operating system refuses to read, or that has a newer format_version than this agent-eda reads. |
+| `invalid_project_file` | `ProjectFileError` | Project.load got a file that isn't UTF-8 TOML (the message gives the line at fault), lacks the [data_policy] table or one of its keys, holds a value a Project can't take, isn't a regular file, holds more than 1 MiB, can't be read or has a newer format_version than this agent-eda reads. |
 | `unknown_project_key` | `ProjectFileError` | Project.load got a file with a key that is neither a field of the Project nor one of its data policy, such as a misspelling. |
 | `project_file_not_found` | `ProjectFileNotFoundError` | Project.load found no file at the path. |
-| `result_table_unavailable` | `ResultTableUnavailableError` | to_frame() was called on a result that was rebuilt from its record, such as by model_validate(res.model_dump()), which doesn't hold the tables that only a call of the analysis keeps. |
+| `result_table_unavailable` | `ResultTableUnavailableError` | to_frame() was called on a result rebuilt from its record by model_validate(), which doesn't hold the tables that only a call of the analysis keeps. |
 | `project_file_exists` | `ProjectFileExistsError` | project.save found a file at the path and overwrite was False. |
 | `missing_dependency` | `MissingDependencyError` | A feature needs an optional extra that isn't installed, such as the MCP server without the mcp extra. |
 | `unsupported_data_format` | `UnsupportedDataFormatError` | An MCP tool got a data path whose extension it can't read. |

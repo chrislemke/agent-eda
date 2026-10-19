@@ -158,18 +158,16 @@ def profile_target(
             'multiclass_classification' for two or more, or 'regression' for a
             number. Class labels can be text, numbers, booleans or categories;
             a regression target must hold integers or floats, and another dtype
-            raises errors.ColumnTypeError that suggests a classification task or
-            a conversion.
+            is rejected, with a suggestion of what to pass instead.
         expected_labels (Sequence[str | bool | int | float] | None): The labels
             the task allows, such as ['no', 'yes'] or [0, 1]: exactly 2 for
-            binary_classification and at least 2 for
-            multiclass_classification, each listed once; regression takes
-            none. A value matches a label equal to it, as Python's == decides,
-            so 1 matches 1.0 and True, and text matches with its case and
-            surrounding spaces. A label of a type the target never holds, such
-            as '1' for an integer column, raises errors.InvalidArgumentError
-            naming the label you likely meant. None, the default, leaves the
-            check out: unexpected_labels is null, and a limitation says so.
+            binary_classification and at least 2 for multiclass_classification, each
+            listed once; regression takes none. A value matches a label equal to it, as
+            equality decides, so 1 matches 1.0 and true, and text matches with its case
+            and surrounding spaces. A label of a type the target never holds, such as
+            '1' for an integer column, is rejected, naming the label you likely meant.
+            None, the default, leaves the check out: unexpected_labels is null, and a
+            limitation says so.
         rare_share (float | None): For classification, the share of the valid
             labels below which a class counts as rare, such as 0.05; greater
             than 0 and less than 1. None, the default, leaves the check out:
@@ -218,15 +216,14 @@ def profile_target(
         counts the values that are missing, inf or -inf. `to_frame` returns
         the statistics in one row.
 
-        For both tasks, `missing_count` and `missing_share` count the rows
-        without a label, and a share without rows is null, with a
-        `too_few_values` limitation. Labels are kept exactly as stored. With
-        index labels as row IDs, df.loc[row_ids] shows the rows, and an
-        `ambiguous_row_ids` limitation flags row IDs that repeat. `masking`
-        says whether masking was on and names the sensitive columns whose
-        values the result shows; with masking on, their labels and row IDs
-        are placeholders in the printed text, `to_dict`, `to_json` and
-        `to_frame` alike, while counts and shares stay.
+        For both tasks, `missing_count` and `missing_share` count the rows without a
+        label, and a share without rows is null, with a `too_few_values` limitation.
+        Labels are kept exactly as stored. Row IDs are index labels, or id_column values
+        when given, and an `ambiguous_row_ids` limitation flags row IDs that repeat.
+        `masking` says whether masking was on and names the sensitive columns whose
+        values the result shows; with masking on, their labels and row IDs are
+        placeholders in the printed text, `to_dict`, `to_json` and `to_frame` alike,
+        while counts and shares stay.
 
         The findings:
 
@@ -255,9 +252,8 @@ def profile_target(
             missing, no label is in expected_labels, or a regression target has
             no finite value.
         failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. None is known today: a
-            statistic that can't be computed is null, with a limitation,
-            instead.
+            `status_reason` gives its code and message. No such failure is known today:
+            a statistic that can't be computed is null, with a limitation, instead.
 
     Examples:
         >>> import pandas as pd
@@ -431,10 +427,14 @@ def _check_options(
     check_distinct("profile_target", "expected_labels", labels, "label", hide=hide)
     given = plural(len(labels), "label", "labels")
     if task == "binary_classification" and len(labels) != 2:
-        raise InvalidArgumentError(
-            f"profile_target got {given} in expected_labels for a "
-            "binary_classification task, which has 2 classes. List its 2 labels, or "
-            "pass task='multiclass_classification'."
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"profile_target got {given} in expected_labels for a "
+                "binary_classification task, which has 2 classes. List its 2 "
+                "labels, or pass "
+                f"{as_written(surface, task='multiclass_classification')}."
+            ),
         )
     if len(labels) < 2:
         raise InvalidArgumentError(
@@ -467,28 +467,36 @@ def _check_label_types(
     if not unusable:
         return
     likely = [likely_value(cast("SentinelValue", label), column) for label in unusable]
-    hint = (
-        f" Did you mean {join_items([literal(value) for value in likely])}?"
-        if all(value is not None for value in likely) and not hide
-        else ""
-    )
     holding = f"{target.name!r} holds {column.what} (dtype {column.dtype})"
-    if len(unusable) == 1:
-        shown = "a label" if hide else literal(unusable[0])
-        problem = (
-            f"got {shown} in expected_labels, but {holding}, so it can never equal "
-            "a label."
+
+    def text(surface: Surface) -> str:
+        hint = (
+            f" Did you mean {join_items([literal(v, surface) for v in likely])}?"
+            if all(value is not None for value in likely) and not hide
+            else ""
         )
-    else:
-        listed = "" if hide else f": {join_items([literal(x) for x in unusable])}"
-        problem = (
-            f"can't use {len(unusable):,} labels in expected_labels{listed}, since "
-            f"{holding}, so they can never equal a label."
+        if len(unusable) == 1:
+            shown = "a label" if hide else literal(unusable[0], surface)
+            problem = (
+                f"got {shown} in expected_labels, but {holding}, so it can never "
+                "equal a label."
+            )
+        else:
+            listed = (
+                ""
+                if hide
+                else f": {join_items([literal(x, surface) for x in unusable])}"
+            )
+            problem = (
+                f"can't use {len(unusable):,} labels in expected_labels{listed}, "
+                f"since {holding}, so they can never equal a label."
+            )
+        return (
+            f"profile_target {problem}{hint} Declare each label as the type the "
+            "target holds."
         )
-    raise InvalidArgumentError(
-        f"profile_target {problem}{hint} Declare each label as the type the target "
-        "holds."
-    )
+
+    raise worded(InvalidArgumentError, text)
 
 
 # The value families a number or boolean label can equal, as Python's == decides.

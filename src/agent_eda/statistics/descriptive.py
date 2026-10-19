@@ -96,8 +96,7 @@ def summarize_numeric(
         defined. Booleans are left out unless named in columns. Statistics of
         identifiers or codes stored as numbers mean nothing, and numbers stored
         as text are left out: `infer_column_semantics` finds both. A text,
-        categorical or datetime column named in columns raises
-        `errors.ColumnTypeError`. For which values occur in text, categorical
+        categorical or datetime column named in columns is rejected. For which values occur in text, categorical
         and boolean columns and how often, call `summarize_categorical`
         instead; `describe_dataset` covers every dtype, and `list_analyses`
         lists the other analyses. For missing values in columns of every dtype
@@ -114,11 +113,10 @@ def summarize_numeric(
             strings and a single level; describe_dataset reports labels that
             aren't. It is never modified.
         columns (Sequence[str] | None): Names of the columns to summarize, in the
-            order to report them: a list, a tuple, a pandas Index such as
-            df.columns[:3], or a single name. A label that isn't a string can
-            be given as itself, such as 0, or as its string form. Boolean
-            columns named here are read as 0 and 1. None, the default, selects
-            every numeric column except booleans, in DataFrame order.
+            order to report them: a list or a single name. A label that isn't a string
+            can be given as itself, such as 0, or as its string form. Boolean columns
+            named here are read as 0 and 1. None, the default, selects every numeric
+            column except booleans, in DataFrame order.
         quantiles (Sequence[float]): Quantile levels, each from 0 to 1 and
             listed once, in the order to report them; an empty list computes
             none. Defaults to 0.01, 0.05, 0.25, 0.5, 0.75, 0.95 and 0.99.
@@ -131,13 +129,12 @@ def summarize_numeric(
             default of NumPy, pandas and R. NumPy before 2.0.1 rounds
             'closest_observation' differently from definition 3.
         trim_fraction (float): The share of the finite values cut from each end
-            for the trimmed mean: int(trim_fraction * n) values each, as
-            scipy.stats.trim_mean cuts. From 0 up to but excluding 0.5;
-            defaults to 0.1.
+            for the trimmed mean: trim_fraction times n, rounded down, values each, as
+            SciPy's trim_mean cuts. From 0 up to but excluding 0.5; defaults to 0.1.
 
     Returns:
         SummarizeNumericResult: `columns` maps each selected column name to its
-        entry, such as res.columns["age"]. An entry holds:
+        entry. An entry holds:
 
         - `count`, the values that aren't missing, infinite ones included, and
           `missing_count`, `infinite_count`, `zero_count` and `negative_count`.
@@ -146,14 +143,14 @@ def summarize_numeric(
         - `trimmed_mean`, and the median absolute deviation as `mad`, unscaled,
           and `mad_scaled`, multiplied by 1.4826 to estimate the standard
           deviation of normal data.
-        - `skewness` and `excess_kurtosis`, both bias-corrected as SciPy's with
-          bias=False and both 0 for normal data.
+        - `skewness` and `excess_kurtosis`, both bias-corrected, as SciPy's skew and
+          kurtosis are with bias correction on, and both 0 for normal data.
         - `status` and `status_reason`, the column's own.
 
-        Every statistic uses the finite values only, and `definitions` states
-        each one. `left_out_columns` names the columns that columns=None
-        skipped. `to_frame` returns every statistic, one row per column and
-        one column per quantile level, such as q0.25.
+        Every statistic uses the finite values only, and `definitions` states each one.
+        `left_out_columns` names the columns that the default columns skipped.
+        `to_frame` returns every statistic, one row per column and one column per
+        quantile level, such as q0.25.
 
         A statistic that doesn't exist is null, and a limitation names its
         field and the reason. `too_few_values` means too few finite values:
@@ -177,12 +174,11 @@ def summarize_numeric(
             status insufficient_data.
         insufficient_data: The data has no rows, or no selected column has a
             finite value.
-        not_applicable: columns is None and the data has no numeric columns
+        not_applicable: columns is left out and the data has no numeric columns
             other than booleans.
         failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. None is known today: a
-            statistic that can't be computed is null, with a limitation,
-            instead.
+            `status_reason` gives its code and message. No such failure is known today:
+            a statistic that can't be computed is null, with a limitation, instead.
 
     Examples:
         >>> import pandas as pd
@@ -417,12 +413,11 @@ def summarize_categorical(
             strings and a single level; describe_dataset reports labels that
             aren't. It is never modified.
         columns (Sequence[str] | None): Names of the columns to summarize, in the
-            order to report them: a list, a tuple, a pandas Index such as
-            df.columns[:3], or a single name. A label that isn't a string can
-            be given as itself, such as 0, or as its string form. Numeric
-            columns named here are summarized by their values; datetime and
-            duration columns raise. None, the default, selects every text,
-            object, categorical and boolean column, in DataFrame order.
+            order to report them: a list or a single name. A label that isn't a string
+            can be given as itself, such as 0, or as its string form. Numeric columns
+            named here are summarized by their values; datetime and duration columns
+            raise. None, the default, selects every text, object, categorical and
+            boolean column, in DataFrame order.
         top_n (int): How many of each column's most common levels
             most_common_levels holds and the printed text shows, from 1 to 100;
             defaults to 10. It limits only the display: levels keeps the first
@@ -441,11 +436,11 @@ def summarize_categorical(
 
     Returns:
         SummarizeCategoricalResult: `columns` maps each selected column name to
-        its entry, such as res.columns["plan"]. An entry holds:
+        its entry. An entry holds:
 
         - `non_missing_count`, `missing_count` and `cardinality`, the number of
           levels: the distinct non-missing values, as pandas value_counts tells
-          them apart, so 1, 1.0 and True are one level.
+          them apart, so 1, 1.0 and true are one level.
         - `levels`, the first 100 levels, and `most_common_levels`, the first
           top_n, each with its `label`, `label_type`, `count` and `share`.
           `left_out_level_count` counts the levels beyond top_n, and
@@ -467,7 +462,7 @@ def summarize_categorical(
         Decimal or a timestamp, appears as its string form, with its type in
         `label_type`. `to_frame` returns every level of every column, with
         each label exactly as stored. `left_out_columns` names the columns
-        that columns=None skipped. Values that can't be hashed, such as
+        that the default columns skipped. Values that can't be hashed, such as
         lists, leave a column's levels uncounted, with an `unhashable_values`
         limitation.
 
@@ -492,11 +487,11 @@ def summarize_categorical(
             that can't be hashed; their entries say which.
         insufficient_data: The data has no rows, or no selected column has a
             non-missing value.
-        not_applicable: columns is None and the data has no text, object,
+        not_applicable: columns is left out and the data has no text, object,
             categorical or boolean columns, or every selected column holds
             values that can't be hashed.
         failed: An anticipated computation failure stopped the analysis, and
-            `status_reason` gives its code and message. None is known today:
+            `status_reason` gives its code and message. No such failure is known today:
             a count that can't be computed is null, with a limitation, instead.
 
     Examples:

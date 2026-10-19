@@ -147,7 +147,7 @@ def find_candidate_keys(
         not_applicable: No column can be searched: the data has no columns, or
             every selected column holds values that can't be hashed.
         failed: An anticipated computation failure stopped the search, and
-            `status_reason` gives its code and message. None is known today.
+            `status_reason` gives its code and message. No such failure is known today.
 
     Examples:
         >>> import pandas as pd
