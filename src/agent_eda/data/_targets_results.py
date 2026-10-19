@@ -19,11 +19,12 @@ from agent_eda._numeric import (
 )
 from agent_eda._result_base import (
     _BIG_INTEGERS,
+    _ENTRIES,
     _MORE_STATISTICS,
+    _ROW_IDS,
     MaskableResult,
     ResultModel,
     RowId,
-    _Cap,
     _masking_text,
     _tables_unavailable,
     share_text,
@@ -69,8 +70,8 @@ class ProfileTargetUnexpectedLabel(ResultModel):
         description="The Python type of the stored label, such as 'str' or 'int'."
     )
     count: int = Field(description="Rows with this label.")
-    row_ids: Annotated[list[RowId], _Cap(10, total="count")] = Field(
-        description="The IDs of the first 10 rows with this label, in row order: "
+    row_ids: Annotated[list[RowId], _ROW_IDS.derive(total="count")] = Field(
+        description="The IDs of the first {limit} rows with this label, in row order: "
         "index labels, or values of id_column when it is given. count counts "
         "every row, and the record adds it as row_ids_total. With masking on and "
         "a sensitive id_column, numbered placeholders, '<masked 1>' for the first "
@@ -125,9 +126,9 @@ class ProfileTargetResult(MaskableResult):
         "count 0. Null for regression."
     )
     classes: Annotated[
-        list[ProfileTargetClass] | None, _Cap(100, total="class_count")
+        list[ProfileTargetClass] | None, _ENTRIES.derive(total="class_count")
     ] = Field(
-        description="Classification: the first 100 classes, each with its count "
+        description="Classification: the first {limit} classes, each with its count "
         "and share. Level order: " + LEVEL_ORDER + " A declared class without "
         "rows comes last, at count 0. "
         "class_count counts every class, the record adds it as classes_total, and "
@@ -157,9 +158,9 @@ class ProfileTargetResult(MaskableResult):
     )
     unexpected_labels: Annotated[
         list[ProfileTargetUnexpectedLabel] | None,
-        _Cap(100, total="unexpected_label_count"),
+        _ENTRIES.derive(total="unexpected_label_count"),
     ] = Field(
-        description="Classification with expected_labels: the first 100 labels "
+        description="Classification with expected_labels: the first {limit} labels "
         "outside expected_labels, in level order, each with its count and the IDs "
         "of its first rows. unexpected_label_count counts every one, and the "
         "record adds it as unexpected_labels_total. Null when the check didn't "
@@ -171,9 +172,9 @@ class ProfileTargetResult(MaskableResult):
         "and for regression."
     )
     rare_classes: Annotated[
-        list[ProfileTargetClass] | None, _Cap(100, total="rare_class_count")
+        list[ProfileTargetClass] | None, _ENTRIES.derive(total="rare_class_count")
     ] = Field(
-        description="Classification with rare_share: the first 100 classes whose "
+        description="Classification with rare_share: the first {limit} classes whose "
         "share lies below rare_share, in level order, as in classes. "
         "rare_class_count counts every one, and the record adds it as "
         "rare_classes_total. Null when the check didn't run."

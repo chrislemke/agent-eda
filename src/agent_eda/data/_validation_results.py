@@ -16,7 +16,9 @@ from agent_eda._result_base import (
     _BIG_INTEGERS,
     _BY_NAME,
     _ENTRIES,
+    _EXAMPLE_VALUES,
     _FRAME_DTYPES,
+    _ROW_IDS,
     AnalysisResult,
     ColumnFlag,
     ColumnResult,
@@ -24,7 +26,6 @@ from agent_eda._result_base import (
     MaskableResult,
     ResultModel,
     RowId,
-    _Cap,
     _tables_unavailable,
 )
 from agent_eda._written_form import row_id_list
@@ -171,8 +172,7 @@ class InferColumnSemanticsResult(AnalysisResult):
     columns: Annotated[dict[str, InferColumnSemanticsColumn], _ENTRIES, _BY_NAME] = (
         Field(
             description="One entry per selected column, keyed by column name, in the "
-            "selected order. The record keeps the first 100 and adds columns_total; "
-            "the complete table has every column."
+            "selected order. {cap}; the complete table has every column."
         )
     )
     missing_declared_columns: Annotated[list[str], _ENTRIES] = Field(
@@ -409,21 +409,23 @@ class ValidateColumnTypesColumn(ResultModel):
         description="Native missing values, and NaN that a float column stores "
         "as a value."
     )
-    invalid_row_ids: Annotated[list[RowId], _Cap(10, total="invalid_count")] = Field(
-        description="The IDs of the first 10 rows that hold an invalid value, in row "
-        "order: index labels, or values of id_column when it is given. "
-        "invalid_count counts them all, and the record adds it as "
-        "invalid_row_ids_total. With masking on and a sensitive id_column, "
-        "numbered placeholders, equal IDs alike. " + _BIG_INTEGERS
+    invalid_row_ids: Annotated[list[RowId], _ROW_IDS.derive(total="invalid_count")] = (
+        Field(
+            description="The IDs of the first {limit} rows that hold an invalid value, in row "
+            "order: index labels, or values of id_column when it is given. "
+            "invalid_count counts them all, and the record adds it as "
+            "invalid_row_ids_total. With masking on and a sensitive id_column, "
+            "numbered placeholders, equal IDs alike. " + _BIG_INTEGERS
+        )
     )
     invalid_distinct_count: int | None = Field(
         description="Distinct invalid values; values of different types count "
         "apart, so 1 and the boolean true are two."
     )
     invalid_values: Annotated[
-        list[InvalidValue], _Cap(5, total="invalid_distinct_count")
+        list[InvalidValue], _EXAMPLE_VALUES.derive(total="invalid_distinct_count")
     ] = Field(
-        description="The first 5 distinct invalid values with their counts, in level "
+        description="The first {limit} distinct invalid values with their counts, in level "
         "order as summarize_categorical orders levels: most frequent first, then "
         "by value. invalid_distinct_count counts them all, the record adds it as "
         "invalid_values_total, and the Python-only table invalid_values has "
@@ -443,14 +445,12 @@ class ValidateColumnTypesResult(MaskableResult):
     columns: Annotated[dict[str, ValidateColumnTypesColumn], _ENTRIES, _BY_NAME] = (
         Field(
             description="One entry per declared column, keyed by column name, in "
-            "declared order. The record keeps the first 100 and adds columns_total; "
-            "the complete table has every column."
+            "declared order. {cap}; the complete table has every column."
         )
     )
     undeclared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="The data's columns that schema doesn't declare, in DataFrame "
-        "order; they weren't checked. The record keeps the first 100 and adds "
-        "undeclared_columns_total."
+        "order; they weren't checked. {cap}."
     )
     # Every distinct invalid value of every declared column in the data,
     # outside the record; masked columns hold placeholders' numbers instead.
@@ -458,7 +458,7 @@ class ValidateColumnTypesResult(MaskableResult):
     _tables: dict[str, Levels] | None = PrivateAttr(default=None)
     # The ID of every row that holds an invalid value, by declared column, outside
     # the record: pandas labels, or lists of placeholders when masked. None for a
-    # result rebuilt from its record, which holds the first 10 of each.
+    # result rebuilt from its record, which holds only the row IDs the record keeps.
     _row_ids: dict[str, Any] | None = PrivateAttr(default=None)
 
     TABLES: ClassVar[Mapping[str, str | None]] = {

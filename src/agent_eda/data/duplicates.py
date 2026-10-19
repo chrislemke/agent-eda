@@ -29,8 +29,6 @@ _ANY_COLUMN = any_column("every column except id_column")
 
 
 @analysis(
-    statuses=("completed", "insufficient_data", "not_applicable"),
-    finding_codes=("duplicate_rows",),
     tags=(
         "duplicates",
         "duplicate rows",

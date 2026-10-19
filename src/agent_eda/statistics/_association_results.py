@@ -15,7 +15,6 @@ from agent_eda._result_base import (
     _ENTRIES,
     AnalysisResult,
     ResultModel,
-    _Cap,
     _entries_frame,
 )
 
@@ -142,15 +141,15 @@ def _pair_key(pair: "AssociationPair") -> tuple[str, str]:
 class ComputeAssociationMatrixResult(AnalysisResult):
     """The result of compute_association_matrix."""
 
-    pairs: Annotated[list[AssociationPair], _Cap(100, key=_pair_key)] = Field(
+    pairs: Annotated[list[AssociationPair], _ENTRIES.derive(key=_pair_key)] = Field(
         description="One entry per pair of paired columns, strongest first: by "
         "absolute value, descending, then in the selected column order, with null "
-        "values last. The record keeps the 100 strongest and adds pairs_total; "
+        "values last. The record keeps the {limit} strongest and adds pairs_total; "
         "the complete table has every pair."
     )
     columns: Annotated[dict[str, AssociationColumn], _ENTRIES, _BY_NAME] = Field(
         description="The paired columns, keyed by column name, in the selected "
-        "order. The record keeps the first 100 and adds columns_total."
+        "order. {cap}."
     )
     left_out_columns: Annotated[list[LeftOutColumn], _ENTRIES] = Field(
         description="The columns paired with no other, with the reason, in "

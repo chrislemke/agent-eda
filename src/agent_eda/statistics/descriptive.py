@@ -87,8 +87,6 @@ _NUMERIC = ColumnRule(
 
 
 @analysis(
-    statuses=("completed", "partial", "insufficient_data", "not_applicable"),
-    finding_codes=("constant_columns", "infinite_values"),
     tags=(
         *("distribution", "mean", "standard deviation", "quantiles", "numeric"),
         *("percentiles", "median", "skewed", "skewness", "kurtosis", "outliers"),
@@ -310,8 +308,6 @@ _CATEGORICAL = ColumnRule(
 
 
 @analysis(
-    statuses=("completed", "partial", "insufficient_data", "not_applicable"),
-    finding_codes=("case_or_space_variants", "mixed_value_types", "unused_categories"),
     tags=(
         "value counts",
         "frequencies",
@@ -332,7 +328,9 @@ def summarize_categorical(
     data: pd.DataFrame,
     *,
     columns: Sequence[str] | None = None,
-    top_n: Annotated[int, Ge(1), Le(100)] = 10,
+    top_n: Annotated[
+        int, Ge(1), Le(SummarizeCategoricalColumn.limit_of("levels"))
+    ] = 10,
     project: Project | None = None,
     mask_sensitive: bool | None = None,
 ) -> SummarizeCategoricalResult:
@@ -365,7 +363,7 @@ def summarize_categorical(
             raise. None, the default, selects every text, object, categorical and
             boolean column, in DataFrame order.
         top_n (int): How many of each column's most common levels `levels`
-            holds and the printed text shows, from 1 to 100; defaults to 10.
+            holds and the printed text shows, from 1 to {entries_kept}; defaults to 10.
             It limits the record and the text: `to_frame` has every level.
         project (Project | None): The project, whose data policy names the
             sensitive columns and says whether to mask them. None, the

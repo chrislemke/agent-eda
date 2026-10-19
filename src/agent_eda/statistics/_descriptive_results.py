@@ -21,7 +21,6 @@ from agent_eda._result_base import (
     ColumnResult,
     MaskableResult,
     ResultModel,
-    _Cap,
     _left_out_lines,
     _tables_unavailable,
 )
@@ -93,8 +92,8 @@ class SummarizeNumericResult(AnalysisResult):
     columns: Annotated[dict[str, SummarizeNumericColumn], _ENTRIES, _BY_NAME] = Field(
         description="One entry per selected column, keyed by column name, in the "
         "selected order. Every statistic uses the finite values only, and the "
-        "description of each entry field defines it. The record keeps the first "
-        "100 and adds columns_total; the complete table has every column."
+        "description of each entry field defines it. {cap}; the complete "
+        "table has every column."
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns that the default column selection left out because "
@@ -257,7 +256,7 @@ class SummarizeCategoricalColumn(ColumnResult):
         "when the values can't be hashed."
     )
     levels: Annotated[
-        list[SummarizeCategoricalLevel], _Cap(100, total="distinct_count")
+        list[SummarizeCategoricalLevel], _ENTRIES.derive(total="distinct_count")
     ] = Field(
         description="The first top_n levels, each with its label, label_type, "
         "count and share. Level order: " + LEVEL_ORDER + " distinct_count counts "
@@ -304,8 +303,7 @@ class SummarizeCategoricalResult(MaskableResult):
         Field(
             description="One entry per selected column, keyed by column name, in the "
             "selected order. Every share divides by the entry's non_missing_count, so "
-            "missing values never dilute it and get no share of their own. The record "
-            "keeps the first 100 and adds columns_total."
+            "missing values never dilute it and get no share of their own. {cap}."
         )
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(

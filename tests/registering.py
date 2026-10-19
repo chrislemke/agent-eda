@@ -1,6 +1,7 @@
 """The one place a test registers an analysis the way a real one is registered."""
 
 import contextlib
+import inspect
 from collections.abc import Generator
 from typing import Annotated, Any
 
@@ -28,6 +29,30 @@ def _support(data: pd.DataFrame) -> Support:
     return Support(row_count=len(data), column_count=0, columns=[])
 
 
+def register_stand_in(docstring: str) -> Any:
+    """Register a stand-in analysis whose docstring is the one given, and
+    unregister it again; registration raises when the docstring is broken.
+
+    Returns the registry's entry for it, with the statuses and finding codes
+    registration read from the docstring.
+    """
+
+    def stand_in_broken(data: pd.DataFrame) -> CountedResult:
+        raise NotImplementedError
+
+    stand_in_broken.__doc__ = docstring
+    try:
+        analysis()(stand_in_broken)
+        return _REGISTRY["stand_in_broken"]
+    finally:
+        _REGISTRY.pop("stand_in_broken", None)
+
+
+def decorator_options() -> list[str]:
+    """The names of the options the registration decorator takes."""
+    return list(inspect.signature(analysis).parameters)
+
+
 @contextlib.contextmanager
 def stand_in_analyses(
     *, forget_override: bool = False, unknown_override: bool = False
@@ -40,7 +65,7 @@ def stand_in_analyses(
     doesn't take when `unknown_override` is true.
     """
 
-    @analysis(statuses=("completed",), finding_codes=())
+    @analysis()
     def stand_in_counted(
         data: pd.DataFrame, *, limit: Annotated[int, Field(ge=1)] = 5
     ) -> CountedResult:
@@ -59,7 +84,7 @@ def stand_in_analyses(
             seen=min(len(data), limit),
         )
 
-    @analysis(statuses=("completed",), finding_codes=(), masking=True)
+    @analysis(masking=True)
     def stand_in_sentinels(
         data: pd.DataFrame,
         *,

@@ -5,8 +5,10 @@ from tests/recipes.py, so a new analysis is held to them without new tests.
 """
 
 import ast
+import contextlib
 import copy
 import datetime as dt
+import functools
 import json
 import re
 import typing
@@ -372,23 +374,39 @@ def reject_constant(name):
     raise AssertionError(f"to_json() isn't strict JSON: it holds {name}")
 
 
-# The most entries the record keeps of a list that grows with the data: 10 row
-# IDs, 5 example values and 100 entries of anything else.
-RECORD_CAP = 100
-ROW_ID_CAP = 10
-EXAMPLE_CAP = 5
+def record_classes(
+    base: type[ae.results.ResultModel] = ae.results.ResultModel,
+) -> list[type[ae.results.ResultModel]]:
+    """Every record class of the package, found after the analyses are loaded."""
+    ae.list_analyses()
+    found = []
+    for subclass in base.__subclasses__():
+        found += [subclass, *record_classes(subclass)]
+    return found
+
+
+@functools.cache
+def record_caps() -> dict[str, int]:
+    """The most entries the record keeps of each capped field, by field name.
+
+    Every number comes from the marker on the result class, which `limit_of`
+    reads. A name that two classes cap differently has no one cap.
+    """
+    caps: dict[str, set[int]] = {}
+    for cls in record_classes():
+        for field in cls.model_fields:
+            with contextlib.suppress(ValueError):
+                limit = cls.limit_of(field)
+                caps.setdefault(field, set()).add(limit)
+    assert all(len(found) == 1 for found in caps.values()), caps
+    return {field: found.pop() for field, found in caps.items()}
 
 
 def cap_of(field: str) -> int:
-    """How many entries the record keeps of a list or mapping with this name."""
-    if field == "row_ids" or field.endswith("_row_ids"):
-        return ROW_ID_CAP
-    if field.startswith("example") or field.endswith("_examples"):
-        return EXAMPLE_CAP
-    # invalid_values holds the invalid values that validate_column_types shows.
-    if field == "invalid_values":
-        return EXAMPLE_CAP
-    return RECORD_CAP
+    """How many entries the record keeps of a list or mapping with this name: its
+    marker's limit, or the limit of entries of anything else."""
+    caps = record_caps()
+    return caps.get(field, caps["findings"])
 
 
 def check_record(name: str, res: Any, text: str) -> None:
@@ -456,9 +474,10 @@ def capping_problems(
                 if len(value) == cap and total is None:
                     problems.append(f"{where} is at its cap of {cap} without a total")
                 floor = cap if top_n is None else min(cap, top_n)
-                if total is not None and total > len(value) and len(value) < floor:
+                if total is not None and len(value) < min(floor, total):
                     problems.append(
-                        f"{where} holds {len(value)} of {total} entries, short of {cap}"
+                        f"{where} holds {len(value)} of {total} entries, short of "
+                        f"min(cap, total) = {min(floor, total)}"
                     )
             if key.endswith("_total") and isinstance(value, int):
                 shown = node.get(key.removesuffix("_total"))

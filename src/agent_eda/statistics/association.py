@@ -179,13 +179,6 @@ class _Paired:
 
 
 @analysis(
-    statuses=(
-        "completed",
-        "budget_exceeded",
-        "insufficient_data",
-        "not_applicable",
-    ),
-    finding_codes=("perfect_associations",),
     tags=(
         "correlation",
         "association",
@@ -295,7 +288,7 @@ def compute_association_matrix(
         `columns` describes each paired column, keyed by name. `left_out_columns`
         lists the columns paired with no other, each with its `reason`: datetime,
         timedelta, unsupported_dtype, all_missing, no_finite_values,
-        unhashable_values or too_many_categories. The record keeps the 100
+        unhashable_values or too_many_categories. The record keeps the {entries_kept}
         strongest pairs and adds pairs_total.
 
         A value that doesn't exist is null with its `undefined_reason`:

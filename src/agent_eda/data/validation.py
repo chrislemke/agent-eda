@@ -36,8 +36,6 @@ from agent_eda._registry import (
     analysis,
 )
 from agent_eda._result_base import (
-    EXAMPLES_KEPT,
-    ROW_IDS_KEPT,
     Assessment,
     ColumnFlag,
     ColumnSupport,
@@ -75,6 +73,11 @@ from agent_eda.data._value_reading import Check, ValueReading, read_values
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.project import Project
 
+# How many row IDs and distinct values of a column the record keeps; the result
+# class holds the numbers.
+_ROW_IDS_KEPT = ValidateColumnTypesColumn.limit_of("invalid_row_ids")
+_EXAMPLES_KEPT = ValidateColumnTypesColumn.limit_of("invalid_values")
+
 # Every column can be read for what it holds.
 _EVERY_COLUMN = any_column("every column")
 
@@ -91,21 +94,6 @@ _TIE_ORDER: tuple[LogicalType, ...] = (
 
 
 @analysis(
-    statuses=("completed", "partial", "insufficient_data", "not_applicable"),
-    finding_codes=(
-        "identifier_like_columns",
-        "constant_columns",
-        "all_missing_columns",
-        "numbers_as_text",
-        "dates_as_text",
-        "non_iso_date_text",
-        "boolean_like_columns",
-        "mixed_value_types",
-        "declared_type_mismatch",
-        "declared_type_match",
-        "declared_type_unchecked",
-        "missing_declared_columns",
-    ),
     tags=(
         "logical type",
         "semantic type",
@@ -903,8 +891,6 @@ class _AtLeastOneColumn:
 
 
 @analysis(
-    statuses=("completed", "insufficient_data"),
-    finding_codes=_FINDING_CODES,
     tags=(
         "schema",
         "data contract",
@@ -979,8 +965,8 @@ def validate_column_types(
         ValidateColumnTypesResult: `columns` maps each declared column, in declared
         order, to its entry: the declaration, `present`, `dtype` and four counts that
         add up to the rows (`compatible_count`, `convertible_count`, `invalid_count`
-        and `missing_count`), with `invalid_row_ids` (the first 10 rows that hold an
-        invalid value) and `invalid_values` (the first 5 distinct ones with their
+        and `missing_count`), with `invalid_row_ids` (the first {row_ids_kept} rows that hold an
+        invalid value) and `invalid_values` (the first {examples_kept} distinct ones with their
         counts).
         `undeclared_columns` lists the columns schema leaves out, which aren't
         checked. A declared column the data lacks has a null dtype and null counts,
@@ -1197,7 +1183,7 @@ def _row_ids_of(
         name: row_ids.labels.take(check.invalid_rows) for name, check in checks.items()
     }
     shown = {
-        name: row_ids.at(check.invalid_rows[:ROW_IDS_KEPT])
+        name: row_ids.at(check.invalid_rows[:_ROW_IDS_KEPT])
         for name, check in checks.items()
     }
     if not masked:
@@ -1213,8 +1199,8 @@ def _row_ids_of(
             known[levels.label(position)] = masked_levels[id_column].label(position)
         start += len(levels.values)
     # One numbering, in result order: the shown IDs of every entry, then the rest.
-    firsts = [ids[:ROW_IDS_KEPT] for ids in listed.values()]
-    rests = [ids[ROW_IDS_KEPT:] for ids in listed.values()]
+    firsts = [ids[:_ROW_IDS_KEPT] for ids in listed.values()]
+    rests = [ids[_ROW_IDS_KEPT:] for ids in listed.values()]
     flat = [row_id for ids in (*firsts, *rests) for row_id in ids]
     placeholders = iter(mask_values(flat, first=start, known=list(known.items())))
     shown_ids: dict[str, list[object]] = {
@@ -1280,7 +1266,7 @@ def _checked_entry(
                 value_type=type_name(levels.label(position)),
                 count=int(levels.counts[position]),
             )
-            for position in ordered(levels, EXAMPLES_KEPT).tolist()
+            for position in ordered(levels, _EXAMPLES_KEPT).tolist()
         ],
         assessment=assessment,
     )

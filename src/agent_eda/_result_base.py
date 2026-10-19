@@ -268,18 +268,53 @@ class _Cap:
         self.whole = whole
         self.key = key
 
+    def derive(self, **changes: Any) -> "_Cap":
+        """A marker with this one's limit and the given options changed."""
+        options: dict[str, Any] = {
+            "each_list": self.each_list,
+            "total": self.total,
+            "whole": self.whole,
+            "key": self.key,
+        }
+        return _Cap(self.limit, **{**options, **changes})
+
 
 # The caps the spec sets for every list in the record that grows with the data.
+# These three markers hold the only copy of each number: the other markers are
+# derived from them, the analyses that cut their lists ask the result class
+# (ResultModel.limit_of), and the descriptions and docstrings get the numbers
+# from the markers (fill_caps).
 _ROW_IDS = _Cap(10)
 _EXAMPLE_VALUES = _Cap(5)
 _ENTRIES = _Cap(100)
-# The record keeps this many row IDs and example values per list; the analyses
-# that cut their lists read the number here.
-ROW_IDS_KEPT = _ROW_IDS.limit
-EXAMPLES_KEPT = _EXAMPLE_VALUES.limit
 # For parameters: list and mapping arguments, but not data's shape or the
 # project, which is recorded whole.
-_LISTS_INSIDE = _Cap(100, each_list=True, whole=("data", "project"))
+_LISTS_INSIDE = _ENTRIES.derive(each_list=True, whole=("data", "project"))
+
+# What a docstring or description writes for each cap, until fill_caps puts the
+# marker's number in: "{row_ids_kept}" for the row IDs of a list, and so on.
+_CAP_NUMBERS = {
+    "{row_ids_kept}": _ROW_IDS,
+    "{examples_kept}": _EXAMPLE_VALUES,
+    "{entries_kept}": _ENTRIES,
+}
+
+
+def fill_caps(text: str, *, field: str | None = None, cap: _Cap | None = None) -> str:
+    """The text with each cap placeholder replaced by its marker's number.
+
+    `{row_ids_kept}`, `{examples_kept}` and `{entries_kept}` become the three
+    caps of the record. For the description of a capped field, which passes its
+    own name and marker, `{limit}` becomes the marker's number and `{cap}` its
+    clause: "The record keeps the first 100 and adds columns_total".
+    """
+    for placeholder, marker in _CAP_NUMBERS.items():
+        text = text.replace(placeholder, str(marker.limit))
+    if field is not None and cap is not None:
+        clause = f"The record keeps the first {cap.limit} and adds {field}_total"
+        text = text.replace("{cap}", clause).replace("{limit}", str(cap.limit))
+    return text
+
 
 # Said in every field description whose record can hold such an integer.
 _BIG_INTEGERS = "The record writes an integer beyond ±2^53 as a string."
@@ -624,7 +659,7 @@ def _fields_doc(cls: Any) -> str:
 
 # Members for the authors of an analysis, not for the readers of its result, so
 # that dir() and help() of a result leave them out.
-_FOR_AUTHORS = frozenset({"for_call", "settings"})
+_FOR_AUTHORS = frozenset({"for_call", "limit_of", "settings"})
 
 
 class _ResultMeta(type(BaseModel)):
@@ -685,6 +720,43 @@ class ResultModel(BaseModel, metaclass=_ResultMeta):
     __help_note__: ClassVar[str] = ""
 
     model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        """Give each capped field's description its cap clause from its marker."""
+        super().__pydantic_init_subclass__(**kwargs)
+        changed = False
+        for name, field in cls.model_fields.items():
+            cap = next((m for m in field.metadata if isinstance(m, _Cap)), None)
+            if cap is None or not field.description:
+                continue
+            filled = fill_caps(field.description, field=name, cap=cap)
+            if filled != field.description:
+                field.description = filled
+                changed = True
+        if changed and cls.__pydantic_complete__:
+            # pydantic builds a field's JSON Schema from the description it had
+            # when the class was built.
+            cls.model_rebuild(force=True)
+
+    @classmethod
+    def limit_of(cls, field: str) -> int:
+        """The most entries the record keeps of a capped list or mapping field.
+
+        Raises ValueError for a field that isn't capped, naming the ones that are.
+        """
+        capped = {
+            name: marker
+            for name, info in cls.model_fields.items()
+            for marker in info.metadata
+            if isinstance(marker, _Cap)
+        }
+        if field not in capped:
+            raise ValueError(
+                f"{cls.__name__}.{field} is not a capped field. The capped fields "
+                f"are {list(capped)}."
+            )
+        return capped[field].limit
 
     @model_serializer(mode="wrap")
     def _cap_growing_fields(
@@ -1121,9 +1193,9 @@ class AnalysisResult(_PrintedRecord):
     parameters: Annotated[dict[str, JsonValue], _LISTS_INSIDE] = Field(
         description="The resolved arguments by name, defaults included. data "
         "appears only as its row_count and column_count, and project whole. In "
-        "the record, a list or mapping argument keeps its first 100 entries and "
+        "the record, a list or mapping argument keeps its first {limit} entries and "
         "gains <name>_total; a list inside a mapping argument keeps its first "
-        "100 entries too, and gains <key>_total beside it when it lost some. "
+        "{limit} entries too, and gains <key>_total beside it when it lost some. "
         + _BIG_INTEGERS
     )
     support: Support = Field(description="The counts behind the result.")
@@ -1304,8 +1376,8 @@ class AnalysisResult(_PrintedRecord):
     def to_dict(self) -> dict[str, Any]:
         """The result record as JSON-compatible Python objects.
 
-        Every list that grows with the data keeps its first entries (10 row
-        IDs, 5 example values, 100 entries of anything else, and top_n levels
+        Every list that grows with the data keeps its first entries ({row_ids_kept} row
+        IDs, {examples_kept} example values, {entries_kept} entries of anything else, and top_n levels
         per column in summarize_categorical) and gains a `<field>_total` key
         with the full count. A capped list of entries that findings or
         limitations point at keeps those too, so every field path in a finding
@@ -1399,6 +1471,10 @@ class AnalysisResult(_PrintedRecord):
                 target["properties"][f"{name}_total"] = total
                 target.setdefault("required", []).append(f"{name}_total")
         return schema
+
+
+# The docstring names the caps by placeholder, so the markers stay their only copy.
+AnalysisResult.to_dict.__doc__ = fill_caps(AnalysisResult.to_dict.__doc__ or "")
 
 
 class MaskableResult(AnalysisResult):
