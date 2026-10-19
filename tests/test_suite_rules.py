@@ -27,7 +27,7 @@ ALLOWED_PRIVATE = {
     "serving.py": {"_create_server", "_stand_ins"},
     # The renderer that words every mistake for both surfaces, and the two fixes
     # that other modules define, are tested as the private parts they are.
-    "test_wording.py": {"_wording", "_registry", "_sentinels"},
+    "test_wording.py": {"_wording", "_registry", "_declared_values"},
 }
 
 

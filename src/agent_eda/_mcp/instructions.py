@@ -12,7 +12,7 @@ share.
 
 import textwrap
 
-from agent_eda._data_files import CSV_RULES, PARQUET_RULES, supported_extensions
+from agent_eda._mcp.data_files import CSV_RULES, PARQUET_RULES, supported_extensions
 from agent_eda._version import __version__
 from agent_eda.discovery import overview, status_lines
 

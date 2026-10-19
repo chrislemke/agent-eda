@@ -19,12 +19,20 @@ from mcp.server.stdio import stdio_server
 
 import agent_eda
 from agent_eda._annotations import type_text
-from agent_eda._data_files import (
+from agent_eda._declared_values import read_iso
+from agent_eda._discovery_results import AnalysisListing, SearchListing
+from agent_eda._mcp.data_files import (
     DataReader,
 )
-from agent_eda._discovery_results import AnalysisListing, SearchListing
-from agent_eda._local_files import path_argument
-from agent_eda._mcp_instructions import GUARDRAIL, instructions
+from agent_eda._mcp.instructions import GUARDRAIL, instructions
+from agent_eda._mcp.local_files import path_argument
+from agent_eda._mcp.table_files import (
+    RECORD_KEY,
+    RECORD_SCHEMA,
+    TableFile,
+    WrittenTable,
+    table_file,
+)
 from agent_eda._registry import (
     AnalysisSpec,
     missing_message,
@@ -34,14 +42,6 @@ from agent_eda._registry import (
     validate_json,
 )
 from agent_eda._result_base import AnalysisResult
-from agent_eda._sentinels import read_iso
-from agent_eda._table_files import (
-    RECORD_KEY,
-    RECORD_SCHEMA,
-    TableFile,
-    WrittenTable,
-    table_file,
-)
 from agent_eda._text import closest_names, join_alternatives, join_items
 from agent_eda._version import __version__
 from agent_eda._wording import (

@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 from annotated_types import Ge
 
-from agent_eda._association import Codes, Measure, NumericMethod, measure_pairs
 from agent_eda._columns import (
     TO_LABELS,
     TO_NUMBERS,
@@ -42,6 +41,12 @@ from agent_eda._text import join_items, join_labels, plural
 from agent_eda._values import value_codes
 from agent_eda._wording import PythonOnly
 from agent_eda.errors import InvalidArgumentError
+from agent_eda.statistics._association import (
+    Codes,
+    Measure,
+    NumericMethod,
+    measure_pairs,
+)
 from agent_eda.statistics._association_results import (
     AssociationColumn,
     AssociationMethod,

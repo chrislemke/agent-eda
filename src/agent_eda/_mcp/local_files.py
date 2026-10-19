@@ -2,11 +2,10 @@
 
 A data path, a table path and a project path each name a local file, absolute
 or relative to the MCP server's working directory. One table of formats serves
-the reader (_data_files) and the writer (_table_files), and one check says what
+the reader (data_files) and the writer (table_files), and one check says what
 a path argument must be. Nothing here imports mcp.
 """
 
-import errno
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,38 +69,6 @@ def shown(path: str) -> str:
         return text
     half = (_SHOWN - len(ELLIPSIS)) // 2
     return f"{text[:half]}{ELLIPSIS}{text[-half:]}"
-
-
-def os_cause(error: BaseException) -> str:
-    """Why the operating system refused a path, in words that say what to
-    change: for an error in PATH_ERRORS."""
-    code = error.errno if isinstance(error, OSError) else None
-    if isinstance(error, ValueError):
-        return "it holds a NUL character, which no file name can"
-    if isinstance(error, RuntimeError):
-        if "home directory" in str(error):
-            return "its ~ can't be expanded because no home directory is known for it"
-        return "it leads through symbolic links that loop back on themselves"
-    if code == errno.ENAMETOOLONG:
-        return (
-            "a name in it is longer than 255 characters, or the whole path is "
-            "longer than the operating system allows"
-        )
-    if code == errno.ELOOP:
-        return "it leads through symbolic links that loop back on themselves"
-    if code in (errno.EACCES, errno.EPERM):
-        return (
-            "permission denied: the process that runs agent-eda may not search a "
-            "directory on the path or read the file"
-        )
-    if code == errno.EROFS:
-        return "the volume is read-only"
-    if code == errno.ENOSPC:
-        return "No space left on device"
-    if code == errno.ENOTDIR:
-        return "a part of the path that should be a directory is a file"
-    reason = getattr(error, "strerror", None) or str(error)
-    return reason.strip().rstrip(".") or type(error).__name__
 
 
 def extensions(formats: Sequence[FileFormat]) -> str:

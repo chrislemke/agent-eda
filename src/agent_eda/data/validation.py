@@ -22,7 +22,6 @@ from agent_eda._columns import (
     column_kind,
     select_columns,
 )
-from agent_eda._conversions import Check, check_column
 from agent_eda._declarations import Declaration
 from agent_eda._docstring import without_examples
 from agent_eda._levels import (
@@ -71,6 +70,7 @@ from agent_eda._text import (
 from agent_eda._values import is_constant, value_codes
 from agent_eda._wording import Pass, Words, mistake
 from agent_eda._written_form import row_id_list
+from agent_eda.data._conversions import Check, check_column
 from agent_eda.data._validation_results import (
     ColumnEvidence,
     InferColumnSemanticsColumn,

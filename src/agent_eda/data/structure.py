@@ -15,14 +15,6 @@ from agent_eda._columns import (
     first_positions,
     select_columns,
 )
-from agent_eda._keys import (
-    SUBSET_ROWS,
-    KeySearchTally,
-    Ranking,
-    Searcher,
-    SetCounts,
-    hashable,
-)
 from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._result_base import (
@@ -43,6 +35,14 @@ from agent_eda._run import (
 )
 from agent_eda._text import MAX_NAMED, join_labels, label_text, plural
 from agent_eda._values import is_constant, nan_as_missing, value_codes
+from agent_eda.data._keys import (
+    SUBSET_ROWS,
+    KeySearchTally,
+    Ranking,
+    Searcher,
+    SetCounts,
+    hashable,
+)
 from agent_eda.data._structure_results import (
     CandidateKey,
     DescribeDatasetColumn,

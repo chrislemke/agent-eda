@@ -19,6 +19,14 @@ from agent_eda._columns import (
     ColumnRule,
     select_columns,
 )
+from agent_eda._declared_values import (
+    Declared,
+    Family,
+    SentinelValue,
+    family,
+    holds,
+    likely_value,
+)
 from agent_eda._levels import (
     Levels,
     count_levels_by_row,
@@ -61,14 +69,6 @@ from agent_eda._result_base import (
 )
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, check_distinct, data_shape, execution
-from agent_eda._sentinels import (
-    Declared,
-    Family,
-    SentinelValue,
-    family,
-    holds,
-    likely_value,
-)
 from agent_eda._text import format_number, join_items, placeholder, plural
 from agent_eda._wording import Listed, Pass, PythonOnly, Say, Wording, Words, mistake
 from agent_eda._written_form import row_id_list

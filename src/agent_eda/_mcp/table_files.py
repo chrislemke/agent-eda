@@ -19,18 +19,18 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-from agent_eda._local_files import (
+from agent_eda._mcp.local_files import (
     PATH_ERRORS,
     WRITABLE,
     FileFormat,
     extension_text,
     extensions,
     format_of,
-    os_cause,
     path_argument,
     shown,
 )
 from agent_eda._text import MAX_WIDTH, plural
+from agent_eda._wording import os_cause
 from agent_eda._written_form import row_id_json
 from agent_eda.errors import InvalidArgumentError, TableFileExistsError
 

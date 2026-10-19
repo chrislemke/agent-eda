@@ -25,19 +25,19 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from agent_eda._local_files import (
+from agent_eda._mcp.local_files import (
     PATH_ERRORS,
     READABLE,
     FileFormat,
     extension_text,
     extensions,
     format_of,
-    os_cause,
     resolve,
     shown,
 )
 from agent_eda._parse import read_texts
 from agent_eda._text import closest_names, join_alternatives
+from agent_eda._wording import os_cause
 from agent_eda.errors import (
     DataFileError,
     DataFileNotFoundError,

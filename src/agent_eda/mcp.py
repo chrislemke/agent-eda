@@ -40,7 +40,7 @@ from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 
-from agent_eda._mcp_instructions import GUARDRAIL, PRECEDENCE
+from agent_eda._mcp.instructions import GUARDRAIL, PRECEDENCE
 from agent_eda.errors import AgentEDAError, MissingDependencyError
 from agent_eda.project import Project
 
@@ -114,7 +114,7 @@ def _create_server(
     analysis. Only tests use it.
     """
     _require_extra()
-    from agent_eda._mcp_server import create_server as create
+    from agent_eda._mcp.server import create_server as create
 
     return create(analyses, project)
 
@@ -153,7 +153,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     except AgentEDAError as error:
         print(error, file=sys.stderr)
         raise SystemExit(1) from None
-    from agent_eda._mcp_server import run_stdio
+    from agent_eda._mcp.server import run_stdio
 
     run_stdio(server)
 
@@ -180,7 +180,7 @@ def _parser() -> argparse.ArgumentParser:
 def _require_extra() -> None:
     """Import the MCP server's implementation, which needs the mcp extra."""
     try:
-        import agent_eda._mcp_server  # noqa: F401  # imported for the check
+        import agent_eda._mcp.server  # noqa: F401  # imported for the check
     except ImportError as error:
         if (error.name or "").split(".")[0] not in _EXTRA_MODULES:
             raise

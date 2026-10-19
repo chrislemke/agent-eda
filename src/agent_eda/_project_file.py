@@ -40,10 +40,9 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from agent_eda._local_files import os_cause
 from agent_eda._registry import _value_text, python_scalar
 from agent_eda._text import a_or_an, closest_names, join_items
-from agent_eda._wording import Of, Wording, Words, mistake
+from agent_eda._wording import Of, Wording, Words, mistake, os_cause
 from agent_eda.errors import (
     AgentEDAError,
     InvalidArgumentError,
