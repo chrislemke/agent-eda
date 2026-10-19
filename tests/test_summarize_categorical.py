@@ -244,7 +244,7 @@ def test_orders_labels_of_mixed_types_numbers_first_then_text_then_the_rest():
     # other types by type name and string form. NaN in an object column is
     # missing, so it is no level.
     assert [(level.label, level.label_type) for level in entry.levels] == [
-        ("0.5", "Decimal"),
+        (0.5, "Decimal"),
         (True, "bool"),
         (1.5, "float"),
         (2, "int"),
