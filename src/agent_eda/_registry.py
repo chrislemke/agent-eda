@@ -13,7 +13,6 @@ import importlib
 import inspect
 import json
 import re
-import reprlib
 import types
 import typing
 import warnings
@@ -38,7 +37,14 @@ from agent_eda._columns import check_column_labels, closest_names
 from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
 from agent_eda._run import capture_warnings, watch_all_warnings
-from agent_eda._text import Surface, join_alternatives, join_items, plural
+from agent_eda._text import (
+    MAX_NAME_LENGTH,
+    Surface,
+    join_alternatives,
+    join_items,
+    plural,
+    short_repr,
+)
 from agent_eda._wording import message, see_every, worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.results import AnalysisResult, Limitation, Status
@@ -143,7 +149,7 @@ def analysis[F: FunctionType](
             _check_data(spec.name, data)
             if not spec.any_column_labels:
                 check_column_labels(spec.name, data.columns)
-            validated = _validate(spec, options)
+            validated = _validate(spec, data, options)
             with watch_all_warnings() as caught:
                 result = func(data, **validated)
             result = _absorb_warnings(result, caught)
@@ -389,7 +395,9 @@ def _conversion(data: object) -> tuple[str, str]:
     return f"a {kind.__name__}", "pd.DataFrame(data)"
 
 
-def validate_json(spec: AnalysisSpec, options: dict[str, Any]) -> dict[str, Any]:
+def validate_json(
+    spec: AnalysisSpec, data: pd.DataFrame, options: dict[str, Any]
+) -> dict[str, Any]:
     """Check the arguments of an MCP call the way their input schema reads them.
 
     The options are JSON values, so they are validated in pydantic's JSON mode:
@@ -398,15 +406,21 @@ def validate_json(spec: AnalysisSpec, options: dict[str, Any]) -> dict[str, Any]
     the same InvalidArgumentError a Python call with a bad option does. Returns
     the validated value of each option passed, not the defaults of the others.
     """
-    validated = _validate(spec, options, json_mode=True)
+    validated = _validate(spec, data, options, json_mode=True)
     return {name: validated[name] for name in options}
 
 
 def _validate(
-    spec: AnalysisSpec, options: dict[str, Any], *, json_mode: bool = False
+    spec: AnalysisSpec,
+    data: pd.DataFrame,
+    options: dict[str, Any],
+    *,
+    json_mode: bool = False,
 ) -> dict[str, Any]:
     """Check the keyword options against their annotations, defaults included."""
-    options = {name: _normalize(spec, name, value) for name, value in options.items()}
+    options = {
+        name: _normalize(spec, data, name, value) for name, value in options.items()
+    }
     try:
         if json_mode:
             validated = spec.arguments.model_validate_json(json.dumps(options))
@@ -582,7 +596,9 @@ def _plain(annotation: object) -> str:
     return getattr(annotation, "__name__", str(annotation))
 
 
-def _normalize(spec: AnalysisSpec, name: str, value: object) -> object:
+def _normalize(
+    spec: AnalysisSpec, data: pd.DataFrame, name: str, value: object
+) -> object:
     """Turn what agents commonly pass into the plain Python an option declares.
 
     A list option takes any ordered list-like, such as a tuple, a pandas Index
@@ -592,7 +608,9 @@ def _normalize(spec: AnalysisSpec, name: str, value: object) -> object:
     takes labels that aren't strings and names them by their string form, the
     way results show them. A mapping option is keyed by column names, which
     follow the same rule, and each of its values is read like an option of the
-    value's type. Validation then stays strict about everything else.
+    value's type. A column option refuses a Series, an Index or an array that
+    holds a column's values in place of names. Validation then stays strict
+    about everything else.
     """
     annotation = spec.annotations[name]
     values = _mapping_values(annotation)
@@ -601,12 +619,55 @@ def _normalize(spec: AnalysisSpec, name: str, value: object) -> object:
     if not _takes_list(annotation):
         value = python_scalar(value)
         if name.endswith("column") and value is not None:
+            if isinstance(value, pd.Series | pd.Index | np.ndarray):
+                raise _values_as_names(spec, data, name, value)
             return _column_name(value)
         return value
     items = _as_list(spec, name, value)
+    if (
+        isinstance(value, pd.Series | pd.Index | np.ndarray)
+        and isinstance(items, list)
+        and name.endswith("columns")
+        and not _are_labels(data, items)
+    ):
+        raise _values_as_names(spec, data, name, value)
     if isinstance(items, list) and name.endswith("columns"):
         return [_column_name(item) for item in items]
     return items
+
+
+def _are_labels(data: pd.DataFrame, items: list[object]) -> bool:
+    """Whether every item names a column of the data, by label or string form."""
+    labels = {str(label) for label in data.columns}
+    for item in items:
+        try:
+            if str(_column_name(item)) not in labels:
+                return False
+        except TypeError:  # an unhashable item, such as a list
+            return False
+    return True
+
+
+def _values_as_names(
+    spec: AnalysisSpec, data: pd.DataFrame, name: str, value: object
+) -> InvalidArgumentError:
+    """The error for a column's values passed where its name or names belong.
+
+    It describes the value by its type and size, never by its items: they may
+    be values of a sensitive column.
+    """
+    # The fix shows a real column name: the first one that is short enough.
+    example = next(
+        (c for c in map(str, data.columns) if len(c) <= MAX_NAME_LENGTH), "email"
+    )
+    if name.endswith("columns"):
+        fix = f"Pass the names of columns, such as {name}=[{example!r}]."
+    else:
+        fix = f"Pass the name of a column, such as {name}={example!r}."
+    return InvalidArgumentError(
+        f"{spec.name} got {_value_text(value)} for {name}, which looks like a "
+        f"column's values, not column names. {fix}"
+    )
 
 
 def _takes_list(annotation: object) -> bool:
@@ -686,9 +747,6 @@ def _column_name(item: object) -> object:
     return str(item)
 
 
-_SCALAR_REPR = reprlib.Repr(maxstring=40, maxother=40)
-
-
 def _value_text(value: object) -> str:
     """Show a scalar argument; describe anything larger by its type and size.
 
@@ -696,7 +754,7 @@ def _value_text(value: object) -> str:
     otherwise put raw data values into the message.
     """
     if value is None or isinstance(value, bool | int | float | str | np.generic):
-        return _SCALAR_REPR.repr(value)
+        return short_repr(value)
     if isinstance(value, pd.DataFrame):
         rows = plural(value.shape[0], "row", "rows")
         return f"a pandas DataFrame with {rows} and {plural(value.shape[1], 'column', 'columns')}"

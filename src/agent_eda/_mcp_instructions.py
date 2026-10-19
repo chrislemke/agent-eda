@@ -61,8 +61,9 @@ _MASKING = (
     "Masking: MCP tools marked [supports masking] can show raw values, such as "
     "labels or row IDs. Their project_path takes a project TOML file whose "
     '[data_policy] table has sensitive_columns = ["email"] and mask_sensitive = '
-    "true, and the values show as <masked 1> and so on. agent-eda-mcp --project "
-    f"PATH sets the project for every call. {PRECEDENCE} {GUARDRAIL}"
+    f"true, and the values show as <masked 1> and so on. {PRECEDENCE} Numeric "
+    "statistics and index labels are never masked; other tools ignore the "
+    f"project. {GUARDRAIL}"
 )
 
 _MORE = """\

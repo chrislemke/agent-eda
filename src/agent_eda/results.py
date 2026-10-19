@@ -452,6 +452,14 @@ class Masking(ResultModel):
         "column names exactly, so check them for typos; a project spanning "
         "several datasets has some anyway."
     )
+    near_miss_columns: Annotated[dict[str, str], _ENTRIES] = Field(
+        description="The absent sensitive columns whose names match a column or "
+        "index level of the data once case and Unicode form are ignored (casefold "
+        "and NFC), each with that name as the data spells it, such as "
+        "'Email' for the declared 'email'. Masking matches names exactly, so the "
+        "values of such a column are not masked: declare it by the name the data "
+        "spells."
+    )
 
 
 def _masking_text(
@@ -498,7 +506,7 @@ def _masking_text(
                 f"as {'its' if one else 'their'} minimum and maximum, show as "
                 "computed."
             )
-        elif not masking.index_columns:
+        elif not masking.index_columns and not masking.near_miss_columns:
             text = (
                 f"Masking on ({setting}), but the result shows no value of a "
                 "sensitive column."
@@ -514,9 +522,23 @@ def _masking_text(
                 "values show as row IDs. Pass a non-sensitive id_column"
                 f"{', such as after df.reset_index()' if python else ''}."
             )
-        if masking.absent_columns:
-            absent = _text.join_labels(masking.absent_columns)
-            text += f" Sensitive columns the data lacks: {absent}."
+        for declared, spelled in masking.near_miss_columns.items():
+            sentence = (
+                f"sensitive column {declared!r} isn't a column of the data, and "
+                f"masking matches names exactly: did you mean {spelled!r}? The "
+                f"values of {spelled!r} are not masked."
+            )
+            # After "but" the sentence continues; otherwise it starts a new one.
+            if not text.endswith("but"):
+                sentence = f"{sentence[0].upper()}{sentence[1:]}"
+            text += f" {sentence}"
+        lacking = [
+            name
+            for name in masking.absent_columns
+            if name not in masking.near_miss_columns
+        ]
+        if lacking:
+            text += f" Sensitive columns the data lacks: {_text.join_labels(lacking)}."
     return _text.wrap(text, first="", indent="    ")
 
 
@@ -2109,7 +2131,8 @@ class DeclaredSentinelValue(ResultModel):
 
     value: bool | int | float | str = Field(
         description="The value as declared; dates, datetimes and timedeltas as ISO "
-        "8601 text."
+        "8601 text. With masking on, a sensitive column's values are numbered "
+        "placeholders, '<masked 1>', '<masked 2>' and so on, in the order declared."
     )
     count: int = Field(
         description="Values in the column equal to it, among those pandas doesn't "
@@ -2157,7 +2180,7 @@ def _percent(share: float | None) -> str:
     return "" if share is None else f" ({_text.format_number(share * 100)}%)"
 
 
-class ProfileMissingValuesResult(AnalysisResult):
+class ProfileMissingValuesResult(MaskableResult):
     """The result of profile_missing_values."""
 
     columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES] = Field(
