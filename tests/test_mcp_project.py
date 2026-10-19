@@ -24,10 +24,12 @@ import subprocess
 import sys
 import warnings
 from pathlib import Path
+from typing import Any
 
 import anyio
 import pandas as pd
-from mcp import Client, StdioServerParameters
+from mcp import Client, MCPError, StdioServerParameters
+from mcp.types import INTERNAL_ERROR
 from stdio import stdio_environment
 
 import agent_eda as ae
@@ -343,6 +345,9 @@ MASKING_CALLS = {
         "task": "multiclass_classification",
         "id_column": "email",
     },
+    "profile_missing_values": {
+        "sentinel_values": {"segment": ["no-tier"], "email": ["cy@example.org"]}
+    },
     "summarize_categorical": {},
     "validate_column_types": {
         "schema": {"email": "integer", "segment": "integer"},
@@ -559,3 +564,122 @@ def shown(response):
     text = " ".join(block.text for block in response.content)
     record = json.dumps(response.structured_content, ensure_ascii=False)
     return [value for value in SENSITIVE if value in text or value in record]
+
+
+def failing_summarize_categorical():
+    """summarize_categorical as the server serves it, with a bug whose message
+    holds a value of the data."""
+
+    def failing(data, **options):
+        raise ZeroDivisionError(f"bug at {data['customer'].iloc[0]}")
+
+    # The registry knows it by its name and module, so it keeps its parameters
+    # and its masking.
+    failing.__name__ = "summarize_categorical"
+    failing.__module__ = ae.summarize_categorical.__module__
+    return failing
+
+
+async def call_failing(arguments, project=None):
+    served = create_server(analyses=[failing_summarize_categorical()], project=project)
+    async with Client(served, mode="legacy") as client:
+        with pytest.raises(MCPError) as raised:
+            await client.call_tool("summarize_categorical", arguments)
+        return raised.value
+
+
+@pytest.mark.parametrize(
+    ("how", "masks"),
+    [
+        ("project_path", True),
+        ("mask_sensitive", True),
+        ("server_project", True),
+        ("project_path_masking_off", False),
+        ("call_off", False),
+        ("no_project", False),
+    ],
+)
+def test_an_internal_error_with_masking_on_names_only_the_exception_type(
+    tmp_path, how, masks
+):
+    data_path = write(tmp_path / "data.csv", CSV)
+    on = write(tmp_path / "on.toml", MASKED)
+    off = write(tmp_path / "off.toml", UNMASKED)
+    arguments: dict[str, Any] = {"data_path": str(data_path)}
+    project = None
+    if how == "project_path":
+        arguments["project_path"] = str(on)
+    elif how == "mask_sensitive":
+        arguments |= {"project_path": str(off), "mask_sensitive": True}
+    elif how == "server_project":
+        project = ae.Project.load(on)
+    elif how == "project_path_masking_off":
+        arguments["project_path"] = str(off)
+    elif how == "call_off":
+        arguments |= {"project_path": str(on), "mask_sensitive": False}
+
+    error = anyio.run(call_failing, arguments, project)
+
+    assert error.code == INTERNAL_ERROR
+    assert "ZeroDivisionError" in error.message
+    assert ("ann@example.org" not in error.message) is masks
+    if masks:
+        assert error.message == (
+            "summarize_categorical failed with an unexpected error, which is a bug "
+            "in agent-eda, not in the call: ZeroDivisionError. The MCP server's log "
+            "on stderr has the traceback."
+        )
+
+
+def test_an_internal_error_of_an_analysis_without_masking_keeps_its_message(tmp_path):
+    def failing(data, **options):
+        raise ZeroDivisionError("bug at row 3")
+
+    failing.__name__ = "summarize_numeric"
+    failing.__module__ = ae.summarize_numeric.__module__
+    data_path = write(tmp_path / "data.csv", CSV)
+
+    async def scenario():
+        served = create_server(analyses=[failing])
+        async with Client(served, mode="legacy") as client:
+            with pytest.raises(MCPError) as raised:
+                await client.call_tool(
+                    "summarize_numeric", {"data_path": str(data_path)}
+                )
+            return raised.value
+
+    error = anyio.run(scenario)
+
+    assert "ZeroDivisionError: bug at row 3" in error.message
+
+
+def test_the_instructions_and_the_readme_say_what_masking_never_covers():
+    async def scenario():
+        async with Client(create_server(), mode="legacy") as client:
+            return client.instructions
+
+    instructions = " ".join(anyio.run(scenario).split())
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        encoding="utf-8"
+    )
+    section = readme.split("### Masking over MCP")[1].split("\n## ")[0]
+    masking = " ".join(section.split())
+
+    assert "Numeric statistics and index labels are never masked;" in instructions
+    assert "other tools ignore the project." in instructions
+    assert "never touches numeric statistics" in masking
+    assert "or index labels" in masking
+    assert "the MCP tools without masking don't read the project" in masking
+    assert "six MCP tools that support masking" in masking
+    assert len(MASKING) == 6
+
+
+def test_the_readme_counts_the_analyses_that_can_show_raw_values():
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        encoding="utf-8"
+    )
+    section = readme.split("## Projects and masking")[1].split("\n## ")[0]
+
+    [paragraph] = [p for p in section.split("\n\n") if p.startswith("Six analyses")]
+    for name in MASKING:
+        assert f"`{name}`" in paragraph

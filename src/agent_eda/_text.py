@@ -12,6 +12,7 @@ writes and the structured content. Only those phrases differ; the rest of the
 text is the same on both surfaces.
 """
 
+import reprlib
 import textwrap
 import unicodedata
 from collections.abc import Sequence
@@ -25,6 +26,12 @@ MAX_FINDINGS = 5
 MAX_LIMITATIONS = 5
 # Claims name at most this many columns or labels and count the rest.
 MAX_NAMED = 5
+
+# A message names at most this many names it didn't find, each cut to
+# MAX_NAME_LENGTH characters, so that a column's values passed for names can't
+# put more than a glimpse of the data into it.
+MAX_UNKNOWN_NAMED = 3
+MAX_NAME_LENGTH = 40
 
 ELLIPSIS = "..."
 COLUMN_GAP = "  "
@@ -150,11 +157,17 @@ def format_bytes(count: int) -> str:
     return f"{format_number(size)} {unit} ({count:,} bytes)"
 
 
-def join_items(items: Sequence[str], *, limit: int = MAX_NAMED) -> str:
-    """Join items as "a, b and c", naming at most `limit` and counting the rest."""
-    if len(items) > limit:
+def join_items(
+    items: Sequence[str], *, limit: int = MAX_NAMED, total: int | None = None
+) -> str:
+    """Join items as "a, b and c", naming at most `limit` and counting the rest.
+
+    `total` is how many items there are when `items` holds only the first ones.
+    """
+    count = len(items) if total is None else total
+    if count > limit:
         shown = list(items[:limit])
-        return ", ".join(shown) + f" and {len(items) - limit:,} more"
+        return ", ".join(shown) + f" and {count - limit:,} more"
     if len(items) <= 1:
         return "".join(items)
     return ", ".join(items[:-1]) + " and " + items[-1]
@@ -196,6 +209,17 @@ def placeholder(number: int) -> str:
     Such as '<masked 1>': it reveals neither the value's content nor its length.
     """
     return f"<masked {number}>"
+
+
+_SHORT = reprlib.Repr(maxstring=MAX_NAME_LENGTH, maxother=MAX_NAME_LENGTH)
+
+
+def short_repr(value: object) -> str:
+    """A scalar as repr() shows it, cut to MAX_NAME_LENGTH characters.
+
+    A long string keeps its start and end around '...'.
+    """
+    return _SHORT.repr(value)
 
 
 def label_text(label: object) -> str:

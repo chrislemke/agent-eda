@@ -156,20 +156,30 @@ def check_distinct(
     noun: str,
     *,
     key: Callable[[Any], Hashable] | None = None,
+    hide: bool = False,
 ) -> None:
     """Raise when a list argument holds the same value more than once.
 
-    Values are the same when Python's == says so, or when their `key` is.
+    Values are the same when Python's == says so, or when their `key` is. With
+    `hide`, the message counts the repeated values and doesn't quote them: they
+    are values of a sensitive column.
     """
     keyed = values if key is None else [key(value) for value in values]
     repeated = [
         values[keyed.index(item)] for item, count in Counter(keyed).items() if count > 1
     ]
-    if repeated:
-        raise InvalidArgumentError(
-            f"{analysis} got {join_items([repr(value) for value in repeated])} more "
-            f"than once in {parameter}. List each {noun} once."
+    if not repeated:
+        return
+    if hide:
+        named = (
+            f"{plural(len(repeated), noun, noun + 's')} (not shown: masking hides "
+            "the values of a sensitive column)"
         )
+    else:
+        named = join_items([repr(value) for value in repeated])
+    raise InvalidArgumentError(
+        f"{analysis} got {named} more than once in {parameter}. List each {noun} once."
+    )
 
 
 def data_shape(data: pd.DataFrame) -> dict[str, JsonValue]:
