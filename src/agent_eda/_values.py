@@ -14,7 +14,7 @@ reported as unsupported.
 
 from collections.abc import Hashable
 from dataclasses import dataclass
-from typing import Literal, overload
+from typing import Literal, cast, overload
 
 import numpy as np
 import pandas as pd
@@ -32,6 +32,40 @@ def column_values(values: pd.Series | pd.Index) -> np.ndarray | ExtensionArray:
     if isinstance(values.dtype, np.dtype):
         return values.to_numpy()
     return values.array
+
+
+def is_arrow_dictionary(dtype: object) -> bool:
+    """Whether the dtype is pyarrow's dictionary type, Arrow's form of a categorical.
+
+    Parquet read with dtype_backend="pyarrow" gives such columns for the
+    categoricals that pandas wrote.
+    """
+    return isinstance(dtype, pd.ArrowDtype) and hasattr(
+        dtype.pyarrow_dtype, "index_type"
+    )
+
+
+def categorical_array(series: pd.Series) -> pd.Categorical:
+    """The column's values as a pandas Categorical, for a categorical column.
+
+    A pandas categorical is returned as it is. An Arrow dictionary column gets
+    the dictionary's entries as its categories, unused ones included, and the
+    positions in the dictionary as its codes, so both forms read the same.
+    """
+    if isinstance(series.array, pd.Categorical):
+        return series.array
+    array = cast("pd.arrays.ArrowExtensionArray", series.array)
+    # pyarrow is installed wherever a column has an Arrow dtype.
+    arrow = array.__arrow_array__()
+    if hasattr(arrow, "chunks"):  # a ChunkedArray
+        arrow = arrow.unify_dictionaries().combine_chunks()
+    entries = pd.Index(pd.arrays.ArrowExtensionArray(arrow.dictionary))
+    if entries.hasnans or not entries.is_unique:
+        # Entries that can't be categories: read the values themselves.
+        decoded = pd.arrays.ArrowExtensionArray(arrow.dictionary_decode())
+        return pd.Categorical(decoded)
+    codes = arrow.indices.cast("int64").fill_null(-1).to_numpy()
+    return pd.Categorical.from_codes(codes, categories=entries, ordered=False)
 
 
 @dataclass(frozen=True)

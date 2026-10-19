@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._text import placeholder
-from agent_eda._values import value_codes
+from agent_eda._values import categorical_array, value_codes
 
 if TYPE_CHECKING:
     # Result classes build their tables here, so this module imports nothing
@@ -120,6 +120,8 @@ def count_levels_by_row(
         return levels, codes
     # A category code becomes the category's position among the used ones.
     positions = np.cumsum(used) - 1
+    if not positions.size:  # no categories, so every value is missing
+        return levels, np.full(len(codes), -1, dtype=np.intp)
     return levels, np.where(codes >= 0, positions[codes], -1)
 
 
@@ -172,7 +174,7 @@ def levels_of(values: pd.Index, counts: np.ndarray) -> Levels:
 
 
 def _count_categories(series: pd.Series) -> tuple[Levels, np.ndarray, np.ndarray]:
-    categorical = cast("pd.Categorical", series.array)
+    categorical = categorical_array(series)
     categories = categorical.categories
     codes = np.asarray(categorical.codes, dtype=np.intp)
     counts = np.bincount(codes + 1, minlength=len(categories) + 1)

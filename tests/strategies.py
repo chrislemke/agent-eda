@@ -96,6 +96,23 @@ def _sparse(values: list) -> pd.Series:
     return pd.Series(pd.arrays.SparseArray(floats))
 
 
+def _sparse_objects(values: list) -> pd.Series:
+    return pd.Series(pd.arrays.SparseArray(np.array(values, dtype=object)))
+
+
+def _dictionary(
+    value_type: pa.DataType, indices: pa.DataType | None = None
+) -> Callable[[list], pd.Series]:
+    """An Arrow dictionary column, as Parquet read with dtype_backend="pyarrow"."""
+    dtype = pa.dictionary(indices or pa.int8(), value_type)
+
+    def build(values: list) -> pd.Series:
+        encoded = pa.array(values, type=value_type).dictionary_encode()
+        return pd.Series(pd.arrays.ArrowExtensionArray(encoded.cast(dtype)))
+
+    return build
+
+
 def _datetimes(values: list) -> pd.Series:
     return pd.Series(values, dtype="datetime64[ns]")
 
@@ -124,6 +141,7 @@ class Kind:
 
 _DAY = dt.datetime(2020, 1, 1)
 _OLD = dt.datetime(1900, 1, 1)
+_LATER = dt.datetime(2030, 6, 1)
 _TEXTS = ["a", None, "", "  "]
 _TIMES = [_DAY, None, _OLD, _DAY]
 
@@ -136,6 +154,9 @@ KINDS: dict[str, Kind] = {
     "Float64 with NaN as a value": Kind(FLOATS, _nan_as_value, [1.5, NAN, None, 1.5]),
     "double[pyarrow]": Kind(FLOATS, _arrow_floats, [1.5, NAN, None, INF]),
     "Sparse[float64]": Kind(FLOATS, _sparse, [0.0, None, 1.5, 0.0]),
+    "Sparse[object]": Kind(
+        TEXT | st.just(None), _sparse_objects, ["a", None, "a", "b"]
+    ),
     "int64": Kind(INTS, _series("int64"), [1, 3, -(2**63), 2**63 - 1], missing=False),
     "uint64": Kind(
         st.integers(0, 2**64 - 1),
@@ -212,6 +233,32 @@ KINDS: dict[str, Kind] = {
         _categorical([1, 2, 3, 4], ordered=True),
         [3, None, 1, 3],
     ),
+    "category of booleans": Kind(
+        st.booleans(),
+        _categorical([False, True]),
+        [True, None, False, True],
+    ),
+    "category of datetimes": Kind(
+        st.sampled_from([_DAY, _OLD, _LATER]),
+        _categorical([_DAY, _OLD, _LATER, dt.datetime(2100, 1, 1)]),
+        _TIMES,
+    ),
+    # Text, integers, a float and a date in one set of categories.
+    "category of mixed values": Kind(
+        st.sampled_from(["a", 1, 2.5, dt.date(2020, 1, 1)]),
+        _categorical(["a", 1, 2.5, dt.date(2020, 1, 1), "unused"]),
+        ["a", None, 1, dt.date(2020, 1, 1)],
+    ),
+    "dictionary<string>[pyarrow]": Kind(
+        st.sampled_from(["a", "b", "N/A", " ", ""]),
+        _dictionary(pa.string()),
+        ["a", None, "N/A", "a"],
+    ),
+    "dictionary<int64>[pyarrow]": Kind(
+        st.sampled_from([1, 2, -999]),
+        _dictionary(pa.int64(), pa.int32()),
+        [1, None, -999, 1],
+    ),
     "datetime64[ns]": Kind(DATETIMES, _datetimes, _TIMES),
     # The unit pandas picks: ns on pandas 2, us on pandas 3, s when all missing.
     "inferred datetime": Kind(
@@ -240,6 +287,16 @@ KINDS: dict[str, Kind] = {
         TIMEDELTAS,
         _arrow(pa.duration("us")),
         [dt.timedelta(days=1), None, dt.timedelta(0), dt.timedelta(days=1)],
+    ),
+    "time64[us][pyarrow]": Kind(
+        st.times(),
+        _arrow(pa.time64("us")),
+        [dt.time(12), None, dt.time(0), dt.time(12)],
+    ),
+    "binary[pyarrow]": Kind(
+        st.binary(max_size=3),
+        _arrow(pa.binary()),
+        [b"a", None, b"", b"a"],
     ),
     "decimal128[pyarrow]": Kind(
         DECIMALS,
@@ -491,6 +548,10 @@ SECRETS: dict[str, Secret] = {
     # could for a numeric dtype, whose statistics are never masked.
     "object of numbers": Secret(
         "918273645", Kind(_SECRET_NUMBERS, _series(object), [])
+    ),
+    "dictionary<string>[pyarrow]": Secret(
+        "secret",
+        Kind(st.sampled_from(SECRET_LABELS), _dictionary(pa.string()), []),
     ),
     "datetime64[ns]": Secret("2233-", Kind(_SECRET_DATES, _datetimes, [])),
 }

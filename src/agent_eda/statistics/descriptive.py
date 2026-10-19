@@ -58,7 +58,8 @@ _NUMERIC = ColumnRule(
     default_text="every numeric column except booleans",
     accepted=frozenset({"numeric", "boolean"}),
     accepted_text=(
-        "integer, float and boolean columns, nullable and pyarrow-backed ones included"
+        "integer, float and boolean columns, nullable and pyarrow-backed ones of "
+        "those kinds included"
     ),
     fixes={
         "text": _TEXT_FIX,
@@ -359,7 +360,7 @@ _CATEGORICAL = ColumnRule(
     accepted=frozenset({"text", "object", "categorical", "boolean", "numeric"}),
     accepted_text=(
         "text, object, categorical, boolean and numeric columns, nullable and "
-        "pyarrow-backed ones included"
+        "pyarrow-backed ones of those kinds included"
     ),
     fixes=dict.fromkeys(("datetime", "timedelta", "other"), _AS_TEXT_FIX),
 )

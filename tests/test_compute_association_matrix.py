@@ -820,7 +820,8 @@ def test_a_datetime_named_in_columns_raises_with_conversions():
     assert str(caught.value) == (
         "compute_association_matrix can't use column 'when' with dtype "
         f"{df['when'].dtype}. It accepts numeric, boolean, text, object and "
-        "categorical columns, nullable and pyarrow-backed ones included. Convert "
+        "categorical columns, nullable and pyarrow-backed ones of those kinds "
+        "included. Convert "
         "datetimes to numbers with (df['when'] - df['when'].min())"
         ".dt.total_seconds() or to labels with df['when'].dt.strftime('%Y-%m'), "
         "or leave 'when' out of columns."

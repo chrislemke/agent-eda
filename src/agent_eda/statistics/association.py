@@ -59,7 +59,7 @@ _ASSOCIATION = ColumnRule(
     accepted=_PAIRED_KINDS,
     accepted_text=(
         "numeric, boolean, text, object and categorical columns, nullable and "
-        "pyarrow-backed ones included"
+        "pyarrow-backed ones of those kinds included"
     ),
     fixes={
         "datetime": (
@@ -96,7 +96,11 @@ _SKIP_MESSAGES: dict[SkipReason, str] = {
     "timedelta": (
         "Durations have no measure here; convert them with .dt.total_seconds() first."
     ),
-    "unsupported_dtype": "Its dtype holds neither numbers nor categories.",
+    "unsupported_dtype": (
+        "Its dtype holds neither numbers nor categories: Arrow times of day, "
+        "binary and nested types and sparse arrays of text or objects are none "
+        "of them."
+    ),
     "all_missing": "Every value is missing.",
     "no_finite_values": "Every value is missing, inf or -inf.",
     "unhashable_values": (

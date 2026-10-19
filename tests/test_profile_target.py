@@ -504,7 +504,7 @@ def test_a_regression_task_on_a_column_that_isnt_numeric_raises_with_the_fix(
     assert str(caught.value) == (
         f"profile_target can't use column {column!r} with dtype {df[column].dtype} "
         "as a regression target, which must hold numbers: integer or float "
-        "columns, nullable and pyarrow-backed ones included. " + fix
+        "columns, nullable and pyarrow-backed ones of those kinds included. " + fix
     )
 
 
@@ -519,7 +519,8 @@ def test_a_classification_task_on_times_raises_with_the_fix(column):
     assert str(caught.value) == (
         f"profile_target can't use column {column!r} with dtype {df[column].dtype} "
         "as a classification target, whose labels must be text, numbers, booleans "
-        "or categories, nullable and pyarrow-backed ones included. Convert its "
+        "or categories, nullable and pyarrow-backed ones of those kinds included. "
+        "Convert its "
         f"values to labels first, such as df[{column!r}].astype(str)."
     )
 

@@ -22,7 +22,7 @@ from agent_eda._text import (
     join_labels,
     plural,
 )
-from agent_eda._values import value_codes
+from agent_eda._values import is_arrow_dictionary, value_codes
 from agent_eda._wording import left_out, worded
 from agent_eda.errors import ColumnNotFoundError, ColumnTypeError, InvalidArgumentError
 
@@ -170,11 +170,17 @@ def column_kind(dtype: object) -> ColumnKind:
 
     The dtype's kind code is uniform across NumPy, pandas' nullable and
     pyarrow-backed dtypes; categoricals, text and Arrow decimals need checks of
-    their own.
+    their own. An Arrow dictionary is a categorical, as the form Parquet gives
+    pandas' categoricals. A sparse dtype is read by the values it stores, but
+    only numbers and booleans are: sparse text, objects, datetimes and durations
+    are "other", as are Arrow times of day, binary and nested types, which no
+    analysis reads.
     """
-    if isinstance(dtype, pd.CategoricalDtype):
+    if isinstance(dtype, pd.CategoricalDtype) or is_arrow_dictionary(dtype):
         return "categorical"
     kind = getattr(dtype, "kind", "O")
+    if isinstance(dtype, pd.SparseDtype) and kind not in "biuf":
+        return "other"
     if kind == "b":
         return "boolean"
     if kind in "iuf":
