@@ -664,9 +664,9 @@ def describe_dataset(
         Provenance: source 'survey.csv'; source_version not supplied.
         Columns (3 of 3 shown):
         column  dtype    non_missing_count  missing_count  distinct_count  memory_bytes
+        plan    int64                    4              0               1            32
         age     int64                    4              0               3            32
         score   float64                  3              1               2            32
-        plan    int64                    4              0               1            32
         Findings (1 of 1 shown):
         - suspected constant_columns: 1 column holds a single distinct non-missing value: 'plan'.
         Limitations: none

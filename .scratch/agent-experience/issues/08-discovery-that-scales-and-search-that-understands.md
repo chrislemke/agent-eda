@@ -42,4 +42,4 @@ Discovery decisions of the earlier specs that this changes:
 
 Not done: STD-34's second half (a `project=` string should suggest `ae.Project.load(...)`) is an argument message, not discovery, and neither the spec nor a ticket covers it; only its search half is in this ticket's boxes. It still needs an owner.
 
-Checks: ruff check, ruff format --check, ty, `uv run pytest` (3,463 passed), both minimum-version runs (2,922 and 3,463 passed), and the MCP stdio smoke test pass. The benchmark was not run: nothing here has a cost that grows with rows or columns.
+Checks: ruff check, ruff format --check, ty, `uv run pytest` (3,530 passed after merging integration/roadmap), both minimum-version runs (2,988 and 3,530 passed), and the MCP stdio smoke test pass. The benchmark was not run: nothing here has a cost that grows with rows or columns.

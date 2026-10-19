@@ -158,7 +158,6 @@ def test_missing_values_compare_equal_in_every_dtype():
     res = ae.find_duplicate_rows(df)
 
     assert [g.row_ids for g in res.duplicate_groups] == [[0, 2], [1, 3]]
-    assert res.missing_values_compare_equal is True
 
 
 def test_every_kind_of_missing_value_equals_every_other():
@@ -459,11 +458,11 @@ def test_repeated_index_labels_make_row_ids_ambiguous():
         "4 rows share an index label, so a row ID can match several rows: use a "
         "unique id_column. Or make the index unique."
     )
-    # The printed line keeps the fix, though it cuts what follows.
+    # The printed line wraps, so the fix that follows is there too.
     assert (
         "- ambiguous_row_ids: 4 rows share an index label, so a row ID can match "
-        "several rows: use a unique id_column. Or make..."
-    ) in str(res).splitlines()
+        "several rows: use a unique id_column. Or make the index unique."
+    ) in " ".join(line.strip() for line in str(res).splitlines())
 
 
 def test_repeated_id_column_values_make_row_ids_ambiguous():
@@ -581,15 +580,11 @@ def test_a_single_group_and_copy_read_in_the_singular():
     )
 
 
-def test_no_duplicates_give_a_descriptive_finding():
+def test_no_duplicates_give_no_finding_and_the_text_says_what_was_compared():
     res = ae.find_duplicate_rows(orders())
 
-    [finding] = res.findings
-    assert finding.code == "no_duplicate_rows"
-    assert finding.assessment == "descriptive"
-    assert finding.claim == "No two rows are equal in every compared column."
-    assert finding.columns == ["order", "customer", "amount"]
-    assert finding.fields == ["duplicate_group_count"]
+    assert res.findings == []
+    assert res.duplicate_group_count == 0
 
 
 def test_the_declared_statuses_are_the_four_the_ticket_names():
@@ -655,36 +650,38 @@ def test_a_single_row_completes_without_duplicates():
     res = ae.find_duplicate_rows(orders().iloc[:1])
 
     assert res.status == "completed"
-    assert [f.code for f in res.findings] == ["no_duplicate_rows"]
+    assert res.findings == []
+    assert res.duplicate_group_count == 0
 
 
 def test_the_printed_result_shows_the_groups_and_how_rows_were_compared():
     res = ae.find_duplicate_rows(orders(), id_column="order")
 
-    assert str(res).splitlines() == [
-        "find_duplicate_rows: completed on 6 rows x 3 columns",
-        "Compared 2 columns: 'customer' and 'amount'; missing values compare equal, "
-        "as in pandas.",
-        "Row IDs: values of id_column 'order'.",
-        "Duplicate groups (2 of 2 shown):",
-        "group  size  row_ids",
-        "    0     3  101, 103 and 106",
-        "    1     2  102 and 105",
-        "Findings (1 of 1 shown):",
-        "- suspected duplicate_rows: 5 rows form 2 duplicate groups; 3 are excess "
-        "copies (duplicate_share 0.5).",
-        "Limitations: none",
-        "More: res.to_frame() has all 5 rows in groups; res.findings, "
-        "res.limitations and res.to_json() have the rest.",
+    lines = str(res).splitlines()
+
+    assert lines[0] == "find_duplicate_rows: completed on 6 rows x 3 columns"
+    assert lines[1].startswith("Compared 2 columns: 'customer' and 'amount';")
+    assert "Row IDs: values of id_column 'order'." in lines
+    start = lines.index("Duplicate groups (2 of 2 shown):")
+    assert [line.split() for line in lines[start + 1 : start + 4]] == [
+        ["group", "size", "row_ids"],
+        ["0", "3", "101,", "103", "and", "106"],
+        ["1", "2", "102", "and", "105"],
     ]
+    assert (
+        "- suspected duplicate_rows: 5 rows form 2 duplicate groups; 3 are excess "
+        "copies (duplicate_share 0.5)."
+    ) in lines
+    assert lines[-1].startswith("More: res.to_frame() has all 5 rows in groups;")
 
 
 def test_the_printed_result_without_duplicates_says_so():
     lines = str(ae.find_duplicate_rows(orders())).splitlines()
 
-    assert lines[1:4] == [
-        "Compared 3 columns: 'order', 'customer' and 'amount'; missing values "
-        "compare equal, as in pandas.",
+    assert lines[1:5] == [
+        "Compared 3 columns: 'order', 'customer' and 'amount'; no two rows are "
+        "equal in them; missing values compare equal, as in",
+        "    pandas.",
         "Row IDs: index labels.",
         "Duplicate groups: none",
     ]

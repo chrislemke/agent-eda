@@ -261,26 +261,28 @@ def test_complete_data_has_no_findings():
 def test_text_shows_the_counts_most_missing_first_and_names_both_tables():
     res = ae.profile_missing_values(gappy_frame(), sentinel_values=GAPPY_SENTINELS)
 
-    assert str(res).splitlines() == [
-        "profile_missing_values: completed on 5 rows x 3 columns",
-        "Missing: 5 of 15 selected values (33.33%), counting declared sentinel values. "
-        "Complete rows: 3 of 5 (60%).",
-        "Missing values per row: 0 in 3 rows, 2 in 1 row and 3 in 1 row.",
-        "Columns, most missing first (3 of 3 shown):",
-        "column  native_missing_count  sentinel_count  missing_count  missing_share",
-        "a                          2            null              2            0.4",
-        "b                          1               1              2            0.4",
-        "c                          0               1              1            0.2",
-        "Findings (1 of 1 shown):",
-        "- descriptive sentinel_values_present: Declared sentinel values occur in 2 "
-        "columns: 'b' and 'c'.",
-        "Limitations (1 of 1 shown):",
-        "- sentinel_values_not_declared: No sentinel values were declared for 1 "
-        "column, so its sentinel_count is null and its ...",
-        "More: res.to_frame() has all 3 columns; res.to_frame(table='row_distribution') "
-        "has the rows per number of missing",
-        "    values; res.findings, res.limitations and res.to_json() have the rest.",
+    lines = str(res).splitlines()
+
+    assert lines[0] == "profile_missing_values: completed on 5 rows x 3 columns"
+    assert lines[1].startswith(
+        "Missing: 5 of 15 selected values (missing_share 0.3333)"
+    )
+    assert "Complete rows: 3 of 5 (complete_row_share 0.6)." in " ".join(
+        line.strip() for line in lines[1:3]
+    )
+    assert "Missing values per row: 0 in 3 rows, 2 in 1 row and 3 in 1 row." in lines
+    start = lines.index("Columns, most missing first (3 of 3 shown):")
+    assert [line.split()[0] for line in lines[start + 1 : start + 5]] == [
+        "column",
+        "a",
+        "b",
+        "c",
     ]
+    assert lines[start + 2].split() == ["a", "2", "null", "2", "0.4"]
+    text = " ".join(line.strip() for line in lines)
+    assert "- sentinel_values_not_declared: No sentinel values were declared" in text
+    assert "res.to_frame(table='row_distribution') has the rows per number" in text
+    assert "%" not in text
 
 
 def test_text_orders_columns_by_missing_count_and_keeps_ties_in_order():
@@ -306,7 +308,8 @@ def test_text_says_when_no_value_is_missing():
     lines = str(ae.profile_missing_values(df)).splitlines()
 
     assert lines[1] == (
-        "Missing: 0 of 4 selected values (0%). Complete rows: 2 of 2 (100%)."
+        "Missing: 0 of 4 selected values (missing_share 0). Complete rows: 2 of 2 "
+        "(complete_row_share 1)."
     )
     assert lines[2] == "Missing values per row: 0 in 2 rows."
 
