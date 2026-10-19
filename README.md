@@ -13,7 +13,7 @@ It is written for three kinds of callers:
 ## Features
 
 - **11 first-look analyses**: structure, column types, missing values, sentinel values such as -999, distributions, duplicates, keys, the target and associations.
-- **Results you can read and parse**: `print(res)` gives at most 40 lines of text, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
+- **Results you can read and parse**: `print(res)` gives at most 40 lines, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package from inside Python.
 - **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and a fix: a misspelled column or keyword lists the available names and the closest match, and a file path passed as data points to `pd.read_csv` or `pd.read_parquet`.
@@ -32,7 +32,7 @@ uv build --wheel  # writes dist/agent_eda-0.1.0-py3-none-any.whl
 pip install dist/agent_eda-0.1.0-py3-none-any.whl
 ```
 
-Once it is released, `pip install agent-eda` is enough. The MCP server needs the optional `mcp` extra; see [Use over MCP](#use-over-mcp).
+Once released, `pip install agent-eda` is enough. The MCP server needs the optional `mcp` extra; see [Use over MCP](#use-over-mcp).
 
 **AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode, with no PyPI access, upload the wheel and run `pip install --no-deps <wheel>`, or, if pip is blocked, put the wheel on `sys.path` and import from it. Installs don't carry over to a new session. Code Interpreter returns only printed output, so `print()` results.
 
@@ -181,7 +181,7 @@ A mistake in a call, such as a misspelled column or an unknown option, raises a 
 
 Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. Values pandas can't hash, such as lists, are the one place analyses differ: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
-`find_candidate_keys` leaves out float columns holding a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as that count.
+`find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as that count.
 
 `infer_column_semantics` and `validate_column_types` read text by the same rules:
 
@@ -193,7 +193,7 @@ Every analysis decides which values are equal as pandas does, so `1`, `1.0` and 
 
 Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record), and an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is. `to_frame()` keeps a set as it is, so pandas' `to_csv()` would list it in hash order. A test compares every analysis across two processes with different hash seeds.
 
-Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, so each result gets only its own `numerical_warning` limitation and the caller's warning filters and `warnings.showwarning` stay unchanged.
+Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, one at a time, so each result gets only its own `numerical_warning` limitation and the caller's warning filters and `warnings.showwarning` stay unchanged.
 
 ## Projects and masking
 
@@ -337,7 +337,7 @@ To get past the caps, pass `table_path`. The server writes the result's main tab
 
 ### Masking over MCP
 
-The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as the minimum `summarize_numeric` reports for a sensitive column, or index labels. The MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error (a bug in agent-eda) names only the exception's type, as its message could quote a value; the stderr log keeps the traceback.
+The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as the minimum `summarize_numeric` reports for a sensitive column, or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error (a bug in agent-eda) names only the exception's type, as its message could quote a value; the stderr log keeps the traceback.
 
 Masking over MCP is the same guardrail as in Python, not anonymization or access control: whoever can call the server can usually read the data file directly.
 
