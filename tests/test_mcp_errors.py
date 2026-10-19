@@ -172,7 +172,7 @@ def test_a_data_path_that_is_not_a_string_is_an_invalid_argument():
 
 def test_a_run_that_does_not_complete_is_a_normal_result_with_its_status(tmp_path):
     path = tmp_path / "empty.csv"
-    path.write_text("city,score\n")  # a header and no rows
+    path.write_text("city,score\n", encoding="utf-8")  # a header and no rows
     expected = ae.summarize_numeric(read(path))
 
     response = anyio.run(call, "summarize_numeric", {"data_path": str(path)})
@@ -222,13 +222,13 @@ def count_rows(data: pd.DataFrame) -> AnalysisResult:
 
 def shop_csv(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text(CSV)
+    path.write_text(CSV, encoding="utf-8")
     return path
 
 
 def read(path):
     """The DataFrame the server reads from the file, built by hand."""
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     if text == CSV:
         return pd.DataFrame(
             {"city": ["Oslo", "Lyon", "Oslo"], "score": [1.5, 2.5, 4.0]}

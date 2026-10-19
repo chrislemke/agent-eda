@@ -93,7 +93,9 @@ def test_parquet_keeps_nullable_and_pyarrow_backed_dtypes(tmp_path):
 
 def test_only_an_empty_field_is_missing_so_stand_ins_reach_the_analysis(tmp_path):
     path = tmp_path / "survey.csv"
-    path.write_text("answer,age\nNA,31\nN/A,-999\nNULL,40\n,52\nyes,\n")
+    path.write_text(
+        "answer,age\nNA,31\nN/A,-999\nNULL,40\n,52\nyes,\n", encoding="utf-8"
+    )
 
     response = anyio.run(call, "detect_missing_sentinels", {"data_path": str(path)})
 
@@ -116,7 +118,9 @@ def test_only_an_empty_field_is_missing_so_stand_ins_reach_the_analysis(tmp_path
 
 def test_row_ids_of_a_csv_are_0_based_data_row_numbers(tmp_path):
     path = tmp_path / "orders.csv"
-    path.write_text("order,city\nA1,Oslo\nA2,Lyon\nA3,Oslo\nA4,Oslo\n")
+    path.write_text(
+        "order,city\nA1,Oslo\nA2,Lyon\nA3,Oslo\nA4,Oslo\n", encoding="utf-8"
+    )
 
     response = anyio.run(
         call, "find_duplicate_rows", {"data_path": str(path), "columns": ["city"]}
@@ -144,7 +148,9 @@ def test_row_ids_of_a_parquet_file_follow_the_index_stored_in_it(tmp_path):
 
 def test_id_column_replaces_the_row_numbers_of_a_csv(tmp_path):
     path = tmp_path / "orders.csv"
-    path.write_text("order,city\nA1,Oslo\nA2,Lyon\nA3,Oslo\nA4,Oslo\n")
+    path.write_text(
+        "order,city\nA1,Oslo\nA2,Lyon\nA3,Oslo\nA4,Oslo\n", encoding="utf-8"
+    )
 
     response = anyio.run(
         call,
@@ -180,7 +186,7 @@ def test_data_file_errors_are_invalid_arguments_and_a_missing_file_is_not_found(
 @pytest.mark.parametrize("file_name", ["orders.xlsx", "orders.json.gz", "orders"])
 def test_an_unknown_extension_lists_the_supported_ones(tmp_path, file_name):
     path = tmp_path / file_name
-    path.write_text("order_id\n1\n")
+    path.write_text("order_id\n1\n", encoding="utf-8")
 
     error = anyio.run(data_error, {"data_path": str(path)})
 
@@ -191,7 +197,7 @@ def test_an_unknown_extension_lists_the_supported_ones(tmp_path, file_name):
 
 def test_a_missing_file_names_the_path_tried_and_the_closest_files(tmp_path):
     for name in ["orders.csv", "orders_2024.csv", "notes.txt"]:
-        (tmp_path / name).write_text("order_id\n1\n")
+        (tmp_path / name).write_text("order_id\n1\n", encoding="utf-8")
     path = tmp_path / "order.csv"
 
     error = anyio.run(data_error, {"data_path": str(path)})
@@ -239,7 +245,7 @@ def test_a_path_that_looks_like_a_url_is_a_local_path(tmp_path, monkeypatch, dat
     error = anyio.run(data_error, {"data_path": data_path})
 
     assert error.code == "data_file_not_found"
-    assert f"There is no file at {tmp_path.resolve()}/" in error.message
+    assert f"There is no file at {tmp_path.resolve()}{os.sep}" in error.message
 
 
 @pytest.mark.parametrize(
@@ -267,7 +273,7 @@ def test_a_file_the_parser_cannot_read_quotes_the_parser(
 
 def test_a_second_call_on_the_same_file_does_not_read_it_again(tmp_path):
     path = tmp_path / "a.csv"
-    path.write_text("x\n1\n1\n")
+    path.write_text("x\n1\n1\n", encoding="utf-8")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
@@ -281,7 +287,7 @@ def test_a_second_call_on_the_same_file_does_not_read_it_again(tmp_path):
 
 def test_a_file_whose_modification_time_changed_is_read_again(tmp_path):
     path = tmp_path / "a.csv"
-    path.write_text("x\n1\n1\n")
+    path.write_text("x\n1\n1\n", encoding="utf-8")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
@@ -296,13 +302,13 @@ def test_a_file_whose_modification_time_changed_is_read_again(tmp_path):
 
 def test_a_file_whose_size_changed_is_read_again(tmp_path):
     path = tmp_path / "a.csv"
-    path.write_text("x\n1\n1\n")
+    path.write_text("x\n1\n1\n", encoding="utf-8")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
             first = await distinct_count(client, path)
             status = path.stat()
-            path.write_text("x\n1\n2\n3\n")
+            path.write_text("x\n1\n2\n3\n", encoding="utf-8")
             os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
             return first, await distinct_count(client, path)
 
@@ -312,7 +318,7 @@ def test_a_file_whose_size_changed_is_read_again(tmp_path):
 def test_a_third_file_evicts_the_least_recently_used_one(tmp_path):
     paths = {name: tmp_path / f"{name}.csv" for name in "abc"}
     for path in paths.values():
-        path.write_text("x\n1\n1\n")
+        path.write_text("x\n1\n1\n", encoding="utf-8")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
@@ -337,7 +343,7 @@ def rewrite_unnoticed(path, text):
     """Write text, of the file's size, and keep the modification time."""
     status = path.stat()
     assert len(text.encode()) == status.st_size
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
 
 

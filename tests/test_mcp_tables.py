@@ -250,7 +250,7 @@ def test_an_existing_file_is_refused_before_the_analysis_runs_and_left_alone(
         f"file exists yet, such as {tmp_path / 'summary-3.csv'}, or read the file "
         "that is there.",
     }
-    assert table_path.read_text() == "keep me\n"
+    assert table_path.read_text(encoding="utf-8") == "keep me\n"
 
 
 def test_table_file_exists_error_is_a_file_exists_error():
@@ -382,7 +382,7 @@ def cells(frame):
 
 
 def write(path, text):
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -415,7 +415,7 @@ def read(path):
         ),
         "score\n1.5\n2.5\n": pd.DataFrame({"score": [1.5, 2.5]}),
     }
-    return frames[path.read_text()]
+    return frames[path.read_text(encoding="utf-8")]
 
 
 def read_back(path):

@@ -45,6 +45,7 @@ from fractions import Fraction
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 
 # What a value is by its Python type.
 ValueKind = Literal["boolean", "number", "text", "datetime", "timedelta", "other"]
@@ -274,3 +275,83 @@ def is_zero_or_one(number: object) -> bool:
     if isinstance(number, Decimal) and not number.is_finite():
         return False
     return bool(number == 0 or number == 1)
+
+
+# The families a piece of text can be read as, for a suggestion: what it reads
+# as under the rules above, or as a duration.
+ReadFamily = Literal["number", "boolean", "date", "datetime", "timedelta"]
+
+# A whole number written with more digits than this is no integer any column
+# holds, and building it would cost memory for nothing.
+_MAX_WHOLE_DIGITS = 40
+
+
+def read_as(
+    text: str, family: ReadFamily, *, whole: bool = False
+) -> bool | int | float | dt.date | pd.Timestamp | pd.Timedelta | None:
+    """The value a piece of text reads as in the family, or None if it doesn't.
+
+    The rules are the ones above, so a value read here is one that
+    infer_column_semantics and validate_column_types accept as the same kind:
+    text such as 1_000, 007 or non-ASCII digits reads as nothing. A number is
+    an int when it is whole, and a float otherwise; with whole=True only a whole
+    number reads. A date is a calendar date without a time, and a datetime an
+    ISO 8601 date with or without one. A duration is read as pandas reads it,
+    for ASCII text only: no rule of the analyses reads text as a duration.
+    """
+    stripped = text.strip()
+    if family == "timedelta":
+        return _duration(stripped)
+    bits = _read(text)
+    if family == "number":
+        return _number(stripped, bits, whole)
+    if family == "boolean":
+        if not bits & _BOOLEAN_BIT:
+            return None
+        if stripped.lower() in BOOLEAN_WORDS:
+            return stripped.lower() in _TRUE_WORDS
+        return float(stripped) == 1  # the digits are exactly 0 or 1
+    if not bits & _ISO_DATE_BIT:
+        return None
+    if family == "date":
+        match = _ISO_DATE.fullmatch(stripped)
+        if match is None or match["hour"] is not None:
+            return None
+        return dt.date(int(match["year"]), int(match["month"]), int(match["day"]))
+    try:
+        stamp = pd.Timestamp(stripped)
+    except (ValueError, OverflowError):
+        return None
+    return stamp if isinstance(stamp, pd.Timestamp) else None
+
+
+_TRUE_WORDS = frozenset(("true", "t", "yes", "y"))
+
+
+def _number(stripped: str, bits: int, whole: bool) -> int | float | None:
+    """The number a piece of text that parses as one reads as."""
+    if not bits & _NUMBER_BIT or (whole and not bits & _WHOLE_BIT):
+        return None
+    if bits & _WHOLE_BIT:
+        try:
+            digits = Decimal(stripped)
+        except ArithmeticError:  # an exponent beyond Decimal's range
+            return None
+        if digits == 0:
+            return 0
+        if digits.adjusted() < _MAX_WHOLE_DIGITS:
+            return int(digits)
+        if whole:
+            return None
+    value = float(stripped)
+    return value if math.isfinite(value) else None
+
+
+def _duration(stripped: str) -> pd.Timedelta | None:
+    if not stripped.isascii():
+        return None
+    try:
+        duration = pd.Timedelta(stripped)
+    except (ValueError, OverflowError):
+        return None
+    return duration if isinstance(duration, pd.Timedelta) else None

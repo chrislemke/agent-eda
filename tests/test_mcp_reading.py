@@ -76,7 +76,8 @@ def test_a_wide_file_with_a_late_text_value_reads_that_column_as_text(tmp_path):
 def test_a_trailing_delimiter_adds_no_column_and_no_index(tmp_path):
     path = tmp_path / "orders.csv"
     path.write_text(
-        "order_id,city,amount\nA1,Oslo,10,\nA2,Lyon,20,\nA3,Oslo,10,\nA1,Oslo,10,\n"
+        "order_id,city,amount\nA1,Oslo,10,\nA2,Lyon,20,\nA3,Oslo,10,\nA1,Oslo,10,\n",
+        encoding="utf-8",
     )
     expected = pd.DataFrame(
         {
@@ -97,7 +98,7 @@ def test_a_trailing_delimiter_adds_no_column_and_no_index(tmp_path):
 
 def test_a_trailing_delimiter_on_some_rows_only_is_accepted_too(tmp_path):
     path = tmp_path / "orders.csv"
-    path.write_text("a,b\n1,2\n3,4,\n5,6\n")
+    path.write_text("a,b\n1,2\n3,4,\n5,6\n", encoding="utf-8")
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
@@ -116,7 +117,7 @@ def test_a_trailing_delimiter_on_some_rows_only_is_accepted_too(tmp_path):
 )
 def test_a_row_with_a_non_empty_extra_field_names_its_line(tmp_path, text, line):
     path = tmp_path / "orders.csv"
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
 
     error = anyio.run(data_error, str(path))
 
@@ -127,7 +128,7 @@ def test_a_row_with_a_non_empty_extra_field_names_its_line(tmp_path, text, line)
 
 def test_an_empty_line_of_a_one_column_file_is_a_missing_value(tmp_path):
     path = tmp_path / "scores.csv"
-    path.write_text("score\n1\n\n3\n\n5\n")
+    path.write_text("score\n1\n\n3\n\n5\n", encoding="utf-8")
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
@@ -141,7 +142,7 @@ def test_an_empty_line_of_a_one_column_file_is_a_missing_value(tmp_path):
 
 def test_a_file_with_several_columns_skips_its_blank_lines(tmp_path):
     path = tmp_path / "scores.csv"
-    path.write_text("id,score\n1,10\n\n2,20\n\n")
+    path.write_text("id,score\n1,10\n\n2,20\n\n", encoding="utf-8")
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
@@ -151,7 +152,8 @@ def test_a_file_with_several_columns_skips_its_blank_lines(tmp_path):
 def test_codes_with_leading_zeros_stay_text_so_each_is_a_distinct_value(tmp_path):
     path = tmp_path / "customers.csv"
     path.write_text(
-        "zip,customer_id,visits\n01234,007,1\n1234,7,2\n02139,0042,3\n90210,42,4\n"
+        "zip,customer_id,visits\n01234,007,1\n1234,7,2\n02139,0042,3\n90210,42,4\n",
+        encoding="utf-8",
     )
     expected = pd.DataFrame(
         {
@@ -203,7 +205,8 @@ def test_a_leading_zero_after_the_first_chunk_still_makes_the_column_text(tmp_pa
 def test_numbers_without_a_leading_zero_code_stay_numbers(tmp_path):
     path = tmp_path / "numbers.csv"
     path.write_text(
-        "n,flag,ratio,label\n-5,true,0.5,a\n0,False,-0.25,b\n0.5,TRUE,1e3,c\n10,,inf,d\n"
+        "n,flag,ratio,label\n-5,true,0.5,a\n0,False,-0.25,b\n0.5,TRUE,1e3,c\n10,,inf,d\n",
+        encoding="utf-8",
     )
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
@@ -229,7 +232,8 @@ def test_every_other_column_reads_as_pandas_reads_it(tmp_path):
         "id,zip,when,amount,note\n"
         "1,01234,2024-01-05,1.5,N/A\n"
         "2,90210,2024-02-06,,NA\n"
-        "3,02139,2024-03-07,-3,\n"
+        "3,02139,2024-03-07,-3,\n",
+        encoding="utf-8",
     )
     reference = pd.read_csv(
         path, keep_default_na=False, na_values=[""], dtype={"zip": str}
@@ -242,7 +246,7 @@ def test_every_other_column_reads_as_pandas_reads_it(tmp_path):
 
 def test_repeated_header_names_stay_repeated_and_are_reported(tmp_path):
     path = tmp_path / "repeated.csv"
-    path.write_text("id,score,score,id\n1,2,3,4\n")
+    path.write_text("id,score,score,id\n1,2,3,4\n", encoding="utf-8")
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
@@ -259,7 +263,7 @@ def test_repeated_header_names_stay_repeated_and_are_reported(tmp_path):
 
 def test_another_analysis_asks_to_rename_the_repeated_columns_in_the_file(tmp_path):
     path = tmp_path / "repeated.csv"
-    path.write_text("id,score,score,id\n1,2,3,4\n")
+    path.write_text("id,score,score,id\n1,2,3,4\n", encoding="utf-8")
 
     response = anyio.run(call, "summarize_numeric", {"data_path": str(path)})
 
@@ -272,7 +276,7 @@ def test_another_analysis_asks_to_rename_the_repeated_columns_in_the_file(tmp_pa
 
 def test_a_file_read_under_two_names_is_read_in_each_names_format(tmp_path):
     tsv = tmp_path / "both.tsv"
-    tsv.write_text("a\tb\n1\t2\n3\t4\n")
+    tsv.write_text("a\tb\n1\t2\n3\t4\n", encoding="utf-8")
     csv = tmp_path / "both.csv"
     csv.symlink_to(tsv)
 
@@ -311,10 +315,10 @@ def test_every_csv_format_reads_trailing_delimiters_and_codes_alike(
     text = "\n".join(sep.join(row) for row in rows) + "\n"
     path = tmp_path / file_name
     if file_name.endswith(".gz"):
-        with gzip.open(path, "wt", newline="") as handle:
+        with gzip.open(path, "wt", newline="", encoding="utf-8") as handle:
             handle.write(text)
     else:
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
     expected = pd.DataFrame({"code": ["007", "8", "9"], "n": [1, 2, 3]})
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
@@ -339,7 +343,7 @@ def test_each_way_to_write_a_leading_zero_code_keeps_the_column_text(
     tmp_path, field, kept
 ):
     path = tmp_path / "codes.csv"
-    path.write_text(f"code,n\n5,1\n{field},2\n12,3\n")
+    path.write_text(f"code,n\n5,1\n{field},2\n12,3\n", encoding="utf-8")
 
     response = anyio.run(
         call, "summarize_categorical", {"data_path": str(path), "columns": ["code"]}
@@ -352,7 +356,7 @@ def test_each_way_to_write_a_leading_zero_code_keeps_the_column_text(
 @pytest.mark.parametrize("field", ["0", "0.5", "-0.5", "10", "100", "2024"])
 def test_a_number_that_only_contains_a_zero_stays_a_number(tmp_path, field):
     path = tmp_path / "numbers.csv"
-    path.write_text(f"n\n5\n{field}\n12\n")
+    path.write_text(f"n\n5\n{field}\n12\n", encoding="utf-8")
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 

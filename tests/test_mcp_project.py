@@ -473,7 +473,7 @@ async def call(name, arguments, project=None):
 
 
 def write(path, text):
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -508,7 +508,7 @@ def read(path):
             }
         ),
     }
-    return frames[path.read_text()]
+    return frames[path.read_text(encoding="utf-8")]
 
 
 # The console script installed next to this interpreter.

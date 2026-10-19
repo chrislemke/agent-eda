@@ -324,7 +324,7 @@ def check_rule(data: pd.DataFrame, *, rule: Callable[[float], bool]) -> Analysis
 def mixed_csv(tmp_path):
     """The mixed-dtype CSV's path, and its DataFrame as the server reads it."""
     path = tmp_path / "orders.csv"
-    path.write_text(CSV)
+    path.write_text(CSV, encoding="utf-8")
     # Only an empty field counts as missing, so "N/A" and -999 are values.
     return path, pd.DataFrame(
         {

@@ -19,6 +19,7 @@ It is written for three kinds of callers:
 - **Helpful errors**: a misspelled column name raises an error that lists the available columns and the closest match.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses, in everything a result shows.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that call MCP tools instead of writing Python.
+- **Safe from threads**: concurrent calls from several threads are safe, and each result keeps its own limitations.
 - **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, all preinstalled in AgentCore Code Interpreter.
 
 ## Installation
@@ -178,6 +179,8 @@ age = res.columns["age"]  # typed fields, such as age.median and age.std
 The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, and carry their totals.
 
 A mistake in a call, such as a misspelled column or an unknown option, raises a subclass of `ae.errors.AgentEDAError` before any work starts. Each error has a stable `code`, and its message says what is wrong and how to fix it. Problems in the data never raise; they show up in the status, the findings and the limitations.
+
+Concurrent calls from several threads are safe. An analysis captures the warnings it raises under one lock, so captures run one at a time, each result gets only its own `numerical_warning` limitation, and the caller's warning filters and `warnings.showwarning` stay as they were.
 
 ## Projects and masking
 
@@ -617,7 +620,7 @@ A data science project's declarations, given to the analyses that use them.
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `name` | `str \| None` | `None` | The project's name; null, the default, leaves it unnamed. |
-| `data_policy` | `DataPolicy \| None` | `None` | Which columns are sensitive and whether to mask them. |
+| `data_policy` | `DataPolicy \| Mapping[str, Any] \| None` | `None` | Which columns are sensitive and whether to mask them. |
 
 #### `DataPolicy`
 
