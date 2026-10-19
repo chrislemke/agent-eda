@@ -479,7 +479,7 @@ def test_the_table_path_line_and_the_text_keep_to_the_caps(tmp_path):
     )
 
     assert not response.is_error
-    lines = response.content[0].text.split("\n")
+    lines = response.content[0].text.splitlines()
     assert len(lines) <= 40
     assert max(len(line) for line in lines) <= 120
     assert lines[-1].startswith("Full table written")
@@ -499,9 +499,9 @@ def test_a_text_that_is_already_full_loses_a_line_to_the_table_path_line(tmp_pat
         {"data_path": str(shop), "table_path": str(tmp_path / "t.csv")},
     )
 
-    assert len(plain.content[0].text.split("\n")) <= 40
-    assert len(with_table.content[0].text.split("\n")) <= 40
-    assert with_table.content[0].text.split("\n")[-1].startswith("Full table written")
+    assert len(plain.content[0].text.splitlines()) <= 40
+    assert len(with_table.content[0].text.splitlines()) <= 40
+    assert with_table.content[0].text.splitlines()[-1].startswith("Full table written")
 
 
 def read_parquet(path):
@@ -568,6 +568,6 @@ def test_a_table_path_line_that_only_the_path_overflows_takes_a_second_line(
         {"data_path": str(shop), "table_path": str(table_path)},
     )
 
-    *_, intro, path_line = response.content[0].text.split("\n")
+    *_, intro, path_line = response.content[0].text.splitlines()
     assert intro == "Full table written (1 row) to:"
     assert path_line == str(table_path.resolve())

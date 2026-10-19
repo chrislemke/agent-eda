@@ -117,7 +117,8 @@ def test_a_few_labels_repeated_over_many_rows_rank_categorical_first():
     entry = infer(["red", "green", "blue", "green"] * 25)
 
     assert entry.inferred_logical_type == "categorical"
-    assert entry.candidates[0].score == 0.97
+    # 1 - 3 / 100, within floating-point rounding.
+    assert entry.candidates[0].score == pytest.approx(0.97, abs=1e-15)
 
 
 def test_an_all_distinct_integer_sequence_is_flagged_identifier_like():
@@ -200,6 +201,8 @@ def test_lists_the_evidence_behind_the_candidates():
     entry = infer(["1", "2", "2", None, "1.5", "0", "x", "01"])
 
     evidence = entry.evidence
+    # A share is one integer over another, correctly rounded, so each equals
+    # Python's quotient exactly.
     assert evidence.non_missing_count == 7
     assert evidence.distinct_count == 6
     assert evidence.uniqueness_share == 6 / 7
@@ -344,6 +347,36 @@ def test_flags_an_all_missing_column_and_gives_it_no_candidates():
     assert entry.inferred_logical_type is None
     assert entry.status == "insufficient_data"
     assert entry.evidence.uniqueness_share is None
+
+
+def test_constant_and_all_missing_columns_are_findings_that_point_at_their_evidence():
+    df = pd.DataFrame(
+        {
+            "same": ["a", "a", None, "a"],
+            "empty": [None, None, None, None],
+            "varied": ["a", "b", "c", "a"],
+        }
+    )
+
+    res = ae.infer_column_semantics(df)
+
+    findings = {finding.code: finding for finding in res.findings}
+    constant = findings["constant_columns"]
+    assert constant.assessment == "suspected"
+    assert constant.columns == ["same"]
+    assert constant.claim == (
+        "1 column holds a single distinct non-missing value: 'same'."
+    )
+    assert constant.fields == ["columns['same'].evidence.distinct_count"]
+    assert res.columns["same"].evidence.distinct_count == 1
+    all_missing = findings["all_missing_columns"]
+    assert all_missing.assessment == "suspected"
+    assert all_missing.columns == ["empty"]
+    assert all_missing.claim == "1 column contains only missing values: 'empty'."
+    assert all_missing.fields == ["columns['empty'].evidence.non_missing_count"]
+    assert res.columns["empty"].evidence.non_missing_count == 0
+    # A column that varies is in neither finding.
+    assert "varied" not in constant.columns + all_missing.columns
 
 
 def test_flags_numbers_stored_as_text():

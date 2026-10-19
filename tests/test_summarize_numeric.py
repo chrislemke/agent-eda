@@ -291,7 +291,9 @@ def test_quantiles_default_to_seven_levels_with_the_linear_method():
     assert res.parameters["quantile_method"] == "linear"
     quantiles = res.columns["x"].quantiles
     assert list(quantiles) == DEFAULT_QUANTILES
-    assert list(quantiles.values()) == pytest.approx([1, 5, 25, 50, 75, 95, 99])
+    assert list(quantiles.values()) == pytest.approx(
+        [1, 5, 25, 50, 75, 95, 99], rel=RTOL
+    )
 
 
 def test_quantiles_keep_the_callers_levels_and_order():
@@ -302,16 +304,16 @@ def test_quantiles_keep_the_callers_levels_and_order():
     assert res.parameters["quantiles"] == [0.9, 0.0, 1.0, 0.5]
     quantiles = res.columns["x"].quantiles
     assert list(quantiles) == [0.9, 0.0, 1.0, 0.5]
-    assert list(quantiles.values()) == pytest.approx([3.7, 1.0, 4.0, 2.5])
+    assert list(quantiles.values()) == pytest.approx([3.7, 1.0, 4.0, 2.5], rel=RTOL)
 
 
 def test_quantiles_take_numpy_arrays_scalars_and_integers():
     df = pd.DataFrame({"x": [4.0, 1.0, 3.0, 2.0]})
 
     # NumPy arrays and scalars aren't Sequence[float], but are accepted at runtime.
-    from_array = ae.summarize_numeric(df, quantiles=np.linspace(0, 1, 3))  # ty: ignore[invalid-argument-type]  # see above
-    from_scalar = ae.summarize_numeric(df, quantiles=np.float64(0.5))  # ty: ignore[invalid-argument-type]  # see above
-    from_integers = ae.summarize_numeric(df, quantiles=[np.int64(0), np.int64(1)])  # ty: ignore[invalid-argument-type]  # see above
+    from_array = ae.summarize_numeric(df, quantiles=np.linspace(0, 1, 3))  # ty: ignore[invalid-argument-type]  # a NumPy array is accepted at runtime
+    from_scalar = ae.summarize_numeric(df, quantiles=np.float64(0.5))  # ty: ignore[invalid-argument-type]  # a NumPy scalar is accepted at runtime
+    from_integers = ae.summarize_numeric(df, quantiles=[np.int64(0), np.int64(1)])  # ty: ignore[invalid-argument-type]  # NumPy integers are accepted at runtime
 
     assert from_array.columns["x"].quantiles == {0.0: 1.0, 0.5: 2.5, 1.0: 4.0}
     assert from_scalar.parameters["quantiles"] == [0.5]
@@ -888,7 +890,7 @@ def test_text_stays_within_40_lines_of_120_characters():
         {f"{'a_long_column_name_' * 8}{i}": [1e300, -1e-300, None] for i in range(60)}
     )
 
-    lines = str(ae.summarize_numeric(df)).split("\n")
+    lines = str(ae.summarize_numeric(df)).splitlines()
 
     assert len(lines) <= 40
     assert max(len(line) for line in lines) <= 120

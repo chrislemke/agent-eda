@@ -126,9 +126,9 @@ def test_none_for_the_data_policy_means_the_default_one():
     ],
     ids=["one-name", "labels", "tuple", "set", "index", "array", "generator", "numpy"],
 )
-def test_sensitive_columns_take_names_as_the_analyses_columns_argument_does(
-    given, names
-):
+def test_sensitive_columns_take_one_name_or_any_collection_of_names(given, names):
+    # More lenient than the analyses' columns argument, which raises for a set
+    # since a set has no order to report the columns in; here the names are sorted.
     policy = ae.DataPolicy(sensitive_columns=given)
 
     assert policy.sensitive_columns == names

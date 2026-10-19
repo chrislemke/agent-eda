@@ -202,7 +202,7 @@ def numpy_dtype(dtype: object) -> np.dtype:
     if isinstance(dtype, pd.SparseDtype):
         return np.dtype(dtype.subtype)
     # Nullable and pyarrow-backed dtypes name their NumPy counterpart.
-    return np.dtype(getattr(dtype, "numpy_dtype"))  # noqa: B009
+    return np.dtype(getattr(dtype, "numpy_dtype"))  # noqa: B009  # dtype is typed object
 
 
 def _datetimes(dtype: object, shown: str) -> Holds:

@@ -212,7 +212,13 @@ def association_options(data: pd.DataFrame) -> st.SearchStrategy[Arguments]:
 
 
 def has_countable_values(dtype: Any) -> bool:
-    """Text, object, categorical, boolean and numeric columns, pyarrow ones too."""
+    """Text, object, categorical, boolean and numeric columns, pyarrow ones too.
+
+    Period and interval columns aren't among them: summarize_categorical raises
+    for one that is named, and leaves it out by default.
+    """
+    if isinstance(dtype, pd.PeriodDtype | pd.IntervalDtype):
+        return False
     if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype) or is_dictionary(dtype):
         return True
     if isinstance(dtype, pd.ArrowDtype):
@@ -240,7 +246,9 @@ def sentinel_candidates(column: pd.Series) -> list[Any]:
     kept = [
         value for value in (_sentinel(v) for v in values.tolist()) if value is not None
     ]
-    kinds = {type(value) for value in kept}
+    # Sorted by name: a set of types iterates in an order that depends on their
+    # addresses, which differ from one process to the next.
+    kinds = sorted({type(value) for value in kept}, key=lambda kind: kind.__name__)
     stand_ins = {str: "N/A", int: 0, float: -999.0}
     kept.extend(stand_ins[kind] for kind in kinds if kind in stand_ins)
     return list(dict.fromkeys(kept))

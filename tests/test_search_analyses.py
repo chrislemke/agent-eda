@@ -63,7 +63,7 @@ def test_any_query_gives_the_same_strict_listing_within_the_text_caps(query, lim
     record = found.to_json()
     assert ae.search_analyses(query, limit=limit).to_json() == record
     json.loads(record, parse_constant=reject_constant)
-    lines = str(found).split("\n")
+    lines = str(found).splitlines()
     assert max(len(line) for line in lines) <= 120
     assert lines == [line.rstrip() for line in lines]
     assert len(found.matches) <= min(limit, found.match_count)

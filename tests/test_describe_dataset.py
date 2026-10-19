@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+from hypothesis import given
+from strategies import data_frames, nan_as_missing
 
 import agent_eda as ae
 
@@ -483,3 +485,43 @@ def only_finding(res, code):
     matches = [f for f in res.findings if f.code == code]
     assert len(matches) == 1, f"expected one {code!r} finding, got {codes(res)}"
     return matches[0]
+
+
+def compares_as_pandas_does(dtype):
+    """Numbers, booleans, dates and durations, whose values pandas compares as
+    describe_dataset does; text and objects hold values that differ only here,
+    such as True and 1, or a text with a NUL."""
+    return (
+        pd.api.types.is_numeric_dtype(dtype)
+        or pd.api.types.is_bool_dtype(dtype)
+        or pd.api.types.is_datetime64_any_dtype(dtype)
+        or pd.api.types.is_timedelta64_dtype(dtype)
+    )
+
+
+@given(df=data_frames())
+def test_counts_and_memory_agree_with_pandas_on_any_frame(df):
+    reference = nan_as_missing(df)
+    # What pandas measures for NumPy numbers, booleans, dates and durations,
+    # taken first so that nothing describe_dataset does can change it. Other
+    # dtypes differ on purpose, such as text, whose cached UTF-8 copies it
+    # ignores, and categoricals, whose lookup tables it ignores.
+    numpy_memory = {
+        position: reference.iloc[:, position].memory_usage(deep=True, index=False)
+        for position in range(df.shape[1])
+        if isinstance(df.dtypes.iloc[position], np.dtype)
+        and df.dtypes.iloc[position].kind in "biufmM"
+    }
+
+    res = ae.describe_dataset(df)
+
+    assert (res.row_count, res.column_count) == df.shape
+    assert len(res.columns) == df.shape[1]
+    for position, entry in enumerate(res.columns):
+        column = reference.iloc[:, position]
+        assert entry.missing_count == int(column.isna().sum())
+        assert entry.non_missing_count == int(column.count())
+        if entry.distinct_count is not None and compares_as_pandas_does(column.dtype):
+            assert entry.distinct_count == column.nunique(dropna=True)
+        if position in numpy_memory:
+            assert entry.memory_bytes == numpy_memory[position]

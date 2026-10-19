@@ -24,6 +24,9 @@ NOT_COLUMN_NAMES = {"source", "source_version", "expected_labels"}
 # Parameters that map column names to a setting for each column, named after
 # the setting as the spec names them. They must take a mapping keyed by str.
 KEYED_BY_COLUMN = {"declared_schema", "schema", "sentinel_values"}
+# list_analyses is no analysis, yet every See Also lists it (STD-21). Ticket 08
+# of the agent-experience spec drops it from them and deletes this set.
+SEE_ALSO_UNTIL_08 = {"list_analyses"}
 ENTRY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?: \([^)]*\))?:(?: |$)")
 REFERENCE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(\))?`")
 SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
@@ -79,6 +82,74 @@ def test_args_document_every_parameter_and_nothing_else(name):
     assert documented == list(inspect.signature(getattr(ae, name)).parameters)
 
 
+def args_of(name):
+    """Each parameter's Args entry as (type, text), by name: the entry
+    `name (type): text`, wrapped lines joined."""
+    found = {}
+    entry = None
+    for line in sections(name)["Args:"].splitlines():
+        if re.match(r"^    [A-Za-z_]", line):
+            entry = found.setdefault(line.strip().split(" ")[0].rstrip(":"), [])
+        if entry is not None and line.strip():
+            entry.append(line.strip())
+    return {
+        parameter: split_type(" ".join(lines)) for parameter, lines in found.items()
+    }
+
+
+def split_type(entry):
+    """The type in the parentheses after the name, even when it holds brackets
+    and parentheses, and the text after the colon; None for an entry without a type."""
+    rest = entry.partition(" ")[2]
+    if not rest.startswith("("):
+        return None, rest
+    depth = 0
+    for position, char in enumerate(rest):
+        depth += (char == "(") - (char == ")")
+        if depth == 0:
+            if rest[position + 1 : position + 2] != ":":
+                break
+            return rest[1:position], rest[position + 2 :].strip()
+    return None, rest
+
+
+def annotation_text(parameter):
+    """The type an agent reads in describe_analysis, as the docstring writes it."""
+    return parameter.type.replace("pd.", "")
+
+
+def test_args_give_each_parameter_its_type_as_the_signature_declares_it(name):
+    described = {p.name: p for p in ae.describe_analysis(name).parameters}
+
+    written = {
+        parameter: (given or "").replace("pd.", "")
+        for parameter, (given, _) in args_of(name).items()
+    }
+
+    assert written == {p: annotation_text(d) for p, d in described.items()}
+
+
+def test_args_list_every_choice_of_a_parameter_that_takes_fixed_choices(name):
+    missing = []
+    for parameter in ae.describe_analysis(name).parameters:
+        _, text = args_of(name)[parameter.name]
+        for choice in parameter.allowed_values or []:
+            if f"'{choice}'" not in text and f"{choice!r}" not in text:
+                missing.append(f"{parameter.name}: {choice}")
+
+    assert missing == []
+
+
+def test_args_say_what_none_means_for_a_parameter_that_takes_it(name):
+    silent = []
+    for parameter in ae.describe_analysis(name).parameters:
+        given, text = args_of(name)[parameter.name]
+        if "None" in (given or "") and "None" not in text and "null" not in text:
+            silent.append(parameter.name)
+
+    assert silent == []
+
+
 def test_returns_names_every_declared_finding_code(name):
     body = sections(name)["Returns:"]
 
@@ -116,6 +187,14 @@ def test_see_also_and_when_to_use_name_only_what_exists(name):
     assert see_also
     unknown = [ref for ref in see_also + references + words if not resolves(ref)]
     assert unknown == []
+    # See Also lists alternatives, so each entry is another analysis in
+    # ae.list_analyses().
+    not_analyses = [
+        ref
+        for ref in see_also
+        if (ref not in ANALYSES or ref == name) and ref not in SEE_ALSO_UNTIL_08
+    ]
+    assert not_analyses == []
 
 
 def test_every_result_field_has_a_description(name):
