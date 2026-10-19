@@ -347,6 +347,12 @@ def _call(
     options = validate_json(served.spec, data, given)
     if options.get("sentinel_values") is not None:
         options["sentinel_values"] = read_iso(data, options["sentinel_values"])
+    if options.get("expected_labels") is not None:
+        # The labels of a target of dates or datetimes are written as ISO 8601.
+        target = options["target_column"]
+        options["expected_labels"] = read_iso(
+            data, {target: options["expected_labels"]}
+        )[target]
     if takes_project:
         options["project"] = project
     return _response(served.function(data, **options), table)

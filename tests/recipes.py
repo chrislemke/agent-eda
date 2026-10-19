@@ -194,6 +194,9 @@ def association_options(data: pd.DataFrame) -> st.SearchStrategy[Arguments]:
             categorical_method=st.sampled_from(
                 choices("compute_association_matrix", "categorical_method")
             ),
+            mixed_method=st.sampled_from(
+                choices("compute_association_matrix", "mixed_method")
+            ),
             max_categories=st.integers(2, 60),
             max_pairs=st.integers(1, 6_000),
         )

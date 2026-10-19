@@ -48,7 +48,7 @@ import pandas as pd
 
 import agent_eda as ae
 
-names = ["ann", "bo", "cy", "di", "ed", "flo", "gus", "bo"]
+names = ["ann", "bo", "cy", "di", "ed", "flo", "ann", "bo"]
 df = pd.DataFrame(
     {
         "customer_id": [101, 102, 103, 104, 105, 106, 107, 108],
@@ -129,10 +129,11 @@ infer_column_semantics: 1 column looks like an identifier, every value distinct:
 detect_missing_sentinels: 1 value in 1 column may stand in for missing values: 'age'.
 summarize_categorical: 1 column holds labels that differ only by case or surrounding spaces: 'plan'.
 find_duplicate_rows: 2 rows form 1 duplicate group; 1 is an excess copy (duplicate_share 0.125).
-compute_association_matrix: 3 pairs are perfectly associated, an absolute value of 1, so one column may duplicate or derive from the other: ('email', 'age'), ('email', 'income') and ('email', 'churned').
 ```
 
-The second, third and fourth lines are the three planted problems. The other two are worth a glance but expected here: `customer_id` is meant to be an identifier, and `email` is unique for all but the duplicated customer, so it "predicts" every other column perfectly. A finding says what the data suggests; deciding what it means is your call.
+The second, third and fourth lines are the three planted problems. The first is worth a glance but expected here: `customer_id` is meant to be an identifier. A finding says what the data suggests; deciding what it means is your call.
+
+`compute_association_matrix` flags nothing here: it flags only pairs with a perfect association, such as a column that duplicates another. For a category and a number its default measure is bias-adjusted: it subtracts the association that many levels give pure noise, so 40 levels over 60 rows of noise score near 0 instead of about 0.8.
 
 ### Other analyses
 
@@ -203,10 +204,10 @@ Masked (data_policy.mask_sensitive=True): the values of column 'email' show as <
 Shares are of each column's non-missing values. Levels go by count, then label; most_common_levels has the top 10.
 Columns (1 of 1 shown):
 column  non_missing_count  missing_count  cardinality  most_common_levels
-email                   8              0            7  <masked 1>: 2 (25%), <masked 2>: 1 (12.5%), <masked 3>: 1 (12....
+email                   8              0            6  <masked 1>: 2 (25%), <masked 2>: 2 (25%), <masked 3>: 1 (12.5%...
 Findings: none
 Limitations: none
-More: res.to_frame() has all 7 levels; res.findings, res.limitations and res.to_json() have the rest.
+More: res.to_frame() has all 6 levels; res.findings, res.limitations and res.to_json() have the rest.
 ```
 
 How masking is decided:
@@ -306,6 +307,7 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
 The MCP server reads arguments the way an MCP tool's input schema describes them, so a string with the `date-time`, `date` or `duration` format is an ISO 8601 text.
 
 - `sentinel_values` takes datetimes, dates and durations as ISO 8601 text, such as `{"sentinel_values": {"born": ["1900-01-01T00:00:00"], "wait": ["PT0S"]}}`. A string is read as one when its column holds datetimes, dates or durations and no text. A string for any other column stays text.
+- `profile_target`'s `expected_labels` reads its strings the same way for a target of dates or datetimes, such as a column of dates in a Parquet file: `{"target_column": "joined", "expected_labels": ["2024-01-01", "2024-02-01"]}`. A target of periods can't be declared over MCP.
 - A value that `detect_missing_sentinels` shows, such as `1900-01-01T00:00:00` or `P0DT0H0M0S`, can be declared exactly as shown.
 - A time zone must match the column: `"1900-01-01T00:00:00Z"` for a column without one gives `invalid_argument`, with the value to pass instead.
 
@@ -542,7 +544,7 @@ What does the target look like for this task?
 | --- | --- | --- | --- |
 | `target_column` | `str` | required | Name of the column a model learns to predict. |
 | `task` | `str` | required | What the model does with the target, never inferred from the dtype. |
-| `expected_labels` | `Sequence[str \| bool \| int \| float] \| None` | `None` | The labels the task allows, such as ['no', 'yes'] or [0, 1]: exactly 2 for binary_classification and at least 2 for multiclass_classification, each listed once; regression takes none. |
+| `expected_labels` | `Sequence[str \| bool \| int \| float \| datetime \| date \| pd.Period] \| None` | `None` | The labels the task allows, such as ['no', 'yes'] or [0, 1]: exactly 2 for binary_classification and at least 2 for multiclass_classification, each listed once; regression takes none. |
 | `rare_share` | `float \| None` | `None` | For classification, the share of the valid labels below which a class counts as rare, such as 0.05; greater than 0 and less than 1. |
 | `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as a customer number; the row IDs of labels outside expected_labels are then its values. |
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
@@ -559,12 +561,15 @@ What does the target look like for this task?
 - `infinite_values` (suspected): a regression target holds inf or -inf, which every statistic leaves out.
 - `missing_labels` (descriptive): rows have no target value.
 - `rare_classes` (descriptive): classes have a share below rare_share.
+- `missing_expected_classes` (violation): classes declared in expected_labels have no rows.
+- `case_or_space_variants` (suspected): labels of a classification target differ only by case or surrounding spaces, such as 'Yes' and 'yes ', as summarize_categorical finds them.
+- `two_value_target` (suspected): a regression target holds exactly two distinct finite values, as a binary label does, so it may be class labels coded as numbers.
 
 **Statuses:** `completed`, `insufficient_data`, `failed`
 
 #### `compute_association_matrix`
 
-`ae.compute_association_matrix(data, *, columns=None, categorical_columns=None, numeric_method='pearson', categorical_method='cramers_v_bias_corrected', max_categories=50, max_pairs=5000) -> ComputeAssociationMatrixResult`
+`ae.compute_association_matrix(data, *, columns=None, categorical_columns=None, numeric_method='pearson', categorical_method='cramers_v_bias_corrected', mixed_method='correlation_ratio_bias_corrected', max_categories=50, max_pairs=5000) -> ComputeAssociationMatrixResult`
 
 How strongly are pairs of columns associated?
 
@@ -574,6 +579,7 @@ How strongly are pairs of columns associated?
 | `categorical_columns` | `Sequence[str] \| None` | `None` | Numeric columns to treat as categorical, so that codes such as 1, 2 and 3 are compared as categories instead of correlated as numbers. |
 | `numeric_method` | `str` | `'pearson'` | The measure for two numeric columns: 'pearson', the default, Pearson's r for linear association; 'spearman', Pearson's r of the ranks, tied values sharing their mean rank, for monotonic association; or 'kendall', Kendall's tau-b, which adjusts for ties. |
 | `categorical_method` | `str` | `'cramers_v_bias_corrected'` | The measure for two categorical columns: 'cramers_v_bias_corrected', the default, Cramér's V with Bergsma's (2013) correction, which removes most of the upward bias that few rows and many levels give V; or 'cramers_v', the uncorrected V of scipy.stats.contingency.association. |
+| `mixed_method` | `str` | `'correlation_ratio_bias_corrected'` | The measure for a categorical and a numeric column: 'correlation_ratio_bias_corrected', the default, the square root of epsilon squared, Kelley's (1935) bias-adjusted share of the numeric column's variance that the categories explain, clipped at 0; or 'correlation_ratio', the plain correlation ratio eta, which rises with the number of levels even when the columns are unrelated: 40 levels in 60 rows give about 0.8 for pure noise. |
 | `max_categories` | `int` | `50` | The most distinct values a categorical column may have; a column with more is skipped with reason too_many_categories. |
 | `max_pairs` | `int` | `5000` | The most pairs the call computes, a work limit. |
 

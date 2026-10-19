@@ -1,3 +1,5 @@
+from collections import Counter
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -280,7 +282,7 @@ def test_a_binary_task_with_more_than_two_classes_is_a_violation():
 
 
 def test_labels_outside_expected_labels_are_a_violation():
-    df = pd.DataFrame({"churned": ["no", "yes", "No", "no", "unknown", "No"]})
+    df = pd.DataFrame({"churned": ["no", "yes", "n/a", "no", "unknown", "n/a"]})
 
     res = ae.profile_target(
         df,
@@ -405,7 +407,7 @@ def test_a_regression_target_of_one_infinite_value_is_constant_too():
 
 
 def test_infinite_regression_target_values_are_suspected():
-    df = pd.DataFrame({"price": [9.5, INF, 3.0, -INF]})
+    df = pd.DataFrame({"price": [9.5, INF, 3.0, 4.5, -INF]})
 
     res = ae.profile_target(df, target_column="price", task="regression")
 
@@ -581,7 +583,7 @@ def test_class_checks_on_a_regression_task_raise(options, given, them):
         ),
         (
             ["no", float("nan")],
-            "profile_target got nan in expected_labels, but NaN and infinity can't "
+            "profile_target got nan in expected_labels, but NaN, NaT and infinity can't "
             "be class labels; missing labels are counted apart, in missing_count. "
             "Leave them out of expected_labels.",
         ),
@@ -924,16 +926,18 @@ def test_masking_replaces_labels_and_row_ids_with_placeholders_but_keeps_counts(
         project=masking_project("diagnosis", "email"),
     )
 
-    # In level order: flu (3 rows), then '?', cold and covid (1 each) by code point.
+    # In level order: flu (3 rows), then '?', cold and covid (1 each) by code
+    # point, then measles, a declared class without rows.
     assert [(c.label, c.label_type, c.count, c.share) for c in filled(res.classes)] == [
         ("<masked 1>", "str", 3, 0.75),
         ("<masked 3>", "str", 1, 0.25),
+        ("<masked 5>", "str", 0, 0.0),
     ]
     assert [(u.label, u.count, u.row_ids) for u in filled(res.unexpected_labels)] == [
         ("<masked 2>", 1, ["<masked 1>"]),
         ("<masked 4>", 1, ["<masked 2>"]),
     ]
-    assert [c.label for c in filled(res.rare_classes)] == ["<masked 3>"]
+    assert [c.label for c in filled(res.rare_classes)] == ["<masked 3>", "<masked 5>"]
     # measles never occurs, so its placeholder follows the 4 labels.
     assert res.parameters["expected_labels"] == [
         "<masked 1>",
@@ -943,8 +947,8 @@ def test_masking_replaces_labels_and_row_ids_with_placeholders_but_keeps_counts(
     assert res.masking.applied is True
     assert res.masking.columns == ["diagnosis", "email"]
     frame = res.to_frame()
-    assert frame["label"].tolist() == [f"<masked {n}>" for n in (1, 2, 3, 4)]
-    assert frame["expected"].tolist() == [True, False, True, False]
+    assert frame["label"].tolist() == [f"<masked {n}>" for n in (1, 2, 3, 4, 5)]
+    assert frame["expected"].tolist() == [True, False, True, False, True]
     shown = str(res) + res.to_json() + frame.to_csv()
     raw = [*df["email"], "flu", "cold", "covid", "measles"]
     assert [value for value in raw if value in shown] == []
@@ -1142,3 +1146,441 @@ def test_a_regression_target_gets_summarize_numerics_numbers_on_any_data(df, dat
     assert res.statistics.model_dump() == numeric.model_dump()
     assert res.non_finite_count == numeric.missing_count + numeric.infinite_count
     assert res.missing_count == numeric.missing_count
+
+
+def iris_like():
+    """Setosa and versicolor rows only: virginica is a declared class without rows."""
+    return pd.DataFrame(
+        {"species": ["setosa"] * 3 + ["versicolor"] * 2},
+        index=["a", "b", "c", "d", "e"],
+    )
+
+
+SPECIES = ["setosa", "versicolor", "virginica"]
+
+
+def test_a_declared_class_without_rows_is_a_violation_and_a_class_of_count_0():
+    res = ae.profile_target(
+        iris_like(),
+        target_column="species",
+        task="multiclass_classification",
+        expected_labels=SPECIES,
+    )
+
+    assert res.status == "completed"
+    [missing] = [f for f in res.findings if f.code == "missing_expected_classes"]
+    assert missing.assessment == "violation"
+    assert missing.claim == (
+        "1 class declared in expected_labels has no rows: 'virginica'."
+    )
+    assert missing.columns == ["species"]
+    assert missing.fields == ["class_count", "classes"]
+    assert [(c.label, c.count, c.share) for c in filled(res.classes)] == [
+        ("setosa", 3, 0.6),
+        ("versicolor", 2, 0.4),
+        ("virginica", 0, 0.0),
+    ]
+    assert res.class_count == 3
+    assert res.valid_label_count == 5
+    assert res.unexpected_label_count == 0
+    assert res.minority_share == 0.0
+    assert res.majority_share == 0.6
+
+
+def test_the_imbalance_ratio_with_an_empty_class_is_null_with_a_limitation():
+    res = ae.profile_target(
+        iris_like(),
+        target_column="species",
+        task="multiclass_classification",
+        expected_labels=SPECIES,
+    )
+
+    assert res.imbalance_ratio is None
+    [limitation] = [lim for lim in res.limitations if lim.code == "too_few_values"]
+    assert limitation.fields == ["imbalance_ratio"]
+    assert limitation.reason == (
+        "1 class has no rows, so imbalance_ratio, the majority count over the "
+        "minority count, would divide by 0 and is null."
+    )
+    # Strict JSON never holds infinity.
+    assert res.to_dict()["imbalance_ratio"] is None
+    assert "Infinity" not in res.to_json()
+
+
+def test_the_text_and_the_table_show_the_empty_class():
+    res = ae.profile_target(
+        iris_like(),
+        target_column="species",
+        task="multiclass_classification",
+        expected_labels=SPECIES,
+        rare_share=0.1,
+    )
+
+    lines = str(res).splitlines()
+    assert "Classes (3 of 3 shown):" in lines
+    assert any(line.split() == ["'virginica'", "0", "0", "yes"] for line in lines)
+    assert "imbalance ratio null" in flowing(str(res))
+    frame = res.to_frame()
+    assert frame["label"].tolist() == SPECIES
+    assert frame["count"].tolist() == [3, 2, 0]
+    assert frame["expected"].tolist() == [True, True, True]
+    assert frame["rare"].tolist() == [False, False, True]
+    assert [c.label for c in filled(res.rare_classes)] == ["virginica"]
+
+
+def test_every_declared_class_with_rows_raises_no_missing_class_finding():
+    res = ae.profile_target(
+        iris_like(),
+        target_column="species",
+        task="binary_classification",
+        expected_labels=["setosa", "versicolor"],
+    )
+
+    assert "missing_expected_classes" not in [f.code for f in res.findings]
+    assert res.imbalance_ratio == 1.5
+
+
+def test_a_single_observed_class_stays_single_with_an_empty_declared_class():
+    df = pd.DataFrame({"y": ["a", "a", "a"]})
+
+    res = ae.profile_target(
+        df, target_column="y", task="binary_classification", expected_labels=["a", "b"]
+    )
+
+    assert [f.code for f in res.findings] == [
+        "single_class",
+        "missing_expected_classes",
+        "no_unexpected_labels",
+    ]
+    assert [(c.label, c.count) for c in filled(res.classes)] == [("a", 3), ("b", 0)]
+
+
+def test_several_declared_classes_without_rows_are_counted_and_listed_in_label_order():
+    df = pd.DataFrame({"y": [1, 1, 2, 2, 2]})
+
+    res = ae.profile_target(
+        df,
+        target_column="y",
+        task="multiclass_classification",
+        expected_labels=[1, 2, 9, 4, 3],
+    )
+
+    [missing] = [f for f in res.findings if f.code == "missing_expected_classes"]
+    assert missing.claim == (
+        "3 classes declared in expected_labels have no rows: 3, 4 and 9."
+    )
+    assert [c.label for c in filled(res.classes)] == [2, 1, 3, 4, 9]
+    assert res.class_count == 5
+
+
+def test_a_declared_class_that_equals_a_stored_label_has_rows():
+    df = pd.DataFrame({"y": [True, False, True]})
+
+    res = ae.profile_target(
+        df, target_column="y", task="binary_classification", expected_labels=[1, 0]
+    )
+
+    assert "missing_expected_classes" not in [f.code for f in res.findings]
+    assert [(c.label, c.count) for c in filled(res.classes)] == [(True, 2), (False, 1)]
+
+
+def test_masking_hides_the_labels_of_the_empty_declared_classes_too():
+    df = pd.DataFrame({"diagnosis": ["flu", "flu", "cold"]})
+
+    res = ae.profile_target(
+        df,
+        target_column="diagnosis",
+        task="multiclass_classification",
+        expected_labels=["flu", "cold", "measles"],
+        project=masking_project("diagnosis"),
+    )
+
+    assert [(c.label, c.count) for c in filled(res.classes)] == [
+        ("<masked 1>", 2),
+        ("<masked 2>", 1),
+        ("<masked 3>", 0),
+    ]
+    assert res.parameters["expected_labels"] == [
+        "<masked 1>",
+        "<masked 2>",
+        "<masked 3>",
+    ]
+    [missing] = [f for f in res.findings if f.code == "missing_expected_classes"]
+    assert "<masked 3>" in missing.claim
+    shown = str(res) + res.to_json() + res.to_frame().to_csv()
+    assert [raw for raw in ("flu", "cold", "measles") if raw in shown] == []
+
+
+def test_without_a_valid_label_no_declared_class_is_listed():
+    df = pd.DataFrame({"y": ["a", "b", "a"]})
+
+    res = ae.profile_target(
+        df,
+        target_column="y",
+        task="binary_classification",
+        expected_labels=["yes", "no"],
+    )
+
+    assert res.classes == []
+    assert res.class_count == 0
+    assert "missing_expected_classes" not in [f.code for f in res.findings]
+
+
+def test_a_regression_target_with_two_values_is_a_suspected_binary_label():
+    df = pd.DataFrame({"churned": [0, 1, 1, 0, 0, 1, 0, 0]})
+
+    res = ae.profile_target(df, target_column="churned", task="regression")
+
+    assert res.status == "completed"
+    [found] = res.findings
+    assert found.code == "two_value_target"
+    assert found.assessment == "suspected"
+    assert found.claim == (
+        "The target holds exactly 2 distinct values, 0 and 1, as a binary label "
+        "does; if they are classes, use binary_classification instead of regression."
+    )
+    assert found.columns == ["churned"]
+    assert found.fields == ["statistics.min", "statistics.max"]
+
+
+def test_two_values_are_found_among_the_finite_ones_only():
+    values = [2.5, 7.0, None, np.inf, 7.0, 2.5]
+    df = pd.DataFrame({"price": values})
+
+    res = ae.profile_target(df, target_column="price", task="regression")
+
+    assert "two_value_target" in [f.code for f in res.findings]
+
+
+@pytest.mark.parametrize(
+    "values",
+    [[0, 1, 2, 1], [5, 5, 5, 5], [0.5, 1.5, 1.5, 2.5, 0.5], [1.0, np.nan, np.nan]],
+)
+def test_other_regression_targets_are_not_flagged_as_two_valued(values):
+    df = pd.DataFrame({"y": values})
+
+    res = ae.profile_target(df, target_column="y", task="regression")
+
+    assert "two_value_target" not in [f.code for f in res.findings]
+
+
+def test_a_classification_task_on_two_numbers_is_not_flagged_as_two_valued():
+    df = pd.DataFrame({"y": [0, 1, 1, 0]})
+
+    res = ae.profile_target(df, target_column="y", task="binary_classification")
+
+    assert res.findings == []
+
+
+def test_labels_that_differ_only_by_case_or_spaces_are_suspected():
+    df = pd.DataFrame({"answer": ["Yes", "yes", " yes", "NO", "No", "maybe"]})
+
+    res = ae.profile_target(
+        df, target_column="answer", task="multiclass_classification"
+    )
+
+    [found] = [f for f in res.findings if f.code == "case_or_space_variants"]
+    assert found.assessment == "suspected"
+    assert found.claim == (
+        "2 groups of labels differ only by case or surrounding spaces: ' yes', "
+        "'Yes' and 'yes'; 'NO' and 'No'."
+    )
+    assert found.columns == ["answer"]
+    assert found.fields == ["class_count", "classes"]
+
+
+def test_variants_among_labels_outside_expected_labels_count_too():
+    df = pd.DataFrame({"churned": ["no", "yes", "No", "no", "yes"]})
+
+    res = ae.profile_target(
+        df,
+        target_column="churned",
+        task="binary_classification",
+        expected_labels=["no", "yes"],
+    )
+
+    [found] = [f for f in res.findings if f.code == "case_or_space_variants"]
+    assert found.claim == (
+        "1 group of labels differs only by case or surrounding spaces: 'no' and 'No'."
+    )
+    assert found.fields == ["class_count", "classes", "unexpected_labels"]
+
+
+def test_distinct_labels_are_not_variants_of_each_other():
+    res = ae.profile_target(
+        customers(), target_column="plan", task="multiclass_classification"
+    )
+
+    assert res.findings == []
+
+
+def test_masking_keeps_the_variant_labels_out_of_the_finding():
+    df = pd.DataFrame({"answer": ["Yes", "yes", "no"]})
+
+    res = ae.profile_target(
+        df,
+        target_column="answer",
+        task="multiclass_classification",
+        project=masking_project("answer"),
+    )
+
+    [found] = [f for f in res.findings if f.code == "case_or_space_variants"]
+    assert found.claim == (
+        "1 group of labels differs only by case or surrounding spaces: "
+        "<masked 1> and <masked 3>."
+    )
+    assert "Yes" not in str(res) + res.to_json()
+
+
+def test_the_new_finding_codes_are_declared_and_documented_with_their_assessments():
+    [info] = [i for i in ae.list_analyses().analyses if i.name == "profile_target"]
+    new = {"missing_expected_classes", "two_value_target", "case_or_space_variants"}
+    assert new <= set(info.finding_codes)
+    docstring = ae.profile_target.__doc__
+    assert docstring is not None
+    text = " ".join(docstring.split())
+    assert "`missing_expected_classes`: violation;" in text
+    assert "`two_value_target`: suspected;" in text
+    assert "`case_or_space_variants`: suspected;" in text
+
+
+def stamp(text, tz=None):
+    """A Timestamp, which type checkers don't see as NaT."""
+    result = pd.Timestamp(text, tz=tz)
+    assert isinstance(result, pd.Timestamp)
+    return result
+
+
+STAMPS = [stamp("2024-01-01"), stamp("2024-02-01")]
+MONTHS = [pd.Period("2024-01", "M"), pd.Period("2024-02", "M")]
+UTC_STAMPS = [stamp(text, tz="UTC") for text in ("2024-01-01", "2024-02-01")]
+
+
+@pytest.mark.parametrize(
+    ("column", "labels"),
+    [
+        (pd.Series(STAMPS * 2).astype("category"), STAMPS),
+        (pd.Series([*MONTHS, MONTHS[0]]).astype("category"), MONTHS),
+        (pd.Series([*STAMPS, STAMPS[0]], dtype=object), STAMPS),
+        (
+            pd.Series([stamp.date() for stamp in STAMPS * 2], dtype=object),
+            [stamp.date() for stamp in STAMPS],
+        ),
+        (pd.Series(UTC_STAMPS * 2).astype("category"), UTC_STAMPS),
+    ],
+    ids=[
+        "datetime-category",
+        "period-category",
+        "timestamp-objects",
+        "date-objects",
+        "datetime-tz-category",
+    ],
+)
+def test_expected_labels_can_be_datetimes_dates_and_periods(column, labels):
+    df = pd.DataFrame({"month": column})
+
+    res = ae.profile_target(
+        df,
+        target_column="month",
+        task="binary_classification",
+        expected_labels=labels,
+    )
+
+    assert res.status == "completed"
+    assert res.unexpected_labels == []
+    assert sorted(c.count for c in filled(res.classes)) == sorted(
+        Counter(column.tolist()).values()
+    )
+    assert "missing_expected_classes" not in [f.code for f in res.findings]
+    # Strict JSON holds the declared labels as text.
+    recorded = res.to_dict()["parameters"]["expected_labels"]
+    assert all(isinstance(label, str) for label in recorded)
+
+
+def test_a_datetime_label_without_rows_is_missing_and_one_outside_is_unexpected():
+    df = pd.DataFrame({"month": pd.Series(STAMPS * 2).astype("category")})
+    other = stamp("2024-03-01")
+
+    res = ae.profile_target(
+        df,
+        target_column="month",
+        task="multiclass_classification",
+        expected_labels=[STAMPS[0], other],
+    )
+
+    assert [(u.label, u.count) for u in filled(res.unexpected_labels)] == [
+        (str(STAMPS[1]), 2)
+    ]
+    assert [(c.label, c.count) for c in filled(res.classes)] == [
+        (str(STAMPS[0]), 2),
+        (str(other), 0),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("column", "labels", "what"),
+    [
+        (
+            pd.Series(STAMPS * 2).astype("category"),
+            ["2024-01-01", "2024-02-01"],
+            "datetimes without a time zone",
+        ),
+        (
+            pd.Series([*MONTHS, MONTHS[0]]).astype("category"),
+            ["2024-01", "2024-02"],
+            "Period values",
+        ),
+        (pd.Series([*MONTHS, MONTHS[0]]).astype("category"), [1, 2], "Period values"),
+    ],
+    ids=["text-for-datetimes", "text-for-periods", "numbers-for-periods"],
+)
+def test_labels_the_target_cant_hold_raise_without_speaking_of_sentinel_values(
+    column, labels, what
+):
+    df = pd.DataFrame({"month": column})
+
+    with pytest.raises(InvalidArgumentError) as caught:
+        ae.profile_target(
+            df,
+            target_column="month",
+            task="binary_classification",
+            expected_labels=labels,
+        )
+
+    message = str(caught.value)
+    assert "sentinel" not in message
+    assert what in message
+    assert "expected_labels" in message
+    assert caught.value.code == "invalid_argument"
+
+
+def test_a_text_label_for_a_datetime_target_names_the_datetime_it_likely_meant():
+    df = pd.DataFrame({"month": pd.Series(STAMPS * 2).astype("category")})
+
+    with pytest.raises(InvalidArgumentError) as caught:
+        ae.profile_target(
+            df,
+            target_column="month",
+            task="binary_classification",
+            expected_labels=["2024-01-01", "2024-02-01"],
+        )
+
+    assert (
+        "Did you mean pd.Timestamp('2024-01-01 00:00:00') and "
+        "pd.Timestamp('2024-02-01 00:00:00')?" in str(caught.value)
+    )
+
+
+def test_nat_cant_be_an_expected_label():
+    df = pd.DataFrame({"month": pd.Series(STAMPS * 2).astype("category")})
+
+    with pytest.raises(InvalidArgumentError) as caught:
+        ae.profile_target(
+            df,
+            target_column="month",
+            task="binary_classification",
+            expected_labels=[STAMPS[0], pd.NaT],  # ty: ignore[invalid-argument-type]  # NaT as a label is the test
+        )
+
+    assert "NaT" in str(caught.value)
+    assert "can't be class labels" in str(caught.value)

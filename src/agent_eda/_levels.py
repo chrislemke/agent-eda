@@ -13,7 +13,7 @@ The order never follows hash or set iteration order.
 
 import heapq
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
@@ -84,6 +84,25 @@ class Levels:
         """The labels, or those at the given positions, as Python objects."""
         values = self.values if positions is None else self.values[positions]
         return np.asarray(values, dtype=object)
+
+    def with_empty(self, labels: Sequence[object]) -> "Levels":
+        """These levels followed by one level of count 0 for each of the labels.
+
+        The labels are values no row holds, such as declared classes without
+        rows. They take part in the level order like any other level, after
+        the levels with rows.
+        """
+        if not labels:
+            return self
+        values = self.values.append(pd.Index(list(labels)))
+        return replace(
+            self,
+            values=values,
+            counts=np.concatenate([self.counts, np.zeros(len(labels), np.int64)]),
+            sort_values=_numpy_values(values),
+            text=_all_text(values),
+            unused_categories=[],
+        )
 
     def subset(self, positions: np.ndarray) -> "Levels":
         """The levels at the given positions, in that order, without categories."""
