@@ -363,11 +363,29 @@ def _sizes(objects: np.ndarray) -> np.ndarray:
 
 
 def _size(value: object) -> int:
-    if type(value) is str and not value.isascii():
+    if isinstance(value, str) and not value.isascii():
         widest = ord(max(value))
         width = 1 if widest < 0x100 else 2 if widest < 0x10000 else 4
-        return _TEXT_HEADER + (len(value) + 1) * width
+        header = _text_header(type(value))
+        if header is not None:
+            return header + (len(value) + 1) * width
     return sys.getsizeof(value)
+
+
+def _text_header(kind: type[str]) -> int | None:
+    """The bytes a non-ASCII str of this type takes besides its characters.
+
+    A str keeps its characters inside the object. A subclass such as np.str_
+    keeps them in a separate buffer, so its header is that of an empty one made
+    here, which holds no UTF-8 copy, less its terminating character. None for
+    a subclass that can't be made from "".
+    """
+    if kind is str:
+        return _TEXT_HEADER
+    try:
+        return sys.getsizeof(kind.__new__(kind, "")) - 1
+    except TypeError:
+        return None
 
 
 # The bytes a non-ASCII str takes besides its characters, measured on one made

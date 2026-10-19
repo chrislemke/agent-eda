@@ -182,6 +182,8 @@ A mistake in a call, such as a misspelled column or an unknown option, raises a 
 
 Every analysis decides which values are equal the same way, as pandas does, so `1`, `1.0` and `True` are one value. Text that holds a NUL character (`"\x00"`) stays apart from text that is equal up to it, as Python's `==` has it. Values pandas can't hash, such as lists, are the one place analyses differ, each as its docstring says: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
+Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record), and an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, printed text and `to_frame()` tables whatever `PYTHONHASHSEED` is; `to_frame()` keeps a set as the object it is, so write such a table with its own cells in mind, since pandas' `to_csv()` would list a set in hash order. A test runs every analysis in two processes with different hash seeds and compares them.
+
 Concurrent calls from several threads are safe. An analysis captures the warnings it raises under one lock, so captures run one at a time, each result gets only its own `numerical_warning` limitation, and the caller's warning filters and `warnings.showwarning` stay as they were.
 
 ## Projects and masking

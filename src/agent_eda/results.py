@@ -1,10 +1,8 @@
 """Result classes returned by agent-eda analyses."""
 
-import datetime as dt
 import difflib
 import itertools
 import json
-import math
 import typing
 from collections.abc import Sequence
 from typing import Annotated, Any, Literal, Self
@@ -27,6 +25,7 @@ from pydantic import (
 from agent_eda import _text
 from agent_eda._annotations import TypeName, python_literal
 from agent_eda._levels import Levels, level_rows, levels_frame
+from agent_eda._written_form import row_id_json
 from agent_eda.errors import InvalidArgumentError
 
 Status = Literal[
@@ -147,42 +146,6 @@ _ENTRIES = _Cap(100)
 _LISTS_INSIDE = _Cap(100, each_list=True, whole=("data",))
 
 _RECORD = "agent_eda_record"
-
-
-def row_id_json(value: object) -> JsonValue:
-    """A row ID as JSON, the same in every process and with every library version.
-
-    Timestamps, dates and times become ISO 8601 strings, durations ISO 8601
-    durations, MultiIndex tuples lists, and NumPy scalars Python numbers.
-    Missing values become null, and infinite floats the strings 'inf' and
-    '-inf'. A set becomes a list ordered by its items' JSON, not by Python's
-    hash order, and a dict a JSON object. Anything else, such as a Period or a
-    Decimal, becomes its str().
-    """
-    if isinstance(value, tuple | list):
-        return [row_id_json(item) for item in value]
-    if isinstance(value, set | frozenset):
-        items = [row_id_json(item) for item in value]
-        return sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
-    if isinstance(value, dict):
-        return {str(key): row_id_json(item) for key, item in value.items()}
-    if pd.api.types.is_scalar(value) and pd.isna(value):
-        return None
-    if isinstance(value, bool | np.bool_):
-        return bool(value)
-    if isinstance(value, dt.datetime | dt.date | dt.time):
-        return value.isoformat()
-    if isinstance(value, np.datetime64):
-        return pd.Timestamp(value).isoformat()
-    # Before the integers: NumPy's timedelta64 is one of its integer types.
-    if isinstance(value, dt.timedelta | np.timedelta64):
-        return pd.Timedelta(value).isoformat()
-    if isinstance(value, int | np.integer):
-        return int(value)
-    if isinstance(value, float | np.floating):
-        number = float(value)
-        return number if math.isfinite(number) else repr(number)
-    return str(value)
 
 
 # A row ID: an index label, or a value of the column id_column names. The result
