@@ -3,6 +3,7 @@
 import contextlib
 import importlib
 import platform
+import threading
 import warnings
 from collections import Counter
 from collections.abc import Generator, Hashable, Sequence
@@ -70,6 +71,21 @@ def overall_status(
     )
 
 
+# warnings.catch_warnings swaps the process's warning filters and showwarning
+# hook, so two captures that overlap in time restore each other's state and
+# leave the caller's changed. Every capture runs under this one lock. It is
+# reentrant because a capture can start inside another, such as a numeric
+# summary inside an analysis.
+_CAPTURE_LOCK = threading.RLock()
+
+
+@contextlib.contextmanager
+def capture_warnings() -> Generator[list[warnings.WarningMessage], None, None]:
+    """Record the warnings raised in the block, one capture at a time process-wide."""
+    with _CAPTURE_LOCK, warnings.catch_warnings(record=True) as caught:
+        yield caught
+
+
 @contextlib.contextmanager
 def watch_all_warnings() -> Generator[list[warnings.WarningMessage], None, None]:
     """Record every warning raised in the block instead of showing it.
@@ -77,7 +93,7 @@ def watch_all_warnings() -> Generator[list[warnings.WarningMessage], None, None]
     NumPy's floating-point errors warn inside the block, whatever numpy.seterr
     says outside it, so they are recorded too.
     """
-    with warnings.catch_warnings(record=True) as caught:
+    with capture_warnings() as caught:
         warnings.simplefilter("always")
         with np.errstate(all="warn", under="ignore"):
             yield caught
