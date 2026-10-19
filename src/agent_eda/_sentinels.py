@@ -140,6 +140,9 @@ def holds(series: pd.Series) -> Holds:
     """What the column's values can be: from its dtype, or its values if objects."""
     dtype = series.dtype
     shown = str(dtype)
+    if _is_sparse_of_values(dtype):
+        # Judged by its values, as the plain column of them is.
+        return dataclasses.replace(holds(series.sparse.to_dense()), dtype=shown)
     if isinstance(dtype, pd.CategoricalDtype):
         inner = holds(pd.Series(dtype.categories))
         return dataclasses.replace(
@@ -177,6 +180,16 @@ def holds(series: pd.Series) -> Holds:
             decimals=_holds_decimals(series, present),
         )
     return Holds(shown, frozenset({"other"}), "values no sentinel value can equal")
+
+
+def _is_sparse_of_values(dtype: object) -> bool:
+    """Whether the dtype is sparse text, objects, datetimes or durations.
+
+    Sparse numbers and booleans are read as they are; the others are kind
+    "other" to the analyses that read values, but a declared value can equal
+    what they store, so sentinels read them as the dense column of that dtype.
+    """
+    return isinstance(dtype, pd.SparseDtype) and dtype.kind not in "biuf"
 
 
 def _numbers(dtype: object, shown: str) -> Holds:
@@ -744,6 +757,8 @@ def matches(series: pd.Series, value: DeclaredValue, missing: np.ndarray) -> np.
     family match: Python's True == 1 doesn't count.
     """
     dtype = series.dtype
+    if _is_sparse_of_values(dtype):
+        return matches(series.sparse.to_dense(), value, missing)
     if isinstance(dtype, pd.CategoricalDtype):
         # Match the categories, then find the rows that hold a matching one.
         categories = pd.Series(dtype.categories)
@@ -754,7 +769,10 @@ def matches(series: pd.Series, value: DeclaredValue, missing: np.ndarray) -> np.
         return np.isin(codes, hits) if hits.size else np.zeros(len(codes), bool)
     if is_arrow_dictionary(dtype):
         return matches(pd.Series(categorical_array(series)), value, missing)
-    if isinstance(dtype, np.dtype) and dtype.kind == "O":
+    # Text stored as Python objects compares through NumPy, which drops the NUL
+    # characters ending a string, in pandas too.
+    python_text = isinstance(dtype, pd.StringDtype) and dtype.storage == "python"
+    if (isinstance(dtype, np.dtype) and dtype.kind == "O") or python_text:
         return _object_matches(series, value, missing)
     # pyarrow decimals compare with a float inexactly, as floats themselves.
     decimals = column_kind(dtype) == "numeric" and dtype.kind == "O"
@@ -783,11 +801,11 @@ def _object_matches(
     kind = family(value)
     try:
         # NumPy compares objects with Python's ==, faster than pandas does.
-        equal = np.asarray(candidates == value, dtype=bool)
+        equal = np.asarray(candidates == _as_object(value), dtype=bool)
         if isinstance(value, float) and not value.is_integer():
             # Decimals equal to the number as written, which Python's
             # Decimal('0.1') == 0.1 says aren't.
-            equal |= np.asarray(candidates == _decimal(value), dtype=bool)
+            equal |= np.asarray(candidates == _as_object(_decimal(value)), dtype=bool)
     except (TypeError, ValueError):
         # A value such as a NumPy array compares to an array, not a bool.
         equal = np.fromiter(
@@ -802,6 +820,17 @@ def _object_matches(
     found = np.zeros(len(objects), dtype=bool)
     found[hits[same]] = True
     return found
+
+
+def _as_object(value: DeclaredValue) -> np.ndarray:
+    """The value as a 0-d array of objects.
+
+    NumPy turns a string into its own text array otherwise, and drops the NUL
+    characters at the end of it, so '\\x00' would equal no text.
+    """
+    boxed = np.empty((), dtype=object)
+    boxed[()] = value
+    return boxed
 
 
 def _equal(item: object, value: DeclaredValue) -> bool:

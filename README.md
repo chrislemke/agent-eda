@@ -188,7 +188,7 @@ Equal values are decided as pandas does: `1`, `1.0` and `True` are one value. Na
 
 `find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats stay candidates.
 
-Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, are "other": the defaults leave them out, and naming one raises `ColumnTypeError`.
+Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, are "other": the defaults leave them out, and naming one raises `ColumnTypeError` (sentinels still match them).
 
 `infer_column_semantics` and `validate_column_types` read text by the same rules:
 

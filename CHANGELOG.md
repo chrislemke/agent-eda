@@ -59,6 +59,9 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 
 - `summarize_categorical` with a `top_n` below the level count could drop text labels that hold a NUL character.
 - `infer_column_semantics` ranks candidates on exact fractions, so scores that are equal on paper tie by the documented order. A column whose categorical and text scores are both 3/5 now infers `categorical`; it inferred `text` because float arithmetic made the text score 0.6000000000000001.
+- `profile_missing_values` and `detect_missing_sentinels` refused any declared value for a sparse column of text, objects, datetimes or durations ("holds values no sentinel value can equal"); they now match it as they do the plain column of those values.
+- `profile_missing_values` and `detect_missing_sentinels` counted no match for a declared text that ends in a NUL character (such as `"\x00"`) in a text column of Python objects, because NumPy dropped the character; they now count it.
+- A `project=` given as a path (`project="project.toml"`) raises `InvalidArgumentError` with the fix `project=ae.Project.load('project.toml')`. An MCP call that passes `project` to a tool that takes `project_path` is told to use `project_path` instead of "takes no project".
 
 ### Texts that matched the code
 

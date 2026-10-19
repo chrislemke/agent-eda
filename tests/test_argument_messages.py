@@ -155,6 +155,20 @@ MISTAKES = {
         "invalid_call",
         ["has no argument 'target'", "Did you mean 'target_column'?"],
     ),
+    "project-given-as-a-path-string": (
+        lambda: wrong.summarize_categorical(DF, project="project.toml"),
+        "invalid_argument",
+        [
+            "summarize_categorical got 'project.toml' for project",
+            "a Project, not a path",
+            "project=ae.Project.load('project.toml')",
+        ],
+    ),
+    "project-given-as-a-path-object": (
+        lambda: wrong.summarize_categorical(DF, project=pathlib.Path("project.toml")),
+        "invalid_argument",
+        ["got a PosixPath for project", "project=ae.Project.load('project.toml')"],
+    ),
     "project-field-misspelled-in-case-only": (
         lambda: wrong.Project(NAME="x"),
         "invalid_call",

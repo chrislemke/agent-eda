@@ -411,15 +411,20 @@ def test_data_without_columns_is_not_applicable():
     assert limitation.fields == ["missing_share"]
 
 
-def pandas_missing(column: pd.Series) -> int:
-    """What isna() counts, plus the NaN that an extension float column stores."""
-    stored = 0
+def pandas_missing_mask(column: pd.Series) -> np.ndarray:
+    """What isna() marks, plus the NaN that an extension float column stores."""
+    missing = column.isna().to_numpy(dtype=bool)
     if isinstance(column.dtype, pd.api.extensions.ExtensionDtype) and (
         column.dtype.kind == "f"
     ):
         floats = column.to_numpy(dtype="float64", na_value=np.nan)
-        stored = int(np.isnan(floats).sum()) - int(column.isna().sum())
-    return int(column.isna().sum()) + stored
+        missing = missing | np.isnan(floats)
+    return missing
+
+
+def pandas_missing(column: pd.Series) -> int:
+    """How many values isna() marks, plus the NaN that an extension float column stores."""
+    return int(pandas_missing_mask(column).sum())
 
 
 @pytest.mark.parametrize("frame", ["every kind", "one row", "all missing", "constant"])
@@ -436,7 +441,10 @@ def test_native_missing_counts_match_pandas_isna_for_every_dtype(frame):
 def test_counts_per_column_and_per_row_agree_with_pandas(df):
     res = ae.profile_missing_values(df)
 
-    missing = df.isna().to_numpy()
+    missing = np.column_stack(
+        [pandas_missing_mask(df[name]) for name in df.columns]
+        or [np.zeros(len(df), dtype=bool)]
+    )[:, : len(df.columns)]
     assert [e.native_missing_count for e in res.columns.values()] == [
         int(n) for n in missing.sum(axis=0)
     ]
@@ -587,6 +595,52 @@ def test_declared_values_match_in_every_dtype(values, declared, count):
 
     assert res.columns["x"].sentinel_count == count
     assert res.columns["x"].native_missing_count == values.isna().sum()
+
+
+@pytest.mark.parametrize(
+    ("values", "declared"),
+    [
+        (np.array(["N/A", "", "a", None, ""], dtype=object), ""),
+        (
+            np.array([dt.date(1900, 1, 1), None, dt.date(2000, 1, 1)], dtype=object),
+            dt.date(1900, 1, 1),
+        ),
+    ],
+    ids=["text", "dates"],
+)
+def test_a_sparse_object_column_takes_the_declared_values_a_plain_one_does(
+    values, declared
+):
+    plain = pd.DataFrame({"x": pd.Series(values)})
+    sparse = pd.DataFrame({"x": pd.Series(pd.arrays.SparseArray(values))})
+
+    expected = ae.profile_missing_values(plain, sentinel_values={"x": [declared]})
+    res = ae.profile_missing_values(sparse, sentinel_values={"x": [declared]})
+    found = ae.detect_missing_sentinels(sparse, sentinel_values={"x": [declared]})
+
+    assert expected.columns["x"].sentinel_count == 1 + (declared == "")
+    assert res.columns["x"].sentinel_count == expected.columns["x"].sentinel_count
+    assert res.columns["x"].missing_count == expected.columns["x"].missing_count
+    assert found.status == "completed"
+
+
+@pytest.mark.parametrize("dtype", [object, "string"])
+def test_a_declared_value_ending_in_a_nul_character_matches_text_that_holds_it(dtype):
+    df = pd.DataFrame({"x": pd.Series(["\x00", "a\x00", "a", None], dtype=dtype)})
+
+    res = ae.profile_missing_values(df, sentinel_values={"x": ["\x00", "a\x00"]})
+
+    assert [(v.value, v.count) for v in res.columns["x"].sentinel_values] == [
+        ("\x00", 1),
+        ("a\x00", 1),
+    ]
+
+
+def test_a_sparse_object_column_still_refuses_a_value_it_cannot_hold():
+    df = pd.DataFrame({"x": pd.arrays.SparseArray(np.array(["a", None], dtype=object))})
+
+    with pytest.raises(InvalidArgumentError, match="'x' holds text"):
+        ae.profile_missing_values(df, sentinel_values={"x": [-999]})
 
 
 # Text dtypes: object, python and pyarrow strings, and what pandas infers for

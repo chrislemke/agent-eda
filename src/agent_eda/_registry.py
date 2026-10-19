@@ -579,7 +579,13 @@ def unknown_name_message(
     shows no raw values, so there is nothing to mask.
     """
     listed = f"Allowed: {', '.join(allowed)}."
-    if noun == "argument" and name in _MASKING_ARGUMENTS and owner in _REGISTRY:
+    takes_masking = bool(_MASKING_ARGUMENTS & set(allowed))
+    if (
+        noun == "argument"
+        and name in _MASKING_ARGUMENTS
+        and owner in _REGISTRY
+        and not takes_masking
+    ):
         return (
             f"{owner} takes no {name}: it shows no raw values, so there is nothing "
             f"to mask. Leave {name} out. {listed}"
@@ -645,10 +651,24 @@ def invalid_message(
         ]
         closest = closest_names(value, choices)[:1] if isinstance(value, str) else []
         detail = f" Did you mean {closest[0]!r}?" if closest else ""
+    if name == "project" and isinstance(value, str | os.PathLike):
+        rule, detail = (
+            "project must be a Project, not a path",
+            _load_fix(value, surface),
+        )
     return (
         f"{owner} got {_value_text(value, surface)} {where}, but {rule}.{detail} "
         f"{see_every(owner, noun, surface)}"
     )
+
+
+def _load_fix(path: str | os.PathLike[str], surface: Surface) -> str:
+    """The fix for a path given where a Project belongs: load the file."""
+    if surface == "mcp":
+        return " Pass the path of the project file as project_path instead."
+    text = os.fspath(path)
+    shown = repr(text) if len(text) <= 80 else "path"
+    return f" Load the file first, as project=ae.Project.load({shown})."
 
 
 def _own_error(problem: Any) -> AgentEDAError | None:
