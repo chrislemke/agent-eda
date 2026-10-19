@@ -247,7 +247,7 @@ def test_a_path_that_looks_like_a_url_is_a_local_path(tmp_path, monkeypatch, dat
     [
         ("latin1.csv", "city\nZürich\n".encode("latin-1"), "can't decode byte"),
         ("empty.csv", b"", "No columns to parse from file"),
-        ("ragged.tsv", b"a\tb\n1\t2\n3\t4\t5\t6\n", "Expected 2 fields in line 3"),
+        ("quoted.tsv", b'a\tb\n1\t"2\n', "EOF inside string"),
         ("plain.csv.gz", b"a,b\n1,2\n", "Not a gzipped file"),
         ("text.parquet", b"a,b\n1,2\n", "Parquet"),
     ],

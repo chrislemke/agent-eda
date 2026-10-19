@@ -227,8 +227,16 @@ def shop_csv(tmp_path):
 
 
 def read(path):
-    """The DataFrame as the server reads the file: only an empty field is missing."""
-    return pd.read_csv(path, keep_default_na=False, na_values=[""])
+    """The DataFrame the server reads from the file, built by hand."""
+    text = path.read_text()
+    if text == CSV:
+        return pd.DataFrame(
+            {"city": ["Oslo", "Lyon", "Oslo"], "score": [1.5, 2.5, 4.0]}
+        )
+    assert text == "city,score\n"  # a header and no rows: every column is object
+    return pd.DataFrame(
+        {"city": pd.Series(dtype=object), "score": pd.Series(dtype=object)}
+    )
 
 
 async def call(name, arguments):

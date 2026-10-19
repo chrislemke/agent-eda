@@ -478,8 +478,37 @@ def write(path, text):
 
 
 def read(path):
-    """The DataFrame the server reads from a CSV file."""
-    return pd.read_csv(path, keep_default_na=False, na_values=[""])
+    """The DataFrame the server reads from this file's CSV text, built by hand."""
+    frames = {
+        CSV: pd.DataFrame(
+            {
+                "customer": ["ann@example.org", "bo@example.org", "ann@example.org"],
+                "plan": ["pro", "pro", "team"],
+                "spend": [10, 20, 30],
+            }
+        ),
+        PEOPLE: pd.DataFrame(
+            {
+                "email": [
+                    "ann@example.org",
+                    "bo@example.org",
+                    "cy@example.org",
+                    "ann@example.org",
+                    "dee@example.org",
+                ],
+                "segment": [
+                    "gold-tier",
+                    "silver-tier",
+                    "no-tier",
+                    "gold-tier",
+                    "silver-tier",
+                ],
+                "plan": ["pro", "pro", "team", "pro", "team"],
+                "spend": [10, -999, 30, 10, -999],
+            }
+        ),
+    }
+    return frames[path.read_text()]
 
 
 # The console script installed next to this interpreter.

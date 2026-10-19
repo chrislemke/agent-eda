@@ -302,7 +302,13 @@ def data_file(tmp_path, frame):
     if frame is None:
         path = tmp_path / "shop.csv"
         path.write_text(CSV)
-        return path, pd.read_csv(path, keep_default_na=False, na_values=[""])
+        return path, pd.DataFrame(
+            {
+                "order": ["A1", "A2", "A3", "A4"],
+                "city": ["Oslo", "Lyon", "Oslo", "Oslo"],
+                "score": [1.5, 2.5, None, 4.0],
+            }
+        )
     path = tmp_path / "shop.parquet"
     frame.to_parquet(path)
     with warnings.catch_warnings():

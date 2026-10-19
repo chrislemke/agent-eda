@@ -387,8 +387,35 @@ def write(path, text):
 
 
 def read(path):
-    """The DataFrame as the server reads the file: only an empty field is missing."""
-    return pd.read_csv(path, keep_default_na=False, na_values=[""])
+    """The DataFrame the server reads from this file's CSV text, built by hand.
+    Only an empty field is missing."""
+    frames = {
+        CSV: pd.DataFrame(
+            {
+                "city": ["Oslo", "Lyon", "Oslo", "Rome"],
+                "score": [1.5, None, 4.0, 2.5],
+                "visits": [3, 7, 2, 5],
+            }
+        ),
+        MIXED_CSV: pd.DataFrame(
+            {
+                "order_id": [1, 2, 3, 4, 5],
+                "city": ["Oslo", "Lyon", "Oslo", "N/A", "Lyon"],
+                "score": [1.5, None, 2.5, -999.0, 4.0],
+                "joined": [
+                    "2024-01-03",
+                    "2024-02-11",
+                    "2024-03-07",
+                    "2024-04-21",
+                    float("nan"),
+                ],
+                "member": [True, False, True, False, True],
+                "plan": ["basic", "pro", "basic", "pro", "basic"],
+            }
+        ),
+        "score\n1.5\n2.5\n": pd.DataFrame({"score": [1.5, 2.5]}),
+    }
+    return frames[path.read_text()]
 
 
 def read_back(path):
