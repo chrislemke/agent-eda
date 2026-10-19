@@ -418,19 +418,27 @@ def pointed_at(record: dict[str, Any]) -> set[str]:
 
 
 def capping_problems(
-    node: object, path: str, pointed: set[str] | None = None
+    node: object,
+    path: str,
+    pointed: set[str] | None = None,
+    top_n: int | None = None,
 ) -> list[str]:
     """Each list or mapping that exceeds its cap, or whose total doesn't fit.
 
     A capped list or mapping sits next to `<name>_total` with the full count.
-    Whatever is at its cap is a cut or a coincidence, so it needs its total.
+    Whatever is at its cap is a cut or a coincidence, so it needs its total. A
+    list the caller's top_n cut is short of its total by their choice, which the
+    record's parameters state, so it may hold as few as top_n entries.
     """
     problems = []
     if pointed is None and isinstance(node, dict):
         pointed = pointed_at(node)
+        parameters = node.get("parameters")
+        if isinstance(parameters, dict):
+            top_n = parameters.get("top_n")
     if isinstance(node, list):
         for position, item in enumerate(node):
-            problems += capping_problems(item, f"{path}[{position}]", set())
+            problems += capping_problems(item, f"{path}[{position}]", set(), top_n)
     elif isinstance(node, dict):
         for key, value in node.items():
             where = f"{path}.{key}"
@@ -446,7 +454,8 @@ def capping_problems(
                     problems.append(f"{where} has {len(value)} entries, over {cap}")
                 if len(value) == cap and total is None:
                     problems.append(f"{where} is at its cap of {cap} without a total")
-                if total is not None and total > len(value) and len(value) < cap:
+                floor = cap if top_n is None else min(cap, top_n)
+                if total is not None and total > len(value) and len(value) < floor:
                     problems.append(
                         f"{where} holds {len(value)} of {total} entries, short of {cap}"
                     )
@@ -454,7 +463,7 @@ def capping_problems(
                 shown = node.get(key.removesuffix("_total"))
                 if isinstance(shown, list | dict) and value < len(shown):
                     problems.append(f"{where} is {value}, below the {len(shown)} shown")
-            problems += capping_problems(value, where, set())
+            problems += capping_problems(value, where, set(), top_n)
     return problems
 
 

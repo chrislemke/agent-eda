@@ -85,6 +85,17 @@ MISTAKES = {
             "Leave mask_sensitive out",
         ],
     ),
+    "project-given-in-place-of-project-path": (
+        "summarize_categorical",
+        {"project": "project.toml"},
+        "csv",
+        "invalid_call",
+        [
+            "summarize_categorical has no argument 'project'",
+            "Did you mean 'project_path'?",
+            "project_path",
+        ],
+    ),
     "argument-misspelled-in-case-only": (
         "summarize_numeric",
         {"COLUMNS": ["score"]},
