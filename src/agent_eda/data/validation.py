@@ -1,29 +1,24 @@
 """Analyses of what kind of values each column holds, and declarations of it."""
 
-import inspect
-import math
-import re
 import typing
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from fractions import Fraction
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Self
+from typing import Annotated, Any, Literal
 
 import numpy as np
 import pandas as pd
-from pydantic import Field, GetJsonSchemaHandler, model_validator
+from pydantic import GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema
 
 from agent_eda._columns import (
     Column,
-    ColumnKind,
     any_column,
     column_kind,
     select_columns,
 )
-from agent_eda._declarations import Declaration
-from agent_eda._docstring import without_examples
+from agent_eda._declarations import ColumnSpec
 from agent_eda._findings import (
     ASSESSMENTS,
     all_missing_columns,
@@ -31,24 +26,12 @@ from agent_eda._findings import (
     mixed_value_types,
 )
 from agent_eda._levels import (
-    Levels,
-    count_levels,
     ordered,
     record_label,
     type_name,
-    value_types,
 )
 from agent_eda._masking import MaskedLevels, mask_levels, mask_values, resolve_masking
-from agent_eda._numeric import stored_nan_count, stored_nan_limitations
-from agent_eda._parse import (
-    VALUE_KINDS,
-    ValueKind,
-    is_whole,
-    is_zero_or_one,
-    read_datetime_format,
-    read_texts,
-    value_kind,
-)
+from agent_eda._numeric import stored_nan_limitations
 from agent_eda._registry import (
     analysis,
 )
@@ -75,10 +58,9 @@ from agent_eda._text import (
     join_labels,
     plural,
 )
-from agent_eda._values import is_constant, value_codes
-from agent_eda._wording import Pass, Words, mistake
+from agent_eda._values import is_constant
+from agent_eda._wording import Pass, mistake
 from agent_eda._written_form import row_id_list
-from agent_eda.data._conversions import Check, check_column
 from agent_eda.data._validation_results import (
     ColumnEvidence,
     InferColumnSemanticsColumn,
@@ -89,193 +71,9 @@ from agent_eda.data._validation_results import (
     ValidateColumnTypesResult,
     ValueTypeCounts,
 )
-from agent_eda.errors import AgentEDAError, InvalidArgumentError
+from agent_eda.data._value_reading import Check, ValueReading, read_values
+from agent_eda.errors import InvalidArgumentError
 from agent_eda.project import Project
-
-_LOGICAL_TYPES = typing.get_args(LogicalType)
-
-# The directives datetime.strptime knows, as %Y or %:z; %% is a literal %.
-_DIRECTIVE = re.compile(r"%(:z|.?)", re.DOTALL)
-_KNOWN_DIRECTIVES = frozenset("aAwdbBmyYHIpMSfzZjUWcxXGuV%") | {":z"}
-
-
-class ColumnSpec(Declaration):
-    """What a column is declared to hold: its logical type and more.
-
-    A declared schema maps column names to a ColumnSpec or to a logical type
-    alone, which is short for a ColumnSpec with only logical_type. Fields other
-    than logical_type are optional, and None declares nothing, so no check
-    depends on them. An invalid spec is rejected with the code invalid_argument.
-
-    Examples:
-        >>> import agent_eda as ae
-        >>> ae.ColumnSpec("datetime", nullable=False, datetime_format="%d/%m/%Y")
-        ColumnSpec(logical_type='datetime', nullable=False, datetime_format='%d/%m/%Y')
-    """
-
-    _example = "ae.ColumnSpec('integer', nullable=False)"
-    _field_types: ClassVar[dict[str, object]] = {
-        "logical_type": LogicalType,
-        "nullable": bool | None,
-        "datetime_format": str | None,
-    }
-
-    logical_type: LogicalType = Field(
-        description="What the values mean: 'boolean', 'integer', 'float', "
-        "'categorical', 'text', 'datetime' or 'timedelta'."
-    )
-    nullable: bool | None = Field(
-        default=None,
-        description="Whether the column may hold missing values; None, the "
-        "default, declares nothing.",
-    )
-    datetime_format: str | None = Field(
-        default=None,
-        description="For logical_type 'datetime' only: the datetime.strptime "
-        "format of datetimes stored as text, such as '%d/%m/%Y'. None, the "
-        "default, declares none, so only ISO 8601 text reads as a datetime. "
-        "infer_column_semantics and validate_column_types both read text in "
-        "this format as datetimes. Directives that depend on the locale, such "
-        "as %b and %p, read in the process's locale, so a process with another "
-        "locale can count differently.",
-    )
-
-    if TYPE_CHECKING:
-
-        def __init__(
-            self,
-            logical_type: LogicalType,
-            *,
-            nullable: bool | None = None,
-            datetime_format: str | None = None,
-        ) -> None: ...
-
-    else:
-
-        def __init__(self, *args: Any, **fields: Any) -> None:
-            if len(args) > 1:
-                raise InvalidArgumentError(
-                    "ColumnSpec takes only logical_type by position; pass the "
-                    "other fields by keyword, such as "
-                    "ae.ColumnSpec('integer', nullable=False).",
-                    code="invalid_call",
-                )
-            if args:
-                if "logical_type" in fields:
-                    raise InvalidArgumentError(
-                        "ColumnSpec got logical_type both by position and by "
-                        "keyword; pass it once.",
-                        code="invalid_call",
-                    )
-                fields = {"logical_type": args[0], **fields}
-            super().__init__(**fields)
-
-    @classmethod
-    def __get_pydantic_json_schema__(
-        cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler
-    ) -> JsonSchemaValue:
-        """The JSON Schema, described without Examples:, which is Python.
-
-        pydantic 2.7 adds the docstring after json_schema_extra runs, so the
-        description is cut here, where every version has it.
-        """
-        schema = handler(core_schema)
-        without_examples(handler.resolve_ref_schema(schema))
-        return schema
-
-    @classmethod
-    def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> Self:
-        """Build a ColumnSpec from a dict of its fields, as JSON gives one."""
-        if not isinstance(obj, Mapping | ColumnSpec):
-            raise InvalidArgumentError(
-                "ColumnSpec.model_validate takes a dict of the fields, such as "
-                "{'logical_type': 'integer', 'nullable': False}, but got a "
-                f"{type(obj).__name__}. ae.ColumnSpec('integer') builds one from "
-                "a logical type."
-            )
-        return super().model_validate(obj, *args, **kwargs)
-
-    @classmethod
-    def _rejected(cls, fields: Mapping[str, Any], problems: list[Any]) -> AgentEDAError:
-        """A spec without a logical_type says how to write one for the surface."""
-        first = problems[0]
-        if (
-            first["type"] == "missing"
-            and not any(
-                isinstance(problem.get("ctx", {}).get("error"), AgentEDAError)
-                for problem in problems
-            )
-            and not any(problem["type"] == "extra_forbidden" for problem in problems)
-        ):
-            allowed = join_alternatives([repr(t) for t in _LOGICAL_TYPES])
-            return mistake(
-                InvalidArgumentError,
-                f"ColumnSpec needs logical_type, one of {allowed}, such as ",
-                _SPEC_EXAMPLE,
-                ".",
-                code="invalid_call",
-            )
-        return super()._rejected(fields, problems)
-
-    @model_validator(mode="after")
-    def _check_datetime_format(self) -> Self:
-        text = self.datetime_format
-        if text is None:
-            return self
-        if self.logical_type != "datetime":
-            raise mistake(
-                InvalidArgumentError,
-                f"ColumnSpec got datetime_format {text!r} with "
-                f"logical_type {self.logical_type!r}, but a datetime_format applies "
-                "only to logical_type 'datetime'. Leave datetime_format out, or "
-                "declare ",
-                Pass(logical_type="datetime"),
-                ".",
-            )
-        directives = _DIRECTIVE.findall(text)
-        unknown = [d for d in directives if d not in _KNOWN_DIRECTIVES]
-        if unknown or not [d for d in directives if d != "%"]:
-            problem = (
-                f" It has an unknown directive: %{unknown[0]}."
-                if unknown
-                else " It has no directive."
-            )
-            raise InvalidArgumentError(
-                f"ColumnSpec got datetime_format {text!r}, but a datetime_format "
-                "is a format for datetime.strptime, with directives such as %Y, "
-                f"%m and %d, like '%d/%m/%Y'.{problem}"
-            )
-        return self
-
-
-# help() and editors show the call as it reads, not as pydantic builds it.
-ColumnSpec.__signature__ = inspect.Signature(
-    [
-        inspect.Parameter(
-            "logical_type",
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=LogicalType,
-        ),
-        inspect.Parameter(
-            "nullable",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=None,
-            annotation=bool | None,
-        ),
-        inspect.Parameter(
-            "datetime_format",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=None,
-            annotation=str | None,
-        ),
-    ]
-)
-
-
-# A ColumnSpec as the caller writes one.
-_SPEC_FIELDS = Pass(logical_type="integer", nullable=False)
-_SPEC_EXAMPLE = Words(("ae.ColumnSpec(", _SPEC_FIELDS, ")"), _SPEC_FIELDS)
-
 
 # Every column can be read for what it holds.
 _EVERY_COLUMN = any_column("every column")
@@ -494,14 +292,14 @@ def infer_column_semantics(
     known = set(names)
     missing_declared = [name for name in declared if name not in known]
     readings = {
-        column.name: _read_column(
+        column.name: read_values(
             data.iloc[:, column.position],
             column.kind,
             declared[column.name].datetime_format if column.name in declared else None,
         )
         for column in selected
     }
-    _judge_without_duplicate_rows(data, selected, readings)
+    kept_distinct = _judge_without_duplicate_rows(data, selected, readings)
     entries = {
         column.name: _entry(
             column.name,
@@ -509,6 +307,7 @@ def infer_column_semantics(
             readings[column.name],
             row_count,
             declared.get(column.name),
+            kept_distinct.get(column.name),
         )
         for column in selected
     }
@@ -555,299 +354,21 @@ _UNSUPPORTED_VALUES = StatusReason(
 )
 
 
-@dataclass
-class _Reading:
-    """What a column's non-missing values are, and how many read as each type."""
-
-    non_missing: int = 0
-    # Distinct non-missing values; None when values can't be hashed.
-    distinct: int | None = 0
-    # NaN stored as a value in a float column, counted as missing.
-    stored_nan: int = 0
-    kinds: dict[ValueKind, int] = field(
-        default_factory=lambda: dict.fromkeys(VALUE_KINDS, 0)
-    )
-    boolean: int = 0
-    number: int = 0
-    whole: int = 0
-    datetime: int = 0
-    timedelta: int = 0
-    leading_zero: int = 0
-    date_like: int = 0
-    plain_text: int = 0
-    several_words: int = 0
-    # Text values that parse as numbers and as ISO 8601 dates.
-    text_numbers: int = 0
-    text_dates: int = 0
-    # max - min + 1 of the values stored as numbers; None without any, or when
-    # one isn't finite.
-    span: float | None = None
-    # The names of the values' Python types, as summarize_categorical reports
-    # them; more than one means mixed value types.
-    types: list[str] = field(default_factory=list)
-    # When the values repeat only in rows that duplicate a whole other row: the
-    # non-missing values left once those rows are dropped, all distinct.
-    without_duplicate_rows: int | None = None
-
-
-def _read_column(
-    series: pd.Series, kind: ColumnKind, datetime_format: str | None = None
-) -> _Reading:
-    """Read what a column's values are, the way its dtype allows.
-
-    Text in the declared datetime_format, when there is one, counts as datetimes.
-
-    The distinct values and their counts are the column's levels, and the names
-    of the values' types come from the same module, both as
-    summarize_categorical counts them, so the two analyses can't disagree.
-    """
-    levels = count_levels(series, kind)
-    if levels is None:  # values such as lists can't be hashed
-        reading = _read_unhashable(
-            np.asarray(series.array, dtype=object), datetime_format
-        )
-    elif kind == "numeric":
-        reading = _read_numbers(series, levels)
-    elif kind in ("boolean", "datetime", "timedelta"):
-        # Every value is of the kind its dtype stores.
-        non_missing = int(levels.counts.sum())
-        reading = _Reading(non_missing=non_missing, distinct=len(levels.values))
-        reading.kinds[kind] = non_missing
-        setattr(reading, kind, non_missing)
-    elif kind == "object":
-        reading = _read_objects(series, levels, datetime_format)
-    else:  # categorical, text and other dtypes, such as periods
-        reading = _read_distinct(levels.objects(), levels.counts, datetime_format)
-        reading.distinct = len(levels.values)
-    reading.types = value_types(series, kind, levels)
-    return reading
-
-
-def _read_numbers(series: pd.Series, levels: Levels) -> _Reading:
-    """Read a column of numbers: integers, floats or decimals."""
-    if series.dtype.kind in "iu":
-        non_missing = int(levels.counts.sum())
-        reading = _Reading(non_missing=non_missing, distinct=len(levels.values))
-        reading.number = reading.whole = reading.kinds["number"] = non_missing
-        reading.boolean = int(((series == 0) | (series == 1)).sum())
-        if non_missing:
-            reading.span = int(series.max()) - int(series.min()) + 1
-        return reading
-    floats = series.to_numpy(dtype="float64", na_value=np.nan)
-    values = floats[~np.isnan(floats)]
-    finite = values[np.isfinite(values)]
-    # NaN that the column stores as a value counts as missing here, but pandas
-    # counts it as a level.
-    nan_levels = (
-        int(np.isnan(levels.sort_values).sum())
-        if levels.sort_values is not None and levels.sort_values.dtype.kind == "f"
-        else 0
-    )
-    reading = _Reading(
-        non_missing=len(values),
-        distinct=len(levels.values) - nan_levels,
-        stored_nan=stored_nan_count(series),
-    )
-    reading.number = reading.kinds["number"] = len(values)
-    reading.whole = int(np.count_nonzero(finite == np.floor(finite)))
-    reading.boolean = int(np.count_nonzero((values == 0) | (values == 1)))
-    if len(values) and len(finite) == len(values):
-        reading.span = float(finite.max()) - float(finite.min()) + 1
-    return reading
-
-
-def _read_objects(
-    series: pd.Series, levels: Levels, datetime_format: str | None
-) -> _Reading:
-    """Read a column of Python objects, whatever their types."""
-    uniques = levels.objects()
-    counts = levels.counts
-    if levels.text:
-        reading = _read_texts(uniques, counts, datetime_format)
-        reading.distinct = len(uniques)
-        return reading
-    # pandas counts 1, 1.0 and True as one value, so the values behind a
-    # boolean or a number equal to 0 or 1 are read one by one.
-    ambiguous = np.array(
-        [_reads_as_number_or_boolean(value) for value in uniques], dtype=bool
-    )
-    reading = _read_distinct(uniques[~ambiguous], counts[~ambiguous], datetime_format)
-    reading.distinct = len(uniques)
-    reading.span = _number_span(uniques)
-    if ambiguous.any():
-        # Every boolean stands behind such a level, and missing values aren't
-        # booleans, so the booleans among all values are the ones it holds.
-        behind = int(counts[ambiguous].sum())
-        booleans = sum(
-            isinstance(value, bool | np.bool_)
-            for value in np.asarray(series.array, dtype=object)
-        )
-        numbers = behind - booleans
-        reading.non_missing += behind
-        reading.kinds["boolean"] += booleans
-        reading.kinds["number"] += numbers
-        reading.boolean += behind
-        reading.number += numbers
-        reading.whole += numbers
-    return reading
-
-
-def _reads_as_number_or_boolean(value: object) -> bool:
-    """Whether a value is a boolean, or a number equal to 0 or 1."""
-    kind = value_kind(value)
-    return kind == "boolean" or (kind == "number" and is_zero_or_one(value))
-
-
-def _read_unhashable(objects: np.ndarray, datetime_format: str | None) -> _Reading:
-    """Read Python objects some of which can't be hashed, so can't be counted."""
-    present = objects[~pd.isna(objects)]
-    texts = _objects([value for value in present if isinstance(value, str)])
-    others = _objects([value for value in present if not isinstance(value, str)])
-    found = value_codes(texts, unhashable="by_content")
-    codes, uniques = found.codes, found.uniques
-    counts = np.bincount(codes, minlength=len(uniques))
-    reading = _read_texts(np.asarray(uniques, dtype=object), counts, datetime_format)
-    rest = _read_distinct(others, np.ones(len(others), dtype=np.int64), datetime_format)
-    reading = _combined(reading, rest)
-    reading.distinct = None
-    reading.span = rest.span
-    return reading
-
-
-def _objects(values: list[object]) -> np.ndarray:
-    """A 1-D object array of the values, even when they are lists themselves."""
-    return np.fromiter(values, dtype=object, count=len(values))
-
-
-def _all_text(values: np.ndarray) -> bool:
-    """Whether every value of an object array is a string; True when it's empty."""
-    return pd.api.types.infer_dtype(values, skipna=False) in ("string", "empty")
-
-
-def _read_distinct(
-    values: np.ndarray, counts: np.ndarray, datetime_format: str | None
-) -> _Reading:
-    """Read distinct values of any type, each standing for `counts` values."""
-    if _all_text(values):
-        return _read_texts(values, counts, datetime_format)
-    kinds = [value_kind(value) for value in values]
-    is_text = np.array([kind == "text" for kind in kinds], dtype=bool)
-    reading = _read_texts(values[is_text], counts[is_text], datetime_format)
-    for value, kind, count in zip(values, kinds, counts.tolist(), strict=True):
-        if kind == "text":
-            continue
-        reading.non_missing += count
-        reading.kinds[kind] += count
-        if kind == "boolean":
-            reading.boolean += count
-        elif kind == "number":
-            reading.number += count
-            reading.whole += count if is_whole(value) else 0
-            reading.boolean += count if is_zero_or_one(value) else 0
-        elif kind == "datetime":
-            reading.datetime += count
-        elif kind == "timedelta":
-            reading.timedelta += count
-    reading.span = _number_span(values)
-    return reading
-
-
-def _number_span(values: Iterable[object]) -> float | None:
-    """max - min + 1 of the numbers among the values; None without one or with a
-    number that isn't finite."""
-    try:
-        numbers = [
-            float(typing.cast("Any", v)) for v in values if value_kind(v) == "number"
-        ]
-    except OverflowError:  # an int too large for a float
-        return None
-    if not numbers or not all(map(math.isfinite, numbers)):
-        return None
-    return max(numbers) - min(numbers) + 1
-
-
-def _read_texts(
-    texts: np.ndarray, counts: np.ndarray, datetime_format: str | None
-) -> _Reading:
-    """Read distinct strings, each standing for `counts` values, by the parse rules.
-
-    Text that datetime.strptime reads in the declared datetime_format, when
-    there is one, is a datetime, and no longer date-like text.
-    """
-    parsed = read_texts(texts)
-    iso_date, date_like = parsed.iso_date, parsed.date_like
-    if datetime_format is not None and len(texts):
-        iso_date = iso_date.copy()
-        rest = np.flatnonzero(~iso_date)
-        iso_date[rest] = read_datetime_format(texts[rest], datetime_format)
-        date_like = date_like & ~iso_date
-
-    def weight(mask: np.ndarray) -> int:
-        return int(counts[mask].sum())
-
-    total = int(counts.sum())
-    leading_zero = weight(parsed.leading_zero)
-    # With leading zeros, a column's numbers are codes: they count as text.
-    readable = iso_date | parsed.boolean
-    if not leading_zero:
-        readable = readable | parsed.number
-    reading = _Reading(
-        non_missing=total,
-        boolean=weight(parsed.boolean),
-        number=weight(parsed.number),
-        whole=weight(parsed.whole),
-        datetime=weight(iso_date),
-        leading_zero=leading_zero,
-        date_like=weight(date_like),
-        plain_text=weight(~readable),
-        several_words=weight(~readable & parsed.several_words),
-        text_numbers=weight(parsed.number),
-        text_dates=weight(iso_date),
-    )
-    reading.kinds["text"] = total
-    return reading
-
-
-def _combined(first: _Reading, second: _Reading) -> _Reading:
-    """The reading of two disjoint sets of values together."""
-    combined = _Reading()
-    for name in _COUNTS:
-        setattr(combined, name, getattr(first, name) + getattr(second, name))
-    combined.kinds = {
-        kind: first.kinds[kind] + second.kinds[kind] for kind in VALUE_KINDS
-    }
-    return combined
-
-
-_COUNTS = (
-    "non_missing",
-    "boolean",
-    "number",
-    "whole",
-    "datetime",
-    "timedelta",
-    "leading_zero",
-    "date_like",
-    "plain_text",
-    "several_words",
-    "text_numbers",
-    "text_dates",
-)
-
-
 # A column whose values are distinct in at least this share of the rows can be
 # an identifier that a few duplicate rows repeat; the rest is never read.
 _NEAR_UNIQUE_SHARE = 0.9
 
 
 def _judge_without_duplicate_rows(
-    data: pd.DataFrame, selected: Sequence[Column], readings: dict[str, _Reading]
-) -> None:
+    data: pd.DataFrame, selected: Sequence[Column], readings: dict[str, ValueReading]
+) -> dict[str, int]:
     """Judge the near-unique columns again once duplicate rows are dropped.
 
     A row that equals another in every column of the data adds no new value, so
     an identifier repeated by such rows is still an identifier. The columns are
-    read only when some column could change its answer.
+    read only when some column could change its answer. Gives, for each column
+    whose values are all distinct once such rows are dropped, the number of
+    values that are left.
     """
     near = []
     for column in selected:
@@ -861,29 +382,32 @@ def _judge_without_duplicate_rows(
         ):
             near.append(column)
     if not near:
-        return
+        return {}
     first = [column.position for column in near]
     positions = first + [p for p in range(data.shape[1]) if p not in first]
     rows, groups = find_row_groups(data, positions)
     if not rows.size:
-        return
+        return {}
     # Rows are in ascending order, so the first row of each group is its first.
     repeats = np.ones(len(rows), dtype=bool)
     repeats[np.unique(groups, return_index=True)[1]] = False
     keep = np.ones(len(data), dtype=bool)
     keep[rows[repeats]] = False
+    distinct = {}
     for column in near:
-        kept = _read_column(data.iloc[:, column.position].iloc[keep], column.kind)
+        kept = read_values(data.iloc[:, column.position].iloc[keep], column.kind)
         if kept.distinct == kept.non_missing:
-            readings[column.name].without_duplicate_rows = kept.non_missing
+            distinct[column.name] = kept.non_missing
+    return distinct
 
 
 def _entry(
     name: str,
     dtype: str,
-    reading: _Reading,
+    reading: ValueReading,
     row_count: int,
     declared: ColumnSpec | None,
+    kept_distinct: int | None,
 ) -> InferColumnSemanticsColumn:
     candidates = _candidates(reading) if reading.non_missing else []
     top = candidates[0] if candidates and candidates[0].score > 0 else None
@@ -908,12 +432,12 @@ def _entry(
             c.logical_type == declared_type and c.score == top.score for c in candidates
         ),
         candidates=candidates,
-        flags=_flags(reading, inferred, row_count),
+        flags=_flags(reading, inferred, row_count, kept_distinct),
         evidence=_evidence(reading),
     )
 
 
-def _candidates(reading: _Reading) -> list[LogicalTypeCandidate]:
+def _candidates(reading: ValueReading) -> list[LogicalTypeCandidate]:
     """The logical types the values fit, best first, by the documented rules."""
     count = reading.non_missing
 
@@ -929,7 +453,7 @@ def _candidates(reading: _Reading) -> list[LogicalTypeCandidate]:
     if (
         reading.boolean == count
         and reading.distinct is not None
-        and (reading.distinct >= 2 or reading.kinds["boolean"] == count)
+        and (reading.distinct >= 2 or reading.kind_counts["boolean"] == count)
     ):
         found["boolean"] = (
             Fraction(1),
@@ -1003,19 +527,22 @@ def _share(share: Fraction) -> str:
 
 
 def _flags(
-    reading: _Reading, inferred: LogicalType | None, row_count: int
+    reading: ValueReading,
+    inferred: LogicalType | None,
+    row_count: int,
+    kept_distinct: int | None,
 ) -> list[ColumnFlag]:
     """The flags a column's reading and top candidate raise, in fixed order."""
     count = reading.non_missing
     # Numbers stored as numbers look like identifiers when they run like a
     # sequence: at least half the whole numbers between the smallest and the
     # largest occur. Text needs no such shape.
-    sequence = reading.kinds["text"] > 0 or (
+    sequence = reading.kind_counts["text"] > 0 or (
         reading.span is not None and reading.span <= 2 * count
     )
     # Values that are all distinct, once the rows that duplicate a whole other
     # row are dropped.
-    identifiers = count if reading.distinct == count else reading.without_duplicate_rows
+    identifiers = count if reading.distinct == count else kept_distinct
     non_iso_dates = (
         reading.date_like > 0 and 2 * (reading.datetime + reading.date_like) >= count
     )
@@ -1033,14 +560,14 @@ def _flags(
         "dates_as_text": inferred == "datetime" and reading.text_dates > 0,
         "non_iso_date_text": non_iso_dates,
         "boolean_like": inferred == "boolean"
-        and reading.boolean > reading.kinds["boolean"],
+        and reading.boolean > reading.kind_counts["boolean"],
         # As summarize_categorical decides it: more than one Python type.
         "mixed_value_types": len(reading.types) > 1,
     }
     return [flag for flag, on in raised.items() if on]
 
 
-def _evidence(reading: _Reading) -> ColumnEvidence:
+def _evidence(reading: ValueReading) -> ColumnEvidence:
     count = reading.non_missing
 
     def share(part: int | None) -> float | None:
@@ -1060,11 +587,11 @@ def _evidence(reading: _Reading) -> ColumnEvidence:
         plain_text_share=share(reading.plain_text),
         multi_word_share=share(reading.several_words),
         value_types=reading.types,
-        value_type_counts=ValueTypeCounts(**reading.kinds),
+        value_type_counts=ValueTypeCounts(**reading.kind_counts),
     )
 
 
-def _support(name: str, reading: _Reading, row_count: int) -> ColumnSupport:
+def _support(name: str, reading: ValueReading, row_count: int) -> ColumnSupport:
     missing = row_count - reading.non_missing
     return ColumnSupport.of(name, row_count, {"missing": missing} if missing else {})
 
@@ -1277,7 +804,7 @@ def _missing_columns_claim(missing: list[str], names: list[str]) -> str:
 
 
 def _limitations(
-    readings: dict[str, _Reading],
+    readings: dict[str, ValueReading],
     entries: dict[str, InferColumnSemanticsColumn],
     no_schema: bool,
 ) -> list[Limitation]:
@@ -1576,12 +1103,11 @@ def validate_column_types(
     names = [str(label) for label in data.columns]
     positions = {name: position for position, name in enumerate(names)}
     checks = {
-        name: check_column(
+        name: read_values(
             data.iloc[:, positions[name]],
             column_kind(data.dtypes.iloc[positions[name]]),
-            spec.logical_type,
             spec.datetime_format,
-        )
+        ).check(spec.logical_type)
         for name, spec in declared.items()
         if name in positions
     }
