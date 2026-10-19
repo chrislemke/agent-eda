@@ -43,7 +43,7 @@ def test_default_selects_text_object_categorical_and_boolean_columns_in_order():
 
 ACCEPTED = (
     "It accepts text, object, categorical, boolean and numeric columns, nullable "
-    "and pyarrow-backed ones included."
+    "and pyarrow-backed ones of those kinds included."
 )
 
 

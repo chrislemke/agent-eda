@@ -14,7 +14,7 @@ from agent_eda.errors import (
 
 ACCEPTED = (
     "It accepts integer, float and boolean columns, nullable and pyarrow-backed "
-    "ones included."
+    "ones of those kinds included."
 )
 
 

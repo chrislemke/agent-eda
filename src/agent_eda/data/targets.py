@@ -576,7 +576,7 @@ def _check_target(target: Column, task: Task) -> None:
             lambda surface: (
                 f"profile_target can't use {what} as a regression "
                 "target, which must hold numbers: integer or float columns, nullable "
-                f"and pyarrow-backed ones included. {fixes[surface]}."
+                f"and pyarrow-backed ones of those kinds included. {fixes[surface]}."
             ),
         )
     if task != "regression" and target.kind not in _LABEL_KINDS:
@@ -589,7 +589,7 @@ def _check_target(target: Column, task: Task) -> None:
             lambda surface: (
                 f"profile_target can't use {what} as a classification "
                 "target, whose labels must be text, numbers, booleans or categories, "
-                f"nullable and pyarrow-backed ones included. {fixes[surface]}."
+                f"nullable and pyarrow-backed ones of those kinds included. {fixes[surface]}."
             ),
         )
 

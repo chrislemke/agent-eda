@@ -48,7 +48,7 @@ from agent_eda._parse import (
     read_texts,
     value_kind,
 )
-from agent_eda._values import value_codes
+from agent_eda._values import categorical_array, value_codes
 from agent_eda.results import LogicalType
 
 # What a value is, measured against the declared logical type.
@@ -267,7 +267,7 @@ def _categories(
     series: pd.Series, declared: LogicalType, datetime_format: str | None
 ) -> _Groups:
     """A categorical: each category is read once, by the label it holds."""
-    categorical = typing.cast("pd.Categorical", series.array)
+    categorical = categorical_array(series)
     categories = categorical.categories
     codes = np.asarray(categorical.codes, dtype=np.intp)
     verdicts = _object_verdicts(

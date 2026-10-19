@@ -728,3 +728,32 @@ def test_the_docstring_describes_the_float_rule_but_not_a_pandas_equivalence():
 
     assert "non-integral float" in doc
     assert "DataFrame.duplicated" not in doc
+
+
+def test_a_key_of_five_columns_with_thousands_of_levels_each_counts_as_pandas_does():
+    # Five columns of 7,200 levels give 7,200**5 combinations, more than the
+    # 2**62 an int64 holds, so the combination codes must be renumbered on the way.
+    # Rows 2p and 2p + 1 agree everywhere except in column p % 5, so every set of
+    # four columns repeats a row and only all five identify the rows.
+    pairs = np.arange(6_000)
+    columns = {}
+    for position in range(5):
+        first = pairs
+        second = np.where(pairs % 5 == position, pairs + 6_000, pairs)
+        columns[f"c{position}"] = np.column_stack([first, second]).ravel()
+    df = pd.DataFrame(columns)
+
+    res = ae.find_candidate_keys(df, max_key_size=5, max_combinations=100)
+
+    assert [key.columns for key in res.keys] == [list(df.columns)]
+    [key] = res.keys
+    assert (
+        key.distinct_count,
+        key.duplicate_row_count,
+        key.missing_row_count,
+    ) == pandas_counts(df, list(df.columns))
+    assert key.duplicate_row_count == 0
+    for found in res.most_unique_column_sets:
+        assert (found.distinct_count, found.duplicate_row_count) == pandas_counts(
+            df, found.columns
+        )[:2]

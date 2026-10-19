@@ -45,7 +45,7 @@ from agent_eda._sentinels import (
     numpy_dtype,
     type_family,
 )
-from agent_eda._values import value_codes
+from agent_eda._values import categorical_array, value_codes
 
 # Numbers often used for missing values; they count at the column's minimum
 # or maximum.
@@ -236,7 +236,7 @@ def _categories(
 ) -> tuple[pd.Index, np.ndarray, np.ndarray]:
     """A categorical column's categories, how often the read rows take each,
     and per row the position of its category, -1 for a row not read."""
-    categorical = cast("pd.Categorical", series.array)
+    categorical = categorical_array(series)
     codes = np.where(remaining, np.asarray(categorical.codes, dtype=np.int64), -1)
     categories = categorical.categories
     return categories, np.bincount(codes[codes >= 0], minlength=len(categories)), codes

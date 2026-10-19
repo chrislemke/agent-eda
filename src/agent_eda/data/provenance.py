@@ -335,6 +335,11 @@ def _memory_bytes(values: pd.Series | pd.Index) -> int:
         return int(categorical.codes.nbytes) + _memory_bytes(categorical.categories)
     if _holds_python_objects(values.dtype):
         return _object_bytes(np.asarray(values.array, dtype=object))
+    if isinstance(values.dtype, pd.SparseDtype) and values.dtype.subtype.kind == "O":
+        # pandas can't size the Python objects behind a sparse array.
+        sparse = cast("pd.arrays.SparseArray", values.array)
+        stored = np.asarray(sparse.sp_values, dtype=object)
+        return int(sparse.nbytes) + _object_bytes(stored) - int(stored.nbytes)
     if isinstance(values, pd.Index):
         # The explicit dtype stops pandas 3 from turning object text into str.
         values = pd.Series(values.array, copy=False, dtype=values.dtype)
