@@ -2,19 +2,19 @@
 
 import sys
 from collections.abc import Sequence
-from typing import Annotated, cast, get_args
+from typing import Annotated, cast
 
 import numpy as np
 import pandas as pd
 from annotated_types import Ge
 
 from agent_eda._columns import (
-    ColumnKind,
-    ColumnRule,
     Labels,
+    any_column,
     first_positions,
     select_columns,
 )
+from agent_eda._findings import all_missing_columns, constant_columns
 from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._result_base import (
@@ -54,14 +54,7 @@ MAX_SUGGESTED_COMBINATIONS = 1_000_000
 
 # Any column can be part of a key; one whose values can't be hashed is left out
 # when the search starts, since only its values tell.
-_EVERY_KIND: frozenset[ColumnKind] = frozenset(get_args(ColumnKind))
-_ANY_COLUMN = ColumnRule(
-    default=_EVERY_KIND,
-    default_text="every column",
-    accepted=_EVERY_KIND,
-    accepted_text="columns of any dtype",
-    fixes={},
-)
+_ANY_COLUMN = any_column("every column")
 
 
 @analysis(
@@ -961,18 +954,12 @@ def _all_missing_columns(
     if row_count == 0:
         return []
     positions = [c.position for c in columns if c.non_missing_count == 0]
-    if not positions:
-        return []
-    contain = plural(len(positions), "column contains", "columns contain")
-    return [
-        Finding(
-            code="all_missing_columns",
-            claim=f"{contain} only missing values: {labels.show(positions)}.",
-            assessment="suspected",
-            columns=[labels.texts[p] for p in positions],
-            fields=[f"columns[{p}].missing_count" for p in positions],
-        )
-    ]
+    return all_missing_columns(
+        [labels.texts[p] for p in positions],
+        [f"columns[{p}].missing_count" for p in positions],
+        verb="contain",
+        shown=labels.show(positions),
+    )
 
 
 def _stored_nan(data: pd.DataFrame, labels: Labels) -> list[Limitation]:
@@ -1016,17 +1003,8 @@ def _constant_columns(
         for c in columns
         if is_constant(c.non_missing_count, c.distinct_count)
     ]
-    if not positions:
-        return []
-    hold = plural(len(positions), "column holds", "columns hold")
-    return [
-        Finding(
-            code="constant_columns",
-            claim=(
-                f"{hold} a single distinct non-missing value: {labels.show(positions)}."
-            ),
-            assessment="suspected",
-            columns=[labels.texts[p] for p in positions],
-            fields=[f"columns[{p}].distinct_count" for p in positions],
-        )
-    ]
+    return constant_columns(
+        [labels.texts[p] for p in positions],
+        [f"columns[{p}].distinct_count" for p in positions],
+        shown=labels.show(positions),
+    )

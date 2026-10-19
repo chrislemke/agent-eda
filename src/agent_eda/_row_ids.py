@@ -14,20 +14,14 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
+from agent_eda._columns import any_column, select_columns
 from agent_eda._result_base import Limitation
 from agent_eda._values import hashable_values, value_codes
 from agent_eda._wording import Words, mistake
 from agent_eda.errors import ColumnTypeError
 
 # id_column may name a column of any dtype.
-_ID_COLUMN = ColumnRule(
-    default=ALL_KINDS,
-    default_text="the index labels",
-    accepted=ALL_KINDS,
-    accepted_text="a column of any dtype",
-    fixes={},
-)
+_ID_COLUMN = any_column("the index labels")
 
 
 @dataclass(frozen=True)

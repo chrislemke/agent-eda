@@ -30,9 +30,8 @@ import pandas as pd
 
 from agent_eda._arguments import check_distinct
 from agent_eda._columns import (
-    ALL_KINDS,
     Column,
-    ColumnRule,
+    any_column,
     column_kind,
     select_columns,
 )
@@ -81,13 +80,7 @@ _MAX_LISTED = 5
 
 # Sentinel values can name a column of any dtype; whether a value can match it
 # is checked value by value.
-_ANY_COLUMN = ColumnRule(
-    default=frozenset(),
-    default_text="no column",
-    accepted=ALL_KINDS,
-    accepted_text="columns of every dtype",
-    fixes={},
-)
+_ANY_COLUMN = any_column("no column", default=frozenset())
 
 
 def family(value: object) -> Family:

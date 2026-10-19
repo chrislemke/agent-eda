@@ -14,23 +14,30 @@ from pydantic_core import CoreSchema
 
 from agent_eda._columns import (
     Column,
-    ColumnKind,
-    ColumnRule,
+    any_column,
     column_kind,
     select_columns,
 )
 from agent_eda._declarations import ColumnSpec
+from agent_eda._findings import (
+    ASSESSMENTS,
+    all_missing_columns,
+    constant_columns,
+    mixed_value_types,
+)
 from agent_eda._levels import (
     ordered,
     record_label,
     type_name,
 )
-from agent_eda._masking import MaskedLevels, mask_levels, resolve_masking
+from agent_eda._masking import MaskedLevels, mask_levels, mask_values, resolve_masking
 from agent_eda._numeric import stored_nan_limitations
 from agent_eda._registry import (
     analysis,
 )
 from agent_eda._result_base import (
+    EXAMPLES_KEPT,
+    ROW_IDS_KEPT,
     Assessment,
     ColumnFlag,
     ColumnSupport,
@@ -39,16 +46,16 @@ from agent_eda._result_base import (
     LogicalType,
     StatusReason,
     Support,
+    entry_path,
 )
 from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
-from agent_eda._status import NO_ROWS, overall_status
+from agent_eda._status import NO_COLUMNS, NO_ROWS, overall_status
 from agent_eda._text import (
     closest_names,
     join_alternatives,
     join_items,
     join_labels,
-    placeholder,
     plural,
 )
 from agent_eda._values import is_constant
@@ -69,14 +76,7 @@ from agent_eda.errors import InvalidArgumentError
 from agent_eda.project import Project
 
 # Every column can be read for what it holds.
-_EVERY_KIND: frozenset[ColumnKind] = frozenset(typing.get_args(ColumnKind))
-_EVERY_COLUMN = ColumnRule(
-    default=_EVERY_KIND,
-    default_text="every column",
-    accepted=_EVERY_KIND,
-    accepted_text="columns of every dtype",
-    fixes={},
-)
+_EVERY_COLUMN = any_column("every column")
 
 # Equal scores rank the more specific logical type first.
 _TIE_ORDER: tuple[LogicalType, ...] = (
@@ -312,7 +312,7 @@ def infer_column_semantics(
         for column in selected
     }
     status, status_reason = overall_status(
-        row_count, list(entries.values()), no_columns=_NO_COLUMNS
+        row_count, list(entries.values()), no_columns=NO_COLUMNS
     )
     return InferColumnSemanticsResult.for_call(
         parameters={
@@ -342,7 +342,6 @@ def infer_column_semantics(
     )
 
 
-_NO_COLUMNS = StatusReason(code="no_columns", message="The data has no columns.")
 _NO_VALUES = StatusReason(
     code="no_values", message="The column has no values that aren't missing."
 )
@@ -597,14 +596,13 @@ def _support(name: str, reading: ValueReading, row_count: int) -> ColumnSupport:
     return ColumnSupport.of(name, row_count, {"missing": missing} if missing else {})
 
 
-def _path(name: str) -> str:
-    """The result path of a column's entry, such as "columns['zip']"."""
-    return f"columns[{name!r}]"
-
-
 @dataclass(frozen=True)
 class _FlagFinding:
-    """The finding that names the columns with a flag."""
+    """The finding that names the columns with a flag.
+
+    A code several analyses report is built by its shared builder, `shared`;
+    the others are written from `singular` and `plural`.
+    """
 
     flag: ColumnFlag
     code: str
@@ -614,6 +612,15 @@ class _FlagFinding:
     plural: str
     # The evidence field behind the flag.
     evidence: str
+    shared: Callable[[list[str], list[str]], list[Finding]] | None = None
+
+
+def _mixed_types(names: list[str], fields: list[str]) -> list[Finding]:
+    return mixed_value_types(names, fields, wording="different_types")
+
+
+def _all_missing(names: list[str], fields: list[str]) -> list[Finding]:
+    return all_missing_columns(names, fields, verb="contain")
 
 
 _FLAG_FINDINGS = (
@@ -628,18 +635,20 @@ _FLAG_FINDINGS = (
     _FlagFinding(
         "constant",
         "constant_columns",
-        "suspected",
-        "holds a single distinct non-missing value",
-        "hold a single distinct non-missing value",
+        ASSESSMENTS["constant_columns"],
+        "",
+        "",
         "distinct_count",
+        constant_columns,
     ),
     _FlagFinding(
         "all_missing",
         "all_missing_columns",
-        "suspected",
-        "contains only missing values",
-        "contain only missing values",
+        ASSESSMENTS["all_missing_columns"],
+        "",
+        "",
         "non_missing_count",
+        _all_missing,
     ),
     _FlagFinding(
         "numbers_as_text",
@@ -676,10 +685,11 @@ _FLAG_FINDINGS = (
     _FlagFinding(
         "mixed_value_types",
         "mixed_value_types",
-        "suspected",
-        "mixes values of different types",
-        "mix values of different types",
+        ASSESSMENTS["mixed_value_types"],
+        "",
+        "",
         "value_types",
+        _mixed_types,
     ),
 )
 
@@ -690,6 +700,10 @@ def _flag_findings(entries: dict[str, InferColumnSemanticsColumn]) -> list[Findi
         names = [name for name, entry in entries.items() if finding.flag in entry.flags]
         if not names:
             continue
+        fields = [f"{entry_path(name)}.evidence.{finding.evidence}" for name in names]
+        if finding.shared is not None:
+            findings.extend(finding.shared(names, fields))
+            continue
         does = plural(
             len(names), f"column {finding.singular}", f"columns {finding.plural}"
         )
@@ -699,7 +713,7 @@ def _flag_findings(entries: dict[str, InferColumnSemanticsColumn]) -> list[Findi
                 claim=f"{does}: {join_labels(names)}.",
                 assessment=finding.assessment,
                 columns=names,
-                fields=[f"{_path(name)}.evidence.{finding.evidence}" for name in names],
+                fields=fields,
             )
         )
     return findings
@@ -727,7 +741,7 @@ def _declared_findings(
                 assessment="suspected",
                 columns=mismatched,
                 fields=[
-                    f"{_path(n)}.{part}"
+                    f"{entry_path(n)}.{part}"
                     for n in mismatched
                     for part in ("declared_logical_type", "inferred_logical_type")
                 ],
@@ -742,7 +756,7 @@ def _declared_findings(
                 f"declared logical type as top candidate: {join_labels(matched)}.",
                 assessment="passed",
                 columns=matched,
-                fields=[f"{_path(n)}.matches_declared" for n in matched],
+                fields=[f"{entry_path(n)}.matches_declared" for n in matched],
             )
         )
     unchecked = [n for n, e in declared.items() if e.inferred_logical_type is None]
@@ -754,7 +768,7 @@ def _declared_findings(
                 f"no candidate to compare: {join_labels(unchecked)}.",
                 assessment="unknown",
                 columns=unchecked,
-                fields=[f"{_path(n)}.inferred_logical_type" for n in unchecked],
+                fields=[f"{entry_path(n)}.inferred_logical_type" for n in unchecked],
             )
         )
     if missing:
@@ -821,7 +835,9 @@ def _limitations(
                     "the missing ones or no logical type fits the values: "
                     f"{join_labels(untyped)}."
                 ),
-                fields=[f"{_path(name)}.inferred_logical_type" for name in untyped],
+                fields=[
+                    f"{entry_path(name)}.inferred_logical_type" for name in untyped
+                ],
             )
         )
     empty = [name for name, reading in readings.items() if not reading.non_missing]
@@ -831,7 +847,7 @@ def _limitations(
                 code="too_few_values",
                 reason=f"{plural(len(empty), 'column has', 'columns have')} no values "
                 f"that aren't missing, so the shares are null: {join_labels(empty)}.",
-                fields=[f"{_path(name)}.evidence" for name in empty],
+                fields=[f"{entry_path(name)}.evidence" for name in empty],
             )
         )
     unhashable = [name for name, r in readings.items() if r.distinct is None]
@@ -844,7 +860,7 @@ def _limitations(
                 "dicts, so distinct values weren't counted and categorical and "
                 f"text weren't scored: {join_labels(unhashable)}.",
                 fields=[
-                    f"{_path(name)}.evidence.{part}"
+                    f"{entry_path(name)}.evidence.{part}"
                     for name in unhashable
                     for part in ("distinct_count", "uniqueness_share")
                 ],
@@ -853,15 +869,11 @@ def _limitations(
     stored = [name for name, r in readings.items() if r.stored_nan]
     limitations += stored_nan_limitations(
         stored,
-        [f"{_path(name)}.evidence.non_missing_count" for name in stored],
+        [f"{entry_path(name)}.evidence.non_missing_count" for name in stored],
         "non_missing_count leaves it out",
     )
     return limitations
 
-
-# The record keeps this many row IDs and example values, as the spec caps them.
-_ROW_ID_LIMIT = 10
-_EXAMPLE_LIMIT = 5
 
 # validate_column_types' findings in the order it reports them: violations
 # first, then what couldn't be checked, what converts and what held.
@@ -1123,7 +1135,7 @@ def validate_column_types(
     absent = [name for name, entry in entries.items() if not entry.present]
     # The paths of the fields that hold a row ID another row shares.
     ambiguous = [
-        f"{_path(name)}.invalid_row_ids"
+        f"{entry_path(name)}.invalid_row_ids"
         for name, check in checks.items()
         if row_ids.repeated[check.invalid_rows].any()
     ]
@@ -1185,7 +1197,7 @@ def _row_ids_of(
         name: row_ids.labels.take(check.invalid_rows) for name, check in checks.items()
     }
     shown = {
-        name: row_ids.at(check.invalid_rows[:_ROW_ID_LIMIT])
+        name: row_ids.at(check.invalid_rows[:ROW_IDS_KEPT])
         for name, check in checks.items()
     }
     if not masked:
@@ -1200,25 +1212,20 @@ def _row_ids_of(
         for position in levels.positions_of(flat).tolist():
             known[levels.label(position)] = masked_levels[id_column].label(position)
         start += len(levels.values)
-    numbers: dict[object, str] = {}
-
-    def number(ids: list[object], begin: int, end: int) -> None:
-        for index in range(begin, end):
-            value = ids[index]
-            if pd.api.types.is_scalar(value) and pd.isna(value):
-                ids[index] = None
-            elif value in known:
-                ids[index] = known[value]
-            else:
-                ids[index] = numbers.setdefault(
-                    value, placeholder(start + len(numbers))
-                )
-
-    for ids in listed.values():
-        number(ids, 0, min(len(ids), _ROW_ID_LIMIT))
-    for ids in listed.values():
-        number(ids, _ROW_ID_LIMIT, len(ids))
-    return {name: ids[:_ROW_ID_LIMIT] for name, ids in listed.items()}, listed
+    # One numbering, in result order: the shown IDs of every entry, then the rest.
+    firsts = [ids[:ROW_IDS_KEPT] for ids in listed.values()]
+    rests = [ids[ROW_IDS_KEPT:] for ids in listed.values()]
+    flat = [row_id for ids in (*firsts, *rests) for row_id in ids]
+    placeholders = iter(mask_values(flat, first=start, known=list(known.items())))
+    shown_ids: dict[str, list[object]] = {
+        name: [next(placeholders) for _ in ids]
+        for name, ids in zip(listed, firsts, strict=True)
+    }
+    every_id = {
+        name: [*shown_ids[name], *(next(placeholders) for _ in ids)]
+        for name, ids in zip(listed, rests, strict=True)
+    }
+    return shown_ids, every_id
 
 
 def _shown_columns(
@@ -1273,7 +1280,7 @@ def _checked_entry(
                 value_type=type_name(levels.label(position)),
                 count=int(levels.counts[position]),
             )
-            for position in ordered(levels, _EXAMPLE_LIMIT).tolist()
+            for position in ordered(levels, EXAMPLES_KEPT).tolist()
         ],
         assessment=assessment,
     )
@@ -1376,7 +1383,7 @@ def _validation_findings(
                 claim=f"{does}: {join_labels(picked)}.",
                 assessment=finding.assessment,
                 columns=picked,
-                fields=[f"{_path(name)}.{finding.field}" for name in picked],
+                fields=[f"{entry_path(name)}.{finding.field}" for name in picked],
             )
     if absent:
         findings["missing_declared_columns"] = Finding(
@@ -1384,7 +1391,7 @@ def _validation_findings(
             claim=_missing_columns_claim(absent, names),
             assessment="violation",
             columns=absent,
-            fields=[f"{_path(name)}.present" for name in absent],
+            fields=[f"{entry_path(name)}.present" for name in absent],
         )
     return [findings[code] for code in _FINDING_CODES if code in findings]
 
@@ -1404,13 +1411,13 @@ def _validation_limitations(
                     "nullable wasn't declared, so missing values weren't checked: "
                     f"{join_labels(open_nullable)}."
                 ),
-                fields=[f"{_path(name)}.nullable" for name in open_nullable],
+                fields=[f"{entry_path(name)}.nullable" for name in open_nullable],
             )
         )
     stored = [name for name, check in checks.items() if check.stored_nan]
     limitations += stored_nan_limitations(
         stored,
-        [f"{_path(name)}.missing_count" for name in stored],
+        [f"{entry_path(name)}.missing_count" for name in stored],
         "missing_count counts it",
     )
     if absent:
@@ -1427,7 +1434,7 @@ def _validation_limitations(
             Limitation(
                 code="column_not_in_data",
                 reason=f"{what}: {join_labels(absent)}.",
-                fields=[_path(name) for name in absent],
+                fields=[entry_path(name) for name in absent],
             )
         )
     return limitations

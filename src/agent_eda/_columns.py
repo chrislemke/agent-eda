@@ -271,6 +271,23 @@ class ColumnRule:
     leave_out: bool = True
 
 
+def any_column(
+    default_text: str, *, default: frozenset[ColumnKind] = ALL_KINDS
+) -> ColumnRule:
+    """The rule of an analysis that accepts a column of any dtype.
+
+    `default_text` says what columns=None selects, and `default` holds those
+    kinds: every kind, or none for a parameter that has no default column.
+    """
+    return ColumnRule(
+        default=default,
+        default_text=default_text,
+        accepted=ALL_KINDS,
+        accepted_text="columns of any dtype",
+        fixes={},
+    )
+
+
 @dataclass(frozen=True)
 class Selection:
     """The columns an analysis works on, and the ones its default left out."""

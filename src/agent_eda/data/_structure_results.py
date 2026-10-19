@@ -1,6 +1,7 @@
 """The results of describe_dataset and find_candidate_keys."""
 
-from typing import Annotated, Literal
+from collections.abc import Mapping
+from typing import Annotated, ClassVar, Literal
 
 import pandas as pd
 from pydantic import (
@@ -13,7 +14,6 @@ from agent_eda._result_base import (
     _ENTRIES,
     AnalysisResult,
     ResultModel,
-    _check_table,
     _entries_frame,
     _list_by_name,
 )
@@ -104,6 +104,10 @@ class DescribeDatasetResult(AnalysisResult):
     index: DescribeDatasetIndex = Field(description="Facts about the row index.")
     provenance: Provenance = Field(description="The provenance as supplied.")
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "columns": None,
+    }
+
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         index = self.index
         levels = f" with {index.level_count} levels" if index.level_count > 1 else ""
@@ -131,7 +135,7 @@ class DescribeDatasetResult(AnalysisResult):
         Args:
             table: 'columns', the only table.
         """
-        _check_table(table, ("columns",))
+        self._check_table(table)
         return _entries_frame(self.columns, DescribeDatasetColumn)
 
     def _text_table(self) -> _text.Table:
@@ -257,6 +261,10 @@ class FindCandidateKeysResult(AnalysisResult):
         "or when none holds a fraction."
     )
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "candidates": None,
+    }
+
     def _candidates(self) -> list[tuple[str, CandidateKey]]:
         """Every reported column set with its kind, in the order of the lists."""
         return [
@@ -335,7 +343,7 @@ class FindCandidateKeysResult(AnalysisResult):
         Args:
             table: 'candidates', the only table.
         """
-        _check_table(table, ("candidates",))
+        self._check_table(table)
         candidates = self._candidates()
         frame = _entries_frame([candidate for _, candidate in candidates], CandidateKey)
         frame.insert(

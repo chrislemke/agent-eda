@@ -5,7 +5,7 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
-from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
+from agent_eda._columns import any_column, select_columns
 from agent_eda._masking import mask_values, resolve_masking
 from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._registry import analysis
@@ -25,13 +25,7 @@ from agent_eda.data._duplicates_results import FindDuplicateRowsResult
 from agent_eda.project import Project
 
 # Rows can be compared in columns of any dtype.
-_ANY_COLUMN = ColumnRule(
-    default=ALL_KINDS,
-    default_text="every column except id_column",
-    accepted=ALL_KINDS,
-    accepted_text="columns of any dtype",
-    fixes={},
-)
+_ANY_COLUMN = any_column("every column except id_column")
 
 
 @analysis(

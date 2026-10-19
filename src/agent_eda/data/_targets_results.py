@@ -1,7 +1,7 @@
 """The result of profile_target."""
 
-from collections.abc import Sequence
-from typing import Annotated, Any, Literal
+from collections.abc import Mapping, Sequence
+from typing import Annotated, Any, ClassVar, Literal
 
 import numpy as np
 import pandas as pd
@@ -12,6 +12,11 @@ from pydantic import (
 
 from agent_eda import _text
 from agent_eda._levels import LEVEL_ORDER, Levels, level_rows
+from agent_eda._numeric import (
+    DEFAULT_QUANTILE_METHOD,
+    DEFAULT_QUANTILES,
+    DEFAULT_TRIM_FRACTION,
+)
 from agent_eda._result_base import (
     _BIG_INTEGERS,
     _MORE_STATISTICS,
@@ -19,7 +24,6 @@ from agent_eda._result_base import (
     ResultModel,
     RowId,
     _Cap,
-    _check_table,
     _masking_text,
     _tables_unavailable,
     share_text,
@@ -74,16 +78,22 @@ class ProfileTargetUnexpectedLabel(ResultModel):
     )
 
 
+# summarize_numeric's default quantile levels as the descriptions write them.
+_DEFAULT_LEVELS = [str(level) for level in DEFAULT_QUANTILES]
+
+
 class ProfileTargetStatistics(SummarizeNumericColumn):
     """summarize_numeric's entry for a regression target, with its default options."""
 
     quantiles: dict[float, float | None] = Field(
         description="Quantiles of the finite values at summarize_numeric's default "
-        "levels 0.01, 0.05, 0.25, 0.5, 0.75, 0.95 and 0.99, keyed by level, as "
-        "numpy.quantile computes them with its default method, linear."
+        f"levels {_text.join_items(_DEFAULT_LEVELS, limit=len(_DEFAULT_LEVELS))}, "
+        "keyed by level, as numpy.quantile computes them with its default method, "
+        f"{DEFAULT_QUANTILE_METHOD}."
     )
     trimmed_mean: float | None = Field(
-        description="Mean of the finite values left after cutting 10% of them, "
+        description="Mean of the finite values left after cutting "
+        f"{DEFAULT_TRIM_FRACTION:.0%} of them, "
         "rounded down, from each end, summarize_numeric's default trim_fraction, "
         "as SciPy's trimmed mean does."
     )
@@ -190,6 +200,10 @@ class ProfileTargetResult(MaskableResult):
     # label's position in _labels: pandas labels, or lists when masked.
     _row_ids: dict[int, Any] | None = PrivateAttr(default=None)
 
+    TABLES: ClassVar[Mapping[str, str | None]] = {
+        "target": None,
+    }
+
     def _target_text(self) -> str:
         return _text.label_text(self.settings.target_column)
 
@@ -241,20 +255,13 @@ class ProfileTargetResult(MaskableResult):
 
     def _label_text(self, label: object, label_type: str) -> str:
         """A label as the text shows it: text quoted, a placeholder as it is."""
-        column = self.settings.target_column
-        masked = column is not None and self._masked(column)
-        return repr(label) if label_type == "str" and not masked else str(label)
+        return self._shown(label, label_type, self.settings.target_column)
 
     def _unexpected_text(
         self, unexpected: Sequence["ProfileTargetUnexpectedLabel"]
     ) -> list[str]:
         """The first unexpected labels, each with its first row IDs."""
-        id_column = self.settings.id_column
-        show = (
-            str
-            if id_column is not None and self._masked(id_column)
-            else _text.label_text
-        )
+        show = _text.label_text if self._ids_quoted() else str
         items = []
         for entry in unexpected[:_SHOWN_UNEXPECTED]:
             ids = [show(row_id) for row_id in entry.row_ids[:_SHOWN_ROW_IDS]]
@@ -290,7 +297,8 @@ class ProfileTargetResult(MaskableResult):
             f"Target {self._target_text()} for regression: "
             f"{_text.plural(finite, 'finite value', 'finite values')}; {others}.",
             "Statistics use the finite values, as in summarize_numeric: quantile "
-            "method linear, trim_fraction 0.1.",
+            f"method {DEFAULT_QUANTILE_METHOD}, trim_fraction "
+            f"{_text.format_number(DEFAULT_TRIM_FRACTION)}.",
             _text.also_in_table(_MORE_STATISTICS, surface),
         ]
 
@@ -367,7 +375,7 @@ class ProfileTargetResult(MaskableResult):
         Args:
             table: 'target', the only table.
         """
-        _check_table(table, ("target",))
+        self._check_table(table)
         if self.statistics is not None:
             frame = numeric_frame([self.statistics], list(self.statistics.quantiles))
             frame["non_finite_count"] = pd.Series(

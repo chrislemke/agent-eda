@@ -35,6 +35,7 @@ from agent_eda._result_base import (
     Status,
     StatusReason,
     Support,
+    entry_path,
 )
 from agent_eda._status import NO_ROWS, budget_exceeded_reason
 from agent_eda._text import join_items, join_labels, plural
@@ -474,7 +475,7 @@ def compute_association_matrix(
         limitations=[
             *read_limitations(
                 {p.entry.column: p.numbers for p in paired if p.numbers is not None},
-                _entry_path,
+                entry_path,
             ),
             *_null_limitations(pairs),
         ],
@@ -576,11 +577,6 @@ def _read(
         floats=None,
         codes=found.codes,
     )
-
-
-def _entry_path(name: str) -> str:
-    """The result path of a paired column's entry, such as "columns['age']"."""
-    return f"columns[{name!r}]"
 
 
 @dataclass(frozen=True)
