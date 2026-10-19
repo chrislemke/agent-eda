@@ -19,7 +19,6 @@ from agent_eda._columns import (
     select_columns,
 )
 from agent_eda._levels import (
-    LEVEL_ORDER,
     Levels,
     count_levels_by_row,
     ordered_among,
@@ -62,6 +61,7 @@ from agent_eda._sentinels import (
 )
 from agent_eda._text import Surface, format_number, join_items, placeholder, plural
 from agent_eda._wording import as_written, worded
+from agent_eda._written_form import row_id_list
 from agent_eda.errors import ColumnTypeError, InvalidArgumentError
 from agent_eda.project import Project
 from agent_eda.results import (
@@ -213,7 +213,7 @@ def profile_target(
     Returns:
         ProfileTargetResult: For classification, `classes` lists the first 100
         classes, the distinct valid labels, by count, descending, then by
-        label, as `level_order` states, each with its `label`, `label_type`,
+        label, in level order, each with its `label`, `label_type`,
         `count` and `share`. With expected_labels, a declared class no row
         holds is a class of count 0, last in the list. `class_count` counts
         every class, and
@@ -231,7 +231,8 @@ def profile_target(
         counts them. A check that didn't run leaves its fields null, with an
         `expected_labels_not_declared` or `rare_share_not_declared`
         limitation. `to_frame` returns every label with its count, its
-        share, whether expected_labels holds it and whether it is rare.
+        share, whether expected_labels holds it, whether it is rare and, for
+        a label outside expected_labels, the ID of every row that holds it.
 
         For regression, `statistics` holds summarize_numeric's fields for the
         target, from the same implementation with summarize_numeric's default
@@ -305,7 +306,7 @@ def profile_target(
         ... )
         >>> print(res)
         profile_target: completed on 8 rows x 3 columns
-        Target 'churned' for binary_classification: 2 classes in 6 valid labels; 1 missing (12.5%).
+        Target 'churned' for binary_classification: 2 classes in 6 valid labels; 1 missing (missing_share 0.125).
         Majority share 0.6667, minority share 0.3333; imbalance ratio 2, the majority count over the minority count.
         Outside expected_labels: 1 label in 1 row: 'No' in row 'c5'.
         Rare classes, with a share below rare_share 0.05: 0 of 2.
@@ -316,7 +317,7 @@ def profile_target(
         Findings (3 of 3 shown):
         - violation unexpected_labels: 1 label in 1 row is outside expected_labels.
         - suspected case_or_space_variants: 1 group of labels differs only by case or surrounding spaces: 'no' and 'No'.
-        - descriptive missing_labels: 1 of 8 rows (12.5%) has no label: its target value is missing.
+        - descriptive missing_labels: 1 of 8 rows has no label: its target value is missing (missing_share 0.125).
         Limitations: none
         More: res.to_frame() has all 3 labels; res.findings, res.limitations and res.to_json() have the rest.
         >>> res.imbalance_ratio
@@ -374,10 +375,10 @@ def profile_target(
         limitations=profile.limitations,
         execution=execution(("numpy", "pandas")),
         masking=masking.record(profile.shown, data),
-        level_order=LEVEL_ORDER,
         **fields,
     )
     result._labels = profile.labels
+    result._row_ids = profile.row_ids
     result._expected = profile.expected
     return result
 
@@ -669,6 +670,9 @@ class _Profile:
     # expected_labels holds it; None without expected_labels.
     labels: Levels | None = None
     expected: np.ndarray | None = None
+    # The ID of every row that holds a label outside expected_labels, by the
+    # label's position in `labels`: pandas labels, or lists when masked.
+    row_ids: dict[int, Any] = field(default_factory=dict)
     # expected_labels as the parameters record them, placeholders when masked.
     expected_labels: list[str | bool | int | float] | None = None
 
@@ -731,8 +735,9 @@ def _classification(
     unexpected = None
     # Row IDs show only when labels are checked; then repeated ones limit them.
     ambiguous: list[Limitation] = []
+    every_id: dict[int, Any] = {}
     if labels is not None:
-        unexpected, ambiguous = _unexpected_labels(
+        unexpected, ambiguous, every_id = _unexpected_labels(
             view, ~valid, row_levels, row_ids, masking, target
         )
     missing = levels.missing_count
@@ -807,6 +812,7 @@ def _classification(
         },
         shown=shown,
         **_table(view, valid if labels is not None else None),
+        row_ids=_table_positions(view, every_id),
         expected_labels=_recorded_labels(view, labels, valid),
     )
 
@@ -831,28 +837,55 @@ def _unexpected_labels(
     row_ids: RowIds,
     masking: MaskingDecision,
     target: Column,
-) -> tuple[list[ProfileTargetUnexpectedLabel], list[Limitation]]:
+) -> tuple[list[ProfileTargetUnexpectedLabel], list[Limitation], dict[int, Any]]:
     """The first labels outside expected_labels with the IDs of their first rows.
 
-    Also gives the ambiguous_row_ids limitation when row IDs repeat. Row IDs
-    from a sensitive id_column become placeholders, numbered in the order the
-    labels show them; when id_column is the target itself, a row ID is its
-    label, so it shows the label's placeholder.
+    Also gives the ambiguous_row_ids limitation when row IDs repeat, and the IDs
+    of every row that holds any label outside expected_labels, by the label's
+    level position. Row IDs from a sensitive id_column become placeholders,
+    numbered in the order the labels show them, the shown IDs first; when
+    id_column is the target itself, a row ID is its label, so it shows the
+    label's placeholder.
     """
     levels = view.levels
-    kept = ordered_among(levels, outside, _KEPT_LABELS).tolist()
-    rows = _first_rows(row_levels, np.asarray(kept, dtype=np.intp), len(levels.counts))
-    ids: list[list[object]] = [row_ids.at(positions) for positions in rows]
+    outside_order = ordered_among(levels, outside).tolist()
+    kept = outside_order[:_KEPT_LABELS]
+    rows = _rows_of(
+        row_levels, np.asarray(outside_order, dtype=np.intp), len(levels.counts)
+    )
+    every: dict[int, Any] = {
+        position: row_ids.labels.take(found)
+        for position, found in zip(outside_order, rows, strict=True)
+    }
+    ids: list[list[object]] = [row_ids.at(found[:_KEPT_ROW_IDS]) for found in rows]
     if masking.masks(row_ids.id_column):
         if row_ids.id_column == target.name and view.masked is not None:
             masked = view.masked
-            ids = [
-                [masked.label(position)] * len(entry)
-                for position, entry in zip(kept, ids, strict=True)
-            ]
+            every = {
+                position: [masked.label(position)] * len(found)
+                for position, found in zip(outside_order, rows, strict=True)
+            }
+            ids = [every[position][:_KEPT_ROW_IDS] for position in kept]
         else:
-            placeholders = iter(mask_values([i for entry in ids for i in entry]))
-            ids = [[next(placeholders) for _ in entry] for entry in ids]
+            shown = [
+                entry[:_KEPT_ROW_IDS] for entry in map(row_id_list, every.values())
+            ]
+            later = [
+                entry[_KEPT_ROW_IDS:] for entry in map(row_id_list, every.values())
+            ]
+            placeholders = iter(
+                mask_values([i for entry in [*shown, *later] for i in entry])
+            )
+            masked_shown: list[list[object]] = [
+                [next(placeholders) for _ in entry] for entry in shown
+            ]
+            every = {
+                position: [*entry, *(next(placeholders) for _ in rest)]
+                for position, entry, rest in zip(
+                    outside_order, masked_shown, later, strict=True
+                )
+            }
+            ids = masked_shown[: len(kept)]
     entries = []
     for position, entry_ids in zip(kept, ids, strict=True):
         label, label_type = view.entry(position)
@@ -868,11 +901,11 @@ def _unexpected_labels(
         row_ids,
         [
             f"unexpected_labels[{number}].row_ids"
-            for number, positions in enumerate(rows)
+            for number, positions in enumerate(rows[: len(kept)])
             if row_ids.repeated[positions].any()
         ],
     )
-    return entries, ambiguous
+    return entries, ambiguous, every
 
 
 def _table(view: _Labels, expected: np.ndarray | None) -> dict[str, Any]:
@@ -1120,13 +1153,16 @@ def _missing_labels(target: Column, missing: int, row_count: int) -> list[Findin
     """The missing_labels finding, when target values are missing."""
     if not missing:
         return []
-    percent = format_number(missing / row_count * 100)
+    share = format_number(missing / row_count)
     has = (
         "has no label: its target value is missing"
         if missing == 1
         else "have no label: their target values are missing"
     )
-    claim = f"{missing:,} of {plural(row_count, 'row', 'rows')} ({percent}%) {has}."
+    claim = (
+        f"{missing:,} of {plural(row_count, 'row', 'rows')} {has} "
+        f"(missing_share {share})."
+    )
     return [_finding("missing_labels", target, claim)]
 
 
@@ -1361,10 +1397,20 @@ def _without_rows(levels: Levels, labels: Sequence[Label] | None) -> list[Label]
     return [label for label in labels if label not in held]
 
 
-def _first_rows(
+def _table_positions(view: _Labels, found: dict[int, Any]) -> dict[int, Any]:
+    """`found`, keyed by level position, keyed by position in the labels
+    to_frame() lists: with masking on, the placeholder's number less 1."""
+    if view.masked is None:
+        return found
+    return {
+        int(view.masked.numbers[position]) - 1: ids for position, ids in found.items()
+    }
+
+
+def _rows_of(
     row_levels: np.ndarray, kept: np.ndarray, level_count: int
 ) -> list[np.ndarray]:
-    """For each kept level, the positions of the first rows holding it."""
+    """For each kept level, the positions of the rows holding it, in row order."""
     slots = np.full(level_count + 1, -1, dtype=np.intp)
     slots[kept] = np.arange(len(kept))
     # Missing values have level -1, which picks the extra slot at the end.
@@ -1373,7 +1419,7 @@ def _first_rows(
     rows = rows[np.argsort(row_slots[rows], kind="stable")]
     starts = np.searchsorted(row_slots[rows], np.arange(len(kept) + 1))
     return [
-        rows[start : min(start + _KEPT_ROW_IDS, end)]
+        rows[start:end]
         for start, end in zip(starts[:-1].tolist(), starts[1:].tolist(), strict=True)
     ]
 

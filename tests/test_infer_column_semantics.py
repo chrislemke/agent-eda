@@ -750,8 +750,8 @@ def test_prints_each_column_with_its_top_candidates_and_flags():
         "parse as ISO 8601 only."
     )
     assert lines[2] == (
-        "schema: 1 column declared in the data, 0 matching (a tie with "
-        "the top counts), 1 not; 0 not in the data."
+        "schema: 1 column declared: 0 matching (ties with the top "
+        "count), 1 not, 0 not inferred, 0 not in the data."
     )
     assert lines[3] == "Columns (4 of 4 shown):"
     header = lines[4].split()

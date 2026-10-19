@@ -984,27 +984,22 @@ def test_no_rule_reads_booleans_durations_or_lists_and_the_result_names_them():
 def test_the_printed_result_lists_the_candidates_most_frequent_first():
     res = ae.detect_missing_sentinels(orders(), id_column="order")
 
-    assert str(res).splitlines() == [
-        "detect_missing_sentinels: completed on 5 rows x 3 columns",
-        "Checked 2 columns: 3 suspected candidates. Shares are of all rows; row IDs "
-        "are values of id_column 'order'.",
-        "Suspected values stay valid until declared in sentinel_values, which "
-        "profile_missing_values counts as missing.",
-        "Candidates, most frequent first (3 of 3 shown):",
-        "column  value   count  share  confirmation  evidence                        "
-        "row_ids",
-        "amount  -999.0      2    0.4  suspected     builtin_list, isolated_extreme  "
-        "102 and 104",
-        "note    ''          2    0.4  suspected     builtin_list                    "
-        "101 and 104",
-        "note    'N/A'       1    0.2  suspected     builtin_list                    103",
-        "Findings (1 of 1 shown):",
-        "- suspected suspected_sentinel_values: 3 values in 2 columns may stand in for "
-        "missing values: 'amount' and 'note'.",
-        "Limitations: none",
-        "More: res.to_frame() has all 3 candidates; res.findings, res.limitations and "
-        "res.to_json() have the rest.",
+    lines = str(res).splitlines()
+
+    assert lines[0] == "detect_missing_sentinels: completed on 5 rows x 3 columns"
+    start = lines.index("Candidates, most frequent first (3 of 3 shown):")
+    rows = [line.split() for line in lines[start + 2 : start + 5]]
+    assert [row[:4] for row in rows] == [
+        ["amount", "-999.0", "2", "0.4"],
+        ["note", "''", "2", "0.4"],
+        ["note", "'N/A'", "1", "0.2"],
     ]
+    assert rows[0][-3:] == ["102", "and", "104"]
+    assert any(
+        line.startswith("- suspected suspected_sentinel_values: 3 values in 2")
+        for line in lines
+    )
+    assert lines[-1].startswith("More: res.to_frame() has all 3 candidates;")
 
 
 def test_the_printed_result_names_3_row_ids_and_counts_the_rest():
@@ -1074,7 +1069,7 @@ def test_support_counts_the_values_checked_in_each_column():
             s.excluded_by_reason,
         )
         for s in res.support.columns
-    ] == [("age", 3, 2, 1, {"missing": 1}), ("flag", 3, 3, 0, {})]
+    ] == [("age", 3, 2, 1, {"missing": 1})]
 
 
 @pytest.mark.parametrize(

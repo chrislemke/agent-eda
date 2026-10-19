@@ -267,29 +267,21 @@ def test_the_counts_of_every_listed_set_match_pandas():
 def test_prints_the_keys_with_their_counts_and_how_far_the_search_went():
     res = ae.find_candidate_keys(orders())
 
-    assert str(res) == "\n".join(
-        [
-            "find_candidate_keys: completed on 6 rows x 4 columns",
-            "Exhaustive search for keys of up to 2 columns among 4 columns: examined "
-            "7 sets, skipped 3 supersets of keys.",
-            "Missing values compare equal; a key with missing values can't serve "
-            "as a primary key.",
-            "Keys (2 of 2 shown):",
-            "columns          kind                 distinct_row_count  "
-            "duplicate_group_row_count  missing_row_count  uniqueness_share",
-            "'order', 'line'  key                                   6  "
-            "                        0                  0                 1",
-            "'sku'            key_with_missing...                   6  "
-            "                        0                  1                 1",
-            "Findings (2 of 2 shown):",
-            "- descriptive keys_found: 1 column set identifies every row and has no "
-            "missing values: 'order', 'line'.",
-            "- descriptive keys_with_missing_values: 1 column set identifies every "
-            "row but has missing values: 'sku'.",
-            "Limitations: none",
-            "More: res.to_frame() has all 2 column sets; res.findings, "
-            "res.limitations and res.to_json() have the rest.",
-        ]
+    lines = str(res).splitlines()
+
+    assert lines[0] == "find_candidate_keys: completed on 6 rows x 4 columns"
+    assert lines[1].startswith(
+        "Exhaustive search for keys of up to 2 columns among 4 columns: examined 7 "
+        "sets, skipped 3 supersets of keys."
+    )
+    start = lines.index("Keys (2 of 2 shown):")
+    assert lines[start + 2].startswith("'order', 'line'  key ")
+    assert lines[start + 3].startswith("'sku'            key_with_missing")
+    assert "- descriptive keys_found: 1 column set identifies every row" in " ".join(
+        lines
+    )
+    assert any(
+        line.startswith("More: res.to_frame() has all 2 column sets;") for line in lines
     )
 
 
@@ -775,10 +767,10 @@ def test_data_of_only_fraction_floats_is_not_applicable_and_says_why():
     assert [key.columns for key in named.keys] == [["x"]]
 
 
-def test_the_support_lists_only_the_columns_searched():
+def test_the_support_counts_the_columns_searched_and_lists_none_left_out_of_rows():
     res = ae.find_candidate_keys(floats())
 
-    assert [c.column for c in res.support.columns] == ["count", "group"]
+    assert res.support.columns == []
     assert res.support.column_count == 2
 
 

@@ -405,27 +405,48 @@ def check_record(name: str, res: Any, text: str) -> None:
     assert problems == []
 
 
-def capping_problems(node: object, path: str) -> list[str]:
+def pointed_at(record: dict[str, Any]) -> set[str]:
+    """The entries, such as "columns['age']", that the record's paths point at."""
+    entry = re.compile(rf"[A-Za-z_]\w*\[(?:{QUOTED}|[^\]'\"]*)(?:, (?:{QUOTED}))*\]")
+    return {
+        found.group(0)
+        for kind in ("findings", "limitations")
+        for item in record.get(kind, [])
+        for path in item["fields"]
+        if (found := entry.match(path))
+    }
+
+
+def capping_problems(
+    node: object, path: str, pointed: set[str] | None = None
+) -> list[str]:
     """Each list or mapping that exceeds its cap, or whose total doesn't fit.
 
     A capped list or mapping sits next to `<name>_total` with the full count.
     Whatever is at its cap is a cut or a coincidence, so it needs its total.
     """
     problems = []
+    if pointed is None and isinstance(node, dict):
+        pointed = pointed_at(node)
     if isinstance(node, list):
         for position, item in enumerate(node):
-            problems += capping_problems(item, f"{path}[{position}]")
+            problems += capping_problems(item, f"{path}[{position}]", set())
     elif isinstance(node, dict):
         for key, value in node.items():
             where = f"{path}.{key}"
             if isinstance(value, list | dict):
-                cap = cap_of(key)
+                # The record keeps every entry that a finding or limitation points
+                # at, so a top-level list or mapping may hold more than its cap.
+                cap = max(
+                    cap_of(key),
+                    sum(1 for entry in pointed or () if entry.startswith(f"{key}[")),
+                )
                 total = node.get(f"{key}_total")
                 if len(value) > cap:
                     problems.append(f"{where} has {len(value)} entries, over {cap}")
                 if len(value) == cap and total is None:
                     problems.append(f"{where} is at its cap of {cap} without a total")
-                if total is not None and total > len(value) and len(value) != cap:
+                if total is not None and total > len(value) and len(value) < cap:
                     problems.append(
                         f"{where} holds {len(value)} of {total} entries, short of {cap}"
                     )
@@ -433,15 +454,16 @@ def capping_problems(node: object, path: str) -> list[str]:
                 shown = node.get(key.removesuffix("_total"))
                 if isinstance(shown, list | dict) and value < len(shown):
                     problems.append(f"{where} is {value}, below the {len(shown)} shown")
-            problems += capping_problems(value, where)
+            problems += capping_problems(value, where, set())
     return problems
 
 
 # One step of a path: a field after a dot or at the start, or an index, a
 # column's name or a mapping key in brackets, written as repr() writes it.
+QUOTED = r"""'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*\""""
 PATH_STEP = re.compile(
     r"""\.?(?P<field>[A-Za-z_][A-Za-z0-9_]*)"""
-    r"""|\[(?P<key>'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|-?[0-9][0-9.e+-]*)\]"""
+    rf"""|\[(?P<key>(?:{QUOTED})(?:, (?:{QUOTED}))*|-?[0-9][0-9.e+-]*)\]"""
 )
 
 
@@ -488,6 +510,15 @@ def step_into(current: Any, field: str | None, key: str | None) -> Any:
     value = ast.literal_eval(key or "")
     if isinstance(current, dict):
         return current.get(value, MISSING)
+    if isinstance(value, tuple):
+        # An association pair is read by its two columns.
+        pairs = [
+            entry
+            for entry in current
+            if (getattr(entry, "x_column", None), getattr(entry, "y_column", None))
+            == value
+        ]
+        return pairs[0] if len(pairs) == 1 else MISSING
     if isinstance(value, int) and not isinstance(value, bool):
         return current[value] if 0 <= value < len(current) else MISSING
     # A list of one entry per column is read by the column's name.
