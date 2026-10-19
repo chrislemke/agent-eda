@@ -146,21 +146,16 @@ def test_node_reads_the_exact_id_from_the_record():
 def test_an_mcp_response_holds_the_large_id_as_a_string_in_its_bytes(tmp_path):
     pytest.importorskip("mcp", reason="needs the mcp extra")
     import anyio
-    from mcp import Client
-
-    from agent_eda.mcp import create_server
+    from mcp_helpers import call
 
     path = tmp_path / "orders.csv"
     path.write_text(f"order_id,city\n{BIG},Oslo\n{BIG + 1},Oslo\n", encoding="utf-8")
 
-    async def call():
-        async with Client(create_server(), mode="legacy") as client:
-            return await client.call_tool(
-                "find_duplicate_rows",
-                {"data_path": str(path), "columns": ["city"], "id_column": "order_id"},
-            )
-
-    response = anyio.run(call)
+    response = anyio.run(
+        call,
+        "find_duplicate_rows",
+        {"data_path": str(path), "columns": ["city"], "id_column": "order_id"},
+    )
 
     assert not response.is_error
     sent = json.dumps(response.structured_content, separators=(",", ":"))

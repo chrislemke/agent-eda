@@ -26,6 +26,7 @@ import anyio
 import pandas as pd
 from mcp import Client, MCPError
 from mcp.types import INVALID_PARAMS
+from mcp_helpers import call
 from python_syntax import python_in
 
 from agent_eda.mcp import create_server
@@ -511,8 +512,3 @@ def data_file(tmp_path, kind):
     else:
         path = tmp_path / "unused"
     return path
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)

@@ -22,7 +22,6 @@ import os
 import re
 import subprocess
 import sys
-import warnings
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +29,7 @@ import anyio
 import pandas as pd
 from mcp import Client, MCPError, StdioServerParameters
 from mcp.types import INTERNAL_ERROR
+from mcp_helpers import call, list_tools, read_table, reference_read, write
 from serving import serving
 from stdio import stdio_environment
 
@@ -258,7 +258,10 @@ def test_the_mcp_server_project_applies_to_every_call_that_takes_one(tmp_path):
     expected = ae.summarize_categorical(read(data_path), project=project)
 
     response = anyio.run(
-        call, "summarize_categorical", {"data_path": str(data_path)}, project
+        call,
+        "summarize_categorical",
+        {"data_path": str(data_path)},
+        create_server(project=project),
     )
 
     assert response.structured_content == expected.to_dict()
@@ -271,7 +274,10 @@ def test_the_mcp_server_project_leaves_analyses_without_one_alone(tmp_path):
     expected = ae.summarize_numeric(read(data_path))
 
     response = anyio.run(
-        call, "summarize_numeric", {"data_path": str(data_path)}, project
+        call,
+        "summarize_numeric",
+        {"data_path": str(data_path)},
+        create_server(project=project),
     )
 
     assert response.structured_content == expected.to_dict()
@@ -319,7 +325,9 @@ def test_project_path_wins_over_the_mcp_server_project_and_mask_sensitive_over_b
         read(data_path), project=call_project, mask_sensitive=mask_sensitive
     )
 
-    response = anyio.run(call, "summarize_categorical", arguments, server_project)
+    response = anyio.run(
+        call, "summarize_categorical", arguments, create_server(project=server_project)
+    )
 
     assert response.structured_content == expected.to_dict()
     masking = response.structured_content["masking"]
@@ -482,22 +490,6 @@ def test_agent_eda_mcp_help_documents_the_project_option():
     assert "guardrail against accidental exposure, not anonymization or access" in text
 
 
-async def list_tools():
-    async with Client(create_server(), mode="legacy") as client:
-        return (await client.list_tools()).tools
-
-
-async def call(name, arguments, project=None):
-    """Call an MCP tool on a server started with this Project, as --project does."""
-    async with Client(create_server(project=project), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
-
-
-def write(path, text):
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
 def read(path):
     """The DataFrame the server reads from this file's CSV text, built by hand."""
     frames = {
@@ -529,7 +521,7 @@ def read(path):
             }
         ),
     }
-    return frames[path.read_text(encoding="utf-8")]
+    return reference_read(path, frames)
 
 
 # The console script installed next to this interpreter.
@@ -554,20 +546,6 @@ async def call_over_stdio(cwd, args, name, arguments):
     )
     async with Client(server, mode="legacy") as client:
         return await client.call_tool(name, arguments)
-
-
-def read_table(path):
-    """A written table, read as CSV or Parquet by its extension."""
-    if path.suffix == ".csv":
-        return pd.read_csv(path, keep_default_na=False, na_values=[""])
-    with warnings.catch_warnings():
-        # pandas 2.2 deprecates the internals pyarrow 14 builds DataFrames from.
-        warnings.filterwarnings(
-            "ignore",
-            message="Passing a BlockManager to DataFrame is deprecated",
-            category=DeprecationWarning,
-        )
-        return pd.read_parquet(path)
 
 
 def table_text(path):

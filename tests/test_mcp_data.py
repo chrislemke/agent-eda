@@ -23,6 +23,7 @@ import anyio
 import pandas as pd
 from mcp import Client
 from mcp.types import TextContent
+from mcp_helpers import call, write_frame
 
 import agent_eda as ae
 from agent_eda.errors import (
@@ -60,7 +61,7 @@ ORDERS = pd.DataFrame(
 )
 def test_each_supported_format_reaches_the_analysis_unchanged(tmp_path, file_name):
     path = tmp_path / file_name
-    write(ORDERS, path)
+    write_frame(ORDERS, path)
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
@@ -193,7 +194,7 @@ def test_a_relative_path_starts_at_the_mcp_server_working_directory(
     tmp_path, monkeypatch
 ):
     (tmp_path / "data").mkdir()
-    write(ORDERS, tmp_path / "data" / "orders.csv")
+    write_frame(ORDERS, tmp_path / "data" / "orders.csv")
     monkeypatch.chdir(tmp_path)
 
     response = anyio.run(call, "describe_dataset", {"data_path": "data/orders.csv"})
@@ -372,22 +373,6 @@ def rewrite_unnoticed(path, text):
     assert len(text.encode()) == status.st_size
     path.write_text(text, encoding="utf-8")
     os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
-
-
-def write(data, path):
-    """Write data to path in the format its extension names."""
-    name = path.name.lower()
-    if name.endswith((".parquet", ".pq")):
-        data.to_parquet(path)
-        return
-    sep = "\t" if ".tsv" in name else ","
-    compression = "gzip" if name.endswith(".gz") else None
-    data.to_csv(path, sep=sep, index=False, compression=compression)
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
 
 
 @dataclass(frozen=True)

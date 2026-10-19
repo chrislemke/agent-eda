@@ -1,5 +1,6 @@
 """Packaging checks, each in a fresh interpreter, as a sandboxed agent would run."""
 
+import json
 import os
 import subprocess
 import sys
@@ -112,58 +113,71 @@ print(ae.describe_analysis("summarize_numeric"))
     assert "  trim_fraction: float = 0.1; 0 <= trim_fraction < 0.5" in lines
 
 
-# Each discovery function as an agent calls it, its text printed.
-DISCOVERY_CALLS = [
-    "print(ae.list_analyses())",
-    "ae.guide()",
-    "print(ae.search_analyses('nulls per column').to_json())",
-    "[print(ae.describe_analysis(i.name).to_json()) for i in ae.list_analyses().analyses]",
-]
+# The steps an agent takes first, in order: import the package, then call each
+# discovery function and print its text.
+IMPORT_STEPS = {
+    "import": "pass",
+    "list": "print(ae.list_analyses())",
+    "guide": "ae.guide()",
+    "search": "print(ae.search_analyses('nulls per column').to_json())",
+    "describe": (
+        "[print(ae.describe_analysis(i.name).to_json()) "
+        "for i in ae.list_analyses().analyses]"
+    ),
+}
 
 
-@pytest.mark.parametrize(
-    "call", DISCOVERY_CALLS, ids=["list", "guide", "search", "describe"]
-)
-def test_discovery_leaves_scipy_statsmodels_sklearn_and_the_network_alone(call):
-    # An audit hook records every attempt to open a socket or a URL.
+@pytest.fixture(scope="module")
+def imports():
+    """What each step of IMPORT_STEPS newly loads or reaches, from one interpreter.
+
+    Starting an interpreter and importing pandas costs most of a second, so the
+    steps run in one, in order, and each step reports what appeared since the
+    step before it.
+    """
     code = f"""
+import json
 import sys
 import agent_eda as ae
 network = []
 def record(event, args):
+    # An audit hook records every attempt to open a socket or a URL.
     if event.split(".")[0] in ("socket", "urllib", "http"):
         network.append(event)
 sys.addaudithook(record)
-{call}
-heavy = {{"scipy", "statsmodels", "sklearn"}}
-print("heavy:", sorted(name for name in sys.modules if name.split(".")[0] in heavy))
-print("network:", sorted(set(network)))
-"""
-
-    lines = run_python(code, args=("-I", *STRICT_WARNINGS)).splitlines()
-
-    assert lines[-2:] == ["heavy: []", "network: []"]
-
-
-@pytest.mark.parametrize(
-    "call",
-    ["pass", *DISCOVERY_CALLS],
-    ids=["import", "list", "guide", "search", "describe"],
-)
-def test_the_package_and_discovery_import_no_mcp_module(call):
-    code = f"""
-import sys
-import agent_eda as ae
-{call}
 def is_mcp(name):
     # mcp, its submodules, mcp_types, and the package's own MCP modules.
     return name.startswith("mcp.") or name.split(".")[-1].lstrip("_").startswith("mcp")
-print("mcp:", sorted(n for n in sys.modules if is_mcp(n)))
+heavy = {{"scipy", "statsmodels", "sklearn"}}
+seen = {{"heavy": set(), "mcp": set(), "network": set()}}
+report = {{}}
+for step, call in {IMPORT_STEPS!r}.items():
+    exec(call)
+    now = {{
+        "heavy": {{n for n in sys.modules if n.split(".")[0] in heavy}},
+        "mcp": {{n for n in sys.modules if is_mcp(n)}},
+        "network": set(network),
+    }}
+    report[step] = {{kind: sorted(now[kind] - seen[kind]) for kind in now}}
+    for kind in now:
+        seen[kind] |= now[kind]
+print("report:", json.dumps(report))
 """
+    last = run_python(code, args=("-I", *STRICT_WARNINGS)).splitlines()[-1]
+    return json.loads(last.removeprefix("report: "))
 
-    lines = run_python(code, args=("-I", *STRICT_WARNINGS)).splitlines()
 
-    assert lines[-1] == "mcp: []"
+@pytest.mark.parametrize("step", list(IMPORT_STEPS))
+def test_discovery_leaves_scipy_statsmodels_sklearn_and_the_network_alone(
+    imports, step
+):
+    assert imports[step]["heavy"] == []
+    assert imports[step]["network"] == []
+
+
+@pytest.mark.parametrize("step", list(IMPORT_STEPS))
+def test_the_package_and_discovery_import_no_mcp_module(imports, step):
+    assert imports[step]["mcp"] == []
 
 
 def test_identical_calls_give_identical_json_under_different_hash_seeds():

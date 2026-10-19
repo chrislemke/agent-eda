@@ -435,8 +435,11 @@ def test_calls_masking_a_guardrail_not_anonymization_or_access_control():
 
 
 def test_the_mcp_client_configuration_is_valid_json_that_starts_agent_eda_mcp():
+    # The block is found by its content, so another json block can join the README.
     configs = [
-        json.loads(code) for language, code in fenced_blocks() if language == "json"
+        json.loads(code)
+        for language, code in fenced_blocks()
+        if language == "json" and "mcpServers" in code
     ]
 
     assert [config["mcpServers"]["agent-eda"]["command"] for config in configs] == [

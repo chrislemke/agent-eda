@@ -297,8 +297,9 @@ PACKAGE = Path(ae.__file__).parent
 # A dotted name such as mcp.server.Server is code, not wording.
 BARE_SERVER = re.compile(r"(?<!MCP )(?<!\.)\bserver\b", flags=re.IGNORECASE)
 # Names that other libraries give: an MCP tool's output schema is JSON Schema's
-# word, and subprocess.run takes capture_output.
-EXTERNAL_NAMES = ("output_schema", "capture_output")
+# word, subprocess.run takes capture_output, and doctest.OutputChecker has
+# check_output.
+EXTERNAL_NAMES = ("output_schema", "capture_output", "check_output")
 
 
 def test_no_name_uses_a_word_the_glossary_avoids():

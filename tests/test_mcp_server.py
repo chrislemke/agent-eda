@@ -23,6 +23,7 @@ pytest.importorskip(
 import anyio
 import pandas as pd
 from mcp import Client, StdioServerParameters
+from mcp_helpers import call, list_tools
 from stdio import stdio_environment
 
 import agent_eda as ae
@@ -182,16 +183,6 @@ def test_two_mcp_server_processes_with_different_hash_seeds_return_the_same_reco
     ]
 
     assert records[0] == records[1]
-
-
-async def list_tools():
-    async with Client(create_server(), mode="legacy") as client:
-        return (await client.list_tools()).tools
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
 
 
 async def call_over_stdio(cwd, hash_seed, data_path):

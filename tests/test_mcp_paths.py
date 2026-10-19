@@ -21,7 +21,6 @@ import inspect
 import os
 import re
 import sys
-import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,6 +30,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from mcp import Client, MCPError
+from mcp_helpers import call, read_parquet
 from serving import serving
 
 from agent_eda.mcp import create_server
@@ -502,23 +502,6 @@ def test_a_text_that_is_already_full_loses_a_line_to_the_table_path_line(tmp_pat
     assert len(plain.content[0].text.splitlines()) <= 40
     assert len(with_table.content[0].text.splitlines()) <= 40
     assert with_table.content[0].text.splitlines()[-1].startswith("Full table written")
-
-
-def read_parquet(path):
-    with warnings.catch_warnings():
-        # pandas 2.2 deprecates the internals pyarrow 14 builds DataFrames from.
-        warnings.filterwarnings(
-            "ignore",
-            message="(Passing a BlockManager to DataFrame|DatetimeTZBlock) is "
-            "deprecated",
-            category=DeprecationWarning,
-        )
-        return pd.read_parquet(path)
-
-
-async def call(name, arguments, server=None):
-    async with Client(server or create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
 
 
 def break_on_run(data: pd.DataFrame) -> SummarizeNumericResult:

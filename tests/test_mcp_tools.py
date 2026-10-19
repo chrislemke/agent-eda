@@ -25,13 +25,12 @@ pytest.importorskip(
 import anyio
 import jsonschema
 import pandas as pd
-from mcp import Client
+from mcp_helpers import call, list_tools
 from python_syntax import json_words, json_words_in, titles_in, without_titles
 from recipes import recipe_for
 from serving import serving
 
 import agent_eda as ae
-from agent_eda.mcp import create_server
 from agent_eda.results import AnalysisResult
 
 ANALYSES = [info.name for info in ae.list_analyses().analyses]
@@ -476,13 +475,3 @@ def docstring_entries(name, header):
     doc = inspect.getdoc(getattr(ae, name)) or ""
     body = doc.split(f"\n{header}\n")[1]
     return re.findall(r"^    ([a-z_]+):", body, flags=re.MULTILINE)
-
-
-async def list_tools(server=None):
-    async with Client(server or create_server(), mode="legacy") as client:
-        return (await client.list_tools()).tools
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)

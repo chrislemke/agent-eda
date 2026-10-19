@@ -32,6 +32,22 @@ DISCOVERY = {"guide", "list_analyses", "search_analyses", "describe_analysis"}
 ENTRY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?: \([^)]*\))?:(?: |$)")
 REFERENCE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(\))?`")
 SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+# The footer of a printed result: one "More:" line, wrapped lines indented.
+FOOTER = re.compile(r"^More:.*(?:\n    .*)*", flags=re.MULTILINE)
+
+
+class FooterBlindChecker(doctest.OutputChecker):
+    """Compares printed results in docstring examples without their footer.
+
+    The footer's wording is pinned once, by the golden test of the text template
+    in tests/test_result_text.py, so rewording it fails that test and not the
+    example of every analysis.
+    """
+
+    def check_output(self, want, got, optionflags):
+        return super().check_output(
+            FOOTER.sub("More: ...", want), FOOTER.sub("More: ...", got), optionflags
+        )
 
 
 @pytest.fixture(params=ANALYSES)
@@ -299,7 +315,9 @@ def test_searching_for_its_name_finds_it_first(name):
 
 def test_examples_run_and_print_a_result(name):
     func = getattr(ae, name)
-    runner = doctest.DocTestRunner(optionflags=doctest.ELLIPSIS)
+    runner = doctest.DocTestRunner(
+        checker=FooterBlindChecker(), optionflags=doctest.ELLIPSIS
+    )
     report = []
     tests = doctest.DocTestFinder(recurse=False).find(func, name=name, globs={})
     for test in tests:

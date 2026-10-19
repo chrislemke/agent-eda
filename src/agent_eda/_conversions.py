@@ -194,9 +194,10 @@ def _uniform_verdict(
     return None
 
 
-def _stored_verdict(stored: LogicalType | None, declared: LogicalType) -> int:
+def _stored_verdict(kind: ColumnKind, declared: LogicalType) -> int:
     """The verdict on a value stored as a boolean, a datetime or a duration."""
-    if stored == declared:
+    # These column kinds are named as the logical types they store.
+    if kind == declared:
         return COMPATIBLE
     # Every such value converts to text, and can be hashed as a category.
     return CONVERTIBLE if declared in ("text", "categorical") else INVALID

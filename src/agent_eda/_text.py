@@ -134,13 +134,13 @@ def render(
         hidden = len(lines) - limit + 1
         lines = [
             *lines[: limit - 1],
-            f"... {hidden:,} more lines; see {_RECORD[surface]}.",
+            f"... {hidden:,} more lines; see {_FOOTER_RECORD[surface]}.",
         ]
     return "\n".join(lines)
 
 
 # Where the whole record is, on each surface.
-_RECORD: dict[Surface, str] = {
+_FOOTER_RECORD: dict[Surface, str] = {
     "python": "res.to_json()",
     "mcp": "the structured content",
 }
