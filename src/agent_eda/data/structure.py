@@ -95,17 +95,17 @@ def find_candidate_keys(
     """Which columns, alone or combined, uniquely identify rows?
 
     When to use:
-        Call it to learn how rows are identified: which single columns or
-        combinations of up to max_key_size columns are keys, meaning no two rows
-        share their values. It lists minimal keys, keys with missing values,
-        which can't serve as primary keys, and, when no key exists, the column
-        sets closest to one, such as an ID broken by a few duplicates. Missing
-        values compare equal, whichever kind they are: None, NaN, NaT and NA are
-        one value, though pandas' duplicated tells None from NaN in an object
-        column. With the default columns, float columns holding a fraction are
-        left out: a measurement such as 0.5 is no identifier, and listing them
-        buries the real keys. For each column's distinct and missing counts, call
-        `describe_dataset`; `list_analyses` lists the other analyses.
+        Call it to learn how rows are identified: which single columns or combinations
+        of up to max_key_size columns are keys, meaning no two rows share their values.
+        It lists minimal keys, keys with missing values, which can't serve as primary
+        keys, and, when no key exists, the column sets closest to one, such as an ID
+        broken by a few duplicates. Missing values compare equal, whichever kind they
+        are: None, NaN, NaT and NA are one value, though pandas' duplicated tells None
+        from NaN in an object column. With the default columns, float columns holding a
+        fraction are left out: a measurement such as 0.5 is no identifier, and listing
+        them buries the real keys. For the rows that repeat on a near-key's columns,
+        call `find_duplicate_rows`; for each column's distinct and missing counts,
+        `describe_dataset`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -211,9 +211,12 @@ def find_candidate_keys(
         ['id', 'seq']
 
     See Also:
-        describe_dataset: Distinct and missing counts of every column, whatever
-            its dtype.
-        list_analyses: Every analysis, with the question each one answers.
+        find_duplicate_rows: Groups of rows that are equal in every column, or in the
+            columns of a near-key, with their row IDs.
+        profile_target: The classes and imbalance, or the statistics, of the column a
+            model will predict, checked against the task.
+        describe_dataset: Distinct and missing counts of every column, whatever its
+            dtype.
     """  # noqa: E501 - the example prints a table 120 characters wide
     selection = select_columns("find_candidate_keys", data, columns, _ANY_COLUMN)
     selected = selection.columns
@@ -571,6 +574,11 @@ def _unhashable_values(left_out: list[str]) -> list[Limitation]:
         "provenance",
         "column labels",
         "duplicated column labels",
+        "rows",
+        "row count",
+        "zero variance",
+        "constant",
+        "constant columns",
     ),
     any_column_labels=True,
 )
@@ -583,29 +591,16 @@ def describe_dataset(
     """What does this dataset contain?
 
     When to use:
-        Call it first on any new DataFrame. It reports the shape, each column's
-        dtype, missing and distinct counts and memory, the index and the
-        provenance you supply, and flags structural problems: empty data,
-        duplicated or colliding column labels, MultiIndex columns, a non-unique
-        index, all-missing columns and constant columns. Every other analysis
-        raises on bad column labels, so run this one to find them. It never
-        shows a raw data value. A dtype only tells how pandas stores a column:
-        to learn each column's logical type from its values, such as
-        identifiers or numbers and dates stored as text, call
-        `infer_column_semantics` next, and to test the values against logical
-        types you declare, `validate_column_types`. For missing values per
-        column and per row, counting stand-ins such as -999 that you declare,
-        call `profile_missing_values`, and to find such stand-ins,
-        `detect_missing_sentinels`; for how the values of each numeric column
-        are distributed, call `summarize_numeric`, and for which values occur
-        in each text, categorical and boolean column and how often,
-        `summarize_categorical`. For rows that repeat, call
-        `find_duplicate_rows`; for which columns, alone or combined, identify
-        rows, call `find_candidate_keys`. For the column a model will
-        predict, call `profile_target` with the task. Columns whose values,
-        not labels, duplicate or derive from another column show up as perfect
-        associations in `compute_association_matrix`. `list_analyses` lists
-        the other analyses.
+        Call it first on any new DataFrame. It reports the shape, each column's dtype,
+        missing and distinct counts and memory, the index and the provenance you supply,
+        and flags structural problems: empty data, duplicated or colliding column
+        labels, MultiIndex columns, a non-unique index, all-missing columns and constant
+        columns. Every other analysis raises on bad column labels, so run this one to
+        find them. It never shows a raw data value. A dtype only tells how pandas stores
+        a column: to learn each column's logical type from its values, such as
+        identifiers or numbers and dates stored as text, call `infer_column_semantics`
+        next. For missing values per column and per row, call `profile_missing_values`;
+        for how the values of each numeric column are distributed, `summarize_numeric`.
 
     Args:
         data (pd.DataFrame): The data to describe. Any column labels are
@@ -669,9 +664,9 @@ def describe_dataset(
         Provenance: source 'survey.csv'; source_version not supplied.
         Columns (3 of 3 shown):
         column  dtype    non_missing_count  missing_count  distinct_count  memory_bytes
+        plan    int64                    4              0               1            32
         age     int64                    4              0               3            32
         score   float64                  3              1               2            32
-        plan    int64                    4              0               1            32
         Findings (1 of 1 shown):
         - suspected constant_columns: 1 column holds a single distinct non-missing value: 'plan'.
         Limitations: none
@@ -680,30 +675,12 @@ def describe_dataset(
         1
 
     See Also:
-        infer_column_semantics: The logical type of each column, from its values,
-            with flags for identifiers and numbers or dates stored as text.
-        validate_column_types: How many values of each declared column have,
-            convert to or fail the logical type you declare, with the invalid
-            ones.
-        profile_missing_values: Missing values per column and per row, counting
-            declared sentinel values.
-        detect_missing_sentinels: Values that look like stand-ins for missing
-            ones, such as -999, 'N/A' or 1900-01-01.
-        summarize_numeric: Counts, mean, spread, quantiles and shape of every
-            numeric column.
-        summarize_categorical: Each level's count and share, the most common
-            levels and labels that differ only by case or surrounding spaces,
-            for every text, categorical and boolean column.
-        find_duplicate_rows: Groups of rows that are equal in every column,
-            with their row IDs.
-        find_candidate_keys: Which columns, alone or combined, uniquely identify
-            rows, with duplicate and missing counts.
-        profile_target: The classes and imbalance, or the statistics, of the
-            column a model will predict, checked against the task.
-        compute_association_matrix: How strongly pairs of columns are
-            associated, with perfect associations flagged as possibly duplicated
-            or derived columns.
-        list_analyses: Every analysis, with the question each one answers.
+        infer_column_semantics: The logical type of each column, from its values, with
+            flags for identifiers and numbers or dates stored as text.
+        profile_missing_values: Missing values per column and per row, counting declared
+            sentinel values.
+        summarize_numeric: Counts, mean, spread, quantiles and shape of every numeric
+            column.
     """
     row_count = len(data)
     labels = Labels(data.columns)

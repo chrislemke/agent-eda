@@ -1,15 +1,21 @@
 """Result classes returned by agent-eda analyses."""
 
+import ast
+import datetime as dt
+import inspect
 import itertools
 import json
 import re
+import textwrap
 import typing
-from collections.abc import Sequence
-from typing import Annotated, Any, Literal, Self
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from decimal import Decimal
+from typing import Annotated, Any, ClassVar, Literal, Self
 
 import numpy as np
 import pandas as pd
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -18,15 +24,20 @@ from pydantic import (
     PrivateAttr,
     SerializationInfo,
     SerializerFunctionWrapHandler,
+    field_validator,
     model_serializer,
     model_validator,
 )
 
 from agent_eda import _text
 from agent_eda._annotations import TypeName, python_literal
-from agent_eda._levels import Levels, level_rows, levels_frame
-from agent_eda._written_form import row_id_json
-from agent_eda.errors import InvalidArgumentError, ResultTableUnavailableError
+from agent_eda._levels import LEVEL_ORDER, Levels, level_rows, levels_frame
+from agent_eda._written_form import record_integers, row_id_json, row_id_list
+from agent_eda.errors import (
+    ColumnNotFoundError,
+    InvalidArgumentError,
+    ResultTableUnavailableError,
+)
 
 Status = Literal[
     "completed",
@@ -40,6 +51,16 @@ Status = Literal[
 ]
 
 Assessment = Literal["descriptive", "suspected", "violation", "passed", "unknown"]
+
+# The order the printed text lists findings in, so that a cap on the findings it
+# shows never hides a violation behind suspected findings.
+_TEXT_ORDER: tuple[Assessment, ...] = (
+    "violation",
+    "suspected",
+    "descriptive",
+    "passed",
+    "unknown",
+)
 
 # What a column's values mean, as opposed to the dtype pandas stores them in.
 # infer_column_semantics ranks these for each column, and a declared schema
@@ -136,28 +157,29 @@ LimitationCode = Literal[
     "too_few_values",
     # Every value is equal, so a statistic such as skewness is null.
     "zero_variance",
-    # Integers or decimals beyond ±2^53 were read as float64, which rounds them.
+    # Numbers beyond ±2^53 were read as float64, which rounds them. Integers and
+    # decimals are such numbers.
     "float_precision",
     # Booleans were read as numbers: 0 for False and 1 for True.
     "boolean_as_numeric",
-    # A column stores NaN as a value, which every analysis counts as missing.
-    # isna() doesn't.
+    # A column stores NaN as a value, which every analysis counts as missing,
+    # unlike isna().
     "nan_counted_as_missing",
-    # A categorical column has a level per complete row of a pair, so the
-    # pair's value is null.
+    # A categorical column has one level per row of a pair, so its value is
+    # null.
     "one_row_per_level",
-    # A computation overflowed or failed numerically, so the values it affects
-    # are null. Division by zero, an invalid value and precision loss are
-    # examples; the fields are empty when no value could be named.
+    # A computation overflowed or failed, so the values it affects are null.
+    # Division by zero, an invalid value and precision loss are examples; the
+    # fields are empty when no value could be named.
     "numerical_warning",
-    # Index labels or id_column values repeat, so a row ID can match more than
-    # one row.
+    # Index labels or id_column values repeat, so a row ID can match several
+    # rows.
     "ambiguous_row_ids",
-    # No sentinel values were declared, so sentinel counts are null or
-    # candidates stay suspected. Stand-ins such as -999 don't count as missing.
+    # No sentinel values were declared, so counts are null or candidates stay
+    # suspected. Stand-ins such as -999 don't count as missing.
     "sentinel_values_not_declared",
-    # A ranking stopped at its work limit, so an uncounted set could outrank a
-    # listed one.
+    # A ranking stopped at its work limit before it was proven. An uncounted
+    # set could outrank a listed one.
     "ranking_not_proven",
     # No expected labels were declared, so labels outside them weren't checked.
     # The fields that list those labels are null.
@@ -170,16 +192,47 @@ LimitationCode = Literal[
     # No schema was declared, so no column was compared with a declared type.
     # The fields that hold the comparison are null.
     "schema_not_declared",
-    # A column's nullable wasn't declared, so its missing values weren't
-    # checked against it. Its nullable field is null.
+    # nullable wasn't declared for a column, so its missing values weren't
+    # checked and its nullable field is null.
     "nullable_not_declared",
     # A column has no inferred logical type, so the field is null. No value is
     # left after the missing ones, or none fits.
     "type_not_inferred",
-    # A field belongs to the other task, classification or regression, so it is
-    # null.
+    # A field belongs to the other task, so it is null. The tasks are
+    # classification and regression.
     "not_applicable_to_task",
 ]
+
+
+# The start of a field path that points at a table entry of a column, as a
+# position, columns[2], or as a label, columns['age'].
+_ENTRY_PATH = re.compile(
+    r"columns\[(?:(?P<position>\d+)|(?P<label>'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"))\]"
+)
+
+
+def _left_out_lines(
+    names: Sequence[str], kinds: Mapping[str, str] | None, *, wanted: str, boolean: str
+) -> list[str]:
+    """Lines saying which columns the default left out and why.
+
+    `wanted` names what the analysis reads, such as "numeric"; `boolean` says
+    what happens to booleans, which some analyses read only when named. The
+    columns are grouped by kind, in the order the kinds first appear. A result
+    rebuilt from its record has no kinds and says only what the analysis reads.
+    """
+    if not names:
+        return []
+    if kinds is None:
+        return [f"Left out, not {wanted}: {_text.join_labels(names)}."]
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        groups.setdefault(kinds.get(name, "other"), []).append(name)
+    lines = []
+    for kind, group in groups.items():
+        why = boolean if kind == "boolean" else f"not {wanted} ({kind})"
+        lines.append(f"Left out, {why}: {_text.join_labels(group)}.")
+    return lines
 
 
 class _Cap:
@@ -191,7 +244,10 @@ class _Cap:
     is capped instead, with `<key>_total` next to it, except the keys named in
     `whole`. With `total`, the field holds only the first entries even on the
     result object, and `<field>_total` takes the full count from the field that
-    `total` names.
+    `total` names. A list whose entries have a natural key, such as a pair's two
+    columns, takes `key`, which gives an entry's key as a tuple of strings:
+    field paths then name its entries by key, as `pairs['a', 'b']`, and a
+    capped record keeps the entries that findings and limitations point at.
     """
 
     def __init__(
@@ -201,21 +257,36 @@ class _Cap:
         each_list: bool = False,
         total: str | None = None,
         whole: tuple[str, ...] = (),
+        key: Callable[[Any], tuple[str, ...]] | None = None,
     ) -> None:
         self.limit = limit
         self.each_list = each_list
         self.total = total
         self.whole = whole
+        self.key = key
 
 
 # The caps the spec sets for every list in the record that grows with the data.
 _ROW_IDS = _Cap(10)
 _EXAMPLE_VALUES = _Cap(5)
 _ENTRIES = _Cap(100)
-# For parameters: list and mapping arguments, but not data's shape.
-_LISTS_INSIDE = _Cap(100, each_list=True, whole=("data",))
+# For parameters: list and mapping arguments, but not data's shape or the
+# project, which is recorded whole.
+_LISTS_INSIDE = _Cap(100, each_list=True, whole=("data", "project"))
+
+# Said in every field description whose record can hold such an integer.
+_BIG_INTEGERS = "The record writes an integer beyond ±2^53 as a string."
+
+# Said in the output schema, for every field of the record at once.
+_RECORD_INTEGERS = (
+    "Every integer beyond ±2^53 (9,007,199,254,740,991), in row IDs, labels, "
+    "values and parameters, is a string."
+)
 
 _RECORD = "agent_eda_record"
+# In the serialization context: which entries of the result's capped fields the
+# findings and limitations point at, by field name.
+_POINTED = "agent_eda_pointed"
 
 
 # Lone surrogates, which no UTF-8 output can hold.
@@ -233,6 +304,87 @@ def _record_json(record: object) -> str:
         record, allow_nan=False, ensure_ascii=False, separators=(",", ":")
     )
     return _LONE_SURROGATE.sub(lambda found: f"\\u{ord(found[0]):04x}", text)
+
+
+def _hint(name: object, names: Sequence[str]) -> str:
+    """ " Did you mean 'x'?" for the closest of the names, or nothing."""
+    closest = _text.closest_names(name, names)[:1] if isinstance(name, str) else []
+    return f" Did you mean {closest[0]!r}?" if closest else ""
+
+
+def _rich_text(text: str) -> Iterator[Any]:
+    """The text as one Rich renderable, which keeps square brackets as they are."""
+    from rich.text import Text  # rich is optional: only Rich calls this
+
+    yield Text(text)
+
+
+class _ColumnKeyError(KeyError):
+    """A KeyError whose text is the message, not the message's repr."""
+
+    def __str__(self) -> str:
+        return str(self.args[0])
+
+
+# A message lists this many column names, then counts the rest.
+_NAMES_LISTED = 10
+
+
+def _no_column(name: object, names: Sequence[str]) -> _ColumnKeyError:
+    """The error for a column name the result doesn't hold: the closest names
+    first, then the columns it holds."""
+    closest = _text.closest_names(name, names)[:3] if isinstance(name, str) else []
+    hint = (
+        " Did you mean " + _text.join_alternatives([repr(c) for c in closest]) + "?"
+        if closest
+        else ""
+    )
+    shown = ", ".join(repr(column) for column in names[:_NAMES_LISTED])
+    more = len(names) - _NAMES_LISTED
+    rest = f" and {more} more" if more > 0 else ""
+    held = (
+        f"The result holds {shown}{rest}." if names else "The result holds no columns."
+    )
+    return _ColumnKeyError(f"no column {name!r} in this result.{hint} {held}")
+
+
+class _ColumnsByName(dict[str, Any]):
+    """A mapping from column name to entry whose KeyError suggests the closest
+    names."""
+
+    def __missing__(self, key: object) -> Any:
+        raise _no_column(key, list(self))
+
+
+class _ColumnList(list[Any]):
+    """A list of column entries that also finds one by column name, with the same
+    KeyError as _ColumnsByName for a name that no entry has."""
+
+    def __getitem__(self, key: Any) -> Any:
+        if not isinstance(key, str):
+            return super().__getitem__(key)
+        found = [i for i, entry in enumerate(self) if entry.column == key]
+        if not found:
+            raise _no_column(key, [entry.column for entry in self])
+        if len(found) > 1:
+            where = ", ".join(map(str, found[:-1])) + f" and {found[-1]}"
+            raise _ColumnKeyError(
+                f"{key!r} labels {len(found)} columns, at positions {where}. "
+                "Index the list by position."
+            )
+        return super().__getitem__(found[0])
+
+
+def _by_name(columns: dict[str, Any]) -> dict[str, Any]:
+    return _ColumnsByName(columns)
+
+
+def _list_by_name(columns: list[Any]) -> list[Any]:
+    return _ColumnList(columns)
+
+
+# Marks a field keyed by column name, whose lookup suggests close names.
+_BY_NAME = AfterValidator(_by_name)
 
 
 def _tables_unavailable(result: "AnalysisResult") -> ResultTableUnavailableError:
@@ -264,20 +416,106 @@ def _head(values: list[Any] | dict[Any, Any], limit: int) -> list[Any] | dict[An
     return values[:limit]
 
 
-def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
-    """Keep the first entries of each named list or dict and add its total."""
+def _capped(
+    values: dict[str, Any], limit: int, whole: tuple[str, ...], *, top: bool = False
+) -> dict[str, Any]:
+    """Keep the first `limit` entries of each list or dict among `values`, except
+    the keys named in `whole`, and add its total as `<key>_total` beside it.
+
+    The lists and dicts inside the kept entries are capped the same way, down
+    to any depth, but get their total only when entries were dropped. A
+    `<key>_total` that another key already holds gets underscores added until
+    it is free, so no entry is overwritten.
+    """
     capped: dict[str, Any] = {}
     for name, value in values.items():
-        limit = limits.get(name)
-        if limit is None:
+        if name in whole or not isinstance(value, list | dict):
             capped[name] = value
             continue
         if isinstance(value, dict):
-            capped[name] = dict(itertools.islice(value.items(), limit))
+            capped[name] = _capped(
+                dict(itertools.islice(value.items(), limit)), limit, ()
+            )
         else:
             capped[name] = value[:limit]
-        capped[f"{name}_total"] = len(value)
+        if top or len(value) > limit:
+            total = f"{name}_total"
+            while total in values:
+                total += "_"
+            capped[total] = len(value)
     return capped
+
+
+def _entry_names(values: list[Any] | dict[Any, Any], cap: _Cap) -> list[Any]:
+    """What a field path calls each entry: its key in a mapping, its key fields
+    as a tuple in a keyed list, and its position in any other list."""
+    if isinstance(values, dict):
+        return list(values)
+    if cap.key is not None:
+        return [cap.key(entry) for entry in values]
+    return list(range(len(values)))
+
+
+def _kept_indexes(
+    values: list[Any] | dict[Any, Any], cap: _Cap, pointed: set[Any]
+) -> list[int] | None:
+    """The positions of the entries a capped record keeps; None for all of them.
+
+    The record keeps every entry that a finding or limitation points at, then
+    the first of the others, `cap.limit` entries in all, in their own order.
+    """
+    if len(values) <= cap.limit:
+        return None
+    names = _entry_names(values, cap)
+    marked = [i for i, name in enumerate(names) if name in pointed]
+    if not marked:
+        return list(range(cap.limit))
+    keep = set(marked)
+    others = (i for i in range(len(names)) if i not in keep)
+    keep.update(itertools.islice(others, max(cap.limit - len(marked), 0)))
+    return sorted(keep)
+
+
+def _pick(
+    values: list[Any] | dict[Any, Any], indexes: list[int]
+) -> list[Any] | dict[Any, Any]:
+    """The entries of a list or dict at these positions."""
+    if isinstance(values, dict):
+        items = list(values.items())
+        return {items[i][0]: items[i][1] for i in indexes}
+    return [values[i] for i in indexes]
+
+
+def _subscript(path: str) -> tuple[str, Any] | None:
+    """The field and the entry a field path starts with, such as ('columns',
+    'age') for "columns['age'].min"; None when it names no entry."""
+    try:
+        node = ast.parse(path, mode="eval").body
+        while True:
+            if isinstance(node, ast.Attribute):
+                node = node.value
+            elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+                if isinstance(node.slice, ast.Slice):
+                    return None
+                return node.value.id, ast.literal_eval(node.slice)
+            elif isinstance(node, ast.Subscript):
+                node = node.value
+            else:
+                return None
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+
+
+def _renumbered(path: str, moves: dict[str, dict[int, int]]) -> str:
+    """A field path with its list position changed to the entry's position in
+    the record; `moves` maps each list field's object positions to those."""
+    found = _subscript(path)
+    if found is None or found[0] not in moves or not isinstance(found[1], int):
+        return path
+    name, position = found
+    if position not in moves[name]:
+        return path
+    return f"{name}[{moves[name][position]}]{path[path.index(']') + 1 :]}"
 
 
 def _models_in(
@@ -329,8 +567,9 @@ def _check_table(table: object, tables: Sequence[str]) -> None:
     closest = _text.closest_names(table, tables)[:1] if isinstance(table, str) else []
     hint = f" Did you mean {closest[0]!r}?" if closest else ""
     allowed = _text.join_alternatives([repr(name) for name in tables])
+    allowed = allowed if len(tables) == 1 else f"one of {allowed}"
     raise InvalidArgumentError(
-        f"to_frame got {shown} for table, but table must be one of {allowed}.{hint} "
+        f"to_frame got {shown} for table, but table must be {allowed}.{hint} "
         f"res.to_frame() returns the {tables[0]} table."
     )
 
@@ -349,8 +588,85 @@ def _entries_frame(
     return pd.DataFrame(columns, columns=list(model.model_fields))
 
 
-class ResultModel(BaseModel):
+# Where a result's help text wraps.
+_HELP_WIDTH = 100
+
+
+def _fields_doc(cls: Any) -> str:
+    """The class docstring with one entry per field: its name and description."""
+    lines = [cls.__plain_doc__.rstrip(), ""]
+    if cls.__help_note__:
+        lines += [*textwrap.wrap(cls.__help_note__, width=_HELP_WIDTH), ""]
+    lines.append("Fields:")
+    for name, field in cls.model_fields.items():
+        lines += textwrap.wrap(
+            f"{name}: {field.description or ''}".rstrip(),
+            width=_HELP_WIDTH,
+            initial_indent="    ",
+            subsequent_indent="        ",
+        )
+    if "analysis" in cls.model_fields and cls.__name__ != "AnalysisResult":
+        analysis = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__.removesuffix("Result"))
+        lines += [
+            "",
+            f"ae.describe_analysis('{analysis.lower()}') shows how to call the "
+            "analysis, how to read these fields and what each finding code means.",
+        ]
+    return "\n".join(lines)
+
+
+class _ResultMeta(type(BaseModel)):
+    """The metaclass of the result classes. It writes each class's docstring with
+    its fields' descriptions, and keeps pydantic's own members out of dir(cls),
+    so that help(res) shows what a result holds instead of 29,000 characters of
+    pydantic internals."""
+
+    def __new__(
+        mcs,
+        name: str,
+        bases: tuple[type, ...],
+        namespace: dict[str, Any],
+        **kwargs: Any,
+    ):
+        cls: Any = super().__new__(mcs, name, bases, namespace, **kwargs)
+        if "analysis" in cls.model_fields:
+            # An analysis result: help() shows the fields. The record's JSON
+            # Schema keeps the plain docstring (record_schema puts it back).
+            cls.__plain_doc__ = cls.__dict__.get("__doc__") or ""
+            cls.__doc__ = _fields_doc(cls)
+        if cls.model_fields:
+            # help() prints the constructor's signature, which pydantic builds
+            # from the annotations, with objects such as <_Cap object at 0x...>.
+            cls.__signature__ = inspect.Signature(
+                [
+                    inspect.Parameter(field, inspect.Parameter.KEYWORD_ONLY)
+                    for field in cls.model_fields
+                ]
+            )
+        return cls
+
+    def __dir__(cls) -> list[str]:
+        owners = {
+            name: next(c for c in cls.__mro__ if name in vars(c))
+            for name in super().__dir__()
+            if any(name in vars(c) for c in cls.__mro__)
+        }
+        return [
+            name
+            for name, owner in owners.items()
+            if owner.__module__.startswith("agent_eda")
+            and not name.startswith(("_", "model_"))
+        ]
+
+
+class ResultModel(BaseModel, metaclass=_ResultMeta):
     """Base for every record inside an analysis result: frozen and strict."""
+
+    # An analysis result's docstring as written, before the fields were added to
+    # the class docstring that help() shows.
+    __plain_doc__: ClassVar[str] = ""
+    # A note for help() only, such as how to look an entry up in Python.
+    __help_note__: ClassVar[str] = ""
 
     model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
 
@@ -382,11 +698,22 @@ class ResultModel(BaseModel):
         }
         # Serialize only the entries the record keeps, which saves converting
         # what it would drop, such as the row IDs of 500,000 duplicate groups.
-        heads = {
-            name: _head(getattr(self, name), limit)
-            for name, limit in limits.items()
-            if (length := lengths[name]) is not None and length > limit
-        }
+        # Findings and limitations name entries of the result's own fields; the
+        # record keeps those.
+        pointed = (
+            info.context.get(_POINTED, {}) if isinstance(self, AnalysisResult) else {}
+        )
+        heads: dict[str, Any] = {}
+        for name, limit in limits.items():
+            length = lengths[name]
+            if length is None or length <= limit:
+                continue
+            values = getattr(self, name)
+            if name in pointed and caps[name].total is None:
+                kept = _kept_indexes(values, caps[name], pointed[name])
+                heads[name] = values if kept is None else _pick(values, kept)
+            else:
+                heads[name] = _head(values, limit)
         data = handler(self.model_copy(update=heads) if heads else self)
         record: dict[str, Any] = {}
         for name, value in data.items():
@@ -396,13 +723,51 @@ class ResultModel(BaseModel):
         for name, cap in caps.items():
             inner = record.get(name)
             if cap.each_list and isinstance(inner, dict):
-                lists = {
-                    key: cap.limit
-                    for key, v in inner.items()
-                    if isinstance(v, list | dict) and key not in cap.whole
-                }
-                record[name] = _capped(inner, lists)
+                record[name] = _capped(inner, cap.limit, cap.whole, top=True)
         return record
+
+    # pydantic's deprecated methods give records that differ from the result's own
+    # (no totals for capped lists, a JSON Schema that reads like an inferred
+    # schema), so each points to the method to use. They sit last in the class
+    # body, since a method named dict would otherwise shadow the type below it.
+
+    def json(self, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use to_json()."""
+        raise _use_instead("json()", "to_json()", "model_dump_json()")
+
+    def dict(self, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use to_dict()."""
+        raise _use_instead("dict()", "to_dict()", "model_dump()")
+
+    def copy(self, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use model_copy()."""
+        raise _use_instead("copy()", "model_copy()")
+
+    @classmethod
+    def schema(cls, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use record_schema()."""
+        raise _use_instead("schema()", "record_schema()", "model_json_schema()")
+
+    @classmethod
+    def parse_obj(cls, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use model_validate()."""
+        raise _use_instead("parse_obj()", "model_validate()")
+
+
+def _use_instead(
+    method: str, instead: str, complete: str | None = None
+) -> InvalidArgumentError:
+    """The error for pydantic's deprecated `method`, naming the one to use."""
+    other = (
+        f" {complete} gives the complete record, with every list in full."
+        if complete
+        else ""
+    )
+    return InvalidArgumentError(
+        f"{method} is a deprecated pydantic method that this result doesn't "
+        f"support: it would give a record that differs from the result's own. "
+        f"Use {instead}.{other}"
+    )
 
 
 class Finding(ResultModel):
@@ -422,7 +787,9 @@ class Finding(ResultModel):
     )
     fields: Annotated[list[str], _ENTRIES] = Field(
         description="Paths of the result fields behind the claim, such as "
-        "'columns[2].missing_count'."
+        "'columns[2].missing_count'. A mapping entry is named by its key, as "
+        "in columns['age'], and a pair by its two columns, as in "
+        "pairs['age', 'income']. In the record, every path resolves."
     )
 
 
@@ -467,8 +834,18 @@ class Support(ResultModel):
     row_count: int = Field(description="Rows in the data given to the analysis.")
     column_count: int = Field(description="Columns the analysis selected.")
     columns: Annotated[list[ColumnSupport], _ENTRIES] = Field(
-        description="One entry per selected column, in the selected order."
+        description="The selected columns where something was excluded, in the "
+        "selected order. A column not listed had every row eligible and "
+        "evaluated: eligible_count and evaluated_count equal row_count, and "
+        "excluded_count is 0."
     )
+
+    @field_validator("columns", mode="after")
+    @classmethod
+    def _only_where_something_was_excluded(
+        cls, columns: list[ColumnSupport]
+    ) -> list[ColumnSupport]:
+        return [column for column in columns if column.excluded_count]
 
 
 class Execution(ResultModel):
@@ -663,8 +1040,11 @@ class AnalysisResult(ResultModel):
     )
     parameters: Annotated[dict[str, JsonValue], _LISTS_INSIDE] = Field(
         description="The resolved arguments by name, defaults included. data "
-        "appears only as its row_count and column_count. In the record, a list "
-        "or mapping argument keeps its first 100 entries and gains <name>_total."
+        "appears only as its row_count and column_count, and project whole. In "
+        "the record, a list or mapping argument keeps its first 100 entries and "
+        "gains <name>_total; a list inside a mapping argument keeps its first "
+        "100 entries too, and gains <key>_total beside it when it lost some. "
+        + _BIG_INTEGERS
     )
     support: Support = Field(description="The counts behind the result.")
     findings: Annotated[list[Finding], _ENTRIES] = Field(
@@ -719,7 +1099,10 @@ class AnalysisResult(ResultModel):
             ],
             table=self._text_table(),
             findings=[
-                _text.Item(f"{f.assessment} {f.code}", f.claim) for f in self.findings
+                _text.Item(f"{f.assessment} {f.code}", f.claim)
+                for f in sorted(
+                    self.findings, key=lambda f: _TEXT_ORDER.index(f.assessment)
+                )
             ],
             limitations=[_text.Item(lim.code, lim.reason) for lim in self.limitations],
             other_tables=self._text_other_tables(),
@@ -729,6 +1112,10 @@ class AnalysisResult(ResultModel):
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    def __rich_console__(self, console: Any, options: Any) -> Iterator[Any]:
+        """Rich prints the text that print(res) gives, not pydantic's field dump."""
+        yield from _rich_text(str(self))
 
     def _heading(self) -> str:
         shape = self.parameters.get("data")
@@ -747,6 +1134,30 @@ class AnalysisResult(ResultModel):
     def to_frame(self) -> pd.DataFrame:
         """The complete main table of the result as a DataFrame."""
         raise NotImplementedError(f"{type(self).__name__} has no table")
+
+    def _by_interest[T](self, entries: Sequence[T], names: Sequence[str]) -> list[T]:
+        """The entries of a table of columns, those with a finding or a limitation
+        first and the rest after them, each group in its own order.
+
+        `names` holds each entry's column name. A finding points at a column by
+        name, a limitation by the path of its entry, "columns['age']" or
+        "columns[2]".
+        """
+        named = {name for finding in self.findings for name in finding.columns}
+        flagged = {i for i, name in enumerate(names) if name in named}
+        for limitation in self.limitations:
+            for path in limitation.fields:
+                match = _ENTRY_PATH.match(path)
+                if match is None:
+                    continue
+                if match["position"] is not None:
+                    flagged.add(int(match["position"]))
+                else:
+                    label = ast.literal_eval(match["label"])
+                    flagged.update(i for i, name in enumerate(names) if name == label)
+        first = [entry for i, entry in enumerate(entries) if i in flagged]
+        rest = [entry for i, entry in enumerate(entries) if i not in flagged]
+        return first + rest
 
     def _masking_facts(self, surface: _text.Surface) -> list[str]:
         """The line on masking, for results that support it."""
@@ -768,16 +1179,76 @@ class AnalysisResult(ResultModel):
     def to_dict(self) -> dict[str, Any]:
         """The result record as JSON-compatible Python objects.
 
-        Every list that grows with the data keeps its first entries (10 row IDs,
-        5 example values, 100 entries of anything else) and gains a
-        `<field>_total` key with the full count. The result object and
-        to_frame() keep every entry.
+        Every list that grows with the data keeps its first entries (10 row
+        IDs, 5 example values, 100 entries of anything else, and top_n levels
+        per column in summarize_categorical) and gains a `<field>_total` key
+        with the full count. A capped list of entries that findings or
+        limitations point at keeps those too, so every field path in a finding
+        or limitation resolves in the record; a path that names an entry by
+        position then gives its position in the record. The result object keeps
+        every entry, except in the eight fields that hold only their first
+        entries on the object too: levels, row IDs, invalid values, classes and
+        unexpected or rare labels. to_frame() has every one of them, row IDs
+        included.
         """
-        return self.model_dump(mode="json", context={_RECORD: True})
+        pointed = self._pointed_entries()
+        record = self.model_dump(
+            mode="json", context={_RECORD: True, _POINTED: pointed}
+        )
+        self._renumber_paths(record, pointed)
+        return record_integers(record)
 
     def to_json(self) -> str:
         """The result record from to_dict() as strict JSON, without NaN or Infinity."""
         return _record_json(self.to_dict())
+
+    def _capped_entry_fields(self) -> dict[str, _Cap]:
+        """The result's own lists and mappings that the record caps at their
+        first entries, where findings and limitations can point at later ones."""
+        return {
+            name: marker
+            for name, field in type(self).model_fields.items()
+            for marker in field.metadata
+            if isinstance(marker, _Cap) and not marker.each_list and not marker.total
+        }
+
+    def _pointed_entries(self) -> dict[str, set[Any]]:
+        """The entries of the capped fields that the record's findings and
+        limitations name, by field: positions, keys or key tuples."""
+        capped = self._capped_entry_fields()
+        pointed: dict[str, set[Any]] = {}
+        for item in [
+            *self.findings[: _ENTRIES.limit],
+            *self.limitations[: _ENTRIES.limit],
+        ]:
+            for path in item.fields[: _ENTRIES.limit]:
+                if (found := _subscript(path)) is None or found[0] not in capped:
+                    continue
+                name, entry = found
+                if capped[name].key is not None and not isinstance(entry, tuple):
+                    entry = (entry,)
+                pointed.setdefault(name, set()).add(entry)
+        return pointed
+
+    def _renumber_paths(
+        self, record: dict[str, Any], pointed: dict[str, set[Any]]
+    ) -> None:
+        """Rewrite the paths into lists that name entries by position, when the
+        record dropped entries before them, so each still resolves."""
+        capped = self._capped_entry_fields()
+        moves: dict[str, dict[int, int]] = {}
+        for name in pointed:
+            cap, values = capped[name], getattr(self, name)
+            if cap.key is not None or isinstance(values, dict):
+                continue
+            kept = _kept_indexes(values, cap, pointed[name])
+            if kept is not None:
+                moves[name] = {old: new for new, old in enumerate(kept)}
+        if not moves:
+            return
+        for kind in ("findings", "limitations"):
+            for item in record[kind]:
+                item["fields"] = [_renumbered(path, moves) for path in item["fields"]]
 
     @classmethod
     def record_schema(cls) -> dict[str, Any]:
@@ -788,6 +1259,9 @@ class AnalysisResult(ResultModel):
         each MCP tool as the output schema.
         """
         schema = cls.model_json_schema(mode="validation")
+        schema["description"] = (
+            f"{inspect.cleandoc(cls.__plain_doc__)} {_RECORD_INTEGERS}".strip()
+        )
         definitions = schema.get("$defs", {})
         for model in _models_in(cls, {}):
             target = schema if model is cls else definitions[model.__name__]
@@ -838,13 +1312,17 @@ class _DiscoveryRecord(ResultModel):
     def __repr__(self) -> str:
         return self.__str__()
 
+    def __rich_console__(self, console: Any, options: Any) -> Iterator[Any]:
+        """Rich prints the text that print(res) gives, not pydantic's field dump."""
+        yield from _rich_text(str(self))
+
     def _render(self, surface: _text.Surface) -> str:
         """The text, worded for the surface the caller reads it on."""
         raise NotImplementedError(f"{type(self).__name__} has no text")
 
     def to_dict(self) -> dict[str, Any]:
         """The record as JSON-compatible Python objects."""
-        return self.model_dump(mode="json")
+        return record_integers(self.model_dump(mode="json"))
 
     def to_json(self) -> str:
         """The record from to_dict() as strict JSON, without NaN or Infinity."""
@@ -899,6 +1377,19 @@ class AnalysisListing(_DiscoveryRecord):
         return _entries_frame(self.analyses, AnalysisInfo)
 
 
+# The text of a search listing stays within the printed text's 40 lines, however
+# long the query is: the query echo and each word are cut, and so are the lists.
+_QUERY_ECHO_LENGTH = 40
+_WORD_LENGTH = 30
+_MATCHED_SHOWN = 6
+_SEARCH_LINES = 40
+
+
+def _cut(text: str, length: int) -> str:
+    """The text, or its first `length` characters and an ellipsis."""
+    return text if len(text) <= length else text[:length].rstrip() + "…"
+
+
 class SearchMatch(ResultModel):
     """An analysis that matched a search, with what matched."""
 
@@ -909,11 +1400,17 @@ class SearchMatch(ResultModel):
     )
     score: int = Field(
         description="How well it matched: the sum over the matched query terms of "
-        "the weight of the best field each occurs in (name 4, tags 3, summary 2, "
-        "When to use: text 1)."
+        "the weight of the best field each occurs in (a tag the query holds whole "
+        "5, name 4, tags 3, summary 2, When to use: text 1; a generic word such as "
+        "'column' or 'rows' at most 1)."
     )
     matched_terms: list[str] = Field(
         description="The query terms that matched, in query order."
+    )
+    weak: bool = Field(
+        description="Whether the match is weak: only generic words such as 'column' "
+        "or 'rows' matched, or the words matched only in the When to use: text. "
+        "Read the summary before you rely on a weak match."
     )
 
 
@@ -933,7 +1430,17 @@ class SearchListing(_DiscoveryRecord):
     query: str = Field(description="The query as given.")
     terms: list[SearchTerm] = Field(
         description="The words searched for, in query order, without common words "
-        "such as 'the' and 'of', each with its synonyms."
+        "such as 'the' and 'of' and without one-letter words, each with its "
+        "synonyms. Only the first 20 distinct words are searched."
+    )
+    term_count: int = Field(
+        description="How many distinct words the query holds, without common and "
+        "one-letter words; more than the length of terms when the query is long."
+    )
+    first_look: bool = Field(
+        description="Whether the query asks where to start, such as 'first look' or "
+        "'EDA'. No single analysis answers it, so matches is empty; the guide "
+        "(the MCP server's instructions) gives the order for a first look."
     )
     limit: int = Field(description="The most matches the listing keeps.")
     match_count: int = Field(
@@ -944,22 +1451,48 @@ class SearchListing(_DiscoveryRecord):
         "when nothing matched."
     )
 
+    def _searched(self) -> str:
+        """The words searched for, each cut and the list counted when capped."""
+        if not self.terms:
+            return (
+                "no words, since common ones such as 'the' and 'of' and single "
+                "letters don't count"
+            )
+        listed = ", ".join(
+            f"{_cut(term.term, _WORD_LENGTH)} (also {', '.join(term.synonyms)})"
+            if term.synonyms
+            else _cut(term.term, _WORD_LENGTH)
+            for term in self.terms
+        )
+        if self.term_count > len(self.terms):
+            return (
+                f"the first {len(self.terms):,} of {self.term_count:,} words, {listed}"
+            )
+        return listed
+
     def _render(self, surface: _text.Surface) -> str:
         python = surface == "python"
-        searched = (
-            ", ".join(
-                f"{term.term} (also {', '.join(term.synonyms)})"
-                if term.synonyms
-                else term.term
-                for term in self.terms
+        echo = _cut(self.query, _QUERY_ECHO_LENGTH)
+        searched = f"Searched for: {self._searched()}."
+        if self.first_look:
+            return "\n".join(
+                [
+                    *_text.wrap(
+                        f"No analysis matches {echo!r}: it asks where to start, "
+                        "which no single analysis answers.",
+                        first="",
+                        indent="    ",
+                    ),
+                    "ae.guide() prints the order for a first look at a new dataset."
+                    if python
+                    else "The MCP server's instructions give the order for a first "
+                    "look at a new dataset.",
+                ]
             )
-            if self.terms
-            else "no words, since common ones such as 'the' and 'of' don't count"
-        )
         if not self.matches:
             lines = [
                 *_text.wrap(
-                    f"No analysis matches {self.query!r}. Searched for: {searched}.",
+                    f"No analysis matches {echo!r}. {searched}",
                     first="",
                     indent="    ",
                 ),
@@ -970,29 +1503,64 @@ class SearchListing(_DiscoveryRecord):
                 "the MCP server's instructions say where to start.",
             ]
             return "\n".join(lines)
+        # Show as many matches as fit within the line cap.
+        for shown in range(len(self.matches), 0, -1):
+            lines = self._lines(python, echo, searched, shown)
+            if len(lines) <= _SEARCH_LINES:
+                break
+        return "\n".join(lines)
+
+    def _lines(self, python: bool, echo: str, searched: str, shown: int) -> list[str]:
+        """The text with the first `shown` matches."""
         lines = _text.wrap(
-            f"Analyses matching {self.query!r} ({len(self.matches):,} of "
-            f"{self.match_count:,} shown, best first):",
+            f"Analyses matching {echo!r} ({shown:,} of {self.match_count:,} shown, "
+            "best first):",
             first="",
             indent="    ",
         )
-        for match in self.matches:
+        for match in self.matches[:shown]:
+            matched = [_cut(term, _WORD_LENGTH) for term in match.matched_terms]
+            if len(matched) > _MATCHED_SHOWN:
+                rest = len(matched) - _MATCHED_SHOWN
+                matched = [*matched[:_MATCHED_SHOWN], f"and {rest:,} more"]
+            marker = " (weak match)" if match.weak else ""
             lines.extend(
                 _text.wrap(
-                    f"{match.name}: {match.summary} Matched: "
-                    f"{', '.join(match.matched_terms)}.",
+                    f"{match.name}{marker}: {match.summary} Matched: "
+                    f"{', '.join(matched)}.",
                     first="  ",
                     indent="    ",
                 )
             )
-        lines.extend(_text.wrap(f"Searched for: {searched}.", first="", indent="    "))
-        if self.match_count > len(self.matches):
+        if all(match.weak for match in self.matches[:shown]):
+            lines.extend(
+                _text.wrap(
+                    "Every match shown is weak: it rests on generic words such as "
+                    "'column' or 'rows', or on the When to use: text alone. Try "
+                    "more specific words.",
+                    first="",
+                    indent="    ",
+                )
+            )
+        lines.extend(_text.wrap(searched, first="", indent="    "))
+        if shown < len(self.matches):
+            lines.extend(
+                _text.wrap(
+                    f"More: {len(self.matches) - shown:,} more matches are in "
+                    + (
+                        "to_dict()['matches']." if python else "the structured content."
+                    ),
+                    first="",
+                    indent="    ",
+                )
+            )
+        elif self.match_count > len(self.matches):
             lines.extend(
                 _text.wrap(
                     f"More: ae.search_analyses({self.query!r}, "
                     f"limit={self.match_count}) shows all {self.match_count:,} "
                     "matches."
-                    if python
+                    if python and echo == self.query
                     else f"More: search_analyses with limit {self.match_count} "
                     f"shows all {self.match_count:,} matches.",
                     first="",
@@ -1010,7 +1578,7 @@ class SearchListing(_DiscoveryRecord):
                 indent="    ",
             )
         )
-        return "\n".join(lines)
+        return lines
 
 
 class ParameterDescription(ResultModel):
@@ -1357,6 +1925,11 @@ class Provenance(ResultModel):
 class DescribeDatasetResult(AnalysisResult):
     """The result of describe_dataset."""
 
+    __help_note__ = (
+        "res.columns is a list, since column labels can repeat; res.columns['age'] "
+        "finds an entry by name, and res.columns[0] by position."
+    )
+
     row_count: int = Field(description="Rows in the data.")
     column_count: int = Field(description="Columns in the data.")
     column_level_count: int = Field(
@@ -1365,9 +1938,12 @@ class DescribeDatasetResult(AnalysisResult):
     memory_bytes: int = Field(
         description="Bytes the columns and the index use together."
     )
-    columns: Annotated[list[DescribeDatasetColumn], _ENTRIES] = Field(
-        description="One entry per column, in DataFrame order. The record keeps "
-        "the first 100 and adds columns_total; the complete table has every column."
+    columns: Annotated[
+        list[DescribeDatasetColumn], _ENTRIES, AfterValidator(_list_by_name)
+    ] = Field(
+        description="One entry per column, in DataFrame order: a list, not a mapping "
+        "by name, because column labels can repeat. The record keeps the first "
+        "100 and adds columns_total; the complete table has every column."
     )
     index: DescribeDatasetIndex = Field(description="Facts about the row index.")
     provenance: Provenance = Field(description="The provenance as supplied.")
@@ -1393,8 +1969,13 @@ class DescribeDatasetResult(AnalysisResult):
             f"Provenance: {provenance}.",
         ]
 
-    def to_frame(self) -> pd.DataFrame:
-        """Every column's entry as one row, in DataFrame order."""
+    def to_frame(self, table: Literal["columns"] = "columns") -> pd.DataFrame:
+        """Every column's entry as one row, in DataFrame order.
+
+        Args:
+            table: 'columns', the only table.
+        """
+        _check_table(table, ("columns",))
         return _entries_frame(self.columns, DescribeDatasetColumn)
 
     def _text_table(self) -> _text.Table:
@@ -1418,7 +1999,9 @@ class DescribeDatasetResult(AnalysisResult):
                     c.distinct_count,
                     c.memory_bytes,
                 )
-                for c in self.columns
+                for c in self._by_interest(
+                    self.columns, [c.column for c in self.columns]
+                )
             ],
         )
 
@@ -1486,32 +2069,37 @@ class SummarizeNumericColumn(ColumnResult):
 class SummarizeNumericResult(AnalysisResult):
     """The result of summarize_numeric."""
 
-    columns: Annotated[dict[str, SummarizeNumericColumn], _ENTRIES] = Field(
+    columns: Annotated[dict[str, SummarizeNumericColumn], _ENTRIES, _BY_NAME] = Field(
         description="One entry per selected column, keyed by column name, in the "
-        "selected order. The record keeps the first 100 and adds columns_total; "
-        "the complete table has every column."
+        "selected order. Every statistic uses the finite values only, and the "
+        "description of each entry field defines it. The record keeps the first "
+        "100 and adds columns_total; the complete table has every column."
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns that the default column selection left out because "
         "they aren't numeric or are boolean, in DataFrame order; empty when the "
         "call names the columns."
     )
-    definitions: dict[str, str] = Field(
-        description="How each count and statistic in a column entry is defined, by "
-        "field name."
-    )
+    # The kind of each left-out column, outside the record, so that the text
+    # says why it was left out; None for a result rebuilt from its record.
+    _left_out_kinds: Mapping[str, str] | None = PrivateAttr(default=None)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         trim = self.parameters.get("trim_fraction")
-        percent = f"{trim * 100:.4g}%" if isinstance(trim, int | float) else "?"
+        fraction = _text.format_number(trim) if isinstance(trim, int | float) else "?"
         facts = [
             "Statistics use the finite values. Quantile method "
-            f"{self.parameters.get('quantile_method')}; trimmed_mean cuts {percent} "
-            "from each end."
+            f"{self.parameters.get('quantile_method')}; trimmed_mean cuts "
+            f"trim_fraction {fraction} from each end."
         ]
-        if self.left_out_columns:
-            names = _text.join_labels(self.left_out_columns)
-            facts.append(f"Left out, not numeric or boolean: {names}.")
+        facts.extend(
+            _left_out_lines(
+                self.left_out_columns,
+                self._left_out_kinds,
+                wanted="numeric",
+                boolean="boolean, which counts only when columns names it",
+            )
+        )
         facts.append(_text.also_in_table(_MORE_STATISTICS, surface))
         return facts
 
@@ -1540,16 +2128,22 @@ class SummarizeNumericResult(AnalysisResult):
                     e.median,
                     e.max,
                 )
-                for e in self.columns.values()
+                for e in self._by_interest(
+                    list(self.columns.values()), list(self.columns)
+                )
             ],
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["columns"] = "columns") -> pd.DataFrame:
         """Every statistic of every column, one row per column in selected order.
 
         The quantiles become one column per level, named "q" and the level,
         such as "q0.25"; status_reason holds the reason's code.
+
+        Args:
+            table: 'columns', the only table.
         """
+        _check_table(table, ("columns",))
         recorded = self.parameters.get("quantiles")
         levels = [
             float(level)
@@ -1593,7 +2187,7 @@ class SummarizeCategoricalLevel(ResultModel):
         "can't hold it as written, its exact text; any other value JSON can't "
         "hold appears as its string form. label_type names its type. "
         "With masking on, a sensitive column's labels are numbered placeholders, "
-        "'<masked 1>' for its first level in level order and so on."
+        "'<masked 1>' for its first level in level order and so on. " + _BIG_INTEGERS
     )
     label_type: str = Field(
         description="The Python type of the stored value, such as 'str', 'int' or "
@@ -1606,16 +2200,18 @@ class SummarizeCategoricalLevel(ResultModel):
     )
 
 
-def _level_text(level: SummarizeCategoricalLevel, *, masked: bool = False) -> str:
-    """A level as the text shows it, such as "'basic': 3 (60%)".
-
-    Text labels are quoted, so surrounding spaces stay visible. A masked
-    label, a placeholder such as <masked 1>, is not.
-    """
+def level_label(level: SummarizeCategoricalLevel, *, masked: bool = False) -> str:
+    """A level's label as the text shows it: text labels are quoted, so
+    surrounding spaces stay visible; a masked label, a placeholder such as
+    <masked 1>, is not."""
     quoted = level.label_type == "str" and not masked
-    label = repr(level.label) if quoted else str(level.label)
-    share = _text.format_number(level.share * 100)
-    return f"{label}: {level.count:,} ({share}%)"
+    return repr(level.label) if quoted else str(level.label)
+
+
+def _level_text(level: SummarizeCategoricalLevel, *, masked: bool = False) -> str:
+    """A level as the text shows it, such as "'basic': 3 (share 0.6)"."""
+    share = _text.format_number(level.share)
+    return f"{level_label(level, masked=masked)}: {level.count:,} (share {share})"
 
 
 class SummarizeCategoricalVariants(ResultModel):
@@ -1645,17 +2241,14 @@ class SummarizeCategoricalColumn(ColumnResult):
     levels: Annotated[
         list[SummarizeCategoricalLevel], _Cap(100, total="distinct_count")
     ] = Field(
-        description="The first 100 levels, ordered by count, descending, then by "
-        "label, as level_order states. distinct_count counts every level, the "
-        "record adds it as levels_total, and the complete table has every "
-        "level."
-    )
-    most_common_levels: list[SummarizeCategoricalLevel] = Field(
-        description="The first top_n levels: the ones the printed text shows."
+        description="The first top_n levels, each with its label, label_type, "
+        "count and share. Level order: " + LEVEL_ORDER + " distinct_count counts "
+        "every level, and the record adds it as levels_total; the complete "
+        "table has every level."
     )
     left_out_level_count: int | None = Field(
-        description="Levels beyond the first top_n, which most_common_levels and "
-        "the printed text leave out. Null when the values can't be hashed."
+        description="Levels beyond the first top_n, which levels and the printed "
+        "text leave out. Null when the values can't be hashed."
     )
     seen_once_count: int | None = Field(
         description="Levels that occur exactly once. Null when the values can't "
@@ -1665,7 +2258,7 @@ class SummarizeCategoricalColumn(ColumnResult):
         description="Categories of a categorical dtype that no value takes, in "
         "category order, each written as a level's label is; empty for other "
         "dtypes. With masking on, a sensitive column's are placeholders numbered "
-        "on from its levels'."
+        "on from its levels'. " + _BIG_INTEGERS
     )
     value_types: Annotated[list[str], _ENTRIES] = Field(
         description="The Python types of the non-missing values by name, sorted, "
@@ -1689,71 +2282,67 @@ class SummarizeCategoricalColumn(ColumnResult):
 class SummarizeCategoricalResult(MaskableResult):
     """The result of summarize_categorical."""
 
-    columns: Annotated[dict[str, SummarizeCategoricalColumn], _ENTRIES] = Field(
-        description="One entry per selected column, keyed by column name, in the "
-        "selected order. The record keeps the first 100 and adds columns_total."
+    columns: Annotated[dict[str, SummarizeCategoricalColumn], _ENTRIES, _BY_NAME] = (
+        Field(
+            description="One entry per selected column, keyed by column name, in the "
+            "selected order. Every share divides by the entry's non_missing_count, so "
+            "missing values never dilute it and get no share of their own. The record "
+            "keeps the first 100 and adds columns_total."
+        )
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns that the default column selection left out because "
         "they aren't text, object, categorical or boolean columns, in DataFrame "
         "order; empty when the call names the columns."
     )
-    share_denominator: Literal["non_missing_count"] = Field(
-        description="The entry field every share divides by: non_missing_count, "
-        "the column's values that aren't missing. Missing values get no share; "
-        "missing_count counts them."
-    )
-    level_order: str = Field(
-        description="How levels are ordered. They go by count, descending, then by "
-        "label, and labels of different types follow a fixed order that never "
-        "depends on hashing."
-    )
     # Every level of every counted column, outside the record; to_frame() sorts
     # them when asked, since sorting a million labels is slow.
     # None for a result rebuilt from its record, which holds no levels.
     _tables: dict[str, Levels] | None = PrivateAttr(default=None)
+    # The kind of each left-out column, outside the record, so that the text
+    # says why it was left out; None for a result rebuilt from its record.
+    _left_out_kinds: Mapping[str, str] | None = PrivateAttr(default=None)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
-            "Shares are of each column's non-missing values. Levels go by count, "
-            f"then label; most_common_levels has the top {self.parameters.get('top_n')}."
+            "Shares are fractions of non-missing values. Levels go by count, then "
+            f"label; levels has the top {self.parameters.get('top_n')} of each column."
         ]
-        if self.left_out_columns:
-            names = _text.join_labels(self.left_out_columns)
-            facts.append(
-                f"Left out, not text, object, categorical or boolean: {names}."
+        facts.extend(
+            _left_out_lines(
+                self.left_out_columns,
+                self._left_out_kinds,
+                wanted="text, object, categorical or boolean",
+                boolean="boolean",
             )
+        )
         return facts
 
     def _text_table(self) -> _text.Table:
+        entries = self._by_interest(list(self.columns.values()), list(self.columns))
         return _text.Table(
             title="Columns",
             unit=("column", "columns"),
-            headers=(
-                "column",
-                "non_missing_count",
-                "missing_count",
-                "distinct_count",
-                "most_common_levels",
-            ),
+            headers=("column", "non_missing_count", "missing_count", "distinct_count"),
             rows=[
-                (
-                    e.column,
-                    e.non_missing_count,
-                    e.missing_count,
-                    e.distinct_count,
-                    ", ".join(
-                        _level_text(level, masked=self._masked(e.column))
-                        for level in e.most_common_levels
-                    ),
-                )
-                for e in self.columns.values()
+                (e.column, e.non_missing_count, e.missing_count, e.distinct_count)
+                for e in entries
             ],
             frame_rows=sum(e.distinct_count or 0 for e in self.columns.values()),
             frame_unit=("level", "levels"),
+            details=[
+                f"{e.column}: "
+                + ", ".join(
+                    _level_text(level, masked=self._masked(e.column))
+                    for level in e.levels
+                )
+                for e in entries[: _text.MAX_TABLE_ROWS]
+                if e.levels
+            ],
+            details_title="Top levels per column",
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["levels"] = "levels") -> pd.DataFrame:
         """Every level of every column, one row per level.
 
         Rows follow the selected column order, then level order. The columns
@@ -1761,7 +2350,11 @@ class SummarizeCategoricalResult(MaskableResult):
         value exactly as stored, or with masking on, a sensitive column's
         placeholder, as in levels. Columns whose values can't be hashed have
         no rows.
+
+        Args:
+            table: 'levels', the only table.
         """
+        _check_table(table, ("levels",))
         if self._tables is None:
             if any(column.distinct_count for column in self.columns.values()):
                 raise _tables_unavailable(self)
@@ -1778,7 +2371,7 @@ class DuplicateGroup(ResultModel):
         "id_column when it is given. With masking on and a sensitive id_column, "
         "numbered placeholders, '<masked 1>' for the first ID the groups show "
         "and so on, equal IDs alike. The record keeps the first 10 and adds "
-        "row_ids_total."
+        "row_ids_total. " + _BIG_INTEGERS
     )
 
 
@@ -1787,14 +2380,10 @@ class FindDuplicateRowsResult(MaskableResult):
 
     compared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="The columns in which rows must be equal to count as duplicates, "
-        "in the order compared. The record keeps the first 100 and adds "
+        "in the order compared. Missing values of every kind equal each other, as "
+        "in pandas' duplicate check over two or more columns, and lists, dicts "
+        "and sets compare by content. The record keeps the first 100 and adds "
         "compared_columns_total."
-    )
-    missing_values_compare_equal: bool = Field(
-        description="Whether missing values count as equal when rows are compared: "
-        "always true. Native missing values of every kind equal each other, as in "
-        "pandas' duplicate check over two or more columns. Lists, dicts and sets "
-        "compare by content."
     )
     duplicate_groups: Annotated[list[DuplicateGroup], _ENTRIES] = Field(
         description="Each group of rows equal in every compared column, ordered "
@@ -1820,9 +2409,19 @@ class FindDuplicateRowsResult(MaskableResult):
         facts = []
         if self.compared_columns:
             compared = _text.plural(len(self.compared_columns), "column", "columns")
-            facts.append(
-                f"Compared {compared}: {_text.join_labels(self.compared_columns)}; "
-                "missing values compare equal, as in pandas."
+            none = (
+                "no two rows are equal in them; "
+                if self.status == "completed" and not self.duplicate_groups
+                else ""
+            )
+            facts.extend(
+                _text.wrap(
+                    f"Compared {compared}: "
+                    f"{_text.join_labels(self.compared_columns)}; {none}missing "
+                    "values compare equal, as in pandas.",
+                    first="",
+                    indent="    ",
+                )
             )
         id_column = self.parameters.get("id_column")
         source = (
@@ -1853,12 +2452,16 @@ class FindDuplicateRowsResult(MaskableResult):
             else "no rows",
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["rows"] = "rows") -> pd.DataFrame:
         """Every row in a duplicate group, by group, then in row order.
 
         The column group holds the group's number, its position in
         duplicate_groups, and row_id the row's ID.
+
+        Args:
+            table: 'rows', the only table.
         """
+        _check_table(table, ("rows",))
         numbers = [
             number
             for number, group in enumerate(self.duplicate_groups)
@@ -1884,7 +2487,7 @@ class ProfileTargetClass(ResultModel):
         "can't hold it as written, its exact text; any other label JSON can't "
         "hold appears as its string form. label_type names its type. With "
         "masking on and a sensitive target, a numbered placeholder, '<masked 1>' "
-        "for the target's first label in level order and so on."
+        "for the target's first label in level order and so on. " + _BIG_INTEGERS
     )
     label_type: str = Field(
         description="The Python type of the stored label, such as 'str', 'int' or "
@@ -1903,7 +2506,7 @@ class ProfileTargetUnexpectedLabel(ResultModel):
     label: str | bool | int | float = Field(
         description="The label exactly as stored, written as a class's label is. "
         "With masking on and a sensitive target, a numbered placeholder, numbered "
-        "together with the classes in level order."
+        "together with the classes in level order. " + _BIG_INTEGERS
     )
     label_type: str = Field(
         description="The Python type of the stored label, such as 'str' or 'int'."
@@ -1914,7 +2517,7 @@ class ProfileTargetUnexpectedLabel(ResultModel):
         "index labels, or values of id_column when it is given. count counts "
         "every row, and the record adds it as row_ids_total. With masking on and "
         "a sensitive id_column, numbered placeholders, '<masked 1>' for the first "
-        "ID the labels show and so on, equal IDs alike."
+        "ID the labels show and so on, equal IDs alike. " + _BIG_INTEGERS
     )
 
 
@@ -1961,9 +2564,9 @@ class ProfileTargetResult(MaskableResult):
     classes: Annotated[
         list[ProfileTargetClass] | None, _Cap(100, total="class_count")
     ] = Field(
-        description="Classification: the first 100 classes, by count, descending, "
-        "then by label, as level_order states, each with its count and share; a "
-        "declared class without rows comes last, at count 0. "
+        description="Classification: the first 100 classes, each with its count "
+        "and share. Level order: " + LEVEL_ORDER + " A declared class without "
+        "rows comes last, at count 0. "
         "class_count counts every class, the record adds it as classes_total, and "
         "the complete table has every label. Null "
         "for regression."
@@ -2024,17 +2627,15 @@ class ProfileTargetResult(MaskableResult):
         "statistics.missing_count + statistics.infinite_count. Null for "
         "classification."
     )
-    level_order: str = Field(
-        description="How classes and labels are ordered. They go by count, "
-        "descending, then by label, and labels of different types follow a fixed "
-        "order that never depends on hashing."
-    )
     # Every label of a classification target, outside the record, for
     # to_frame(); with masking on, the placeholders' numbers instead.
     _labels: Levels | None = PrivateAttr(default=None)
     # Per label of _labels, whether expected_labels holds it; None without
     # expected_labels.
     _expected: np.ndarray | None = PrivateAttr(default=None)
+    # The ID of every row that holds a label outside expected_labels, by the
+    # label's position in _labels: pandas labels, or lists when masked.
+    _row_ids: dict[int, Any] | None = PrivateAttr(default=None)
 
     def _target_text(self) -> str:
         return _text.label_text(self.parameters.get("target_column"))
@@ -2062,7 +2663,7 @@ class ProfileTargetResult(MaskableResult):
             return self._regression_facts(self.statistics, surface)
         task = self.parameters.get("task")
         missing = f"{self.missing_count:,} missing" + (
-            _percent(self.missing_share) if self.missing_count else ""
+            _share("missing_share", self.missing_share) if self.missing_count else ""
         )
         classes = _text.plural(self.class_count or 0, "class", "classes")
         facts = [
@@ -2133,7 +2734,7 @@ class ProfileTargetResult(MaskableResult):
         if non_finite:
             others = (
                 f"{non_finite:,} aren't: {self.missing_count:,} missing"
-                f"{_percent(self.missing_share) if self.missing_count else ''} and "
+                f"{_share('missing_share', self.missing_share) if self.missing_count else ''} and "
                 f"{statistics.infinite_count:,} infinite"
             )
         else:
@@ -2142,7 +2743,7 @@ class ProfileTargetResult(MaskableResult):
             f"Target {self._target_text()} for regression: "
             f"{_text.plural(finite, 'finite value', 'finite values')}; {others}.",
             "Statistics use the finite values, as in summarize_numeric: quantile "
-            "method linear; trimmed_mean cuts 10% from each end.",
+            "method linear, trim_fraction 0.1.",
             _text.also_in_table(_MORE_STATISTICS, surface),
         ]
 
@@ -2207,18 +2808,24 @@ class ProfileTargetResult(MaskableResult):
             frame_unit=("label", "labels"),
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["target"] = "target") -> pd.DataFrame:
         """The target's table as a DataFrame.
 
         Classification: every label, classes and labels outside expected_labels
         alike, in level order, with label, label_type, count, share (null for a
         label outside expected_labels), expected (null when expected_labels is
-        None) and rare (null when rare_share is None, and for labels outside
-        expected_labels). label holds each value exactly as stored, or with
-        masking on, a sensitive target's placeholder. Regression: one row of
+        None), rare (null when rare_share is None, and for labels outside
+        expected_labels) and row_ids (the ID of every row that holds a label
+        outside expected_labels; null for the others). label holds each value
+        exactly as stored, or with masking on, a sensitive target's
+        placeholder. Regression: one row of
         statistics, as summarize_numeric's to_frame() gives it, with
         non_finite_count.
+
+        Args:
+            table: 'target', the only table.
         """
+        _check_table(table, ("target",))
         if self.statistics is not None:
             frame = _numeric_frame([self.statistics], list(self.statistics.quantiles))
             frame["non_finite_count"] = pd.Series(
@@ -2236,6 +2843,11 @@ class ProfileTargetResult(MaskableResult):
         else:
             order, labels, types = level_rows(levels)
             counts = levels.counts[order].astype(np.int64)
+        found = self._row_ids or {}
+        row_ids = [
+            row_id_list(found[position]) if position in found else None
+            for position in order.tolist()
+        ]
         expected = None if self._expected is None else self._expected[order]
         valid = np.ones(len(order), dtype=bool) if expected is None else expected
         shares = counts / max(self.valid_label_count or 0, 1)
@@ -2261,6 +2873,7 @@ class ProfileTargetResult(MaskableResult):
                     else [pd.NA] * len(order),
                     dtype="boolean",
                 ),
+                "row_ids": pd.Series(row_ids, dtype=object),
             }
         )
 
@@ -2278,7 +2891,7 @@ class DeclaredSentinelValue(ResultModel):
         "8601 text, and a decimal as a number or, when float64 can't hold it as "
         "written, its exact text. With masking on, a sensitive column's values "
         "are numbered placeholders, '<masked 1>', '<masked 2>' and so on, in the "
-        "order declared."
+        "order declared. " + _BIG_INTEGERS
     )
     value_type: str = Field(
         description="The Python type of the declared value, such as 'int', 'bool', "
@@ -2328,18 +2941,21 @@ class ProfileMissingValuesRowCount(ResultModel):
     row_share: float = Field(description="row_count over all rows, from 0 to 1.")
 
 
-def _percent(share: float | None) -> str:
-    """A share as " (33.33%)" with 4 significant digits; "" when it is null."""
-    return "" if share is None else f" ({_text.format_number(share * 100)}%)"
+def _share(name: str, share: float | None) -> str:
+    """A share as " (missing_share 0.3333)", a fraction of 4 significant digits
+    under its field name; "" when it is null."""
+    return "" if share is None else f" ({name} {_text.format_number(share)})"
 
 
 class ProfileMissingValuesResult(MaskableResult):
     """The result of profile_missing_values."""
 
-    columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES] = Field(
-        description="One entry per selected column, keyed by column name, in the "
-        "selected order. The record keeps the first 100 and adds columns_total; "
-        "the complete table has every column."
+    columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES, _BY_NAME] = (
+        Field(
+            description="One entry per selected column, keyed by column name, in the "
+            "selected order. The record keeps the first 100 and adds columns_total; "
+            "the complete table has every column."
+        )
     )
     missing_count: int = Field(
         description="Selected values that are missing or a declared sentinel value, "
@@ -2370,10 +2986,10 @@ class ProfileMissingValuesResult(MaskableResult):
         declared = any(entry.sentinel_count is not None for entry in entries)
         missing = (
             f"Missing: {self.missing_count:,} of {rows * len(self.columns):,} "
-            f"selected values{_percent(self.missing_share)}"
+            f"selected values{_share('missing_share', self.missing_share)}"
             f"{', counting declared sentinel values' if declared else ''}. "
             f"Complete rows: {self.complete_row_count:,} of {rows:,}"
-            f"{_percent(self.complete_row_share)}."
+            f"{_share('complete_row_share', self.complete_row_share)}."
         )
         facts = _text.wrap(missing, first="", indent="    ")
         if self.row_distribution:
@@ -2474,7 +3090,7 @@ class SentinelCandidate(ResultModel):
         "stored. Dates, datetimes and durations appear as ISO 8601 text, and a "
         "decimal as a number or, when float64 can't hold it as written, its exact "
         "text; value_type names the type. A text stand-in keeps the surrounding "
-        "whitespace it occurs with."
+        "whitespace it occurs with. " + _BIG_INTEGERS
     )
     value_type: str = Field(
         description="The Python type of the value, such as 'int', 'float', 'str', "
@@ -2501,8 +3117,37 @@ class SentinelCandidate(ResultModel):
     row_ids: Annotated[list[RowId], _Cap(10, total="count")] = Field(
         description="The IDs of the first 10 rows that hold the value, in row "
         "order: index labels, or values of id_column when it is given. The "
-        "record adds row_ids_total, which equals count."
+        "record adds row_ids_total, which equals count. " + _BIG_INTEGERS
     )
+
+
+class SentinelValues(dict[str, list[Any]]):
+    """The sentinel_values that a detect_missing_sentinels result gives: column
+    names mapped to lists of values, as profile_missing_values takes them.
+
+    `note` says which columns were left out because masking replaced their
+    values, or is None when none was.
+    """
+
+    note: str | None = None
+
+
+# How a candidate of each type that the record writes as text comes back.
+_PARSE_VALUE: dict[str, Callable[[str], Any]] = {
+    "Timestamp": pd.Timestamp,
+    "datetime": dt.datetime.fromisoformat,
+    "date": dt.date.fromisoformat,
+    "time": dt.time.fromisoformat,
+    "Timedelta": pd.Timedelta,
+    "timedelta": pd.Timedelta,
+    "Decimal": lambda text: Decimal(str(text)),
+}
+
+
+def _declared_value(candidate: "SentinelCandidate") -> Any:
+    """The candidate's value as the type its column holds."""
+    parse = _PARSE_VALUE.get(candidate.value_type)
+    return candidate.value if parse is None else parse(str(candidate.value))
 
 
 class DetectMissingSentinelsResult(MaskableResult):
@@ -2516,6 +3161,60 @@ class DetectMissingSentinelsResult(MaskableResult):
         "booleans, durations or lists, in the order checked: only declared values "
         "were looked for there. A column without values isn't listed."
     )
+
+    # Every row ID of each candidate, in the order of candidates, outside the
+    # record: pandas labels, or lists of placeholders when masked. None for a
+    # result rebuilt from its record, which holds the first 10 of each.
+    _row_ids: list[Any] | None = PrivateAttr(default=None)
+
+    def sentinel_values(self, columns: Sequence[str] | None = None) -> "SentinelValues":
+        """The candidates as sentinel_values for profile_missing_values.
+
+        Every candidate counts, suspected ones too, so declare only after you
+        have read them. A value that the result writes as text comes back as the
+        type its column holds: a Timestamp, a date, a time, a Timedelta or a
+        Decimal. A candidate of a masked column is left out, since the result
+        holds a placeholder instead of its value, and the returned mapping's
+        `note` names those columns.
+
+        Args:
+            columns: The columns to take candidates from; None, the default,
+                takes every column with a candidate.
+
+        Returns:
+            A dict from column name to its list of values, in candidate order,
+            with a `note` attribute that is None when nothing was left out.
+
+        Raises:
+            ColumnNotFoundError: A name in columns isn't a column of the result.
+        """
+        names = list(dict.fromkeys(c.column for c in self.candidates))
+        if columns is not None:
+            if isinstance(columns, str):
+                columns = [columns]
+            for name in columns:
+                if name not in names:
+                    raise ColumnNotFoundError(
+                        f"sentinel_values got column {name!r}, which has no "
+                        "candidate in this result."
+                        + _hint(name, names)
+                        + f" The columns with candidates are {_text.join_labels(names)}."
+                    )
+        wanted = names if columns is None else list(columns)
+        masked = [name for name in wanted if self._masked(name)]
+        declared = SentinelValues()
+        for candidate in self.candidates:
+            if candidate.column in wanted and candidate.column not in masked:
+                declared.setdefault(candidate.column, []).append(
+                    _declared_value(candidate)
+                )
+        if masked:
+            declared.note = (
+                f"Left out the candidates of {_text.join_labels(masked)}: masking is "
+                "on, so the result holds placeholders, not their values. Declare "
+                "those values yourself."
+            )
+        return declared
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         declared = sum(c.confirmation == "declared" for c in self.candidates)
@@ -2601,14 +3300,26 @@ class DetectMissingSentinelsResult(MaskableResult):
             total=len(self.candidates),
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["candidates"] = "candidates") -> pd.DataFrame:
         """Every candidate, one row each, in the order of candidates.
 
         The columns are the candidate's fields. value holds each value as the
-        result does, and evidence and row_ids hold lists.
+        result does, and evidence and row_ids hold lists; row_ids has the ID of
+        every row that holds the value, where the record keeps the first 10.
+
+        Args:
+            table: 'candidates', the only table.
         """
+        _check_table(table, ("candidates",))
         frame = _entries_frame(self.candidates, SentinelCandidate)
         frame["value"] = pd.Series([c.value for c in self.candidates], dtype=object)
+        if self._row_ids is None:
+            if any(c.count > len(c.row_ids) for c in self.candidates):
+                raise _tables_unavailable(self)
+            every: list[list[object]] = [c.row_ids for c in self.candidates]
+        else:
+            every = [row_id_list(ids) for ids in self._row_ids]
+        frame["row_ids"] = pd.Series(every, dtype=object)
         return frame
 
 
@@ -2803,10 +3514,14 @@ class FindCandidateKeysResult(AnalysisResult):
             ],
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["candidates"] = "candidates") -> pd.DataFrame:
         """Every reported column set, one row each: keys, keys with missing values,
         then the most unique sets, with `kind` naming the list each comes from.
+
+        Args:
+            table: 'candidates', the only table.
         """
+        _check_table(table, ("candidates",))
         candidates = self._candidates()
         frame = _entries_frame([candidate for _, candidate in candidates], CandidateKey)
         frame.insert(
@@ -2930,16 +3645,21 @@ class AssociationPair(ResultModel):
     )
 
 
+def _pair_key(pair: "AssociationPair") -> tuple[str, str]:
+    """What a field path calls a pair: its two columns."""
+    return pair.x_column, pair.y_column
+
+
 class ComputeAssociationMatrixResult(AnalysisResult):
     """The result of compute_association_matrix."""
 
-    pairs: Annotated[list[AssociationPair], _ENTRIES] = Field(
+    pairs: Annotated[list[AssociationPair], _Cap(100, key=_pair_key)] = Field(
         description="One entry per pair of paired columns, strongest first: by "
         "absolute value, descending, then in the selected column order, with null "
         "values last. The record keeps the 100 strongest and adds pairs_total; "
         "the complete table has every pair."
     )
-    columns: Annotated[dict[str, AssociationColumn], _ENTRIES] = Field(
+    columns: Annotated[dict[str, AssociationColumn], _ENTRIES, _BY_NAME] = Field(
         description="The paired columns, keyed by column name, in the selected "
         "order. The record keeps the first 100 and adds columns_total."
     )
@@ -3182,10 +3902,12 @@ _FLAGS: tuple[ColumnFlag, ...] = typing.get_args(ColumnFlag)
 class InferColumnSemanticsResult(AnalysisResult):
     """The result of infer_column_semantics."""
 
-    columns: Annotated[dict[str, InferColumnSemanticsColumn], _ENTRIES] = Field(
-        description="One entry per selected column, keyed by column name, in the "
-        "selected order. The record keeps the first 100 and adds columns_total; "
-        "the complete table has every column."
+    columns: Annotated[dict[str, InferColumnSemanticsColumn], _ENTRIES, _BY_NAME] = (
+        Field(
+            description="One entry per selected column, keyed by column name, in the "
+            "selected order. The record keeps the first 100 and adds columns_total; "
+            "the complete table has every column."
+        )
     )
     missing_declared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns schema names that the data doesn't have, in "
@@ -3204,16 +3926,52 @@ class InferColumnSemanticsResult(AnalysisResult):
             )
         else:
             entries = self.columns.values()
-            declared = sum(e.declared_logical_type is not None for e in entries)
+            present = sum(e.declared_logical_type is not None for e in entries)
             matching = sum(e.matches_declared is True for e in entries)
             differing = sum(e.matches_declared is False for e in entries)
+            unchecked = present - matching - differing
             missing = len(self.missing_declared_columns)
+            declared = _text.plural(present + missing, "column", "columns")
+            # Every declared column is in exactly one of the counts.
             facts.append(
-                f"schema: {_text.plural(declared, 'column', 'columns')} "
-                f"declared in the data, {matching:,} matching (a tie with the top "
-                f"counts), {differing:,} not; {missing:,} not in the data."
+                f"schema: {declared} declared: {matching:,} matching "
+                f"(ties with the top count), {differing:,} not, {unchecked:,} not "
+                f"inferred, {missing:,} not in the data."
             )
         return facts
+
+    def inferred_schema(self) -> dict[str, Any]:
+        """The inferred logical types as a schema for validate_column_types.
+
+        A column without an inferred type is left out, since nothing could be
+        declared for it. A datetime column keeps the datetime_format that this
+        call's schema declared for it, so that the text that was read as dates
+        is read the same way.
+
+        Returns:
+            A dict from column name to a logical type, or to a ColumnSpec for a
+            datetime column with a declared format.
+        """
+        from agent_eda.data.validation import ColumnSpec  # circular at import time
+
+        declared = self.parameters.get("schema")
+        formats = {
+            name: spec.get("datetime_format")
+            for name, spec in (declared if isinstance(declared, dict) else {}).items()
+            if isinstance(spec, dict)
+        }
+        schema: dict[str, Any] = {}
+        for name, entry in self.columns.items():
+            logical_type = entry.inferred_logical_type
+            if logical_type is None:
+                continue
+            datetime_format = formats.get(name) if logical_type == "datetime" else None
+            schema[name] = (
+                ColumnSpec(logical_type, datetime_format=datetime_format)
+                if isinstance(datetime_format, str)
+                else logical_type
+            )
+        return schema
 
     def _text_other_tables(self) -> list[str]:
         return ["res.to_frame(table='candidates') has every candidate with its reasons"]
@@ -3225,7 +3983,7 @@ class InferColumnSemanticsResult(AnalysisResult):
             headers.append("declared")
         headers.append("flags")
         rows = []
-        for entry in self.columns.values():
+        for entry in self._by_interest(list(self.columns.values()), list(self.columns)):
             # Candidates scored 0 rank no type: a column with none has no top.
             top = entry.candidates[0] if entry.inferred_logical_type else None
             runner_up = (
@@ -3334,7 +4092,7 @@ class InvalidValue(ResultModel):
         "value JSON can't hold appears as its string form. value_type names "
         "its type. With masking on, a sensitive column's values "
         "are numbered placeholders, '<masked 1>' for its first invalid value in "
-        "level order and so on."
+        "level order and so on. " + _BIG_INTEGERS
     )
     value_type: str = Field(
         description="The Python type of the stored value, such as 'str' or 'float'; "
@@ -3388,7 +4146,7 @@ class ValidateColumnTypesColumn(ResultModel):
         "order: index labels, or values of id_column when it is given. "
         "invalid_count counts them all, and the record adds it as "
         "invalid_row_ids_total. With masking on and a sensitive id_column, "
-        "numbered placeholders, equal IDs alike."
+        "numbered placeholders, equal IDs alike. " + _BIG_INTEGERS
     )
     invalid_distinct_count: int | None = Field(
         description="Distinct invalid values; values of different types count "
@@ -3414,10 +4172,12 @@ class ValidateColumnTypesColumn(ResultModel):
 class ValidateColumnTypesResult(MaskableResult):
     """The result of validate_column_types."""
 
-    columns: Annotated[dict[str, ValidateColumnTypesColumn], _ENTRIES] = Field(
-        description="One entry per declared column, keyed by column name, in "
-        "declared order. The record keeps the first 100 and adds columns_total; "
-        "the complete table has every column."
+    columns: Annotated[dict[str, ValidateColumnTypesColumn], _ENTRIES, _BY_NAME] = (
+        Field(
+            description="One entry per declared column, keyed by column name, in "
+            "declared order. The record keeps the first 100 and adds columns_total; "
+            "the complete table has every column."
+        )
     )
     undeclared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="The data's columns that schema doesn't declare, in DataFrame "
@@ -3428,6 +4188,10 @@ class ValidateColumnTypesResult(MaskableResult):
     # outside the record; masked columns hold placeholders' numbers instead.
     # None for a result rebuilt from its record, which holds no values.
     _tables: dict[str, Levels] | None = PrivateAttr(default=None)
+    # The ID of every row that holds an invalid value, by declared column, outside
+    # the record: pandas labels, or lists of placeholders when masked. None for a
+    # result rebuilt from its record, which holds the first 10 of each.
+    _row_ids: dict[str, Any] | None = PrivateAttr(default=None)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
@@ -3518,7 +4282,7 @@ class ValidateColumnTypesResult(MaskableResult):
             table: 'columns', the default, gives one row per declared column in
                 declared order: its declaration, whether it is present, its
                 dtype, the four counts, the distinct invalid values, the IDs of
-                the first 10 rows with an invalid value, and the assessment.
+                every row with an invalid value, and the assessment.
                 'invalid_values' gives one row per distinct invalid value of
                 each column, by column in declared order, then by count,
                 descending, then by value: column, value as stored (or its
@@ -3537,8 +4301,27 @@ class ValidateColumnTypesResult(MaskableResult):
         for name, field in ValidateColumnTypesColumn.model_fields.items():
             if name == "invalid_values":
                 continue  # table='invalid_values' has every one
+            if name == "invalid_row_ids":
+                columns[name] = pd.Series(self._every_row_id(entries), dtype=object)
+                continue
             columns[name] = pd.Series(
                 [getattr(entry, name) for entry in entries],
                 dtype=_FRAME_DTYPES.get(field.annotation, object),
             )
         return pd.DataFrame(columns, columns=list(columns))
+
+    def _every_row_id(
+        self, entries: Sequence[ValidateColumnTypesColumn]
+    ) -> list[list[object]]:
+        """The IDs of every row with an invalid value, per entry."""
+        if self._row_ids is None:
+            if any(
+                (entry.invalid_count or 0) > len(entry.invalid_row_ids)
+                for entry in entries
+            ):
+                raise _tables_unavailable(self)
+            return [entry.invalid_row_ids for entry in entries]
+        return [
+            row_id_list(self._row_ids[entry.column]) if entry.present else []
+            for entry in entries
+        ]

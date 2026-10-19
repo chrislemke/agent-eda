@@ -197,6 +197,8 @@ class _Paired:
         "relationships",
         "dependence",
         "redundant",
+        "multicollinearity",
+        "collinearity",
     ),
     work_limits=("max_pairs",),
 )
@@ -214,18 +216,17 @@ def compute_association_matrix(
     """How strongly are pairs of columns associated?
 
     When to use:
-        Call it after the per-column summaries to see which columns move
-        together: one call measures every pair of numeric and categorical
-        columns and lists the strongest first. Each pair gets the measure that
-        fits its types and uses its own complete rows, so gaps in one column
-        don't shrink every pair. Perfect associations are flagged, since one
-        column may duplicate or derive from the other. List numeric codes, such
-        as postal codes or class labels 1, 2 and 3, in categorical_columns so
-        they count as categories instead of numbers. It measures association,
-        not causation, without p-values. For how one numeric column is
-        distributed, call `summarize_numeric`; `describe_dataset` covers every
-        column's dtype and missing values, and `list_analyses` lists the other
-        analyses.
+        Call it after the per-column summaries to see which columns move together: one
+        call measures every pair of numeric and categorical columns and lists the
+        strongest first. Each pair gets the measure that fits its types and uses its own
+        complete rows, so gaps in one column don't shrink every pair. Perfect
+        associations are flagged, since one column may duplicate or derive from the
+        other. List numeric codes, such as postal codes or class labels 1, 2 and 3, in
+        categorical_columns so they count as categories instead of numbers:
+        `infer_column_semantics` finds them. It measures association, not causation,
+        without p-values. For how one numeric column is distributed, call
+        `summarize_numeric`; for how the column a model will predict goes with the
+        others, `profile_target`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -379,11 +380,11 @@ def compute_association_matrix(
         0.7495
 
     See Also:
-        summarize_numeric: How the values of each numeric column are
-            distributed.
-        describe_dataset: Dtypes, missing and distinct counts and memory of every
-            column, whatever its dtype.
-        list_analyses: Every analysis, with the question each one answers.
+        profile_target: The classes and imbalance, or the statistics, of the column a
+            model will predict, checked against the task.
+        summarize_numeric: How the values of each numeric column are distributed.
+        infer_column_semantics: Which columns hold numeric codes, identifiers or numbers
+            stored as text.
     """
     selection = select_columns(_ANALYSIS, data, columns, _ASSOCIATION)
     categorical = _categorical_names(data, columns, categorical_columns, selection)
@@ -726,6 +727,11 @@ def _pair_label(pair: AssociationPair) -> str:
     return f"({pair.x_column!r}, {pair.y_column!r})"
 
 
+def _pair_path(pair: AssociationPair) -> str:
+    """The result path of a pair's value, which names the pair by its columns."""
+    return f"pairs[{pair.x_column!r}, {pair.y_column!r}].value"
+
+
 # How far from 1 an absolute value may lie and still count as a perfect
 # association: rounding leaves an exact relation a few ulps short of 1.
 PERFECT_TOLERANCE = 1e-9
@@ -768,7 +774,7 @@ def _perfect_associations(
             ),
             assessment="suspected",
             columns=columns,
-            fields=[f"pairs[{i}].value" for i in positions],
+            fields=[_pair_path(pairs[i]) for i in positions],
         )
     ]
 
@@ -809,7 +815,7 @@ def _null_limitations(pairs: list[AssociationPair]) -> list[Limitation]:
                     pairs_have=plural(len(positions), "pair has", "pairs have"),
                     names=join_items([_pair_label(pairs[i]) for i in positions]),
                 ),
-                fields=[f"pairs[{i}].value" for i in positions],
+                fields=[_pair_path(pairs[i]) for i in positions],
             )
         )
     return limitations

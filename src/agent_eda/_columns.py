@@ -238,6 +238,8 @@ class Selection:
     # Names of the columns that columns=None left out for their kind, in
     # DataFrame order, without id_column; empty when the call named the columns.
     left_out: list[str]
+    # The kind of each left-out column, so that a text can say why it was left out.
+    left_out_kinds: dict[str, ColumnKind] = field(default_factory=dict)
 
 
 def select_columns(
@@ -266,6 +268,9 @@ def select_columns(
                 c for c in columns if c.kind in rule.default and c.name != id_column
             ],
             left_out=[c.name for c in columns if c.kind not in rule.default],
+            left_out_kinds={
+                c.name: c.kind for c in columns if c.kind not in rule.default
+            },
         )
     if not requested:
         raise worded(

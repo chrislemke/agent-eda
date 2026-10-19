@@ -409,10 +409,8 @@ def test_infer_column_semantics_without_a_schema_says_no_column_was_compared():
     without = ae.infer_column_semantics(data)
     declared_schema = ae.infer_column_semantics(data, schema={"a": "integer"})
 
-    assert limitation(without, "schema_not_declared").fields == [
-        "columns['a'].matches_declared",
-        "columns['b'].matches_declared",
-    ]
+    # It concerns every column, so it names `columns` and no column's entry.
+    assert limitation(without, "schema_not_declared").fields == ["columns"]
     assert "schema_not_declared" not in [
         lim.code for lim in declared_schema.limitations
     ]

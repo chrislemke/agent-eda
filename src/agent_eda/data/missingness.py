@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -26,7 +26,7 @@ from agent_eda._sentinels import (
 )
 from agent_eda._text import join_labels, plural
 from agent_eda._values import stored_nan_mask
-from agent_eda._written_form import record_scalar
+from agent_eda._written_form import record_scalar, row_id_list
 from agent_eda.project import Project
 from agent_eda.results import (
     ColumnSupport,
@@ -57,7 +57,10 @@ _EVERY_COLUMN = ColumnRule(
 @analysis(
     statuses=("completed", "insufficient_data", "not_applicable"),
     finding_codes=("all_missing_columns", "sentinel_values_present"),
-    tags=("missing values", "completeness", "per column", "per row", "gaps"),
+    tags=(
+        *("missing values", "completeness", "per column", "per row", "gaps"),
+        *("nulls", "null counts", "na counts", "nan", "missingness", "missing data"),
+    ),
     masking=True,
 )
 def profile_missing_values(
@@ -71,21 +74,18 @@ def profile_missing_values(
     """How much data is missing, and where?
 
     When to use:
-        Call it after `describe_dataset` to learn how complete the data really
-        is, per column and per row. It counts the values pandas treats as
-        missing (None, NaN, NaT and NA) together with the sentinel values you
-        declare, stand-ins for missing values such as -999, 'N/A' or an empty
-        string, and counts no value twice. Shares are over all rows. Per row,
-        it counts how many selected values each row misses, which shows whether
-        gaps cluster in some rows, and how many rows are complete. Nothing
-        counts as a sentinel value unless you declare it: to find the values
-        that look like stand-ins, call `detect_missing_sentinels` first.
-        Missing values in columns you declare non-nullable are violations in
-        `validate_column_types`. For how the values of each numeric column are
-        distributed, call `summarize_numeric`; `list_analyses` lists the other
-        analyses. Declared sentinel values are raw values, so when a column
-        holds personal data, such as email addresses, declare it sensitive in a
-        project and switch masking on.
+        Call it after `describe_dataset` to learn how complete the data really is, per
+        column and per row. It counts the values pandas treats as missing (None, NaN,
+        NaT and NA) together with the sentinel values you declare, stand-ins for missing
+        values such as -999, 'N/A' or an empty string, and counts no value twice. Shares
+        are over all rows. Per row, it counts how many selected values each row misses,
+        which shows whether gaps cluster in some rows, and how many rows are complete.
+        Nothing counts as a sentinel value unless you declare it: to find the values
+        that look like stand-ins, call `detect_missing_sentinels` first. Missing values
+        in columns you declare non-nullable are violations in `validate_column_types`.
+        Declared sentinel values are raw values, so when a column holds personal data,
+        such as email addresses, declare it sensitive in a project and switch masking
+        on.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -187,7 +187,8 @@ def profile_missing_values(
         ... )
         >>> print(res)
         profile_missing_values: completed on 5 rows x 3 columns
-        Missing: 7 of 15 selected values (46.67%), counting declared sentinel values. Complete rows: 1 of 5 (20%).
+        Missing: 7 of 15 selected values (missing_share 0.4667), counting declared sentinel values. Complete rows: 1 of 5
+            (complete_row_share 0.2).
         Missing values per row: 0 in 1 row, 1 in 1 row and 2 in 3 rows.
         Columns, most missing first (3 of 3 shown):
         column  native_missing_count  sentinel_count  missing_count  missing_share
@@ -197,7 +198,8 @@ def profile_missing_values(
         Findings (1 of 1 shown):
         - descriptive sentinel_values_present: Declared sentinel values occur in 2 columns: 'age' and 'city'.
         Limitations (1 of 1 shown):
-        - sentinel_values_not_declared: No sentinel values were declared for 1 column, so its sentinel_count is ...
+        - sentinel_values_not_declared: No sentinel values were declared for 1 column, so its sentinel_count is null and its
+          missing_count counts only native missing values: 'score'.
         More: res.to_frame() has all 3 columns; res.to_frame(table='row_distribution') has the rows per number of missing
             values; res.findings, res.limitations and res.to_json() have the rest.
         >>> res.columns["city"].missing_count
@@ -206,16 +208,13 @@ def profile_missing_values(
         1
 
     See Also:
-        detect_missing_sentinels: Values that look like stand-ins for missing
-            ones, such as -999 or 'N/A', to declare as sentinel values.
-        describe_dataset: Dtypes, missing and distinct counts and memory of
-            every column, whatever its dtype.
-        summarize_numeric: Counts, mean, spread, quantiles and shape of every
-            numeric column.
-        validate_column_types: The values of each declared column measured
-            against its logical type, with missing values in a column declared
-            non-nullable as violations.
-        list_analyses: Every analysis, with the question each one answers.
+        detect_missing_sentinels: Values that look like stand-ins for missing ones, such
+            as -999 or 'N/A', to declare as sentinel values.
+        describe_dataset: Dtypes, missing and distinct counts and memory of every
+            column, whatever its dtype.
+        validate_column_types: The values of each declared column measured against its
+            logical type, with missing values in a column declared non-nullable as
+            violations.
     """
     masking = resolve_masking("profile_missing_values", project, mask_sensitive)
     selection = select_columns("profile_missing_values", data, columns, _EVERY_COLUMN)
@@ -482,23 +481,20 @@ def detect_missing_sentinels(
     """Which values look like stand-ins for missing data?
 
     When to use:
-        Call it after `profile_missing_values` to find values that may stand in
-        for missing ones, such as -999, 'N/A', empty text or 1900-01-01, before
-        they distort a summary or a model. Fixed rules without thresholds to
-        tune pick the candidates: values from a built-in list, and a number
-        that repeats at a column's minimum or maximum, far from all the others.
-        It only suspects values and never changes the data, so legitimate
-        zeros, negative numbers and rare codes stay valid until you confirm
-        otherwise. Declare the values you confirm in sentinel_values: they come
-        back as declared, apart from the suspected ones, and
-        `profile_missing_values` counts them as missing. Candidate values and
-        row IDs are raw values, so when a column holds personal data, such as
-        email addresses, declare it sensitive in a project and switch masking
-        on. Index labels are never masked: when the index holds sensitive
-        values, pass a non-sensitive id_column. For which values occur in a
-        column and how often, call `summarize_categorical`; for the extremes
-        and spread of numeric columns, `summarize_numeric`; `list_analyses`
-        lists the other analyses.
+        Call it after `profile_missing_values` to find values that may stand in for
+        missing ones, such as -999, 'N/A', empty text or 1900-01-01, before they distort
+        a summary or a model. Fixed rules without thresholds to tune pick the
+        candidates: values from a built-in list, and a number that repeats at a column's
+        minimum or maximum, far from all the others. It only suspects values and never
+        changes the data, so legitimate zeros, negative numbers and rare codes stay
+        valid until you confirm otherwise. Declare the values you confirm in
+        sentinel_values: they come back as declared, apart from the suspected ones, and
+        `profile_missing_values` counts them as missing. Candidate values and row IDs
+        are raw values, so when a column holds personal data, such as email addresses,
+        declare it sensitive in a project and switch masking on. Index labels are never
+        masked: when the index holds sensitive values, pass a non-sensitive id_column.
+        For which values occur in a column and how often, call `summarize_categorical`;
+        for the extremes and spread of numeric columns, `summarize_numeric`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -558,7 +554,8 @@ def detect_missing_sentinels(
         in `row_ids` the IDs of the first 10 rows that hold it. Row IDs are
         index labels, or id_column values when given. The record keeps the
         first 100 candidates and adds candidates_total; `to_frame` returns
-        every candidate, and the printed table shows the most frequent first.
+        every candidate with the ID of every row that holds its value, and the
+        printed table shows the most frequent first.
         `columns_without_rules` names the checked columns whose values no
         rule reads, such as booleans and durations, where only declared values
         were looked for. NaN that a pyarrow-backed or nullable float column
@@ -644,15 +641,21 @@ def detect_missing_sentinels(
         ...     if c.column == "age"
         ... ]
         [(-999, 'declared')]
+        >>> sentinels = res.sentinel_values()
+        >>> sentinels
+        {'age': [-999], 'city': ['N/A', '', 'n/a']}
+        >>> ae.profile_missing_values(df, sentinel_values=sentinels).columns[
+        ...     "age"
+        ... ].sentinel_count
+        2
 
     See Also:
-        profile_missing_values: Missing values per column and per row, counting
-            declared sentinel values.
-        summarize_categorical: Each level's count and share of every text,
-            categorical and boolean column, where stand-ins show up as levels.
-        summarize_numeric: Counts, mean, spread, quantiles and shape of every
-            numeric column, which stand-ins such as -999 distort.
-        list_analyses: Every analysis, with the question each one answers.
+        profile_missing_values: Missing values per column and per row, counting declared
+            sentinel values.
+        summarize_numeric: Counts, mean, spread, quantiles and shape of every numeric
+            column, which stand-ins such as -999 distort.
+        summarize_categorical: Each level's count and share of every text, categorical
+            and boolean column, where stand-ins show up as levels.
     """
     masking = resolve_masking("detect_missing_sentinels", project, mask_sensitive)
     row_ids = read_row_ids("detect_missing_sentinels", data, id_column)
@@ -688,6 +691,7 @@ def detect_missing_sentinels(
         },
         values=[candidate.record_value() for candidate in found],
         row_ids=[row_ids.at(positions) for positions in shown],
+        all_row_ids=[row_ids.labels.take(c.positions) for c in found],
     )
     for name in _shown_columns(found, sentinel_values, row_ids.id_column):
         if masking.masks(name):
@@ -708,13 +712,13 @@ def detect_missing_sentinels(
     # The candidates showing a row ID that another row shares.
     ambiguous = [
         f"candidates[{number}].row_ids"
-        for number, positions in enumerate(shown)
-        if row_ids.repeated[positions].any()
+        for number, candidate in enumerate(found)
+        if row_ids.repeated[candidate.positions].any()
     ]
     status, status_reason = _check_status(
         row_count, selection.columns, row_ids.id_column
     )
-    return DetectMissingSentinelsResult(
+    result = DetectMissingSentinelsResult(
         analysis="detect_missing_sentinels",
         method=None,
         status=status,
@@ -766,6 +770,8 @@ def detect_missing_sentinels(
             name for name, done in checked.items() if not done.ruled
         ],
     )
+    result._row_ids = view.all_row_ids
+    return result
 
 
 # A candidate keeps the IDs of this many rows that hold it.
@@ -796,7 +802,10 @@ class _View:
 
     declared: dict[str, list[JsonSentinel]]
     values: list[JsonSentinel]
+    # The first row IDs of each candidate, as the record shows them.
     row_ids: list[list[object]]
+    # Every row ID of each candidate: pandas labels, or a list once masked.
+    all_row_ids: list[Any]
 
 
 def _shown_columns(
@@ -835,6 +844,17 @@ def _masked(
             raw.append(candidate.value)
         if id_column == name:
             raw.extend(ids)
+    # The row IDs beyond the shown ones come last, so the shown ones keep their
+    # numbers and equal IDs share a placeholder.
+    rest = (
+        [
+            row_id_list(full)[len(ids) :]
+            for full, ids in zip(view.all_row_ids, view.row_ids, strict=True)
+        ]
+        if id_column == name
+        else []
+    )
+    raw.extend(i for ids in rest for i in ids)
     placeholders = iter(mask_values(raw))
 
     def placeholder() -> str:
@@ -850,7 +870,13 @@ def _masked(
         values.append(placeholder() if candidate.column == name else value)
         # A missing row ID stays None.
         row_ids.append([next(placeholders) for _ in ids] if id_column == name else ids)
-    return _View(masked_declared, values, row_ids)
+    if id_column != name:
+        return _View(masked_declared, values, row_ids, view.all_row_ids)
+    all_row_ids = [
+        [*shown, *(next(placeholders) for _ in later)]
+        for shown, later in zip(row_ids, rest, strict=True)
+    ]
+    return _View(masked_declared, values, row_ids, all_row_ids)
 
 
 @dataclass(frozen=True)

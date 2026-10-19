@@ -1,5 +1,8 @@
+import importlib
 import inspect
 import re
+
+from serving import with_stand_ins
 
 import agent_eda as ae
 
@@ -33,6 +36,11 @@ def guide_lines(capsys):
     return capsys.readouterr().out.splitlines()
 
 
+def unwrapped(lines):
+    """The lines as one text with single spaces, so wrapping doesn't matter."""
+    return " ".join(" ".join(lines).split())
+
+
 def test_prints_one_page_and_returns_none(capsys):
     lines = guide_lines(capsys)
 
@@ -41,32 +49,71 @@ def test_prints_one_page_and_returns_none(capsys):
     assert lines == [line.rstrip() for line in lines]
 
 
-def test_names_every_registered_analysis_with_its_summary_under_its_module(capsys):
+def areas():
+    """Each area (a subpackage of agent_eda) with how many analyses it holds."""
+    counts = {}
+    for info in ANALYSES:
+        area = info.module.split(".")[1]
+        counts[area] = counts.get(area, 0) + 1
+    return counts
+
+
+def test_gives_each_area_with_its_count_and_a_line_from_its_subpackage_docstring(
+    capsys,
+):
+    text = unwrapped(guide_lines(capsys))
+
+    assert areas() == {"data": 8, "statistics": 3}
+    for area, count in areas().items():
+        subpackage = importlib.import_module(f"agent_eda.{area}")
+        covers = inspect.getdoc(subpackage)
+        assert covers
+        noun = "analysis" if count == 1 else "analyses"
+        assert f" {area} ({count} {noun}): {covers.splitlines()[0]}" in text
+
+
+def test_lists_no_analysis_beyond_the_first_look_and_no_module_headings(capsys):
     lines = guide_lines(capsys)
 
-    for info in ANALYSES:
-        line = lines.index(analysis_line(info.name, info.summary, info))
-        modules = [
-            candidate
-            for candidate in lines[:line]
-            if candidate.startswith("agent_eda.")
-        ]
-        assert modules[-1] == info.module
+    assert [line for line in lines if line.startswith("agent_eda.")] == []
+    # Each summary is listed by list_analyses, not here.
+    assert [info.name for info in ANALYSES if f"  {info.name}: " in lines] == []
 
 
-def test_reads_each_summary_from_the_first_line_of_the_docstring(capsys):
-    lines = guide_lines(capsys)
+def test_points_to_search_and_the_listing_for_the_rest(capsys):
+    text = unwrapped(guide_lines(capsys))
 
-    for info in ANALYSES:
-        doc = inspect.getdoc(getattr(ae, info.name))
-        assert doc
-        assert analysis_line(info.name, doc.splitlines()[0], info) in lines
+    assert 'ae.search_analyses("nulls per column")' in text
+    assert "ae.list_analyses()" in text
+    assert "ae.describe_analysis(" in text
 
 
-def analysis_line(name, summary, info):
-    """An analysis's line in the guide, marked when it supports masking."""
-    masking = " [supports masking]" if info.supports_masking else ""
-    return f"  {name}: {summary}{masking}"
+def test_the_page_stays_the_same_length_with_sixty_analyses(capsys):
+    before = guide_lines(capsys)
+
+    with with_stand_ins(60 - len(ANALYSES)):
+        assert len(ae.list_analyses().analyses) == 60
+        after = guide_lines(capsys)
+
+    assert len(ae.list_analyses().analyses) == len(ANALYSES)
+    assert len(before) <= 60
+    assert len(after) == len(before)
+    assert max(len(line) for line in after) <= 120
+    # Only the counts change, in the heading and in the line of each area.
+    changed = [line for line in after if line not in before]
+    assert len(changed) == 3
+    assert changed[0] == "60 analyses in 2 areas:"
+    assert all(" analyses): " in line for line in changed[1:])
+
+
+def test_says_that_read_csv_turns_n_a_and_null_into_missing_values(capsys):
+    text = unwrapped(guide_lines(capsys))
+
+    assert (
+        "pd.read_csv turns 'N/A', 'NULL' and other default NA strings into missing"
+        in text
+    )
+    assert "pd.read_csv(path, keep_default_na=False)" in text
 
 
 def test_says_what_the_package_is_how_to_call_it_and_how_to_read_results(capsys):

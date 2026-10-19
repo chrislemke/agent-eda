@@ -14,7 +14,7 @@ It is written for three kinds of callers:
 
 - **11 first-look analyses**: structure, column types, missing values, sentinel values such as -999, distributions, duplicates, keys, the target and associations.
 - **Results you can read and parse**: `print(res)` gives at most 40 lines, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
-- **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
+- **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package.
 - **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix: a misspelled column lists the available names and the closest match.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses.
@@ -36,11 +36,11 @@ Once released, `pip install agent-eda` is enough. The MCP server needs the `mcp`
 
 **AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode, with no PyPI access, upload the wheel and run `pip install --no-deps <wheel>`, or put the wheel on `sys.path` and import from it. Installs don't carry over to a new session. Code Interpreter returns only printed output, so `print()` results.
 
-**AgentCore Runtime.** Add `agent-eda` to the container image or code zip. AWS's example zip command uses the `manylinux2014` platform tag, which installs old numpy and pandas; use `--python-platform aarch64-manylinux_2_28` for current ones.
+**AgentCore Runtime.** Add `agent-eda` to the container image or code zip. AWS's example zip command uses the `manylinux2014` tag, which installs old numpy and pandas; use `--python-platform aarch64-manylinux_2_28` for current ones.
 
 ## Quick start
 
-Pass the DataFrame first and every other argument by keyword. Nothing needs setting up, and analyses never change the DataFrame.
+Pass the DataFrame first and every other argument by keyword. Analyses never change the DataFrame.
 
 ```python
 import pandas as pd
@@ -67,7 +67,7 @@ It prints:
 
 ```text
 summarize_numeric: completed on 8 rows x 6 columns
-Statistics use the finite values. Quantile method linear; trimmed_mean cuts 10% from each end.
+Statistics use the finite values. Quantile method linear; trimmed_mean cuts trim_fraction 0.1 from each end.
 res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, skewness and excess_kurtosis.
 Columns (2 of 2 shown):
 column  non_missing_count  missing_count       mean       std       min    median      max
@@ -82,7 +82,7 @@ The mean age of -86.12 is the first sign of trouble. The sample data hides three
 
 ## Analyses
 
-The analyses are listed in the order `ae.guide()` suggests for a first look. Most need nothing but the DataFrame. The ones that need project knowledge, such as your schema or your target, ask for it; they never guess it.
+The analyses are listed in the order `ae.guide()` suggests for a first look. Those that need project knowledge, such as your schema or target, ask for it; they never guess.
 
 | Step | Analysis | What it answers | Required arguments |
 | --- | --- | --- | --- |
@@ -126,11 +126,11 @@ for res in results:
 ```text
 infer_column_semantics: 1 column looks like an identifier, every value distinct: 'customer_id'.
 detect_missing_sentinels: 1 value in 1 column may stand in for missing values: 'age'.
-summarize_categorical: 1 column holds labels that differ only by case or surrounding spaces: 'plan'.
+summarize_categorical: 1 column holds labels that differ only by case or surrounding spaces: 'plan' ('basic' and 'Basic ').
 find_duplicate_rows: 2 rows form 1 duplicate group; 1 is an excess copy (duplicate_share 0.125).
 ```
 
-Lines 2 to 4 are the planted problems. The first is expected: `customer_id` is an identifier. A finding says what the data suggests; what it means is your call.
+Lines 2 to 4 are the planted problems. The first is expected: `customer_id` is an identifier.
 
 ### Other analyses
 
@@ -143,12 +143,12 @@ No analysis outside the first look ships yet.
 
 ## Discovery
 
-Four functions describe the package from inside Python, so an agent needn't read the source:
+Four functions describe the package from inside Python:
 
 | Function | What it gives you |
 | --- | --- |
-| `ae.guide()` | Prints one page: how to call an analysis and read its result, every analysis, and the first-look order. |
-| `ae.search_analyses(query)` | The analyses that best match a question in your own words, such as "nulls per column". |
+| `ae.guide()` | Prints one page: how to call an analysis and read its result, the areas with their analysis counts, and the first-look order. |
+| `ae.search_analyses(query)` | The analyses that best match a question in your own words, such as "nulls per column"; weak matches are marked. |
 | `ae.describe_analysis(name)` | An analysis's parameters, statuses, result fields, finding codes and an example. |
 | `ae.list_analyses()` | Every analysis with its module, question and masking support; `.to_frame()` gives a table. |
 
@@ -157,6 +157,8 @@ ae.guide()
 print(ae.search_analyses("nulls per column"))
 print(ae.describe_analysis("profile_missing_values"))
 ```
+
+`pd.read_csv` turns "N/A" and "NULL" into missing values; `keep_default_na=False` keeps them as text for `detect_missing_sentinels`.
 
 ## Reading a result
 
@@ -174,15 +176,19 @@ record = res.to_json()  # the whole result as strict JSON
 age = res.columns["age"]  # typed fields, such as age.median and age.std
 ```
 
-The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. The JSON record caps lists that grow with the data, with totals.
+The printed text stays within 40 lines of 120 characters however large the data, wraps long lines instead of cutting them, and says what it leaves out. Findings come violation first, and tables list columns with a finding first. Lists that grow with the data are capped in the JSON record too, with totals, but it keeps the entries that findings and limitations point at, so every path resolves. The record writes an integer beyond ±2^53 as a string, so Node-based MCP clients don't round it; the result object keeps the `int`.
 
-A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and a message with the fix. Data problems never raise; they show in the status, findings and limitations.
+Every result takes `to_frame(table=...)`. `res.columns["Age"]` raises a `KeyError` that suggests `'age'`; `describe_dataset`'s `columns` is a list, and takes a name too. pydantic's deprecated `json()`, `dict()`, `schema()`, `parse_obj()` and `copy()` raise an error naming `to_json()`, `to_dict()`, `record_schema()`, `model_validate()` or `model_copy()`. `help(type(res))` lists each field with its description.
 
-Analyses decide which values are equal as pandas does, so `1`, `1.0` and `True` are one value; text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. NaN stored as a value in a pyarrow-backed or nullable float column is missing, with a limitation. Values pandas can't hash, such as lists, get an `unhashable_values` note: `find_duplicate_rows` compares them by content, three analyses leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null.
+`infer_column_semantics(...).inferred_schema()` is a `schema` for `validate_column_types`, and `detect_missing_sentinels(...).sentinel_values()` the `sentinel_values` for `profile_missing_values`, leaving masked candidates out with a `.note`.
 
-`find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates.
+A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and the fix; data problems never raise.
 
-A pyarrow dictionary column is a categorical like pandas' own. Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, are "other": the defaults leave them out, and naming one raises `ColumnTypeError`.
+Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. NaN in a pyarrow-backed or nullable float column is missing, with a limitation. Values pandas can't hash, such as lists, are the exception: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
+
+`find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats stay candidates.
+
+Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, are "other": the defaults leave them out, and naming one raises `ColumnTypeError`.
 
 `infer_column_semantics` and `validate_column_types` read text by the same rules:
 
@@ -191,15 +197,15 @@ A pyarrow dictionary column is a categorical like pandas' own. Arrow time-of-day
 - Dates that aren't ISO 8601, such as `01/02/2020`, are never parsed and never `identifier_like`, unless a `ColumnSpec` declares a `datetime_format`.
 - `identifier_like` is judged without rows that exactly repeat another row, for columns distinct in at least 90% of rows.
 
-Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`["blue", "green", "red"]` as a row ID in the record); an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is.
+Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples; an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is.
 
-A record writes a datetime as ISO 8601 text (`2020-01-01T05:30:00`), and a decimal as a number when float64 holds it as written, else as exact text (`"12345678901234567.25"`). `detect_missing_sentinels` gives number text such as `"-999"` the numeric-code rule, lists pandas' default NA strings (`#N/A`, `<NA>` and more), and matches text stand-ins after stripping whitespace, showing the raw form (`" N/A"`).
+A record writes a datetime as ISO 8601 text, and a decimal as a number when float64 holds it as written, else as exact text. `detect_missing_sentinels` gives number text such as `"-999"` the numeric-code rule, lists pandas' default NA strings, and matches text stand-ins after stripping whitespace, showing the raw form that occurred (`" N/A"`).
 
 Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, one at a time, so each result gets only its own `numerical_warning` limitation and the caller's warning filters stay unchanged.
 
 ## Projects and masking
 
-Six analyses can show raw values, such as the labels `summarize_categorical` counts, the row IDs `find_duplicate_rows` lists or the sentinel values you declare: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
+Six analyses can show raw values, such as labels, row IDs or declared sentinel values: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.list_analyses()` marks them `[supports masking]`.
 
 A `Project` holds settings that stay the same across calls. Its data policy names the sensitive columns, and masking replaces their values with numbered placeholders; counts and shares stay:
 
@@ -213,10 +219,13 @@ print(ae.summarize_categorical(df, columns=["email"], project=project))
 summarize_categorical: completed on 8 rows x 6 columns
 Masked (data_policy.mask_sensitive=True): the values of column 'email' show as <masked 1>, <masked 2> and so on; counts
     and shares are unaffected.
-Shares are of each column's non-missing values. Levels go by count, then label; most_common_levels has the top 10.
+Shares are fractions of non-missing values. Levels go by count, then label; levels has the top 10 of each column.
 Columns (1 of 1 shown):
-column  non_missing_count  missing_count  distinct_count  most_common_levels
-email                   8              0               6  <masked 1>: 2 (25%), <masked 2>: 2 (25%), <masked 3>: 1 (12...
+column  non_missing_count  missing_count  distinct_count
+email                   8              0               6
+Top levels per column:
+  email: <masked 1>: 2 (share 0.25), <masked 2>: 2 (share 0.25), <masked 3>: 1 (share 0.125), <masked 4>: 1 (share
+    0.125), <masked 5>: 1 (share 0.125), <masked 6>: 1 (share 0.125)
 Findings: none
 Limitations: none
 More: res.to_frame() has all 6 levels; res.findings, res.limitations and res.to_json() have the rest.
@@ -229,10 +238,10 @@ How masking is decided:
 - `mask_sensitive=True` or `False` in a call overrides the project.
 - It covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
 - It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` if the index holds sensitive values. The other analyses, such as `summarize_numeric`, don't read a project.
-- A sensitive column matches by exact name. When a name misses a column only by case or Unicode form, such as `'Email'` for `'email'`, nothing is masked for it, and the printed masking text and `masking.near_miss_columns` say "did you mean 'email'?".
-- With masking on, no error message quotes a value of a sensitive column. A message listing unknown column names lists at most 3, each cut to 40 characters, and a `column` or `columns` option refuses a Series, Index or array without showing it.
+- A sensitive column matches by exact name. A near miss in case or Unicode form, such as `'Email'` for `'email'`, masks nothing; the printed masking text and `masking.near_miss_columns` then say "did you mean 'email'?".
+- With masking on, no error message quotes a value of a sensitive column: a list of unknown column names holds at most 3, cut to 40 characters, and a Series, Index or array given as a `column` or `columns` option is refused unseen.
 
-Save the project once and load it in every later script, which helps an agent that runs each script in a new process:
+Save the project once and load it in later scripts, which helps an agent that runs each script in a new process:
 
 ```python
 project.save("project.toml")
@@ -253,7 +262,7 @@ sensitive_columns = [
 mask_sensitive = true
 ```
 
-`format_version` is the file's layout. A file without it loads as version 1. `project.save` writes through a temporary file and a rename; a new file is owner-readable only, and a replaced file keeps its permissions. It refuses a target that isn't a regular file and a project over 1 MiB.
+`format_version` is the file's layout: a file without it loads as version 1. `project.save` writes owner-readable only for a new file, and refuses a target that isn't a regular file, such as a named pipe, and a project over 1 MiB.
 
 Masking is a guardrail against accidental exposure, not anonymization or access control. The package runs in the agent's own process, so an agent that can call it can read the data directly. [ADR 0001](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0001-data-policy-is-a-guardrail.md) records why.
 
@@ -291,13 +300,13 @@ Claude Desktop, Cursor and most MCP clients read an `mcpServers` entry from thei
 }
 ```
 
-If the client doesn't start it in the environment with the extra, give the path that `which agent-eda-mcp` prints as `command`.
+If the client doesn't start it in the environment with the extra, use the path `which agent-eda-mcp` prints as `command`.
 
-Each analysis is an MCP tool of the same name. Its description and input schema come from the docstring that `help()` shows. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order.
+Each analysis is an MCP tool of the same name. Its description and input schema come from its docstring. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order.
 
 ### Pass data by path
 
-An MCP tool takes `data_path`, the path to a file, where a Python caller passes the DataFrame.
+An MCP tool takes `data_path`, a file path, where Python passes the DataFrame.
 
 - The extension sets the format, in any case: `.csv`, `.tsv`, `.csv.gz`, `.tsv.gz`, `.parquet` or `.pq`. Any other extension gives the error `unsupported_data_format`.
 - CSV and TSV files are read as UTF-8, and only an empty field counts as missing. Values such as `N/A`, `NULL` or `-999` reach the analyses as values, for `detect_missing_sentinels` to find, `-999` too in a column that `N/A` made text.
@@ -307,12 +316,11 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
   - Blank lines are skipped, except in a one-column file, where each is a row with a missing value. A quoted empty field (`""`) is an empty string, not a missing value, and its column stays text.
   - The server reads commas, or tabs for a TSV: a file with one column whose name holds a `;` gives `unreadable_data_file`, hinting at a semicolon separator. A row may end in an empty field, as in `A1,Oslo,10,`; a row with any other extra field gives `unreadable_data_file` and names the line.
   - A repeated header name stays repeated: `describe_dataset` reports it, and every other analysis asks you to rename the columns in the file.
-- Parquet files keep the dtypes and index pandas stored; one without pandas metadata, such as from Spark or DuckDB, gets pandas' default dtypes and a 0-based index.
+- Parquet files keep the dtypes and index pandas stored; one without pandas metadata, such as from Spark or DuckDB, gets pandas' default dtypes and a 0-based index. A file with two columns of one name or bad pandas metadata gives `unreadable_data_file`.
 - A relative path resolves against the server's working directory; pass absolute paths if unsure. A leading `~` is the home directory, in every path argument.
-- A path the operating system refuses gives an MCP tool error that names the cause. A Parquet file with two columns of one name or bad pandas metadata gives `unreadable_data_file`.
 - The server reads only local files: it reads a URL such as `s3://bucket/data.csv` as a relative path. A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names there.
 - Row IDs in a result are 0-based data-row numbers for a CSV or TSV file and the stored index for a Parquet file; `id_column` names rows by a column's values instead.
-- The server keeps the last two files it read in memory and rereads a file when its modification time or size changes.
+- The MCP server keeps the last two files it read in memory, and rereads one when its modification time or size changes.
 
 ### Pass arguments as JSON
 
@@ -320,20 +328,20 @@ A string whose input schema format is `date-time`, `date` or `duration` is ISO 8
 
 ### Read the response
 
-A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. A run that doesn't complete, such as `insufficient_data` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`: what is wrong, what is allowed and the fix in MCP terms, such as `{"task": "regression"}` for `task='regression'`. No message, MCP tool description, schema or record text (status reasons, limitation reasons, finding claims) holds Python syntax, and tests scan them all. In an MCP tool's description, `to_dict` is the structured content and `to_frame` is what `table_path` writes.
+A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. A run that doesn't complete, such as `insufficient_data`, is a normal response. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`. The message says what is wrong, what is allowed and the fix in MCP terms, such as `{"task": "regression"}` for `task='regression'`. No message, MCP tool description, schema or record text holds Python syntax, and tests scan them all.
 
 To get past the caps, pass `table_path`. The server writes the result's main table, what `res.to_frame()` gives, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
 - `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. A symbolic link at the path gives the same error. The directory must exist already.
 - If the server can tell it may not write in the directory, the call gives `invalid_argument` before the analysis runs. A failed write removes its partial file.
 - In a CSV, a missing value is an empty field and an empty string is the quoted field `""`. Parquet keeps them apart.
-- The closing line keeps to 120 characters; a path too long for it is left to `table_file.path`.
+- The last line of the text keeps to 120 characters: a path that doesn't fit takes its own line, or is left to `table_file.path`.
 - A cell that holds a list or a mapping, such as the columns of a candidate key from `find_candidate_keys`, is written as JSON text. In Parquet, a column of mixed types, such as numbers and text, is written as text, as in the CSV.
 - An analysis with several tables writes only its main one. `compute_association_matrix` writes its pairs, for example, and its wide matrix stays a Python-only table.
 
 ### Masking over MCP
 
-The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`, and keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as a sensitive column's minimum, or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error (a bug in agent-eda) names only the exception's type, as its message could quote a value; the stderr log keeps the traceback. It is the same guardrail as in Python: whoever can call the server can usually read the data file.
+The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`, and keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as a sensitive column's minimum, or index labels, and the MCP tools without masking don't read the project. With masking on, an internal error (a bug) names only the exception's type, as its message could quote a value; the stderr log keeps the traceback.
 
 ## Reference
 
@@ -474,7 +482,7 @@ How are the values in each numeric column distributed?
 | `quantile_method` | `str` | `'linear'` | How numpy.quantile picks or interpolates between values: Hyndman and Fan's definitions 1 to 9 as 'inverted_cdf', 'averaged_inverted_cdf', 'closest_observation', 'interpolated_inverted_cdf', 'hazen', 'weibull', 'linear', 'median_unbiased' and 'normal_unbiased', or 'lower', 'higher', 'midpoint' and 'nearest'. |
 | `trim_fraction` | `float` | `0.1` | The share of the finite values cut from each end for the trimmed mean: trim_fraction times n, rounded down, values each, as SciPy's trim_mean cuts. |
 
-**Fields:** `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `left_out_columns`, `definitions`
+**Fields:** `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `left_out_columns`
 
 - `constant_columns` (suspected): a column holds a single distinct non-missing value in at least two rows, on stored values; NaN is missing.
 - `infinite_values` (suspected): a column holds inf or -inf, which every statistic leaves out.
@@ -490,11 +498,11 @@ Which values occur in each categorical column, and how often?
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `columns` | `Sequence[str] \| None` | `None` | Names of the columns to summarize, in the order to report them: a list or a single name. |
-| `top_n` | `int` | `10` | How many of each column's most common levels most_common_levels holds and the printed text shows, from 1 to 100; defaults to 10. |
+| `top_n` | `int` | `10` | How many of each column's most common levels `levels` holds and the printed text shows, from 1 to 100; defaults to 10. |
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each level of a sensitive column with a numbered placeholder, '<masked 1>' for the most common and so on in level order, and needs a project that declares sensitive columns; False shows the levels as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `distinct_count`, `levels`, `most_common_levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`, `share_denominator`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `distinct_count`, `levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`
 
 - `case_or_space_variants` (suspected): a column holds labels that differ only by case or surrounding spaces, such as 'Yes' and 'yes '.
 - `mixed_value_types` (suspected): a column holds values of more than one Python type, such as 1 and '1'.
@@ -515,10 +523,9 @@ Are there exact duplicate rows?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each row ID taken from a sensitive id_column with a numbered placeholder, '<masked 1>' for the first ID the result shows and so on, equal IDs alike, and needs a project that declares sensitive columns; False shows the IDs as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `compared_columns`, `missing_values_compare_equal`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `compared_columns`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
 
 - `duplicate_rows` (suspected): two or more rows are equal in every compared column.
-- `no_duplicate_rows` (descriptive): no two rows are equal in every compared column.
 
 **Statuses:** `completed`, `insufficient_data` (`no_rows`), `not_applicable` (`no_columns`)
 
@@ -558,7 +565,7 @@ What does the target look like for this task?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces the labels of a sensitive target, the classes, the labels outside expected_labels and expected_labels as parameters records it, with numbered placeholders, '<masked 1>' for its first label in level order and so on, and the row IDs taken from a sensitive id_column too; it needs a project that declares sensitive columns. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`
 
 - `single_class` (violation): every valid label is the same class, so a classifier has nothing to tell apart.
 - `more_than_two_classes` (violation): a binary_classification target has more than two classes.
@@ -618,7 +625,7 @@ Find the analyses that best match a question in your own words.
 | `query` | `str` | required | What you want to know, such as 'nulls per column'. |
 | `limit` | `int` | `5` | The most matches to return, at least 1; defaults to 5. |
 
-**Returns:** `matches` holds the best matches, best first, each with its `name`, `summary`, `score` and `matched_terms`.
+**Returns:** `matches` holds the best matches, best first, each with its `name`, `summary`, `score`, `matched_terms` and `weak`; read the summary before you rely on a weak match.
 
 #### `describe_analysis`
 
@@ -695,7 +702,7 @@ The record an analysis returns. Every analysis returns its own subclass, named a
 | `method` | The method used, or null when the analysis has no methods. |
 | `status` | How the run ended. |
 | `status_reason` | Why the run didn't complete; null when status is completed. |
-| `parameters` | The resolved arguments by name, defaults included. data appears only as its row_count and column_count. |
+| `parameters` | The resolved arguments by name, defaults included. data appears only as its row_count and column_count, and project whole. |
 | `support` | The counts behind the result. |
 | `findings` | Claims about the data. |
 | `limitations` | What limits how far the result can be read. |
@@ -714,21 +721,21 @@ Each limitation's `code` is one of these:
 - `non_integral_float_columns`: A key search left out float columns that hold fractions.
 - `too_few_values`: A statistic needs more values than the column has, so it is null.
 - `zero_variance`: Every value is equal, so a statistic such as skewness is null.
-- `float_precision`: Integers or decimals beyond ±2^53 were read as float64, which rounds them.
+- `float_precision`: Numbers beyond ±2^53 were read as float64, which rounds them.
 - `boolean_as_numeric`: Booleans were read as numbers: 0 for False and 1 for True.
-- `nan_counted_as_missing`: A column stores NaN as a value, which every analysis counts as missing. isna() doesn't.
-- `one_row_per_level`: A categorical column has a level per complete row of a pair, so the pair's value is null.
-- `numerical_warning`: A computation overflowed or failed numerically, so the values it affects are null.
-- `ambiguous_row_ids`: Index labels or id_column values repeat, so a row ID can match more than one row.
-- `sentinel_values_not_declared`: No sentinel values were declared, so sentinel counts are null or candidates stay suspected.
-- `ranking_not_proven`: A ranking stopped at its work limit, so an uncounted set could outrank a listed one.
+- `nan_counted_as_missing`: A column stores NaN as a value, which every analysis counts as missing, unlike isna().
+- `one_row_per_level`: A categorical column has one level per row of a pair, so its value is null.
+- `numerical_warning`: A computation overflowed or failed, so the values it affects are null.
+- `ambiguous_row_ids`: Index labels or id_column values repeat, so a row ID can match several rows.
+- `sentinel_values_not_declared`: No sentinel values were declared, so counts are null or candidates stay suspected.
+- `ranking_not_proven`: A ranking stopped at its work limit before it was proven.
 - `expected_labels_not_declared`: No expected labels were declared, so labels outside them weren't checked.
 - `rare_share_not_declared`: No rare_share was declared, so rare classes weren't checked.
 - `column_not_in_data`: A declared column isn't in the data, so its dtype and counts are null.
 - `schema_not_declared`: No schema was declared, so no column was compared with a declared type.
-- `nullable_not_declared`: A column's nullable wasn't declared, so its missing values weren't checked against it.
+- `nullable_not_declared`: nullable wasn't declared for a column, so its missing values weren't checked and its nullable field is null.
 - `type_not_inferred`: A column has no inferred logical type, so the field is null.
-- `not_applicable_to_task`: A field belongs to the other task, classification or regression, so it is null.
+- `not_applicable_to_task`: A field belongs to the other task, so it is null.
 
 ### Errors
 

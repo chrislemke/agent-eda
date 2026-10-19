@@ -6,6 +6,7 @@ mask, and which first-look order to follow. The search_analyses and
 list_analyses MCP tools return what the Python calls return.
 """
 
+import importlib
 import inspect
 import re
 import typing
@@ -24,7 +25,8 @@ pytest.importorskip(
 import anyio
 import jsonschema
 from mcp import Client
-from test_search_analyses import SEARCH_ACCEPTANCE
+from serving import serving, with_stand_ins
+from test_search_analyses import SEARCH_ACCEPTANCE, accepted
 
 import agent_eda as ae
 from agent_eda.errors import InvalidArgumentError
@@ -79,14 +81,43 @@ def test_the_instructions_hold_no_python_call_syntax(instructions):
     assert "ae." not in instructions
 
 
-def test_the_instructions_name_every_registered_analysis_with_its_summary(
+def test_the_instructions_give_each_area_with_its_count_and_no_module_headings(
     instructions,
 ):
-    lines = instructions.splitlines()
+    text = unwrapped(instructions)
 
-    for info in ae.list_analyses().analyses:
-        masking = " [supports masking]" if info.supports_masking else ""
-        assert f"  {info.name}: {info.summary}{masking}" in lines
+    assert [line for line in instructions.splitlines() if "agent_eda" in line] == []
+    for area, count in {"data": 8, "statistics": 3}.items():
+        covers = inspect.getdoc(importlib.import_module(f"agent_eda.{area}"))
+        assert covers
+        noun = "analysis" if count == 1 else "analyses"
+        assert f" {area} ({count} {noun}): {covers.splitlines()[0]}" in text
+    # list_analyses lists each analysis with its summary.
+    lines = instructions.splitlines()
+    assert [name for name in ANALYSES if f"  {name}: " in lines] == []
+
+
+def test_the_instructions_stay_the_same_length_with_sixty_analyses():
+    def served_instructions():
+        async def scenario():
+            # The instructions cover every registered analysis, however few the
+            # MCP server serves.
+            async with Client(serving(ae.describe_dataset), mode="legacy") as client:
+                return client.instructions
+
+        return anyio.run(scenario)
+
+    before = served_instructions().splitlines()
+
+    with with_stand_ins(60 - len(ANALYSES)):
+        after = served_instructions().splitlines()
+
+    assert len(before) <= 60
+    assert len(after) == len(before)
+    assert max(len(line) for line in after) <= 120
+    changed = [line for line in after if line not in before]
+    assert changed[0] == "60 analyses in 2 areas:"
+    assert all(" analyses): " in line for line in changed[1:])
 
 
 def test_the_instructions_say_what_the_package_does(instructions):
@@ -221,7 +252,7 @@ def test_search_analyses_points_to_mcp_tools_for_more_and_next():
 
     assert response.content[0].text.splitlines()[-2:] == [
         "More: search_analyses with limit 11 shows all 11 matches.",
-        "Next: the infer_column_semantics MCP tool's description and input schema "
+        "Next: the compute_association_matrix MCP tool's description and input schema "
         "say how to call it.",
     ]
 
@@ -251,7 +282,11 @@ def test_search_analyses_returns_five_matches_without_a_limit():
 def test_an_agents_wording_finds_the_right_mcp_tool_first(query, expected):
     response = anyio.run(call, "search_analyses", {"query": query})
 
-    assert response.structured_content["matches"][0]["name"] == expected
+    matches = response.structured_content["matches"]
+    if expected is None:
+        assert matches == []
+    else:
+        assert matches[0]["name"] in accepted(expected)
 
 
 def test_the_discovery_mcp_tools_declare_their_arguments_and_records():

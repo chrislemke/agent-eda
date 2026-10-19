@@ -15,6 +15,7 @@ import json
 import math
 import re
 from decimal import Decimal
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,16 @@ from pydantic import JsonValue
 
 # The end of a repr that names a memory address, such as "<Foo object at 0x7f3a>".
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+>$")
+
+
+def row_id_list(ids: object) -> list[object]:
+    """Row IDs held as pandas labels or as a list, as a list of Python objects.
+
+    A result keeps the IDs of many rows as a pandas Index or Series, which holds
+    them far more compactly, and lists them only when a table asks.
+    """
+    tolist = getattr(ids, "tolist", None)
+    return tolist() if tolist is not None else list(ids)  # ty: ignore[invalid-argument-type] # ids is a pandas object or a list
 
 
 def row_id_json(value: object) -> JsonValue:
@@ -67,6 +78,27 @@ def row_id_json(value: object) -> JsonValue:
 
 # The largest integer, in magnitude, that float64 holds exactly.
 _EXACT_INTEGER = 2**53
+
+
+def record_integers(value: Any) -> Any:
+    """A record with every integer beyond +-2**53 written as a string.
+
+    Node-based MCP clients read a JSON number as float64 and round an integer
+    beyond 2**53, such as the ID 1234567890123456789, to 1234567890123456800.
+    The record writes those as strings, so they arrive exactly, wherever they
+    sit: in row IDs, labels, values and parameters. Integers within
+    +-9,007,199,254,740,991 stay numbers, and so do booleans. Lists and dicts
+    come back as new ones.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value if -_EXACT_INTEGER < value < _EXACT_INTEGER else str(value)
+    if isinstance(value, list):
+        return [record_integers(item) for item in value]
+    if isinstance(value, dict):
+        return {key: record_integers(item) for key, item in value.items()}
+    return value
 
 
 def record_scalar(value: object) -> str | bool | int | float:

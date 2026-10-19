@@ -60,6 +60,7 @@ from agent_eda._text import (
 )
 from agent_eda._values import is_constant, value_codes
 from agent_eda._wording import as_written, worded
+from agent_eda._written_form import row_id_list
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
 from agent_eda.results import (
@@ -324,20 +325,17 @@ def infer_column_semantics(
     """What kind of values does each column hold?
 
     When to use:
-        Call it right after `describe_dataset`, before you summarize or model,
-        to learn each column's logical type from its values rather than its
-        dtype: numbers stored as text, identifiers that look numeric, postal
-        codes and other codes with leading zeros, ISO 8601 dates stored as
-        text, booleans such as yes/no or 0/1, a few labels repeated over many
-        rows, and free text. Each column gets candidate logical types ranked by
-        a heuristic score, the evidence behind them and flags for what needs
-        attention. Pass the logical types you expect as schema to
-        compare each with what the values show; a declaration is never
-        overwritten. To test every value against the logical types you
-        declare, with the invalid ones and their row IDs, call
-        `validate_column_types`. For how the values of each numeric column are
-        distributed, call `summarize_numeric` next; `list_analyses` lists the
-        other analyses.
+        Call it right after `describe_dataset`, before you summarize or model, to learn
+        each column's logical type from its values rather than its dtype: numbers stored
+        as text, identifiers that look numeric, postal codes and other codes with
+        leading zeros, ISO 8601 dates stored as text, booleans such as yes/no or 0/1, a
+        few labels repeated over many rows, and free text. Each column gets candidate
+        logical types ranked by a heuristic score, the evidence behind them and flags
+        for what needs attention. Pass the logical types you expect as schema to compare
+        each with what the values show; a declaration is never overwritten. To test
+        every value against the logical types you declare, with the invalid ones and
+        their row IDs, call `validate_column_types`. For how the values of each numeric
+        column are distributed, call `summarize_numeric` next.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -479,14 +477,14 @@ def infer_column_semantics(
         >>> print(res)
         infer_column_semantics: completed on 6 rows x 5 columns
         Scores rank logical types by fixed rules and aren't probabilities. Dates parse as ISO 8601 only.
-        schema: 1 column declared in the data, 1 matching (a tie with the top counts), 0 not; 0 not in the data.
+        schema: 1 column declared: 1 matching (ties with the top count), 0 not, 0 not inferred, 0 not in the data.
         Columns (5 of 5 shown):
         column    inferred      score  next         next_score  declared  flags
-        zip       categorical  0.3333  text             0.3333  null
         order_id  integer           1  float                 1  null      identifier_like, numbers_as_text
         ordered   datetime          1  categorical         0.5  null      dates_as_text
         paid      boolean           1  categorical      0.6667  null      boolean_like
         amount    integer           1  float                 1  float
+        zip       categorical  0.3333  text             0.3333  null
         Findings (5 of 5 shown):
         - suspected identifier_like_columns: 1 column looks like an identifier, every value distinct: 'order_id'.
         - suspected numbers_as_text: 1 column stores numbers as text: 'order_id'.
@@ -500,16 +498,19 @@ def infer_column_semantics(
         'categorical'
         >>> res.columns["zip"].evidence.leading_zero_share
         0.5
+        >>> schema = res.inferred_schema()
+        >>> schema["order_id"], schema["ordered"]
+        ('integer', 'datetime')
+        >>> ae.validate_column_types(df, schema=schema).status
+        'completed'
 
     See Also:
-        describe_dataset: Dtypes, missing and distinct counts and memory of every
-            column, whatever its dtype.
-        validate_column_types: How many values of each declared column have,
-            convert to or fail the logical type you declare, with the invalid
-            ones.
-        summarize_numeric: Counts, mean, spread, quantiles and shape of every
-            numeric column.
-        list_analyses: Every analysis, with the question each one answers.
+        validate_column_types: How many values of each declared column have, convert to
+            or fail the logical type you declare, with the invalid ones.
+        summarize_numeric: Counts, mean, spread, quantiles and shape of every numeric
+            column.
+        compute_association_matrix: How strongly pairs of columns are associated,
+            counting the numeric codes found here as categories.
     """
     selected = select_columns(
         "infer_column_semantics", data, columns, _EVERY_COLUMN
@@ -1311,7 +1312,9 @@ def _limitations(
                     "No schema was declared, so no column was compared with a "
                     "declared logical type and matches_declared is null."
                 ),
-                fields=[f"{_path(name)}.matches_declared" for name in entries],
+                # Every column, so none is named: a path per column would make
+                # each look like the one with a limitation.
+                fields=["columns"],
             )
         )
     untyped = [
@@ -1406,22 +1409,19 @@ def validate_column_types(
     """Do the columns hold the logical types I declared?
 
     When to use:
-        Call it once you know the logical type each column should hold, such
-        as from a data contract, to check every value against its declared
-        type without changing the data. Declare each type in schema, alone or
-        in a ColumnSpec that also says whether values may be missing and which
-        datetime format text uses. Each declared column gets counts of the
-        values already stored as its type, the values that convert to it
-        exactly, such as numbers or ISO 8601 dates stored as text, and the
-        invalid ones, with example row IDs and values. A declared column the
-        data lacks is reported, not raised, so a broken file still gets
-        checked. Example values and row IDs are raw values: when a column
-        holds personal data, declare it sensitive in a project and switch
-        masking on. Index labels are never masked, so pass a non-sensitive
-        id_column when the index holds sensitive values. To guess each
-        column's logical type from its values instead, call
-        `infer_column_semantics`; `describe_dataset` gives every dtype, and
-        `list_analyses` lists the other analyses.
+        Call it once you know the logical type each column should hold, such as from a
+        data contract, to check every value against its declared type without changing
+        the data. Declare each type in schema, alone or in a ColumnSpec that also says
+        whether values may be missing and which datetime format text uses. Each declared
+        column gets counts of the values already stored as its type, the values that
+        convert to it exactly, such as numbers or ISO 8601 dates stored as text, and the
+        invalid ones, with example row IDs and values. A declared column the data lacks
+        is reported, not raised, so a broken file still gets checked. Example values and
+        row IDs are raw values: when a column holds personal data, declare it sensitive
+        in a project and switch masking on. Index labels are never masked, so pass a
+        non-sensitive id_column when the index holds sensitive values. To guess each
+        column's logical type from its values instead, call `infer_column_semantics`;
+        `describe_dataset` gives every dtype.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -1473,7 +1473,8 @@ def validate_column_types(
           convert to it, with `invalid_row_ids`, the first 10 rows that hold
           one, and `invalid_values`, the first 5 distinct ones with their
           counts, most frequent first, then by value as summarize_categorical
-          orders levels; `invalid_distinct_count` counts them.
+          orders levels; `invalid_distinct_count` counts them. `to_frame` has
+          the ID of every row that holds an invalid value.
         - `missing_count`: None, NaN, NaT and NA, and NaN that a float
           column stores as a value.
 
@@ -1577,13 +1578,12 @@ def validate_column_types(
         ['A3', 'A5']
 
     See Also:
-        infer_column_semantics: What kind of values each column holds, ranked
-            by heuristic scores, compared with the logical types you declare.
-        describe_dataset: Dtypes, missing and distinct counts and memory of
-            every column.
-        profile_missing_values: How many values are missing per column and
-            per row, declared sentinel values included.
-        list_analyses: Every analysis, with the question each one answers.
+        profile_missing_values: How many values are missing per column and per row,
+            declared sentinel values included.
+        infer_column_semantics: What kind of values each column holds, ranked by
+            heuristic scores, compared with the logical types you declare.
+        describe_dataset: Dtypes, missing and distinct counts and memory of every
+            column.
     """
     if not schema:
         raise worded(
@@ -1608,7 +1608,6 @@ def validate_column_types(
             column_kind(data.dtypes.iloc[positions[name]]),
             spec.logical_type,
             spec.datetime_format,
-            row_limit=_ROW_ID_LIMIT,
         )
         for name, spec in declared.items()
         if name in positions
@@ -1618,7 +1617,7 @@ def validate_column_types(
         for name, check in checks.items()
         if masking.masks(name) and len(check.invalid_values.values)
     }
-    ids = _shown_row_ids(
+    ids, every_id = _row_ids_of(
         checks, row_ids, masked, masked=masking.masks(row_ids.id_column)
     )
     entries = {
@@ -1685,37 +1684,51 @@ def validate_column_types(
         name: masked[name].levels if name in masked else check.invalid_values
         for name, check in checks.items()
     }
+    result._row_ids = every_id
     return result
 
 
-def _shown_row_ids(
+def _row_ids_of(
     checks: dict[str, Check],
     row_ids: RowIds,
     masked_levels: dict[str, MaskedLevels],
     *,
     masked: bool,
-) -> dict[str, list[object]]:
-    """The row IDs each entry shows, as placeholders when id_column is masked.
+) -> tuple[dict[str, list[object]], dict[str, Any]]:
+    """The row IDs each entry shows and the row IDs of every invalid row.
 
-    A row ID equal to an invalid value of id_column that the result shows
-    takes that value's placeholder. The other IDs are numbered on from there,
-    in result order, and equal IDs share a placeholder.
+    An entry shows the IDs of its first rows, and the second mapping has every
+    one: pandas labels, or lists once id_column is masked.
+
+    Masked IDs are placeholders. A row ID equal to an invalid value of id_column
+    that the result shows takes that value's placeholder. The other IDs are
+    numbered on from there, the shown ones first, in result order, and equal
+    IDs share a placeholder.
     """
-    shown = {name: row_ids.at(check.invalid_rows) for name, check in checks.items()}
+    everyone = {
+        name: row_ids.labels.take(check.invalid_rows) for name, check in checks.items()
+    }
+    shown = {
+        name: row_ids.at(check.invalid_rows[:_ROW_ID_LIMIT])
+        for name, check in checks.items()
+    }
     if not masked:
-        return shown
+        return shown, everyone
     id_column = typing.cast("str", row_ids.id_column)
+    listed = {name: row_id_list(ids) for name, ids in everyone.items()}
     known: dict[object, str] = {}
     start = 1
     if id_column in masked_levels:
         levels = checks[id_column].invalid_values
-        flat = pd.Series([i for ids in shown.values() for i in ids], dtype=object)
+        flat = pd.Series([i for ids in listed.values() for i in ids], dtype=object)
         for position in levels.positions_of(flat).tolist():
             known[levels.label(position)] = masked_levels[id_column].label(position)
         start += len(levels.values)
     numbers: dict[object, str] = {}
-    for ids in shown.values():
-        for index, value in enumerate(ids):
+
+    def number(ids: list[object], begin: int, end: int) -> None:
+        for index in range(begin, end):
+            value = ids[index]
             if pd.api.types.is_scalar(value) and pd.isna(value):
                 ids[index] = None
             elif value in known:
@@ -1724,7 +1737,12 @@ def _shown_row_ids(
                 ids[index] = numbers.setdefault(
                     value, placeholder(start + len(numbers))
                 )
-    return shown
+
+    for ids in listed.values():
+        number(ids, 0, min(len(ids), _ROW_ID_LIMIT))
+    for ids in listed.values():
+        number(ids, _ROW_ID_LIMIT, len(ids))
+    return {name: ids[:_ROW_ID_LIMIT] for name, ids in listed.items()}, listed
 
 
 def _shown_columns(

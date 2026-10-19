@@ -443,15 +443,14 @@ def test_limitations_name_the_null_pairs_and_why():
     position = {(p.x_column, p.y_column): i for i, p in enumerate(res.pairs)}
     by_code = {lim.code: lim for lim in res.limitations}
     assert by_code["too_few_values"].fields == [
-        f"pairs[{position[(x, y)]}].value"
+        f"pairs[{x!r}, {y!r}].value"
         for x, y in [("x", "sparse"), ("y", "sparse"), ("flat", "sparse")]
     ] + [
-        f"pairs[{position[(x, y)]}].value"
-        for x, y in [("one", "sparse"), ("two", "sparse")]
+        f"pairs[{x!r}, {y!r}].value" for x, y in [("one", "sparse"), ("two", "sparse")]
     ]
     assert "Every measure needs at least 3" in by_code["too_few_values"].reason
     assert sorted(by_code["zero_variance"].fields) == sorted(
-        f"pairs[{i}].value"
+        f"pairs[{x!r}, {y!r}].value"
         for (x, y), i in position.items()
         if res.pairs[i].undefined_reason in ("constant_column", "single_level")
     )
@@ -653,8 +652,8 @@ def test_flags_perfect_associations_as_suspected_duplicated_or_derived_columns()
         ("tier", "score"),
     ]
     paths = [
-        f"pairs[{i}].value"
-        for i, p in enumerate(res.pairs)
+        f"pairs[{p.x_column!r}, {p.y_column!r}].value"
+        for p in res.pairs
         if (p.x_column, p.y_column) in perfect
     ]
     assert finding.code == "perfect_associations"
@@ -909,7 +908,7 @@ def test_support_counts_the_values_each_column_gives_and_leaves_out():
     support = {c.column: c for c in res.support.columns}
     assert res.support.row_count == 5
     assert res.support.column_count == 4
-    assert list(support) == ["x", "g", "empty", "y"]
+    assert list(support) == ["x", "g", "empty"]
     assert support["x"].model_dump() == {
         "column": "x",
         "eligible_count": 5,
@@ -1299,9 +1298,8 @@ def test_a_level_for_every_row_gets_its_own_limitation_and_wording():
     assert "too few complete rows" not in limitation.reason
     assert "a level for every complete row" in limitation.reason
     assert "('id', 'group')" in limitation.reason
-    positions = {(p.x_column, p.y_column): i for i, p in enumerate(res.pairs)}
     assert sorted(limitation.fields) == sorted(
-        f"pairs[{positions[key]}].value"
+        f"pairs[{key[0]!r}, {key[1]!r}].value"
         for key in [("id", "group"), ("id", "score"), ("id", "other")]
     )
     assert all(lim.code != "too_few_values" for lim in res.limitations)

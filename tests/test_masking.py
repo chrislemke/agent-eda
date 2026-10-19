@@ -268,8 +268,8 @@ def test_masking_covers_the_levels_in_the_text_the_record_and_to_frame():
         "    counts and shares are unaffected.",
     ]
     assert (
-        "customer                  6              0               3  <masked 1>: 3 (50%), "
-        "<masked 2>: 2 (33.33%), <masked 3>: ..."
+        "  customer: <masked 1>: 3 (share 0.5), <masked 2>: 2 (share 0.3333), "
+        "<masked 3>: 1 (share 0.1667)"
     ) in lines
     customer = frame[frame["column"] == "customer"]
     assert customer["label"].tolist() == ["<masked 1>", "<masked 2>", "<masked 3>"]
@@ -478,11 +478,11 @@ def test_every_label_of_a_masked_column_is_a_placeholder_unused_categories_too()
     assert [level.label for level in entry.levels] == [
         "<masked 1>",
         "<masked 2>",
-        "<masked 3>",
     ]
-    assert [level.label for level in entry.most_common_levels] == [
+    assert res.to_frame()["label"].tolist() == [
         "<masked 1>",
         "<masked 2>",
+        "<masked 3>",
     ]
     assert entry.unused_categories == ["<masked 4>"]
     assert [
@@ -507,7 +507,7 @@ def test_a_masked_numeric_column_keeps_its_label_types_counts_and_shares():
     ]
     assert res.to_frame()["label"].tolist() == ["<masked 1>", "<masked 2>"]
     assert res.to_frame()["label_type"].tolist() == ["int", "int"]
-    assert "<masked 1>: 2 (66.67%), <masked 2>: 1 (33.33%)" in str(res)
+    assert "<masked 1>: 2 (share 0.6667), <masked 2>: 1 (share 0.3333)" in str(res)
     assert "10115" not in str(res) + res.to_json()
 
 

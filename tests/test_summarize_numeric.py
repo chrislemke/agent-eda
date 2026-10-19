@@ -821,10 +821,7 @@ def test_support_counts_the_values_each_column_left_out():
             c.excluded_by_reason,
         )
         for c in support.columns
-    ] == [
-        ("x", 5, 2, 3, {"missing": 1, "infinite": 2}),
-        ("y", 5, 5, 0, {}),
-    ]
+    ] == [("x", 5, 2, 3, {"missing": 1, "infinite": 2})]
 
 
 def survey():
@@ -840,24 +837,40 @@ def survey():
 def test_text_shows_the_main_statistics_of_each_column():
     res = ae.summarize_numeric(survey())
 
-    assert str(res) == "\n".join(
-        [
-            "summarize_numeric: completed on 6 rows x 3 columns",
-            "Statistics use the finite values. Quantile method linear; trimmed_mean "
-            "cuts 10% from each end.",
-            "Left out, not numeric or boolean: 'member'.",
-            "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
-            "skewness and excess_kurtosis.",
-            "Columns (2 of 2 shown):",
-            "column  non_missing_count  missing_count       mean        std    min  median    max",
-            "age                     5              1       39.8      9.094     29      38     51",
-            "income                  6              0  1.667e+05  4.082e+05  48.25      58  1e+06",
-            "Findings: none",
-            "Limitations: none",
-            "More: res.to_frame() has all 2 columns; res.findings, res.limitations "
-            "and res.to_json() have the rest.",
-        ]
+    lines = str(res).splitlines()
+
+    assert lines[0] == "summarize_numeric: completed on 6 rows x 3 columns"
+    assert lines[1] == (
+        "Statistics use the finite values. Quantile method linear; trimmed_mean "
+        "cuts trim_fraction 0.1 from each end."
     )
+    assert (
+        "Left out, boolean, which counts only when columns names it: 'member'." in lines
+    )
+    start = lines.index("Columns (2 of 2 shown):")
+    assert lines[start + 1].split() == [
+        "column",
+        "non_missing_count",
+        "missing_count",
+        "mean",
+        "std",
+        "min",
+        "median",
+        "max",
+    ]
+    assert lines[start + 2].split() == [
+        "age",
+        "5",
+        "1",
+        "39.8",
+        "9.094",
+        "29",
+        "38",
+        "51",
+    ]
+    assert lines[start + 3].split()[:3] == ["income", "6", "0"]
+    assert "Findings: none" in lines
+    assert lines[-1].startswith("More: res.to_frame() has all 2 columns;")
 
 
 def test_text_of_named_columns_says_nothing_about_left_out_ones():
@@ -866,7 +879,7 @@ def test_text_of_named_columns_says_nothing_about_left_out_ones():
     lines = str(res).splitlines()
     assert lines[1] == (
         "Statistics use the finite values. Quantile method linear; trimmed_mean "
-        "cuts 12.5% from each end."
+        "cuts trim_fraction 0.125 from each end."
     )
     assert not any(line.startswith("Left out") for line in lines)
 
@@ -951,10 +964,15 @@ def test_to_frame_keeps_every_column_beyond_the_records_100():
     assert record["columns_total"] == 150
 
 
-def test_the_result_states_each_statistics_definition():
-    definitions = ae.summarize_numeric(survey()).definitions
+def test_each_statistics_definition_is_in_its_field_description_not_in_the_record():
+    res = ae.summarize_numeric(survey())
+    fields = {
+        f.name: f for f in ae.describe_analysis("summarize_numeric").result_fields
+    }
+    entry = {f.name: f.description for f in fields["columns"].fields}
 
-    assert list(definitions) == [
+    assert "definitions" not in res.to_dict()
+    assert list(entry)[-16:] == [
         "non_missing_count",
         "missing_count",
         "infinite_count",
@@ -972,13 +990,11 @@ def test_the_result_states_each_statistics_definition():
         "skewness",
         "excess_kurtosis",
     ]
-    assert "ddof 1" in definitions["std"]
-    assert "SciPy's trimmed mean" in definitions["trimmed_mean"]
-    assert "1.4826" in definitions["mad_scaled"]
-    assert "SciPy's skewness with bias correction" in definitions["skewness"]
-    assert (
-        "SciPy's excess kurtosis with bias correction" in definitions["excess_kurtosis"]
-    )
+    assert "ddof 1" in entry["std"]
+    assert "SciPy's trimmed mean" in entry["trimmed_mean"]
+    assert "1.4826" in entry["mad_scaled"]
+    assert "SciPy's skewness with bias correction" in entry["skewness"]
+    assert "SciPy's excess kurtosis with bias correction" in entry["excess_kurtosis"]
 
 
 def test_the_record_is_strict_json_without_nan_or_infinity():

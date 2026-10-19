@@ -1,10 +1,11 @@
 """The MCP server's instructions: the guide for a caller that only calls MCP tools.
 
-They are built from the guide's parts, the listing and the first-look order,
-with MCP text in place of the guide's Python: data paths in place of
-DataFrames, the response in place of the result object, and project_path in
-place of a Project. Like the guide, they stay within 60 lines of at most 120
-characters. Nothing here imports mcp, so agent-eda-mcp --help reuses the
+They share the guide's overview, the areas with their analysis counts, the
+first-look order and the pointers to the rest, with MCP text in place of the
+guide's Python: data paths in place of DataFrames, the response in place of the
+result object, and project_path in place of a Project. Like the guide, they stay
+within 60 lines of at most 120 characters however many analyses exist, and hold
+no module headings. Nothing here imports mcp, so agent-eda-mcp --help reuses the
 sentences on masking that the instructions and the MCP tools' descriptions
 share.
 """
@@ -13,7 +14,7 @@ import textwrap
 
 from agent_eda._data_files import supported_extensions
 from agent_eda._version import __version__
-from agent_eda.discovery import _first_look_lines, list_analyses, status_lines
+from agent_eda.discovery import overview, status_lines
 
 # Which project a call uses, in every MCP text that names project_path.
 PRECEDENCE = (
@@ -56,22 +57,17 @@ Read the response: an MCP client may show you its text, its structured content o
 
 # Wrapped when the instructions are built, around the shared sentences.
 _MASKING = (
-    "Masking: MCP tools marked [supports masking] can show raw values, such as "
-    "labels or row IDs. Their project_path takes a project TOML file whose "
+    "Masking: MCP tools that list_analyses marks [supports masking] can show raw "
+    "values, such as labels or row IDs. Their project_path takes a project TOML file whose "
     '[data_policy] table has sensitive_columns = ["email"] and mask_sensitive = '
     f"true, and the values show as <masked 1> and so on. {PRECEDENCE} Numeric "
     "statistics and index labels are never masked; other tools ignore the "
     f"project. {GUARDRAIL}"
 )
 
-_MORE = """\
-Find more: search_analyses finds analyses for a question in your own words, such as "nulls per column", and
-list_analyses lists them with what each declares. Each MCP tool's description and input schema hold its docs."""
-
 
 def instructions() -> str:
-    """The MCP server's instructions, naming every registered analysis."""
-    listing = list_analyses()
+    """The MCP server's instructions, with the overview of the analyses."""
     return "\n".join(
         [
             _INTRO.format(version=__version__),
@@ -83,17 +79,12 @@ def instructions() -> str:
             ),
             "",
             _RESULTS.format(
-                status="\n".join(status_lines(listing, "", " That is not an error."))
+                status="\n".join(status_lines("", " That is not an error."))
             ),
-            "",
-            str(listing),
             "",
             _fill(_MASKING),
             "",
-            "A first look at a new dataset, in this order:",
-            *_first_look_lines(listing),
-            "",
-            _MORE,
+            *overview("mcp"),
         ]
     )
 

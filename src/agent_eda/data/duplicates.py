@@ -36,7 +36,7 @@ _ANY_COLUMN = ColumnRule(
 
 @analysis(
     statuses=("completed", "insufficient_data", "not_applicable"),
-    finding_codes=("duplicate_rows", "no_duplicate_rows"),
+    finding_codes=("duplicate_rows",),
     tags=(
         "duplicates",
         "duplicate rows",
@@ -70,10 +70,10 @@ def find_duplicate_rows(
         raw values, so when id_column holds personal data, such as email addresses,
         declare it sensitive in a project and switch masking on. Index labels are never
         masked: when the index holds sensitive values, pass a non-sensitive id_column.
-        `describe_dataset` reports duplicated column labels and a non-unique index, and
-        columns whose values duplicate or derive from each other show up as perfect
-        associations in `compute_association_matrix`; `list_analyses` lists the other
-        analyses.
+        `describe_dataset` reports duplicated column labels and a non-unique index,
+        `find_candidate_keys` the columns that identify rows, and
+        `compute_association_matrix` the columns whose values duplicate or derive from
+        each other.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -110,9 +110,10 @@ def find_duplicate_rows(
         the rows in them. `excess_copy_count` counts the rows beyond the first of each
         group, the ones that removing duplicates would drop, and `duplicate_share` is
         the excess copies over all rows; it is null, with a `too_few_values` limitation,
-        when nothing was compared: no rows, or no column to compare. `compared_columns` names the columns compared, and
-        `missing_values_compare_equal` records that missing values of every kind (None,
-        NaN, NaT and NA) equal each other. Lists, dicts and sets compare by content.
+        when nothing was compared: no rows, or no column to compare.
+        `compared_columns` names the columns compared. Missing values of every
+        kind (None, NaN, NaT and NA) equal each other, and lists, dicts and sets
+        compare by content.
         `to_frame` returns every row in a duplicate group with its group number. The
         record keeps the first 100 groups and the first 10 row IDs of each, with their
         totals.
@@ -129,10 +130,12 @@ def find_duplicate_rows(
         the order the groups show them, in the printed text, `to_dict`,
         `to_json` and `to_frame` alike; the groups and counts stay.
 
+        When no two rows are equal in every compared column, `findings` is empty
+        and `duplicate_group_count` is 0: a search that finds nothing gives no
+        finding, and the printed text says which columns were compared.
+
         - `duplicate_rows`: suspected; two or more rows are equal in every compared
           column. Repeated records can be real, such as two identical purchases.
-        - `no_duplicate_rows`: descriptive; no two rows are equal in every compared
-          column.
 
     Statuses:
         completed: The rows were compared, whether or not any repeat.
@@ -174,11 +177,12 @@ def find_duplicate_rows(
         ['<masked 1>', '<masked 2>', '<masked 3>']
 
     See Also:
-        describe_dataset: Dtypes, missing and distinct counts and memory of
-            every column, a non-unique index and duplicated column labels.
-        compute_association_matrix: How strongly pairs of columns are
-            associated, with columns that duplicate each other flagged.
-        list_analyses: Every analysis, with the question each one answers.
+        find_candidate_keys: Which columns, alone or combined, identify rows; the rows
+            behind a near-key's duplicate count are listed here.
+        describe_dataset: Dtypes, missing and distinct counts and memory of every
+            column, a non-unique index and duplicated column labels.
+        compute_association_matrix: How strongly pairs of columns are associated, with
+            columns that duplicate each other flagged.
     """
     masking = resolve_masking("find_duplicate_rows", project, mask_sensitive)
     row_ids = read_row_ids("find_duplicate_rows", data, id_column)
@@ -255,7 +259,6 @@ def find_duplicate_rows(
         # The row IDs are the only values the result shows, if it has groups.
         masking=masking.record([row_ids.id_column] if sizes else [], data),
         compared_columns=compared,
-        missing_values_compare_equal=True,
         duplicate_groups=[
             {"size": size, "row_ids": ids[end - size : end]}
             for size, end in zip(sizes, ends, strict=True)
@@ -304,17 +307,9 @@ def _status(
 def _findings(
     compared: list[str], groups: int, rows: int, row_count: int
 ) -> list[Finding]:
-    """duplicate_rows when rows repeat, no_duplicate_rows otherwise."""
+    """duplicate_rows when rows repeat, and no finding when none do."""
     if not groups:
-        return [
-            Finding(
-                code="no_duplicate_rows",
-                claim="No two rows are equal in every compared column.",
-                assessment="descriptive",
-                columns=compared,
-                fields=["duplicate_group_count"],
-            )
-        ]
+        return []
     excess = rows - groups
     form = plural(groups, "duplicate group", "duplicate groups")
     copies = "1 is an excess copy" if excess == 1 else f"{excess:,} are excess copies"

@@ -243,7 +243,7 @@ def test_lists_the_result_fields_with_their_meanings():
 
     assert description.result_class == "SummarizeNumericResult"
     fields = {f.name: f for f in description.result_fields}
-    assert list(fields) == ["columns", "left_out_columns", "definitions"]
+    assert list(fields) == ["columns", "left_out_columns"]
     assert fields["left_out_columns"].type == "list[str]"
     assert fields["left_out_columns"].description.startswith(
         "Columns that the default column selection left out because they aren't "

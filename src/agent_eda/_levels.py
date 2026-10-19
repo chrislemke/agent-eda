@@ -339,8 +339,13 @@ def _first_labels(levels: Levels, positions: np.ndarray, count: int) -> list[int
     if count < len(positions):
         # A column's labels are distinct, so exactly `count` labels are at most
         # the count-th smallest. Comparing strings without a key is faster.
-        last = heapq.nsmallest(count, candidates.tolist())[-1]
-        keep = candidates <= last
+        texts = candidates.tolist()
+        last = heapq.nsmallest(count, texts)[-1]
+        # Python compares each label: numpy would coerce `last` to a fixed-width
+        # string and drop a trailing NUL character.
+        keep = np.fromiter(
+            (text <= last for text in texts), dtype=bool, count=len(texts)
+        )
         positions, candidates = positions[keep], candidates[keep]
     order = np.argsort(candidates, kind="stable")
     return positions[order].tolist()
