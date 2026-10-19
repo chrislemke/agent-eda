@@ -174,7 +174,7 @@ record = res.to_json()  # the whole result as strict JSON
 age = res.columns["age"]  # typed fields, such as age.median and age.std
 ```
 
-The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, with totals.
+The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, with totals, but the record keeps the entries that findings and limitations point at, so every field path resolves. It keeps `top_n` levels per column and no constant prose: a first look on a 1,000 × 30 mixed CSV is 104 KB of JSON (was 162 KB), and `summarize_categorical` on 1,000 × 100 with 40 text columns 41 KB (was 285 KB).
 
 A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and a message with the fix. Data problems never raise; they show in the status, findings and limitations.
 
@@ -192,7 +192,7 @@ A pyarrow dictionary column, such as Parquet gives for a categorical with `dtype
 - `identifier_like` is judged without rows that exactly repeat another row, for columns distinct in at least 90% of rows.
 - A declared type tied with the top candidate matches.
 
-Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record); an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is. `to_frame()` keeps a set as it is, so `to_csv()` would list it in hash order. A test compares every analysis across two hash seeds.
+Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples; an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is; a test compares every analysis across two seeds. `to_frame()` keeps a set as it is, so `to_csv()` would list it in hash order.
 
 Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, one at a time, so each result gets only its own `numerical_warning` limitation and the caller's warning filters and `warnings.showwarning` stay unchanged.
 
@@ -212,9 +212,9 @@ print(ae.summarize_categorical(df, columns=["email"], project=project))
 summarize_categorical: completed on 8 rows x 6 columns
 Masked (data_policy.mask_sensitive=True): the values of column 'email' show as <masked 1>, <masked 2> and so on; counts
     and shares are unaffected.
-Shares are of each column's non-missing values. Levels go by count, then label; most_common_levels has the top 10.
+Shares are of each column's non-missing values. Levels go by count, then label; levels has the top 10.
 Columns (1 of 1 shown):
-column  non_missing_count  missing_count  cardinality  most_common_levels
+column  non_missing_count  missing_count  cardinality  levels
 email                   8              0            6  <masked 1>: 2 (25%), <masked 2>: 2 (25%), <masked 3>: 1 (12.5%...
 Findings: none
 Limitations: none
@@ -481,7 +481,7 @@ How are the values in each numeric column distributed?
 | `quantile_method` | `str` | `'linear'` | How numpy.quantile picks or interpolates between values: Hyndman and Fan's definitions 1 to 9 as 'inverted_cdf', 'averaged_inverted_cdf', 'closest_observation', 'interpolated_inverted_cdf', 'hazen', 'weibull', 'linear', 'median_unbiased' and 'normal_unbiased', or 'lower', 'higher', 'midpoint' and 'nearest'. |
 | `trim_fraction` | `float` | `0.1` | The share of the finite values cut from each end for the trimmed mean: trim_fraction times n, rounded down, values each, as SciPy's trim_mean cuts. |
 
-**Fields:** `columns` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `left_out_columns`, `definitions`
+**Fields:** `columns` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `left_out_columns`
 
 - `constant_columns` (suspected): a column holds a single distinct non-missing value in at least two rows, on stored values; NaN is missing.
 - `infinite_values` (suspected): a column holds inf or -inf, which every statistic leaves out.
@@ -497,11 +497,11 @@ Which values occur in each categorical column, and how often?
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `columns` | `Sequence[str] \| None` | `None` | Names of the columns to summarize, in the order to report them: a list or a single name. |
-| `top_n` | `int` | `10` | How many of each column's most common levels most_common_levels holds and the printed text shows, from 1 to 100; defaults to 10. |
+| `top_n` | `int` | `10` | How many of each column's most common levels `levels` holds and the printed text shows, from 1 to 100; defaults to 10. |
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each level of a sensitive column with a numbered placeholder, '<masked 1>' for the most common and so on in level order, and needs a project that declares sensitive columns; False shows the levels as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `cardinality`, `levels`, `most_common_levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`, `share_denominator`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `cardinality`, `levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`
 
 - `case_or_space_variants` (suspected): a column holds labels that differ only by case or surrounding spaces, such as 'Yes' and 'yes '.
 - `mixed_value_types` (suspected): a column holds values of more than one Python type, such as 1 and '1'.
@@ -522,7 +522,7 @@ Are there exact duplicate rows?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each row ID taken from a sensitive id_column with a numbered placeholder, '<masked 1>' for the first ID the result shows and so on, equal IDs alike, and needs a project that declares sensitive columns; False shows the IDs as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `compared_columns`, `missing_values_compare_equal`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `compared_columns`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
 
 - `duplicate_rows` (suspected): two or more rows are equal in every compared column.
 - `no_duplicate_rows` (descriptive): no two rows are equal in every compared column.
@@ -565,7 +565,7 @@ What does the target look like for this task?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces the labels of a sensitive target, the classes, the labels outside expected_labels and expected_labels as parameters records it, with numbered placeholders, '<masked 1>' for its first label in level order and so on, and the row IDs taken from a sensitive id_column too; it needs a project that declares sensitive columns. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`
 
 - `single_class` (violation): every valid label is the same class, so a classifier has nothing to tell apart.
 - `more_than_two_classes` (violation): a binary_classification target has more than two classes.
@@ -702,7 +702,7 @@ The record an analysis returns. Every analysis returns its own subclass, named a
 | `method` | The method used, or null when the analysis has no methods. |
 | `status` | How the run ended: completed, partial, insufficient_data, not_applicable, missing_prerequisites, budget_exceeded, blocked_by_policy or failed. |
 | `status_reason` | Why the run didn't complete; null when status is completed. |
-| `parameters` | The resolved arguments by name, defaults included. data appears only as its row_count and column_count. |
+| `parameters` | The resolved arguments by name, defaults included. data appears only as its row_count and column_count, and project whole. |
 | `support` | The counts behind the result. |
 | `findings` | Claims about the data. |
 | `limitations` | What limits how far the result can be read. |

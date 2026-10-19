@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -25,6 +25,7 @@ from agent_eda._sentinels import (
 )
 from agent_eda._text import join_labels, plural
 from agent_eda._values import stored_nan_mask
+from agent_eda._written_form import row_id_list
 from agent_eda.project import Project
 from agent_eda.results import (
     ColumnSupport,
@@ -551,7 +552,8 @@ def detect_missing_sentinels(
         in `row_ids` the IDs of the first 10 rows that hold it. Row IDs are
         index labels, or id_column values when given. The record keeps the
         first 100 candidates and adds candidates_total; `to_frame` returns
-        every candidate, and the printed table shows the most frequent first.
+        every candidate with the ID of every row that holds its value, and the
+        printed table shows the most frequent first.
         `columns_without_rules` names the checked columns whose values no
         rule reads, such as booleans and durations, where only declared values
         were looked for. NaN that a pyarrow-backed or nullable float column
@@ -674,6 +676,7 @@ def detect_missing_sentinels(
         },
         values=[candidate.record_value() for candidate in found],
         row_ids=[row_ids.at(positions) for positions in shown],
+        all_row_ids=[row_ids.labels.take(c.positions) for c in found],
     )
     for name in _shown_columns(found, sentinel_values, row_ids.id_column):
         if masking.masks(name):
@@ -694,13 +697,13 @@ def detect_missing_sentinels(
     # The candidates showing a row ID that another row shares.
     ambiguous = [
         f"candidates[{number}].row_ids"
-        for number, positions in enumerate(shown)
-        if row_ids.repeated[positions].any()
+        for number, candidate in enumerate(found)
+        if row_ids.repeated[candidate.positions].any()
     ]
     status, status_reason = _check_status(
         row_count, selection.columns, row_ids.id_column
     )
-    return DetectMissingSentinelsResult(
+    result = DetectMissingSentinelsResult(
         analysis="detect_missing_sentinels",
         method=None,
         status=status,
@@ -751,6 +754,8 @@ def detect_missing_sentinels(
             name for name, done in checked.items() if not done.ruled
         ],
     )
+    result._row_ids = view.all_row_ids
+    return result
 
 
 # A candidate keeps the IDs of this many rows that hold it.
@@ -783,7 +788,10 @@ class _View:
 
     declared: dict[str, list[JsonSentinel]]
     values: list[JsonSentinel]
+    # The first row IDs of each candidate, as the record shows them.
     row_ids: list[list[object]]
+    # Every row ID of each candidate: pandas labels, or a list once masked.
+    all_row_ids: list[Any]
 
 
 def _shown_columns(
@@ -822,6 +830,17 @@ def _masked(
             raw.append(candidate.value)
         if id_column == name:
             raw.extend(ids)
+    # The row IDs beyond the shown ones come last, so the shown ones keep their
+    # numbers and equal IDs share a placeholder.
+    rest = (
+        [
+            row_id_list(full)[len(ids) :]
+            for full, ids in zip(view.all_row_ids, view.row_ids, strict=True)
+        ]
+        if id_column == name
+        else []
+    )
+    raw.extend(i for ids in rest for i in ids)
     placeholders = iter(mask_values(raw))
 
     def placeholder() -> str:
@@ -837,7 +856,13 @@ def _masked(
         values.append(placeholder() if candidate.column == name else value)
         # A missing row ID stays None.
         row_ids.append([next(placeholders) for _ in ids] if id_column == name else ids)
-    return _View(masked_declared, values, row_ids)
+    if id_column != name:
+        return _View(masked_declared, values, row_ids, view.all_row_ids)
+    all_row_ids = [
+        [*shown, *(next(placeholders) for _ in later)]
+        for shown, later in zip(row_ids, rest, strict=True)
+    ]
+    return _View(masked_declared, values, row_ids, all_row_ids)
 
 
 @dataclass(frozen=True)

@@ -67,7 +67,7 @@ class Check:
     missing: int
     # NaN that a float column stores as a value, counted as missing.
     stored_nan: int
-    # Positions of the first rows that hold an invalid value, in row order.
+    # Positions of the rows that hold an invalid value, in row order.
     invalid_rows: np.ndarray
     # The distinct invalid values with their counts, as levels: values of
     # different Python types are distinct here, though pandas counts 1 and True
@@ -94,12 +94,10 @@ def check_column(
     kind: ColumnKind,
     declared: LogicalType,
     datetime_format: str | None,
-    *,
-    row_limit: int,
 ) -> Check:
     """Sort a column's values by how they relate to the declared logical type.
 
-    Keeps the positions of the first `row_limit` rows that hold an invalid value.
+    Keeps the positions of every row that holds an invalid value.
     """
     floats = (
         series.to_numpy(dtype="float64", na_value=np.nan)
@@ -142,7 +140,7 @@ def check_column(
         invalid=by_verdict[INVALID],
         missing=int(len(series) - np.count_nonzero(present)),
         stored_nan=stored_nan,
-        invalid_rows=invalid_rows[:row_limit],
+        invalid_rows=invalid_rows,
         invalid_values=levels_of(_index(groups.values)[positions], sizes[positions]),
     )
 

@@ -879,6 +879,7 @@ def test_to_frame_says_when_a_check_didnt_run():
         "share",
         "expected",
         "rare",
+        "row_ids",
     ]
     assert frame["expected"].isna().all()
     assert frame["rare"].isna().all()

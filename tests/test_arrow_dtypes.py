@@ -190,7 +190,7 @@ def test_a_dictionary_of_numbers_is_a_categorical_too():
     res = ae.summarize_categorical(arrow)
     sentinels = ae.detect_missing_sentinels(arrow)
 
-    assert [lv.label for lv in res.columns["c"].most_common_levels] == [-999, 5]
+    assert [lv.label for lv in res.columns["c"].levels] == [-999, 5]
     assert sentinels.status == "completed"
 
 

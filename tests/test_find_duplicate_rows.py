@@ -157,7 +157,6 @@ def test_missing_values_compare_equal_in_every_dtype():
     res = ae.find_duplicate_rows(df)
 
     assert [g.row_ids for g in res.duplicate_groups] == [[0, 2], [1, 3]]
-    assert res.missing_values_compare_equal is True
 
 
 def test_every_kind_of_missing_value_equals_every_other():

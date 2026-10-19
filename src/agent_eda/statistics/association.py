@@ -703,6 +703,11 @@ def _pair_label(pair: AssociationPair) -> str:
     return f"({pair.x_column!r}, {pair.y_column!r})"
 
 
+def _pair_path(pair: AssociationPair) -> str:
+    """The result path of a pair's value, which names the pair by its columns."""
+    return f"pairs[{pair.x_column!r}, {pair.y_column!r}].value"
+
+
 # How far from 1 an absolute value may lie and still count as a perfect
 # association: rounding leaves an exact relation a few ulps short of 1.
 PERFECT_TOLERANCE = 1e-9
@@ -745,7 +750,7 @@ def _perfect_associations(
             ),
             assessment="suspected",
             columns=columns,
-            fields=[f"pairs[{i}].value" for i in positions],
+            fields=[_pair_path(pairs[i]) for i in positions],
         )
     ]
 
@@ -786,7 +791,7 @@ def _null_limitations(pairs: list[AssociationPair]) -> list[Limitation]:
                     pairs_have=plural(len(positions), "pair has", "pairs have"),
                     names=join_items([_pair_label(pairs[i]) for i in positions]),
                 ),
-                fields=[f"pairs[{i}].value" for i in positions],
+                fields=[_pair_path(pairs[i]) for i in positions],
             )
         )
     return limitations

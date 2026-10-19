@@ -716,10 +716,10 @@ def test_data_of_only_fraction_floats_is_not_applicable_and_says_why():
     assert [key.columns for key in named.keys] == [["x"]]
 
 
-def test_the_support_lists_only_the_columns_searched():
+def test_the_support_counts_the_columns_searched_and_lists_none_left_out_of_rows():
     res = ae.find_candidate_keys(floats())
 
-    assert [c.column for c in res.support.columns] == ["count", "group"]
+    assert res.support.columns == []
     assert res.support.column_count == 2
 
 

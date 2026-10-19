@@ -452,11 +452,11 @@ def test_every_label_of_a_masked_column_is_a_placeholder_unused_categories_too()
     assert [level.label for level in entry.levels] == [
         "<masked 1>",
         "<masked 2>",
-        "<masked 3>",
     ]
-    assert [level.label for level in entry.most_common_levels] == [
+    assert res.to_frame()["label"].tolist() == [
         "<masked 1>",
         "<masked 2>",
+        "<masked 3>",
     ]
     assert entry.unused_categories == ["<masked 4>"]
     assert [

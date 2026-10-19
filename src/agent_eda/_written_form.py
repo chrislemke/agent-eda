@@ -20,6 +20,16 @@ from pydantic import JsonValue
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+>$")
 
 
+def row_id_list(ids: object) -> list[object]:
+    """Row IDs held as pandas labels or as a list, as a list of Python objects.
+
+    A result keeps the IDs of many rows as a pandas Index or Series, which holds
+    them far more compactly, and lists them only when a table asks.
+    """
+    tolist = getattr(ids, "tolist", None)
+    return tolist() if tolist is not None else list(ids)  # ty: ignore[invalid-argument-type] # ids is a pandas object or a list
+
+
 def row_id_json(value: object) -> JsonValue:
     """A row ID as JSON, the same in every process and with every library version.
 

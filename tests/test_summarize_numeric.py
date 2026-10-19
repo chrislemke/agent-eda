@@ -820,10 +820,7 @@ def test_support_counts_the_values_each_column_left_out():
             c.excluded_by_reason,
         )
         for c in support.columns
-    ] == [
-        ("x", 5, 2, 3, {"missing": 1, "infinite": 2}),
-        ("y", 5, 5, 0, {}),
-    ]
+    ] == [("x", 5, 2, 3, {"missing": 1, "infinite": 2})]
 
 
 def survey():
@@ -947,10 +944,15 @@ def test_to_frame_keeps_every_column_beyond_the_records_100():
     assert record["columns_total"] == 150
 
 
-def test_the_result_states_each_statistics_definition():
-    definitions = ae.summarize_numeric(survey()).definitions
+def test_each_statistics_definition_is_in_its_field_description_not_in_the_record():
+    res = ae.summarize_numeric(survey())
+    fields = {
+        f.name: f for f in ae.describe_analysis("summarize_numeric").result_fields
+    }
+    entry = {f.name: f.description for f in fields["columns"].fields}
 
-    assert list(definitions) == [
+    assert "definitions" not in res.to_dict()
+    assert list(entry)[-16:] == [
         "count",
         "missing_count",
         "infinite_count",
@@ -968,11 +970,11 @@ def test_the_result_states_each_statistics_definition():
         "skewness",
         "excess_kurtosis",
     ]
-    assert "ddof 1" in definitions["std"]
-    assert "scipy.stats.trim_mean" in definitions["trimmed_mean"]
-    assert "1.4826" in definitions["mad_scaled"]
-    assert "bias=False" in definitions["skewness"]
-    assert "bias=False" in definitions["excess_kurtosis"]
+    assert "ddof 1" in entry["std"]
+    assert "scipy.stats.trim_mean" in entry["trimmed_mean"]
+    assert "1.4826" in entry["mad_scaled"]
+    assert "bias=False" in entry["skewness"]
+    assert "bias=False" in entry["excess_kurtosis"]
 
 
 def test_the_record_is_strict_json_without_nan_or_infinity():

@@ -122,6 +122,25 @@ def test_the_record_gains_the_written_tables_path_and_row_count(tmp_path, monkey
     }
 
 
+def test_table_path_keeps_every_level_though_the_record_keeps_top_n(tmp_path):
+    letters = "\n".join(f"v{i:02d}" for i in range(40) for _ in range(1 + i % 3))
+    data_path = write(tmp_path / "codes.csv", f"code\n{letters}\n")
+    table_path = tmp_path / "levels.csv"
+
+    response = anyio.run(
+        call,
+        "summarize_categorical",
+        {"data_path": str(data_path), "table_path": str(table_path), "top_n": 5},
+    )
+
+    assert not response.is_error
+    entry = response.structured_content["columns"]["code"]
+    assert len(entry["levels"]) == 5
+    assert entry["levels_total"] == entry["cardinality"] == 40
+    assert response.structured_content["table_file"]["row_count"] == 40
+    assert len(pd.read_csv(table_path, keep_default_na=False)) == 40
+
+
 def test_the_output_schema_allows_table_file_without_requiring_it():
     tools = anyio.run(list_tools)
 
