@@ -37,7 +37,11 @@ def test_errors_and_results_are_public_modules():
     assert ae.errors is errors
     assert ae.results is results
     assert errors.InvalidArgumentError.__module__ == "agent_eda.errors"
-    assert results.DescribeDatasetResult.__module__ == "agent_eda.results"
+    # A result class is defined in a private module next to its analysis;
+    # agent_eda.results only gives it by name.
+    package, _, module = results.DescribeDatasetResult.__module__.rpartition(".")
+    assert package == ae.describe_dataset.__module__.rpartition(".")[0]
+    assert module.startswith("_")
     assert ae.AnalysisResult is results.AnalysisResult
 
 

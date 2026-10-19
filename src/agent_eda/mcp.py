@@ -47,7 +47,7 @@ from agent_eda.project import Project
 if TYPE_CHECKING:
     from mcp.server import Server
 
-    from agent_eda.results import AnalysisResult
+    from agent_eda._result_base import AnalysisResult
 
 __all__ = ["create_server", "main"]
 

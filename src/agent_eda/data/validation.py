@@ -47,6 +47,16 @@ from agent_eda._parse import (
 from agent_eda._registry import (
     analysis,
 )
+from agent_eda._result_base import (
+    Assessment,
+    ColumnFlag,
+    ColumnSupport,
+    Finding,
+    Limitation,
+    LogicalType,
+    StatusReason,
+    Support,
+)
 from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, data_shape, execution, overall_status
@@ -62,26 +72,18 @@ from agent_eda._text import (
 from agent_eda._values import is_constant, value_codes
 from agent_eda._wording import as_written, worded
 from agent_eda._written_form import row_id_list
-from agent_eda.errors import AgentEDAError, InvalidArgumentError
-from agent_eda.project import Project
-from agent_eda.results import (
-    Assessment,
+from agent_eda.data._validation_results import (
     ColumnEvidence,
-    ColumnFlag,
-    ColumnSupport,
-    Finding,
     InferColumnSemanticsColumn,
     InferColumnSemanticsResult,
     InvalidValue,
-    Limitation,
-    LogicalType,
     LogicalTypeCandidate,
-    StatusReason,
-    Support,
     ValidateColumnTypesColumn,
     ValidateColumnTypesResult,
     ValueTypeCounts,
 )
+from agent_eda.errors import AgentEDAError, InvalidArgumentError
+from agent_eda.project import Project
 
 _LOGICAL_TYPES = typing.get_args(LogicalType)
 

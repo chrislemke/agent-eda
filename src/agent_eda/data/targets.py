@@ -52,6 +52,15 @@ from agent_eda._numeric import (
     summarize_values,
 )
 from agent_eda._registry import analysis
+from agent_eda._result_base import (
+    Assessment,
+    ColumnSupport,
+    Finding,
+    Limitation,
+    Status,
+    StatusReason,
+    Support,
+)
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, check_distinct, data_shape, execution
 from agent_eda._sentinels import (
@@ -65,21 +74,14 @@ from agent_eda._sentinels import (
 from agent_eda._text import Surface, format_number, join_items, placeholder, plural
 from agent_eda._wording import as_written, worded
 from agent_eda._written_form import row_id_list
-from agent_eda.errors import ColumnTypeError, InvalidArgumentError
-from agent_eda.project import Project
-from agent_eda.results import (
-    Assessment,
-    ColumnSupport,
-    Finding,
-    Limitation,
+from agent_eda.data._targets_results import (
     ProfileTargetClass,
     ProfileTargetResult,
     ProfileTargetStatistics,
     ProfileTargetUnexpectedLabel,
-    Status,
-    StatusReason,
-    Support,
 )
+from agent_eda.errors import ColumnTypeError, InvalidArgumentError
+from agent_eda.project import Project
 
 # The tasks a target can be profiled for.
 Task = Literal["binary_classification", "multiclass_classification", "regression"]

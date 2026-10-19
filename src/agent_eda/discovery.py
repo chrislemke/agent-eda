@@ -17,7 +17,22 @@ from pydantic_core import to_jsonable_python
 
 from agent_eda._annotations import choices, python_literal, type_text, valid_range
 from agent_eda._codes import limitation_meanings, status_reason_meanings
+from agent_eda._discovery_results import (
+    AnalysisDescription,
+    AnalysisInfo,
+    AnalysisListing,
+    FindingCodeDescription,
+    LimitationCodeDescription,
+    ParameterDescription,
+    ReasonCodeDescription,
+    ResultFieldDescription,
+    SearchListing,
+    SearchMatch,
+    SearchTerm,
+    StatusDescription,
+)
 from agent_eda._registry import AnalysisSpec, checked_keywords, registered
+from agent_eda._result_base import AnalysisResult, Status
 from agent_eda._search import MAX_TERMS, asks_for_first_look, rank, terms
 from agent_eda._text import (
     Surface,
@@ -30,22 +45,6 @@ from agent_eda._text import (
 from agent_eda._version import __version__
 from agent_eda._wording import as_written, echoed, type_of, worded
 from agent_eda.errors import InvalidArgumentError, UnknownAnalysisError
-from agent_eda.results import (
-    AnalysisDescription,
-    AnalysisInfo,
-    AnalysisListing,
-    AnalysisResult,
-    FindingCodeDescription,
-    LimitationCodeDescription,
-    ParameterDescription,
-    ReasonCodeDescription,
-    ResultFieldDescription,
-    SearchListing,
-    SearchMatch,
-    SearchTerm,
-    Status,
-    StatusDescription,
-)
 
 # The order for a first look at a new dataset: what each step covers and the
 # analyses that cover it. The guide shows the analyses registered so far.

@@ -48,8 +48,8 @@ from agent_eda._parse import (
     read_texts,
     value_kind,
 )
+from agent_eda._result_base import LogicalType
 from agent_eda._values import categorical_array, value_codes
-from agent_eda.results import LogicalType
 
 # What a value is, measured against the declared logical type.
 COMPATIBLE, CONVERTIBLE, INVALID = 0, 1, 2

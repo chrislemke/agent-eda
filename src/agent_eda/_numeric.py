@@ -15,16 +15,16 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from agent_eda._run import watch_warnings
-from agent_eda._text import join_labels, plural
-from agent_eda._values import is_constant, stored_nan_mask
-from agent_eda.results import (
+from agent_eda._result_base import (
     ColumnSupport,
     ExclusionReason,
     Limitation,
     StatusReason,
-    SummarizeNumericColumn,
 )
+from agent_eda._run import watch_warnings
+from agent_eda._text import join_labels, plural
+from agent_eda._values import is_constant, stored_nan_mask
+from agent_eda.statistics._descriptive_results import SummarizeNumericColumn
 
 # The statistics of the finite values, in the order results list them.
 STATISTICS = (

@@ -1,0 +1,2227 @@
+{
+ "call: compute_association_matrix": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "c28ec94be9eff4f3faaf07ed5f99495780c34295f7821cc16fa730a49b05771a",
+  "text": "d40015149efbef4f7221c2470d127be9f7d80a1b7fe37192e1a7f62930c9e564"
+ },
+ "call: describe_dataset": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "56ef0cbc80237a06812f20618f2a10721dfb6cc4683051f68ff82e6ecae4551d",
+  "text": "4acb2d723f2ae0412045084dff40bf877dd856a78206e7b9e923863fbf4ec201"
+ },
+ "call: detect_missing_sentinels": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "4d8304cee5d8744084f2eec2bb066af3adcf4ab9f636b6eba086d108af187a5c",
+  "text": "8a01ad5be5f85a7b3f25b55106fe6affee1db06c2b15d4f3d764aa65571337f3"
+ },
+ "call: find_candidate_keys": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "eb4dcdfaf62df9690e0647c44ee54e51065922883f6a3e39403fe8e5169a46e1",
+  "text": "72f5c6f30e3114de2d7c96b0386d0a6cd78ce1aac71550555d52fa0a42d4f51d"
+ },
+ "call: find_duplicate_rows": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "a3c96bbdad1d3d84f8c503ebb9c8e5c4c245d33b81b434e949ec888606a060ab",
+  "text": "079c99535b7474ef0e6037b825f07bcee1da0b5dba2548487a16a5fb3662f860"
+ },
+ "call: infer_column_semantics": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "72e6df63cc57340e1e5d016afe1fc32158b644bea3a8fb1e2aada685ad4fb70a",
+  "text": "43fe906032ad6e5096ac073627460bf536f114ebb586dda65bd5745f22a43835"
+ },
+ "call: list_analyses": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "4fe6d1cf3201d70815d0b2dc79a4f487b50d03585968ce89787f95308bd6a841",
+  "text": "69fc6e2b8b690ea2e1e1b5509115cc61360763447f1dd2d0ce37a54585639d33"
+ },
+ "call: profile_missing_values": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "43308c7bb95becb6b58103e16c54307c8319d44376f595a0760acbe893364857",
+  "text": "08627f9112840a74cf6ff96e63fe400626fccc09c66ebc277e170e78fc0c56c0"
+ },
+ "call: profile_target": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "d94737d5cb8bccef10a225c796cbdc5ea481cd68e43039a723689b7e81581076",
+  "text": "635662bc922940f91d406b0c982debb6407949f48a4e834485a3c5465848fe2a"
+ },
+ "call: summarize_categorical": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "c71f65adfd965e40b9f96efc4a4eefda110902003bad88dbb79c1fc866c000f5",
+  "text": "a2d8ea101e66d7ff01672b1f8988ceac5ec9d80d14ecb1680b9ccdaafb8e6883"
+ },
+ "call: summarize_numeric": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "030080b5ee056332ef2fdb45ea13d1ec8181e3d40d5342c0f10de49c0eaa148d",
+  "text": "110d36d8b697744ff949d318ea351f4aaf992319c653421c36e6eebaed187f4f"
+ },
+ "call: validate_column_types": {
+  "error": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe",
+  "structured": "57e8720084d02741740e645dd547200969bf9c5adfe9659dabb3672e34f1a3d2",
+  "text": "c1727f1b6a2148d0ed8211948456f6b936f71d3ccf3277c4349d801e4d4d9a87"
+ },
+ "compute_association_matrix | all missing | default": {
+  "json": "ee04c48f0d05f9dfeefa90702d9388357ba23a59d48d899ddab0fa7ee7cf082e",
+  "table:matrix": "97a73e7b01faf7b25bd21822fb853666b33499a36baada4a5fb740ce5445d623",
+  "table:pairs": "3e92224fb542e0276d2f7672bde0f7d636bac6f068eb4ef1fdfcb2ba253c9c1c",
+  "text": "ec51ab33245a594f26133a39e81052e0b48ef63390d9a1ee1626df7565412b54"
+ },
+ "compute_association_matrix | constant | default": {
+  "json": "6559bf8dadacaf37cedfb1aa63df13eaa9d462a876be10e2e428a247404ec4d6",
+  "table:matrix": "331513c8ea33dd484b108012e7fc59a010e8227ecc06390568dba2c3475d58cd",
+  "table:pairs": "821c4c8b9b1c9650bad0a181d4ce1bff024280ac4e482e123b9266935535ce7c",
+  "text": "9adb7742829f3c0c4a30939e6dcfd9f3c8cb52b4ff9fb734bbb52e7feae94313"
+ },
+ "compute_association_matrix | every kind | default": {
+  "json": "954c9911105d070a2bbbb59fad57a8e1b6c0ce5b04d80148757500f4b51e7d75",
+  "table:matrix": "54113d34b2185ec326d345257407bb8637d7445ac108cff5ae41562403e84320",
+  "table:pairs": "1ec5e040e3caab378bf27ab42812dcbbb3b8fa7c26f70493a41adafc9b672ada",
+  "text": "6e60903e2d867f1d5103d07e1819b87c2bfd5c6da56dd2b5c86bc3a726b52a58"
+ },
+ "compute_association_matrix | generated 0 | default": {
+  "json": "603ea58ab52e9197a9889b98cb14fc50aace7a3881e0b28f41b9cd3a005927cb",
+  "table:matrix": "e6d2dec6f34f26c8c2bc6a4e48c9543f1f799b3ce4a5b05ae0475291524c778e",
+  "table:pairs": "32b3c9e77d404c5069bd082c92917945e323d8c688781b04cf4ced7e473f8615",
+  "text": "270f51c0cc3a2e23b5a0d083fc18f86aeee21d456130f05efca568dd4fce035e"
+ },
+ "compute_association_matrix | generated 1 | default": {
+  "json": "43fd80f78b090a008f1ca49f6197c58a1e3d0681d372bb745f5cc9416e7735c2",
+  "table:matrix": "d9e49d384fe75e5bdd152684031634de0b119d08207f01bb81e72714bc75a070",
+  "table:pairs": "67c744c7dd28f3b9080b7e9b972d7cd0d9bb1529a8640003223939cd36339e73",
+  "text": "26cf14bb746d60089016015346f7b98db37f8d037c45dc437518867d02e00b3b"
+ },
+ "compute_association_matrix | generated 2 | default": {
+  "json": "9da4413b486512da6bf908345074c8438be680f971ac2290451de3546c6a08a1",
+  "table:matrix": "78d1699dd109cfb5522fc48a9ab1acb786c66ca10cd0f8a9877412d4a8d7055b",
+  "table:pairs": "c5cf9b1c6b5e55c1e07f576ec8b4cd305724ab2c78ec2d4169b7f57f7aae38f7",
+  "text": "a4f1d7eb2cc48dcbb810cd56d6b7689cd16ca576534543470a5e694ddfc909d4"
+ },
+ "compute_association_matrix | generated 3 | default": {
+  "json": "f28ad0dd581ad956b811e8cd27f51b79a999f9aa1f6062fd79b5d650e75642cc",
+  "table:matrix": "8b6cc7144dd162a8e9c53b7e97c011920539e02a73628ac312c40e3f74fa4592",
+  "table:pairs": "9dc0011fde67143a321cc5203e78fc97073bef9a24a386b3728da96d5f85a5e8",
+  "text": "29b49d3f01f48561642b96da32e5ed3332860c9bd2d8d1a502815e990c17db5e"
+ },
+ "compute_association_matrix | labels: colliding labels | default": {
+  "error": "a2bb3cefadc322ca072795dfe1ca872f44e353368d71673a9b34909d28d5280c"
+ },
+ "compute_association_matrix | labels: missing labels | default": {
+  "json": "dda38736fb64d0b1befae0bbd3c3024c935630d364ae8fea0af43916e6f77758",
+  "table:matrix": "302357cc7cfa3b892fd77e6e97a0d5b65f4434a38ee896356666c6144f5f32fa",
+  "table:pairs": "6accccea2bd8bf65b0b696feaf8a2604fcee144d0a01ce9d518f1ed8f56345d0",
+  "text": "c2f71e7a9dbbf32066c6fa7b1602df94b47b2e6f946fc8f7b80680bf8acea347"
+ },
+ "compute_association_matrix | labels: multiindex columns | default": {
+  "error": "48bec8a293964aaddd25bb9c1b2a91e4b9831eee2b3501f3e8c6ee4caacbd2e8"
+ },
+ "compute_association_matrix | labels: repeated labels | default": {
+  "error": "920057f2641893a68dda1c96b5f1b325c2bd466631f313dcd00d891af1c86dfb"
+ },
+ "compute_association_matrix | many columns | default": {
+  "json": "09acfe1d6a381dd75374a01192d01e943f5e432aa94ffdf323d507757869b370",
+  "table:matrix": "4c1d29802572ddb578d8a281f2b5e76c208291a365d4819750b72e3fd203c506",
+  "table:pairs": "3e92224fb542e0276d2f7672bde0f7d636bac6f068eb4ef1fdfcb2ba253c9c1c",
+  "text": "a2726e65408a14402637dc46738c6db05a42bbf950dcf4e7b00732c49c25788d"
+ },
+ "compute_association_matrix | many rows | default": {
+  "json": "81fde9dae9a3a510e96d0bd2946a5234254de63ea0891d82c899ef6bcf831ef8",
+  "table:matrix": "069d2fc7f4a01990a8ea7be0309ae23237e7201745a39328f54d914a9b31b1f2",
+  "table:pairs": "b10d4f73c38c2d980de8a19cf09229e346b5964850f5a61a49068065c42365e6",
+  "text": "a2354fc846b98bbd97f47dd9805568ae89aa7210d0753b3857b5269e884309e6"
+ },
+ "compute_association_matrix | no columns | default": {
+  "json": "e045778f6bf15adf2f820af0ce878ea6d4c0bb49b12cd1323cce1bd7339e7995",
+  "table:matrix": "97a73e7b01faf7b25bd21822fb853666b33499a36baada4a5fb740ce5445d623",
+  "table:pairs": "3e92224fb542e0276d2f7672bde0f7d636bac6f068eb4ef1fdfcb2ba253c9c1c",
+  "text": "b92d0b3f39cf83f32b8eae02b1e17bc3c408d3e58881d3c1498cac00d5a9eeb4"
+ },
+ "compute_association_matrix | no rows | default": {
+  "json": "f8b08a8d685bfb1c69c85dc0e8b57f471dff94d111a8ea49c015fd8eb9307cd0",
+  "table:matrix": "a441f3b8831d0926a42f414c7dbe30be77bf9e3d452660596116ec210b58b1c7",
+  "table:pairs": "3e92224fb542e0276d2f7672bde0f7d636bac6f068eb4ef1fdfcb2ba253c9c1c",
+  "text": "126c577f8efd61222868a650052eaa2dd762577fb24448d9bd9963393fd560c7"
+ },
+ "compute_association_matrix | nothing | default": {
+  "json": "a544abd37aa95bf3a4a8a45b3cef47e666061c22b26697e37b2e806684245c5e",
+  "table:matrix": "97a73e7b01faf7b25bd21822fb853666b33499a36baada4a5fb740ce5445d623",
+  "table:pairs": "3e92224fb542e0276d2f7672bde0f7d636bac6f068eb4ef1fdfcb2ba253c9c1c",
+  "text": "e4ba22f032324e46c5a606196ea817d5b1865df752bf15497cd01dacee670141"
+ },
+ "compute_association_matrix | one row | default": {
+  "json": "d82729c14c08797b0977943643b8bf06c4148547204c78cdca0bfd808379f2d3",
+  "table:matrix": "331513c8ea33dd484b108012e7fc59a010e8227ecc06390568dba2c3475d58cd",
+  "table:pairs": "18cf4c93128b7368b5606b2c3a297684e7b278710493dad394efe67a3dd1d3a7",
+  "text": "81be456e62f85cfc86131ace7dfc808f469e8a3beadbcccdbfa19692f50aab7f"
+ },
+ "compute_association_matrix | shared strings | default": {
+  "json": "406393c382d4a57457810865258b3d3cb145f35345e7a962ef3c910eaba17bc8",
+  "table:matrix": "baf9fd83c85015707dbc09e34fce624e91c4d1343b91566fed43247f5decf6a0",
+  "table:pairs": "9a176165ed67cda31bc663cfd056e76a374f5daa29d87c946adf710b12d02d42",
+  "text": "02ec2bd692f9cae55c1c7f68e1a919ac884a1e3f05bb16c23259a7617f914948"
+ },
+ "describe_analysis(compute_association_matrix)": {
+  "json": "79bfcb0f7c1426d2dccccc431f6e438527cfc869d46241a6ef2448ffb2c6abd7",
+  "text": "b770fa7e2226fe4e9e71709d717f3fc7b8e664db24ec76dbdd665e8ea26fdcd3"
+ },
+ "describe_analysis(describe_dataset)": {
+  "json": "64f6de4e6a932f0e6df2ca9118efac0f22855e58c63640c0c6f1fe7c06ddb5ef",
+  "text": "f51d1691d46467b134250ede104f5ec98660e5f889c9f8f6054ff1400864c769"
+ },
+ "describe_analysis(detect_missing_sentinels)": {
+  "json": "50783e2e484ee93ec4909aca4a7a9b89f131a9acae00f4fbc301ba8e3d3f59f7",
+  "text": "9224628c82d7186cf9739069433b7caeaee86c8d1b94dc5bf9f53d629738d8ce"
+ },
+ "describe_analysis(find_candidate_keys)": {
+  "json": "afc8b9bc5cd9ea4a1e8a57a6b4ab220d01edbe1beae7a7d9823fc62adf82bbf3",
+  "text": "37756686f8fd0c58b322d719e4afb001b375fd1f2fa757f9d1f8d2c9426244a6"
+ },
+ "describe_analysis(find_duplicate_rows)": {
+  "json": "111d2a350c12a4e9774230c4a1bf0a1b4f5c3ad917209fa34942058756e3ecb3",
+  "text": "28292c53788229bcc8df0523479a8ccefc64b7643db37cea387c52848bc88ef3"
+ },
+ "describe_analysis(infer_column_semantics)": {
+  "json": "aee78bf6ca596d10107788f7e4f48c4df2a7121c8f99471d02e541057947d334",
+  "text": "18e2054a3051cda95f1e6fef6ed471dd7df10da5899a7a05c1a0c098640c92a2"
+ },
+ "describe_analysis(profile_missing_values)": {
+  "json": "8b185914e6667ab604c4efa15559b5858c9f4a4896ee176362ad953453cba7a4",
+  "text": "9a1cf968850de1feea360031e6c9c6a32ad875ed66572f9f1a87b1d766922b73"
+ },
+ "describe_analysis(profile_target)": {
+  "json": "93a692308f0b4a34e677e3464552d4679c07a7d87821ed3777003610976f45c0",
+  "text": "08182536ff8389008249b532fe41554c6654cdac61bd5c89a3c75df154179ee8"
+ },
+ "describe_analysis(summarize_categorical)": {
+  "json": "493a59f3a49a2a6479f7b2a00774efdc8eae61c45d075961b436bd39b274d83b",
+  "text": "d3df73e32775ccf42f995f3d07ba4fd4a18c85aa52507d6ea4146e8bea482bc9"
+ },
+ "describe_analysis(summarize_numeric)": {
+  "json": "1b469ae6530390e458ed03110c0e009e602d647c9030aa575682a7659861fd1a",
+  "text": "07522a414fd28965aa4c33cef1465db0295e0f2ed59994b794d91928c2148317"
+ },
+ "describe_analysis(unknown)": {
+  "error": "6e73c7be124ddd018af4d094e4d0403ca404d9e6c17885a6170d7d12f5b272fa"
+ },
+ "describe_analysis(validate_column_types)": {
+  "json": "769cfb503147330fe7ed15408cfac8f32af9f22c2db4f34782f0e764eec2ab50",
+  "text": "986980f4bf3746df30af7794a0d5cd79d120b395989bc90d67ceec03f658bec1"
+ },
+ "describe_dataset | all missing | default": {
+  "json": "4c52b59439ad2fdb597a8a3abbb8d8513a498064df85bc89472b1f8808dbdee5",
+  "table:columns": "e919d1c9567cb5c8c093a0a352eac07005959fabeae094cde96ddcdb4dd8f70b",
+  "text": "8be1329d6ec515d9007adc59f43d0800e05c81a8dccdd1fb96760474016d3dfc"
+ },
+ "describe_dataset | constant | default": {
+  "json": "2e78767cb1e4ab00ce8dd604036f915092d6586646ac376cb75db9eb9ecf66ef",
+  "table:columns": "2ae2a5e2f1a88346e712e3b42d313329e5a967e4585f90499dc4948fb1e56b89",
+  "text": "ae770f59077de0144a36c3f90d2fe609c056b7a03ca27fb5d1489d9cfdcf7332"
+ },
+ "describe_dataset | every kind | default": {
+  "json": "e46f187c2bd697ebba76118af247c3b7d8bca2477cc5753f4215c3afa82082b5",
+  "table:columns": "5b3f837847c66f27f2b7f4685aa3dd3314d23ce67dd91d0f52c5a53e60ce0074",
+  "text": "78ad965b297f64ceb6e46cfdcd78dd7283668385374277680e4dc697878cf77c"
+ },
+ "describe_dataset | generated 0 | default": {
+  "json": "65997f84b318705cbbe8ebe32688df4b7388da40240d60e8a3423a50e9c4d4b2",
+  "table:columns": "49b68f6e2ef2fdbd00dca96749d2f244ea6a239304588df08361882aa01d581f",
+  "text": "a37bfc765eb9ff40094293e6a0bbb2542980eb98baa94a18836a5ee19cffc616"
+ },
+ "describe_dataset | generated 1 | default": {
+  "json": "8e9fa2bdbab10bb09173074d450bbcae9df5f0cff58e2572a6f5403ed4929e88",
+  "table:columns": "960d0a2a28b89e28c89a0be58b9b63e650d713ff486ab6d6d924eb8413cf4230",
+  "text": "cb1b35eb8957cfdf28acff645b7459305ce13372b5589744855b07a60671ed05"
+ },
+ "describe_dataset | generated 2 | default": {
+  "json": "b1501cee1b95ca01d10adbc9d2cff3161f362b22b2136ec597c6ffacbc7b1cb4",
+  "table:columns": "f4a892df8ac7aee2c6a641c38eac3cccba28fe93f3d3e477db6cf91e707970d2",
+  "text": "5a58c9d185a996b3dc063a996835fb7ad4d2e9d4da4b491ce01aeb885ca2e5fe"
+ },
+ "describe_dataset | generated 3 | default": {
+  "json": "2c668a296f3664f3d353579061a1cbd2b1275249d3530d56a6d946fcaba891e7",
+  "table:columns": "9084ba000015f3f2ccaa3f1f26c16e747e5acd168e412e6e5d649edff366847c",
+  "text": "f8f08892537bcff91d74256d5e4e9f49a7700ed26d8ee498d3fc8ddc303b5ddf"
+ },
+ "describe_dataset | labels: colliding labels | default": {
+  "json": "567a8017325d9a7fc39b8ca4acc0a4504257548163635d7339e92123f0bc1604",
+  "table:columns": "1262f1cc3e85f48cf13f2bfae95b435e578215b74cc5a978de927af904ee40ba",
+  "text": "3fe62981bd0ee53eacf2647186bc52f2303ebc48a0952c50d8d70b70fb1148f7"
+ },
+ "describe_dataset | labels: missing labels | default": {
+  "json": "3f5699ca2117ba594ff96dbf4953fa7335717ceb8b7b36c9bc9c6b0b2a5c2a20",
+  "table:columns": "c37dc66cacfcf522ccddfa70a4772817363b0732036bc707ce216c95ce01b741",
+  "text": "fd12da7f561422b808382b3a8967d53aeddf30c1747acf7e0cf2b9a0726c5ecb"
+ },
+ "describe_dataset | labels: multiindex columns | default": {
+  "json": "c8a3adc383b23132b304088fc9e67ca9c0e6bb709aca5cf4d7eb32d5da1cc5bf",
+  "table:columns": "e2664e8ffae52dd56fa44545162474cf47b765b860cf7f128361e7f7840c4415",
+  "text": "490e82862773d77e57c434738c24e2424d4aad46cb7ca058c0c5f4d4324565b0"
+ },
+ "describe_dataset | labels: repeated labels | default": {
+  "json": "7e468e97e358563c9279109a998658282916a88424eccead128047dc3c9ddf16",
+  "table:columns": "06514e52f9cd4cabb8f3012b62ab4812ee8adca7424d3e1786f42b8a3ab61aaf",
+  "text": "d94531bb32fad03a1c7ded2a8b9f9189688609a2e6341e6fca816eb4883f6c8c"
+ },
+ "describe_dataset | many columns | default": {
+  "json": "1cd37419d139cba7fbd24bbb285fbd5bb3e22f0718f1f8d51038548ccaab5132",
+  "table:columns": "02062320a420484b459821291ee3a84b0a22e1fd57be43bc7070d735f09e5171",
+  "text": "ee69e5ddf5951160b9d0ed4b8225bb469715e7f9717537363723e8a839009708"
+ },
+ "describe_dataset | many rows | default": {
+  "json": "e543194fd74606d36d83a57b45012b10de72b5a13c08631847adebedeab323aa",
+  "table:columns": "a2304bf364a68657e96e915f5407f8f42095c83f1c52c1f8e7f5dc00ecd1d5b0",
+  "text": "af178babb19a30865ccee99a9e55463fde650347bf4fec291dcc63e030505dce"
+ },
+ "describe_dataset | no columns | default": {
+  "json": "e988356c25119780917fee67f42e64958f07fbbd5ae03615e9332dbcf34ea423",
+  "table:columns": "7ee965c698ea2b08fe4a1cbc337fd7622ab52d2819a7f708c8babba6f7648d75",
+  "text": "bb7c2c26fb9bdc7b290847c49a2ed40ce6b272e8afe2014d1214d6af48890a64"
+ },
+ "describe_dataset | no rows | default": {
+  "json": "629ae0a85af6e4f6b6c20117700181dc67f37813f9139fdea769a1bff1d41488",
+  "table:columns": "4b24b9086fcb896905a3ead69fb61f580857c79e4aee8e667960f841a154f07f",
+  "text": "1d4e8ce5f9a540d697d0a321c95ef86651f41a522e6ee1c56637806f88eb6142"
+ },
+ "describe_dataset | nothing | default": {
+  "json": "ae833ef73e33938abfdb350610642a33b92630e3a13e7194735b288388140687",
+  "table:columns": "7ee965c698ea2b08fe4a1cbc337fd7622ab52d2819a7f708c8babba6f7648d75",
+  "text": "f49e7600d51e24edfd7d96aa5d2ab309446b3f01581d7f77a4b1e6ad82093421"
+ },
+ "describe_dataset | one row | default": {
+  "json": "1be547f4296d388392b1822a2d6c584e2e107c8f2b559c40e5bfbf2b5a480ab1",
+  "table:columns": "3414804fdd7edba85c398279836e7527e08a083aa57c480693a17a5bd0767e13",
+  "text": "bcfdf87c2c24999b16b40a212d87565e79e3d40c2d6d3cd316c9b9b2eeea1701"
+ },
+ "describe_dataset | shared strings | default": {
+  "json": "edae5aabe60a2dd55f3c2e9da4dff64f3876fd28b9fdcd22b62fc9c64f89a44e",
+  "table:columns": "d9e9e386598aa07b6f15434bfc44c6178c260481ec64f4d1a86e48c275154f50",
+  "text": "0745d8d723b1360b14392fbddedb8d3e6256814cc7527e5454325c3765657570"
+ },
+ "detect_missing_sentinels | all missing | default": {
+  "json": "764e24259ea5a4d1fbf8ae266e76ec5503774c423049f4b7fbd80672795d528c",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "303180e0141cd2fac77d14c1a3d940c0e1ff06e607bbdb6659b89116ea1b8037"
+ },
+ "detect_missing_sentinels | all missing | masked": {
+  "json": "22c9088984001d262b2a10d7cbda291a097f81174b88f713d5da0b793d335cb6",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "d3e53ccafe0f2dc4699b61c5c732583410ea69cf74f755fcb023ebcbc81a9934"
+ },
+ "detect_missing_sentinels | constant | default": {
+  "json": "6c781936a8c98aff1d012f5a274373f05260dec4831cf0a8c2f51e9df0d12f8d",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "75a5200deb1e18efe36b2a4a23a2914193b531c605f5e0ae2725d0d5e9806bc9"
+ },
+ "detect_missing_sentinels | constant | masked": {
+  "json": "1854d5b03f8888cc01ca975470d06e436a9d851a5044de721de027f95b4ad9f3",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "d010d33c5dc7eee383a2d25282563db4d401fe70f8658921f68cec4ef74a7094"
+ },
+ "detect_missing_sentinels | every kind | default": {
+  "json": "318ea28057c6d2f466bae08da317828cfc3a2a391cdcfcf274022f5eeb8f5953",
+  "table:candidates": "471dbd7c2d509c73d48a9f5b27f722006d67d9f539cbaa02d57858633ec9f34a",
+  "text": "ad4d0a71a20bccc5d1aa81c7e7a662b40367939dffa11552fe47d8331ee79be4"
+ },
+ "detect_missing_sentinels | every kind | masked": {
+  "json": "f4112c87f4b670734de89722d1e3ac2818d42fff6ebf9b4ae280399288bacc70",
+  "table:candidates": "f8bfd391057e39f5defa62db11259fc0635ced895dabcc8a72690940403adcde",
+  "text": "92ec2322ecb16847a41705a1c80a2899865aaf740daaa4a4b60ad6ff7bb53da8"
+ },
+ "detect_missing_sentinels | generated 0 | default": {
+  "json": "d1e1e8ac0b6b80aac20ee4eaa6f59cff6d34a5d62c426dcdda28095fc6b51115",
+  "table:candidates": "63aa36665440f3f62d47bea2739962bb9c8171a7a6f8bf06a8c1c61272f7174a",
+  "text": "3752f297d301f6955e92d5a70b3480e3cb6516bb4fb0b17d7b62103adb003516"
+ },
+ "detect_missing_sentinels | generated 0 | masked": {
+  "json": "088d481b997246224c3865deaac4ed85a40bf13ed0bb139826f8088ea7b715b0",
+  "table:candidates": "83920a6676c19dfd86a0c5b17581c5ac1dc0b74a845ecca08952611acc8893d6",
+  "text": "1f837b746e97ed154e5333a8cbbf043db17f26405b4cf3fcf28f976e22aa2fa0"
+ },
+ "detect_missing_sentinels | generated 1 | default": {
+  "json": "129af0048b9fe6caa792a6e5b5ac9be94face14875c37212cbcb022943f37bed",
+  "table:candidates": "899781306009dc75cdff9b9da02f38cdff9957fa77d0aec5b86e8f09600b5854",
+  "text": "2e8ad437d66f78f5475ed68b87245a4fdd55fd70aa82b18d08a874b780f8e6fb"
+ },
+ "detect_missing_sentinels | generated 1 | masked": {
+  "json": "1840f2a0d87e4d0204bc3be71fcc34c576c3df3b844c8f0ab30cc0e4fe000603",
+  "table:candidates": "6470b97c0e6011d408e8e53a390c083d7bdb21fb569a144f02b7aa4fe9068e84",
+  "text": "88da26850575417ca1a0d130e0afd0f55bd454b3c2b747973845bbb9fcfef062"
+ },
+ "detect_missing_sentinels | generated 2 | default": {
+  "json": "d48934143d9c20f51621aef14e445854af10e18e2f8d4e1aa4c4b15e1c2257be",
+  "table:candidates": "78ea18ce8558093164452cb3ee0c11b7311e5efc0b49ab135ab0d795f9a5c3cc",
+  "text": "544178a3f739d10ec0c5a15e3351fa78c3d5c30f424998cbf7a259078f08c18e"
+ },
+ "detect_missing_sentinels | generated 2 | masked": {
+  "json": "9e7a0956ee00890fcaa88641f6b6fffa2b5cebe8b8bd981afc622845908bdaf4",
+  "table:candidates": "343e343ae246abffd9eb5b4b7440db33102f7933d16a0de548a304518d4e8ebb",
+  "text": "eccb75f086059e942567e5247f3fe7700bb7752050c73ed54a7f131554587b9b"
+ },
+ "detect_missing_sentinels | generated 3 | default": {
+  "json": "2410f05bcb2d79341dac961e7b1e09c0c3507acd97296cca88be9a078786b471",
+  "table:candidates": "ec64084235dc05ff111c75a81d1102600a19acfd41e9d50d29d45144d19a6e86",
+  "text": "4e368e9804e9900f5010a7c39a0a99e739c02b15684961b929cd5caccedb143a"
+ },
+ "detect_missing_sentinels | generated 3 | masked": {
+  "json": "00563bdb4c9179d55438c76303d3134aae3727520881923f5e83ffadc705cc56",
+  "table:candidates": "a5fc7e943d5d6f0192c3031965f08b441030e102887b9305f04f9a33c8e1fe21",
+  "text": "fd58283aa2f84a55daeb58d58ebc9e1a14b86b1237c760c5bdf71790e4cd011d"
+ },
+ "detect_missing_sentinels | labels: colliding labels | default": {
+  "error": "3215a6aa5fb82b849cbb9168eb2dc6fa3d5c003a1b2b0f329a665ab924d4d25e"
+ },
+ "detect_missing_sentinels | labels: colliding labels | masked": {
+  "error": "3215a6aa5fb82b849cbb9168eb2dc6fa3d5c003a1b2b0f329a665ab924d4d25e"
+ },
+ "detect_missing_sentinels | labels: missing labels | default": {
+  "json": "9baeb8a839ef2715df126b67471551c560a8633080f63bcd5478b3065892035a",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "205ee7c0c5fa6806699b56638e092b47c3828cbb86df4e9c02595d78afb4541b"
+ },
+ "detect_missing_sentinels | labels: missing labels | masked": {
+  "json": "2c0c4f8e092ff461c2b45091b3e0e20e3d339393d9b82c71d0fd3012f520dbe5",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "2ab3a1d394429e9a905fb7ec259b8e0bd505f8d6a244a7ac82f903909f96b80d"
+ },
+ "detect_missing_sentinels | labels: multiindex columns | default": {
+  "error": "cfc0aea1d5f2a5a62702208256aef730dceec707b6478918ca628cf73e56c6ef"
+ },
+ "detect_missing_sentinels | labels: multiindex columns | masked": {
+  "error": "cfc0aea1d5f2a5a62702208256aef730dceec707b6478918ca628cf73e56c6ef"
+ },
+ "detect_missing_sentinels | labels: repeated labels | default": {
+  "error": "4fbf47288c06785ca5b5ab47dd69c275d104418603c0430ab354fea4bd579f92"
+ },
+ "detect_missing_sentinels | labels: repeated labels | masked": {
+  "error": "4fbf47288c06785ca5b5ab47dd69c275d104418603c0430ab354fea4bd579f92"
+ },
+ "detect_missing_sentinels | many columns | default": {
+  "json": "5baa003f6d84782ce2c9991373427469cea8da3e99f97f5d3f004de87da06105",
+  "table:candidates": "f474b31466f244743eabd222219a15c68695362828a67458a97ca7bc4e890682",
+  "text": "ab067a0d2e41e6347d380fa4416895251b5987e81d007c8c53caabb687f6f5dd"
+ },
+ "detect_missing_sentinels | many columns | masked": {
+  "json": "07d2e5e488c3cb04d838f5d6b3791752fd28505ccbac0e108ee079bc1bca6dad",
+  "table:candidates": "a935fef02741534724042de5d374af8792cc966a9c077c06579083fedd017eec",
+  "text": "367a37f9c1329d3172902cc99a238171a75734372aa64d57ffbaae7c415ab9b9"
+ },
+ "detect_missing_sentinels | many rows | default": {
+  "json": "665d551672675358d6253ea7918bd94a9885a85e73be5084054fbe17ef005d33",
+  "table:candidates": "406007806afd0e8a00884101bc7684bfe593a666106b9dacc2ea34b6353166a3",
+  "text": "d6b041fac31a0be311ddeb992cb9995d54fe83d4788a94d576a76e561a7c769f"
+ },
+ "detect_missing_sentinels | many rows | masked": {
+  "json": "37efb221b4ff22a4babc09da08da422f66e9741c1521f487e9f9058d2cdaae79",
+  "table:candidates": "15d53900de4ce44fcb1103f436be403994c3a6bb7f808c9c53326fcf8b5a9465",
+  "text": "b00d49a96dd34056f980d5cd9ef22c1326a2cc1c8dc30b293d63e7bf96b6d94c"
+ },
+ "detect_missing_sentinels | no columns | default": {
+  "json": "a9ab81708e4a613653c3a8afa458357c32f935ff21dafbcea430236f6b31166e",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "3101e2cba3922dd5f8df8aba48c0d7141aca8c59f2202a487933cb32b04fdf9c"
+ },
+ "detect_missing_sentinels | no columns | masked": {
+  "json": "6fd2045fdea718b65a548cc85e0cb8f63fb22902d1019388e61bf84bbf9e4e30",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "3101e2cba3922dd5f8df8aba48c0d7141aca8c59f2202a487933cb32b04fdf9c"
+ },
+ "detect_missing_sentinels | no rows | default": {
+  "json": "74fb3cf51f3b95115ed05e67a8daab26a663ecdaaf0e499326c6e43f85d40761",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "7a47dac40e1964f0351fbc60d8d1c7b9ec18f6239faea745106fa4aeb7e794ec"
+ },
+ "detect_missing_sentinels | no rows | masked": {
+  "json": "be7cce935bee4128920611a40395b7ee3f99416118ecd680f12560b74be31655",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "c551a4887dc2f347985c7f2821e27888a096405221fc1233d1231ae2a6f3d792"
+ },
+ "detect_missing_sentinels | nothing | default": {
+  "json": "981459c10db5443080602d22e90dd5d536ca1095979979d6bc5a486a41fedf92",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "1a3f6f8910df49f2cd2c83b7ae79ccff6e4dfd2ec38f0fb0219d17a89c55b309"
+ },
+ "detect_missing_sentinels | nothing | masked": {
+  "json": "9e0e6667157ed26405b14f0f24c8141ab656287a7577085f96fff0cabc357ef1",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "1a3f6f8910df49f2cd2c83b7ae79ccff6e4dfd2ec38f0fb0219d17a89c55b309"
+ },
+ "detect_missing_sentinels | one row | default": {
+  "json": "abbade22ddecab3911f27a27f1df517ebbe2157a761dbed4d7c385d81670d96c",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "dbecbdc14ae7c0a22b8358b932d49e495f1738b2ffdc1de5cb15cdb3f1c95e85"
+ },
+ "detect_missing_sentinels | one row | masked": {
+  "json": "bec10b1c3caaad33b80d59493202634b433022eccb8fe41ef091f06991dcafe1",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "57442d044131f46f45d2293556fc22ac6865a2a8e93dac0905a66e7552ab13a3"
+ },
+ "detect_missing_sentinels | shared strings | default": {
+  "json": "de1ff1edbae71374aef8ea6dd2b9597e34eb04ac7ddd8544c1e0d5598cd93e2d",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "64f6e5bafff53487fe367e076053d1a4cf1e73662d59f29cc79090b4933287fc"
+ },
+ "detect_missing_sentinels | shared strings | masked": {
+  "json": "c5af09b0a8e4b4be0655ae333fa908a62aa98a4951894882a6b365a7a55b36d6",
+  "table:candidates": "2c75d1af2cb29de3c0e3811a26fe5e090fec678c5820542a04954d619002ac17",
+  "text": "f12ac097418aeb1edd6793248a183e6c655c2ef7a97b4835551ab25fc0c596da"
+ },
+ "find_candidate_keys | all missing | default": {
+  "json": "66d8c8a43e3ff3b758713631bd4d0ee89f1b3cd0ba25e79d75e22028582dce91",
+  "table:candidates": "0d9f74a5c377ff59bd48443076bd96dea8ab9af1630e93bcd0f5f1a261bf8a84",
+  "text": "be079a406748b40ec033563e428d2acc0313ad16f36aec8d7bcc0f24bc14d4f3"
+ },
+ "find_candidate_keys | constant | default": {
+  "json": "6fa31908de9cc78d1f45d1401ade27d8076d4ceb9476641d55c20350e8470218",
+  "table:candidates": "b3d4b957f7deabe824ce4374e4ad244b0d014139374fac2925f8e5342a9f9d8c",
+  "text": "6dcf7b08c3b3b6b84268a7f0fe53eabc3e814d3d2f3f22d1b323c2ec282eb55b"
+ },
+ "find_candidate_keys | every kind | default": {
+  "json": "8c76234e2ecf637312cc1e4a5da6df0d6bf15d8e53cb107d8a5f38e4615b881d",
+  "table:candidates": "9b5c20378ca3143fd789ed76b4745f41a443069abf1def31febc9652bde50e49",
+  "text": "17b56b51fd7b5e78e6b61939bdeaf14f70f2391d261a74cfbf0a3d3f508ccbe6"
+ },
+ "find_candidate_keys | generated 0 | default": {
+  "json": "4bf133bc0b87124083c4e2d3a7fe473b5bb4c8acaa14e684a6aeab400c505b8d",
+  "table:candidates": "29b23ee93dc72917e6d20df918fd4c73cabc198b74bd634b2a29473b5fcf0424",
+  "text": "3cd0e8d16de77aa46b9ee383a2f4b9b09434d9eb151066fed01c8b6c3c0e8757"
+ },
+ "find_candidate_keys | generated 1 | default": {
+  "json": "5651256e4ea7b9eb92b188c9fd98d3f8367366ef794d7cfd09ed0d001cee1dfc",
+  "table:candidates": "0bdf5f7d3af840dad9762c4c211afc793f9d4a0892e9fe18d7a2bed48416b6f5",
+  "text": "9409aac817b6b2ff140b3653a51760f7e72e4e13cb5f16ddce04c601e312b55f"
+ },
+ "find_candidate_keys | generated 2 | default": {
+  "json": "06725f0e20d26b043cc81e4cb27621916576a6fd0f476bb005de852e1faa722c",
+  "table:candidates": "f30d940384548e63475c65ab5d1700502f62a524550b234dd601ffec22917a20",
+  "text": "d682e77660da93009df576e72ea2970e1060d73a2c46ee4bd50f3c556e10309f"
+ },
+ "find_candidate_keys | generated 3 | default": {
+  "json": "6a5396e7bc2352bfb27eb9d1893a8ca2510a66ea065e6199298265d328183e6c",
+  "table:candidates": "d65b2958d373239b3297339caa3f5dee620eafdc4de9e23d9d837f58e1bcba70",
+  "text": "a20ab5ca7d8aadea9c4d51c99076dce577876c9e63bc9ab095967f9cec75fb28"
+ },
+ "find_candidate_keys | labels: colliding labels | default": {
+  "error": "72daf16de5bd286f396cc9392cbafd6acdd9c5c8d4982a47725e6e927a0e0894"
+ },
+ "find_candidate_keys | labels: missing labels | default": {
+  "json": "ed77fc49299bffd3739d2a2c3e5adff17a4e2bac0170fa9a58cfcbbd6f9d0700",
+  "table:candidates": "578afda8874093b534af79b98c7a29554c3cac70c653732ab84ea04ec0302a9b",
+  "text": "9686cf4cc70d3fac07ef468842565d49d8facfa577d74b92dea48e30cb6c5f80"
+ },
+ "find_candidate_keys | labels: multiindex columns | default": {
+  "error": "8cde84c8fc1925e71430c58bd021cd41d1d8d203bc5acd29fefa5a95db8920a1"
+ },
+ "find_candidate_keys | labels: repeated labels | default": {
+  "error": "e123bd2a4467181dbaaa3bbe9f4c324820046fba26e74d437f3290f885ca1ffe"
+ },
+ "find_candidate_keys | many columns | default": {
+  "json": "08fc56b8d0e3e17602832fe20ddcb13b1e033b66f9f3db3ee72680e8cb1f6f3a",
+  "table:candidates": "21a25bc5041e65c0cfb61e539c96f1a962ef11718038c558872bf8120db8cac6",
+  "text": "f3b577cf6be150c343eac1cd924a3bcabdb5ccb75bbc51918ed47011ed5e5e61"
+ },
+ "find_candidate_keys | many rows | default": {
+  "json": "22cac46022061c5679c045096777977886a7754f1a5b3bd2af93edd7d28e8dac",
+  "table:candidates": "157353f5f9d9dac2cc0cf2380e22279aae2d2e4c9f28c7b4f2754227e082fd8f",
+  "text": "72c957ec3b9046fc37e031ef6cfc8faf80d42113962902cc11d85384948c29a9"
+ },
+ "find_candidate_keys | no columns | default": {
+  "json": "e1be5a73e4d8440477597f598beb9c9b4fd5f9f1fa9610ae4188028c9579793e",
+  "table:candidates": "578afda8874093b534af79b98c7a29554c3cac70c653732ab84ea04ec0302a9b",
+  "text": "76624a1e80af326c40d0507434e8cf3a8bab21a60641fa81f4680ac8977b621e"
+ },
+ "find_candidate_keys | no rows | default": {
+  "json": "ce0316821ae7d71e26c4f22d10256601950a17e26509472e2b7d5e63b03099e7",
+  "table:candidates": "578afda8874093b534af79b98c7a29554c3cac70c653732ab84ea04ec0302a9b",
+  "text": "958baf5f53c828999222f013191b5e76d0915401e0121d69e2c4eb00351ebe16"
+ },
+ "find_candidate_keys | nothing | default": {
+  "json": "a04b2f38e8ef1c7f6e0091f9303331f7b135677b1122ed24cb9e70ad44717395",
+  "table:candidates": "578afda8874093b534af79b98c7a29554c3cac70c653732ab84ea04ec0302a9b",
+  "text": "6e4205f5a522cb1eb4f7313df63b06a370e1dffe82a7ec628d951cfce2870b04"
+ },
+ "find_candidate_keys | one row | default": {
+  "json": "dfc8af0dacea3d17654bbb7915e44b85422979b38a951472de0f3130eae5a103",
+  "table:candidates": "578afda8874093b534af79b98c7a29554c3cac70c653732ab84ea04ec0302a9b",
+  "text": "e515f1d06728931e428aa98ae457ffefdedd3793aa72f758fd613abb24d52b52"
+ },
+ "find_candidate_keys | shared strings | default": {
+  "json": "b755c5e03c2cf347184b74ee9e9f68b8357ad6b6d4818d27a275f0efcf66bd47",
+  "table:candidates": "5674aee85203909c99c63fa74ca526accd1062806d749acb7d41780305a775d3",
+  "text": "54be1ea9ff473d98e2c585b7692299b85e0cbff4e2886cb29dc02833284f17ca"
+ },
+ "find_duplicate_rows | all missing | default": {
+  "json": "ae7998f27e92106d11c134db25a1a0d39bbc7c8228fc721f611bac9196310ece",
+  "table:rows": "ffda3f9385bc558111a589e77d1539ae45650fc2ad7a00df7436e6a09642226b",
+  "text": "2a33eb74c985c9875f93b22abce365be805b1cf054cfc5dc8431a7f312863f34"
+ },
+ "find_duplicate_rows | all missing | masked": {
+  "json": "2254231e338c5685f41ee3910fe6c9b0af570472403b7694910b3cc213634da3",
+  "table:rows": "ffda3f9385bc558111a589e77d1539ae45650fc2ad7a00df7436e6a09642226b",
+  "text": "2acd44de4ad2aff36b8680fb6656ef06d91d3c1099eb303e817845f09095936c"
+ },
+ "find_duplicate_rows | constant | default": {
+  "json": "d595f9dae70b454f7fc097e648f4bd32f74bd13c77dbee29eb898f3242961d34",
+  "table:rows": "ffda3f9385bc558111a589e77d1539ae45650fc2ad7a00df7436e6a09642226b",
+  "text": "8fabeffdf8626e548eef58d858587f693110f0862eb0db3c67393b4b6a0d2605"
+ },
+ "find_duplicate_rows | constant | masked": {
+  "json": "dc2d4adf64af6fe21b5961bd8abf4ebb51140a744e321f0c4882cbadf5b8d82a",
+  "table:rows": "ffda3f9385bc558111a589e77d1539ae45650fc2ad7a00df7436e6a09642226b",
+  "text": "db48448e4610d4dfabe59947bda61d2f8be988da62712d05bbd9c451efb9c052"
+ },
+ "find_duplicate_rows | every kind | default": {
+  "json": "716a75c9d1a964a41b62cff2dacd7d473e41f04970de91c601997de6d67aec74",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "4bd3c598ce1a2ce7f60d91491f758186cde50734cd356cf1b6509fb05a985ad9"
+ },
+ "find_duplicate_rows | every kind | masked": {
+  "json": "fdb59ee5f511145bfcf38e767044cf74708851146e79df939c41e315b2134530",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "5f5afb67390515bed88c86242dacdf8a2deabb6190ef2b380162a67db6d3069f"
+ },
+ "find_duplicate_rows | generated 0 | default": {
+  "json": "1edc249950d9b42dfcb90b96675ce2d731aaaaa31da5fb9ab1a30f59e780927d",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "5b11d9c481637076c8b3aecbd7784d589a58c3f96bd1ecfd64c84152df49b747"
+ },
+ "find_duplicate_rows | generated 0 | masked": {
+  "json": "d62f4d44b42d0fdd7641d610bf0e4aee8f14efc0ec9f3d354c9c32ae43df0a54",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "3806af88d330d71654cc15b243acb61b2daf0612cc89c47a1cbd532b84c71847"
+ },
+ "find_duplicate_rows | generated 1 | default": {
+  "json": "61160b43347c60a5862572f95f35e5808d904e1e706ca5428f7bc584019d394a",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "4a1ace6defef59666fc9e5b0b4404d0ed83afea98eb6f73649257299311b5c2b"
+ },
+ "find_duplicate_rows | generated 1 | masked": {
+  "json": "680c6868687ce3819eb55a93d0f0cbb0084af2775de3ea976d11a769a764c175",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "db5a980c8a50b6876d56141c31d8d712759de6bd4eb2d1c7e90280165d8928ab"
+ },
+ "find_duplicate_rows | generated 2 | default": {
+  "json": "18245c19ee9776f0fbecdb87cdd79785a43037252dcd931bbbe88ea4073420a9",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "8224048b01b9576484408f969530bfc0d4adadc5698d78c260637e37e6f234a8"
+ },
+ "find_duplicate_rows | generated 2 | masked": {
+  "json": "1acd6aa15dd4f67825ea82f73c939ecd1822e207b6d8ab4974d35923736be84a",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "fecedc7c8d59cf2d4787740551da1b91a346ba64138b033c967aa4373287ba69"
+ },
+ "find_duplicate_rows | generated 3 | default": {
+  "json": "2a9d507f2675ec65d6adf1192f68c37d355f4bf8895f87461837839afd00097c",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "e0d1c4bb94ace7169ad2c31ffbd8a8830d1a12d5ac22d16ad1019195d9d3cdbb"
+ },
+ "find_duplicate_rows | generated 3 | masked": {
+  "json": "180ec994c4ec863d81cecf3d0d3d89c7cfa117815cdfac33dcd95ab2c85e9758",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "5bf0677897566f4a88f033c837bf09f5e102dd2139a236a3a267603ca9291c94"
+ },
+ "find_duplicate_rows | labels: colliding labels | default": {
+  "error": "4bcde21def1abf2b5b1f0e05576fe907c8270800bd2d93f4a9e9018edc39e960"
+ },
+ "find_duplicate_rows | labels: colliding labels | masked": {
+  "error": "4bcde21def1abf2b5b1f0e05576fe907c8270800bd2d93f4a9e9018edc39e960"
+ },
+ "find_duplicate_rows | labels: missing labels | default": {
+  "json": "cd21e8d00eac64ea49972bb0757dd526283791c930a7da5c16453d4513f4b00f",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "a39154113dd3768f08fe524c14f172bc584b371aac3405cb613fdf2c4b2853c7"
+ },
+ "find_duplicate_rows | labels: missing labels | masked": {
+  "json": "1042b635b3f02bf0f0d4cb32f22a74d6080f5241d233c755a1b2f38b90f8b014",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "68bd5241e52e802f622cfaca2239d7949bac3b7a9d62aa55246f7c076c46ed6d"
+ },
+ "find_duplicate_rows | labels: multiindex columns | default": {
+  "error": "fb825a9208372c83308c6dc612f00d55320eaf514b03586ab8c58e336e9c1643"
+ },
+ "find_duplicate_rows | labels: multiindex columns | masked": {
+  "error": "fb825a9208372c83308c6dc612f00d55320eaf514b03586ab8c58e336e9c1643"
+ },
+ "find_duplicate_rows | labels: repeated labels | default": {
+  "error": "1ce63a45a567825d55f52115e59d68e892969132463959abc5520ed6ee62d6e4"
+ },
+ "find_duplicate_rows | labels: repeated labels | masked": {
+  "error": "1ce63a45a567825d55f52115e59d68e892969132463959abc5520ed6ee62d6e4"
+ },
+ "find_duplicate_rows | many columns | default": {
+  "json": "da78bd42c5490ea56e231b21f2833e7ca8457fb0200e6092d7a0783248e84ff6",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "048dcf5d05183816e865806e3928d21c89134803437f22c4362c1c5684940698"
+ },
+ "find_duplicate_rows | many columns | masked": {
+  "json": "8700814d4a62f312178d16ae0be6c40cabcf5f107d5fc3e92070fa7b37bc6920",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "345ce00b79e84a5c743fe7dbba7f6bb360caad55570819b22538dc360b29f820"
+ },
+ "find_duplicate_rows | many rows | default": {
+  "json": "579c4d1d445132fbfa039f227de9d5ced53dc89a407e771b29ff481329647936",
+  "table:rows": "61f8c61e880e9af46bc2ae51032b6249edea8870833ddd53ecb59a87e4bdf719",
+  "text": "8144217ef8cb6131a97b3f14b2e7d0f223625047a75374b4556640ac6e891db1"
+ },
+ "find_duplicate_rows | many rows | masked": {
+  "json": "8bf0040de31634a35f333b1f35513521734c36f1a76f690f40222018a5a80468",
+  "table:rows": "61f8c61e880e9af46bc2ae51032b6249edea8870833ddd53ecb59a87e4bdf719",
+  "text": "67760c553d53ff2991a9836548a5e336423aa5e2d101efb624f06e84a08877bd"
+ },
+ "find_duplicate_rows | no columns | default": {
+  "json": "5c899828b790d2a9eee3c872d9b383126f64f3902781bc6df77ca8e04ceb72dc",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "6e09658bff66c085c04258522c59f011ff7a740500e7d8a4d4655f99115303b3"
+ },
+ "find_duplicate_rows | no columns | masked": {
+  "json": "4a85cf5ee58400c0128965f9556a9f2005367dba51b23aa3ffb04883b6525c67",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "6e09658bff66c085c04258522c59f011ff7a740500e7d8a4d4655f99115303b3"
+ },
+ "find_duplicate_rows | no rows | default": {
+  "json": "fb3acec8cb37ae762e98dacec13d9fb8ba502d25cff75d3747ddfa5d1f5b013b",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "73a09a74a1333e4cb6caaad8f4827adb3d72f50bbf77b030c99b25e0e3eeaaf8"
+ },
+ "find_duplicate_rows | no rows | masked": {
+  "json": "a0e1b622ee111f5d3fe31ca684afb8716dff165889c8a0da0d66e96671c1e32f",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "ee9d1cad486dc0c3d122061aa2c82bfeb456fd61024cda06c1709511642e76a5"
+ },
+ "find_duplicate_rows | nothing | default": {
+  "json": "1497bf9d811d0259ef4ac4fd298c010beb3edb753ce2a213a2afedf3b69e8827",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "3bc38befa5ea14da84a0a8fb7754bc687f2d9e8efb71ca02a713a16c47743958"
+ },
+ "find_duplicate_rows | nothing | masked": {
+  "json": "9a24d27e9646a153a691fce12c69730504453b89f84870dc719bbd68205c048d",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "3bc38befa5ea14da84a0a8fb7754bc687f2d9e8efb71ca02a713a16c47743958"
+ },
+ "find_duplicate_rows | one row | default": {
+  "json": "ae5a4736e6c1bc806ce14bcb277951ee81c7567a718fdc76d6f5548868c37196",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "04038bc5e1b7df5185b7cd22172f6c55e71ae2be0c784199dda953842bc00b66"
+ },
+ "find_duplicate_rows | one row | masked": {
+  "json": "501fb559f2f94e164199d56f85aaba05d51e6306cba3a1fb67fdb92decf1a328",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "1c5e182a7bd459c67ed6b83fa81f4d1382a19ccaf305f52ea370238b33b43fd5"
+ },
+ "find_duplicate_rows | shared strings | default": {
+  "json": "bb15702ed0d1641037db585e279e6db303f16eb107b480c0e0b030154b6af3ce",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "c5ae921bd659d014c8fbf94fbe8a485abbcc2aff8954bdd0db40722a3e89fcfd"
+ },
+ "find_duplicate_rows | shared strings | masked": {
+  "json": "9f7664ec49eb5177a932ed5669d210612ae00866baa45c17a8dc9b73a28cbb7a",
+  "table:rows": "5bbdf8cf4e9da40fd73ec62441191ad0b7989bad23af1115b4514b4d80307c83",
+  "text": "abcecd3f1db5aa4ddc3d840280847b683d503f314ba98264720e7d5241d16aa7"
+ },
+ "guide": {
+  "text": "8b72beb29741c22b9b9f9da86f26266872d54eba775ad3beff7dbd52f6cee59f"
+ },
+ "infer_column_semantics | all missing | default": {
+  "json": "575703048229dcde4a0345fa5509cc7d3695da36c731fe76c97ebfb2522b74a7",
+  "table:candidates": "22134b46c04e7a40a9700965bc5f8c6822ebcb48bde81485b8c382aab3109e94",
+  "table:columns": "6ae65e6ce36f7b0c4e7b851fb8baeb952cf94206cb8ff642082c53fbcab6e335",
+  "text": "650fbe71887c2c3eecd4b68872d884794fb86b7d7d347e38d013d0331aee4537"
+ },
+ "infer_column_semantics | constant | default": {
+  "json": "c2cea9dfdf63115c8044bcc879fdb29e677cef43e016f4bb12d491e0e3c6349b",
+  "table:candidates": "86aff314dce31d946bd3155a78401b7732a935104867aea6371241874d49fc19",
+  "table:columns": "8a8d469b57409211b7922b926e348a6ef73b017dd3ab5c7519d8c778399c2a69",
+  "text": "4f20596b95127e3908ab6d33f1fd312e5fadc6f3f1177c256b09058b65c5e508"
+ },
+ "infer_column_semantics | every kind | default": {
+  "json": "389574b5e7c2aca0cef8089296205de7c51cfab8bc040fc9ad1e3c297d99b600",
+  "table:candidates": "8fdfb74cbce0bced8261e57add0bd5a0f8cf96b7acc0560150be994eb898f314",
+  "table:columns": "fa66cbec9676778f325751d10d4a8616f97b3aa490f6f90d484e69053e4e4f70",
+  "text": "ac90b5020ab5bea0ac14599c661fe66e5f0721a3e220e7469e5bf48d8e412510"
+ },
+ "infer_column_semantics | generated 0 | default": {
+  "json": "7eae691b6b758c7fdcef69496cdef1b1c98fcfff811f7e0e0f97f4c960f5ae67",
+  "table:candidates": "b3f7d9c4d4fe1fea2ef4e8072385b5f9b19e0b47081aaab6b7946fe1dd7c9248",
+  "table:columns": "063dd17be730aafcbbad9fbeef7745bd7fe3b0851eb4d190adb7edbe286b0fdf",
+  "text": "9cd10a424ae48b0d8114c4720b6deb337e68b6b441632c71c4374e7a6619c675"
+ },
+ "infer_column_semantics | generated 1 | default": {
+  "json": "81d6b34f54349441796b03b16d3bca6cb3692db27dfc7fcc7ccdbc2b7a31e392",
+  "table:candidates": "96f85365c1b0ce451ec691f7df06e11f542036e4f097b4d64a6459feb6b46485",
+  "table:columns": "359a51bd73d2a007c0fda04fc274332870c9079ada3829edae2e2593e5a78a98",
+  "text": "70ad1b817aa3da20356a09ce9faf8f42952b95983d9770c937bfc8a6e296b9c4"
+ },
+ "infer_column_semantics | generated 2 | default": {
+  "json": "443c39867a4aac1a9a6d141bc7fb9a4d1b630729bbb687c72207df48e8da6a87",
+  "table:candidates": "dee53c62fe48f58f59f2a9dec98d3f7b1dcd64bd0d8b6f550b395c15d89e54da",
+  "table:columns": "fb0883e6f6fe4933e7229a2f5350083f6704cae82e4e16d165b3e78d3b228685",
+  "text": "53011c7c4e2e8175a70aca390aadb31495b5893315e0edf5875a2980fd034fad"
+ },
+ "infer_column_semantics | generated 3 | default": {
+  "json": "97cbfd87c595c98a4360013aaebfe9a707b8742b69f2fef9e59b43a08c5b8f0e",
+  "table:candidates": "4fa53a2928238758770af17f95a245809587b0f50ae8ce20c78393b5b35c17ff",
+  "table:columns": "3c5dfde069d33ddce7388219f5a6d56d260421f8aef3581b469d658e10befae4",
+  "text": "c22b5efb5f4ade7a1972eaff680cf05e41c11e9f35d1171b00c48adbc5e20b10"
+ },
+ "infer_column_semantics | labels: colliding labels | default": {
+  "error": "2b27da4a1f47645defc267bd84af44c1dfa81c0bdb581036eb02e8d84259aeff"
+ },
+ "infer_column_semantics | labels: missing labels | default": {
+  "json": "7c886f703345c57acb1fc004ec8bb041b24c427f974a8372aff1a53cbb0da3d8",
+  "table:candidates": "e28484d849f5a69eeb09d8f5183c242d32dcbd54d289c202f5f573b8da66f8ac",
+  "table:columns": "8033d8e8171988ee0665041167451b9baf65bc02247e58f1507a1a69fc81f170",
+  "text": "be5d896c1c776a8393c1f6b675000977a8286acc0f4421f4999909565f31f6c4"
+ },
+ "infer_column_semantics | labels: multiindex columns | default": {
+  "error": "0b341fd19ee16ecfcfc0bd5d2b34f2b4b9b22c1905d6354c79e3a14b436cbc75"
+ },
+ "infer_column_semantics | labels: repeated labels | default": {
+  "error": "85b388654403b433904be563a65704f37b2997bafc512934b9564da4bdb120ec"
+ },
+ "infer_column_semantics | many columns | default": {
+  "json": "807cfc8334d4c0d562f6cda5605df97ecb826013dfeb4048ee4cc1f70b3f381d",
+  "table:candidates": "a0722228f96d996575d1fe4b06cf55742c411112701c51766c1c0b2a5c71e9e0",
+  "table:columns": "6bba2a9c5a349724bd9beda147b0ed7bf1ec36c4bfab91960c7febac5736960c",
+  "text": "30a05356141383bf119674135a09abae1ae4a745cc3044a35ba90ea789bee9c8"
+ },
+ "infer_column_semantics | many rows | default": {
+  "json": "3b8024201ff34b9a943fef50013f63bddb8a6c8e238a32a6dd20be9d12d7aa56",
+  "table:candidates": "ad66da9d1ac64200265373e2114e68a1c313bf9966db253dfa95de08e08f1fe5",
+  "table:columns": "9357a29502ba5b34e50ae28a4a01f7d9abb5d2c321b951b8a27d6fcf3a294656",
+  "text": "7978f86e6e6e8dbd3ebc91ef6c3cee526ef000b1b0884aa66a71b9a2a1bce3e1"
+ },
+ "infer_column_semantics | no columns | default": {
+  "json": "93dfd2b2e234a1e1cae2ddec86734b5407e743e01f5b1ac9bf1884870e4fda11",
+  "table:candidates": "22134b46c04e7a40a9700965bc5f8c6822ebcb48bde81485b8c382aab3109e94",
+  "table:columns": "fcd51192f9d117659ecbf1e4471b94de32ba5f05d3c0d2ced9726db508a4f588",
+  "text": "ea527ff395aad2ad6339ab0573ad398ba608cedaa4961873c16b49a2dda66996"
+ },
+ "infer_column_semantics | no rows | default": {
+  "json": "3a4666364ca4049ba850e01a991099b8332b8c9391004b6826750467ddf0325f",
+  "table:candidates": "22134b46c04e7a40a9700965bc5f8c6822ebcb48bde81485b8c382aab3109e94",
+  "table:columns": "bb9a8f4e968b59b9ce8834131932a76934b3af4ef2d8020e32ac4e53693a1529",
+  "text": "e97b2606bec28f4b3b6e9fdb43a51f12abfbfc0777f92e2fa2430158988d96ea"
+ },
+ "infer_column_semantics | nothing | default": {
+  "json": "52729d784269ee681de021d81b478584588d6db1942b7c889741ba6d260a90d0",
+  "table:candidates": "22134b46c04e7a40a9700965bc5f8c6822ebcb48bde81485b8c382aab3109e94",
+  "table:columns": "fcd51192f9d117659ecbf1e4471b94de32ba5f05d3c0d2ced9726db508a4f588",
+  "text": "7091bf8cdbbaea6ae7f3a0f0170b4cb3379593f6f9f735492d45feff70969791"
+ },
+ "infer_column_semantics | one row | default": {
+  "json": "b9e4c1f2c919addb512cfef88aeb8bd0c1d4461c3403381ab9f5d98bc5976813",
+  "table:candidates": "2a5654ca629e4185405d4d415f968938b34478988b4f30fd3cd73cc35ae0440b",
+  "table:columns": "832f6249f74715c3f29bfcd57af6ad57fb375a07f318006a873b4984519bd547",
+  "text": "fdcf8df080a92f3e1bb0c132eedf5326ebc2c48c316ea5f199797afd37adb11c"
+ },
+ "infer_column_semantics | shared strings | default": {
+  "json": "c2161f15ab7b973d3ac26c9895ddb410a96e12657475e936691667a743f138d0",
+  "table:candidates": "096571ee9d4ef3e15c0c7f3fa70d85cf791b758bfafd169aa62035ad9b245798",
+  "table:columns": "f4f25ac13b4a5c27b967799280aa322a9001daa2ed92ffa317b2e90ecdd12da1",
+  "text": "3c45cc665e854cd87bd2d84a87048f3ebce87d2cedb85ee01283f4881cf09b8a"
+ },
+ "list_analyses": {
+  "json": "75afa5a159478fe83042f870bf9ad8ac04466e7e4536454140a62fc9d1d511ee",
+  "table:None": "cc4a2fcef79720f58adadaeb0744e45ec43ca35fd501f54fd70fb3b25a5f7ef7",
+  "text": "69fc6e2b8b690ea2e1e1b5509115cc61360763447f1dd2d0ce37a54585639d33"
+ },
+ "mcp fixes: classification-target-of-datetimes": {
+  "mcp": "{\"code\": \"unsupported_column_type\", \"message\": \"profile_target can't use column 'joined' with dtype datetime64[ns] as a classification target, whose labels must be text, numbers, booleans or categories, nullable and pyarrow-backed ones of those kinds included. Pass a column of labels instead.\"}",
+  "python": "profile_target can't use column 'joined' with dtype datetime64[ns] as a classification target, whose labels must be text, numbers, booleans or categories, nullable and pyarrow-backed ones of those kinds included. Convert datetimes to labels with df['joined'].astype(str), or to months with df['joined'].dt.strftime('%Y-%m')."
+ },
+ "mcp fixes: column-labels-that-form-a-multiindex": {
+  "mcp": "{\"code\": \"ambiguous_column_labels\", \"message\": \"summarize_numeric refers to columns by name, but the column labels form a MultiIndex with 2 levels. Flatten them in the data file first. describe_dataset describes data with any labels.\"}",
+  "python": "summarize_numeric refers to columns by name, but the column labels form a MultiIndex with 2 levels. Flatten them first, such as df.columns = ['_'.join(map(str, c)) for c in df.columns]. describe_dataset describes data with any labels."
+ },
+ "mcp fixes: column-of-a-type-the-analysis-cannot-use": {
+  "mcp": "{\"code\": \"unsupported_column_type\", \"message\": \"summarize_numeric can't use column 'city' with dtype object. It accepts integer, float and boolean columns, nullable and pyarrow-backed ones of those kinds included. Use summarize_categorical for 'city' instead, or leave 'city' out of columns.\"}",
+  "python": "summarize_numeric can't use column 'city' with dtype object. It accepts integer, float and boolean columns, nullable and pyarrow-backed ones of those kinds included. Use summarize_categorical for 'city' instead; convert numbers stored as text with pd.to_numeric(df['city'], errors='coerce'); or leave 'city' out of columns."
+ },
+ "mcp fixes: column-spec-fields-that-clash": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"validate_column_types got an invalid value at schema/score: ColumnSpec got datetime_format '%Y' with logical_type 'float', but a datetime_format applies only to logical_type 'datetime'. Leave datetime_format out, or declare {\\\"logical_type\\\": \\\"datetime\\\"}.\"}",
+  "python": "validate_column_types got an invalid value at schema['score']: ColumnSpec got datetime_format '%Y' with logical_type 'float', but a datetime_format applies only to logical_type 'datetime'. Leave datetime_format out, or declare logical_type='datetime'."
+ },
+ "mcp fixes: column-spec-value-outside-choices": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"validate_column_types got an invalid value at schema/score: ColumnSpec got 'int' for logical_type, but logical_type must be one of 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta'. Did you mean 'integer'? The ColumnSpec definition in the MCP tool's input schema describes every field.\"}",
+  "python": "validate_column_types got an invalid value at schema['score']: ColumnSpec got 'int' for logical_type, but logical_type must be one of 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta'. Did you mean 'integer'? See help(ae.ColumnSpec) for every field."
+ },
+ "mcp fixes: column-spec-without-logical-type": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"validate_column_types got an invalid value at schema/score: ColumnSpec needs logical_type, one of 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', such as {\\\"logical_type\\\": \\\"integer\\\", \\\"nullable\\\": false}.\"}",
+  "python": "validate_column_types got an invalid value at schema['score']: ColumnSpec needs logical_type, one of 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', such as ae.ColumnSpec(logical_type='integer', nullable=False)."
+ },
+ "mcp fixes: empty-column-list": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"summarize_numeric got an empty list for columns. Name at least one column, or leave columns out for every numeric column except booleans.\"}",
+  "python": "summarize_numeric got an empty list for columns. Name at least one column, or pass columns=None for every numeric column except booleans."
+ },
+ "mcp fixes: empty-expected-labels": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"profile_target got an empty list for expected_labels. List the labels the task allows, or leave expected_labels out to skip the check.\"}",
+  "python": "profile_target got an empty list for expected_labels. List the labels the task allows, or pass expected_labels=None to leave the check out."
+ },
+ "mcp fixes: empty-schema": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"validate_column_types got an empty schema, which declares no column to check. Declare the logical type of at least one column, such as {\\\"schema\\\": {\\\"age\\\": \\\"integer\\\"}}.\"}",
+  "python": "validate_column_types got an empty schema, which declares no column to check. Declare the logical type of at least one column, such as schema={'age': 'integer'}."
+ },
+ "mcp fixes: expected-labels-for-a-regression-task": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"profile_target got expected_labels for a regression task, which has no class labels to check. Leave it out, or pass {\\\"task\\\": \\\"binary_classification\\\"} or {\\\"task\\\": \\\"multiclass_classification\\\"} if the target holds class labels.\"}",
+  "python": "profile_target got expected_labels for a regression task, which has no class labels to check. Leave it out, or pass task='binary_classification' or task='multiclass_classification' if the target holds class labels."
+ },
+ "mcp fixes: id-column-of-values-that-cannot-be-hashed": {
+  "mcp": "{\"code\": \"unsupported_column_type\", \"message\": \"find_duplicate_rows can't use column 'tags' with dtype object as id_column: it holds values that can't be hashed, such as lists or dicts, and so can't identify rows. Pass a column of IDs such as numbers or strings, or leave id_column out to use the default row IDs.\"}",
+  "python": "find_duplicate_rows can't use column 'tags' with dtype object as id_column: it holds values that can't be hashed, such as lists or dicts, and so can't identify rows. Pass a column of IDs such as numbers or strings, or leave id_column=None to use the index labels."
+ },
+ "mcp fixes: mask-sensitive-with-a-project-that-declares-none": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"summarize_categorical got {\\\"mask_sensitive\\\": true}, but the project declares no sensitive columns, so there would be nothing to mask. Name them in the [data_policy] table of its project file, such as sensitive_columns = [\\\"email\\\"].\"}",
+  "python": "summarize_categorical got mask_sensitive=True, but the project declares no sensitive columns, so there would be nothing to mask. Name them in its data policy, such as project=ae.Project(data_policy=ae.DataPolicy(sensitive_columns=['email']))."
+ },
+ "mcp fixes: mask-sensitive-without-a-project": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"summarize_categorical got {\\\"mask_sensitive\\\": true} without a project, so no column is declared sensitive and there would be nothing to mask. Pass a project_path whose [data_policy] table names the sensitive columns, such as sensitive_columns = [\\\"email\\\"].\"}",
+  "python": "summarize_categorical got mask_sensitive=True without a project, so no column is declared sensitive and there would be nothing to mask. Pass a project that names the sensitive columns, such as project=ae.Project(data_policy=ae.DataPolicy(sensitive_columns=['email']))."
+ },
+ "mcp fixes: project-file-that-is-not-toml": {
+  "mcp": "{\"code\": \"invalid_project_file\", \"message\": \"The MCP server found invalid TOML in the project_path file '<tmp>/project.toml' at line 1, column 13: Expected ']' at the end of a table declaration. Fix the file; the project_path description in the MCP tool's input schema shows the format.\"}",
+  "python": "Project.load found invalid TOML in '<tmp>/project.toml' at line 1, column 13: Expected ']' at the end of a table declaration. Fix the file, or write it again with project.save(path, overwrite=True) from a project built in code; help(ae.Project.load) shows the format."
+ },
+ "mcp fixes: project-file-that-masks-nothing": {
+  "mcp": "{\"code\": \"invalid_project_file\", \"message\": \"The MCP server can't build a project from the project_path file '<tmp>/project.toml': DataPolicy got mask_sensitive = true but no sensitive_columns, so there would be nothing to mask. Name the sensitive columns, such as sensitive_columns = [\\\"email\\\"]. The project_path description in the MCP tool's input schema shows how a project file writes each key.\"}",
+  "python": "Project.load can't build a project from '<tmp>/project.toml': DataPolicy got mask_sensitive=True but no sensitive_columns, so there would be nothing to mask. Name the sensitive columns, such as ae.DataPolicy(sensitive_columns=['email'], mask_sensitive=True). help(ae.Project.load) shows how a project file writes each key."
+ },
+ "mcp fixes: project-file-without-a-key": {
+  "mcp": "{\"code\": \"invalid_project_file\", \"message\": \"The MCP server found no mask_sensitive in the [data_policy] table of the project_path file '<tmp>/project.toml'. A project file states its whole data policy, so that a file cut short can't leave masking off quietly: add mask_sensitive below the [data_policy] line, as the project_path description in the MCP tool's input schema shows.\"}",
+  "python": "Project.load found no mask_sensitive in the [data_policy] table of '<tmp>/project.toml'. A project file states its whole data policy, so that a file cut short can't leave masking off quietly: add mask_sensitive below the [data_policy] line, as help(ae.Project.load) shows."
+ },
+ "mcp fixes: project-file-without-the-data-policy": {
+  "mcp": "{\"code\": \"invalid_project_file\", \"message\": \"The MCP server found no [data_policy] table in the project_path file '<tmp>/project.toml'. A project file states its whole data policy, so that a file cut short can't leave masking off quietly: add a [data_policy] line, with single brackets, followed by sensitive_columns and mask_sensitive, as the project_path description in the MCP tool's input schema shows.\"}",
+  "python": "Project.load found no [data_policy] table in '<tmp>/project.toml'. A project file states its whole data policy, so that a file cut short can't leave masking off quietly: add a [data_policy] line, with single brackets, followed by sensitive_columns and mask_sensitive, as help(ae.Project.load) shows."
+ },
+ "mcp fixes: regression-target-of-datetimes": {
+  "mcp": "{\"code\": \"unsupported_column_type\", \"message\": \"profile_target can't use column 'joined' with dtype datetime64[ns] as a regression target, which must hold numbers: integer or float columns, nullable and pyarrow-backed ones of those kinds included. Pass a column of numbers instead.\"}",
+  "python": "profile_target can't use column 'joined' with dtype datetime64[ns] as a regression target, which must hold numbers: integer or float columns, nullable and pyarrow-backed ones of those kinds included. Convert datetimes to numbers with (df['joined'] - df['joined'].min()).dt.total_seconds()."
+ },
+ "mcp fixes: regression-target-of-text": {
+  "mcp": "{\"code\": \"unsupported_column_type\", \"message\": \"profile_target can't use column 'city' with dtype object as a regression target, which must hold numbers: integer or float columns, nullable and pyarrow-backed ones of those kinds included. If its values are class labels, pass {\\\"task\\\": \\\"binary_classification\\\"} or {\\\"task\\\": \\\"multiclass_classification\\\"}.\"}",
+  "python": "profile_target can't use column 'city' with dtype object as a regression target, which must hold numbers: integer or float columns, nullable and pyarrow-backed ones of those kinds included. If its values are class labels, pass task='binary_classification' or task='multiclass_classification'; or convert numbers stored as text with pd.to_numeric(df['city'], errors='coerce')."
+ },
+ "mcp fixes: value-outside-choices": {
+  "mcp": "{\"code\": \"invalid_argument\", \"message\": \"summarize_numeric got 'lineer' for quantile_method, but quantile_method must be one of 'inverted_cdf', 'averaged_inverted_cdf', 'closest_observation', 'interpolated_inverted_cdf', 'hazen', 'weibull', 'linear', 'median_unbiased', 'normal_unbiased', 'lower', 'higher', 'midpoint' or 'nearest'. Did you mean 'linear'? The MCP tool's input schema describes every argument.\"}",
+  "python": "summarize_numeric got 'lineer' for quantile_method, but quantile_method must be one of 'inverted_cdf', 'averaged_inverted_cdf', 'closest_observation', 'interpolated_inverted_cdf', 'hazen', 'weibull', 'linear', 'median_unbiased', 'normal_unbiased', 'lower', 'higher', 'midpoint' or 'nearest'. Did you mean 'linear'? See help(ae.summarize_numeric) for every argument."
+ },
+ "mcp: argument-for-the-tool-that-takes-none": {
+  "code": "invalid_call",
+  "error": "True",
+  "expected_code": "invalid_call",
+  "message": "list_analyses takes no arguments, but got 'limit'. Call it with {}."
+ },
+ "mcp: argument-misspelled-in-case-only": {
+  "code": "invalid_call",
+  "error": "True",
+  "expected_code": "invalid_call",
+  "message": "summarize_numeric has no argument 'COLUMNS'. Did you mean 'columns'? Allowed: data_path, columns, quantiles, quantile_method, trim_fraction, table_path."
+ },
+ "mcp: argument-of-the-search-tool-misspelled": {
+  "code": "invalid_call",
+  "error": "True",
+  "expected_code": "invalid_call",
+  "message": "search_analyses has no argument 'quey'. Did you mean 'query'? Allowed: query, limit."
+ },
+ "mcp: column-labels-that-form-a-multiindex": {
+  "code": "ambiguous_column_labels",
+  "error": "True",
+  "expected_code": "ambiguous_column_labels",
+  "message": "summarize_numeric refers to columns by name, but the column labels form a MultiIndex with 2 levels. Flatten them in the data file first. describe_dataset describes data with any labels."
+ },
+ "mcp: column-of-a-type-the-analysis-cannot-use": {
+  "code": "unsupported_column_type",
+  "error": "True",
+  "expected_code": "unsupported_column_type",
+  "message": "summarize_numeric can't use column 'city' with dtype object. It accepts integer, float and boolean columns, nullable and pyarrow-backed ones of those kinds included. Use summarize_categorical for 'city' instead, or leave 'city' out of columns."
+ },
+ "mcp: columns-holding-null": {
+  "code": "column_not_found",
+  "error": "True",
+  "expected_code": "column_not_found",
+  "message": "summarize_numeric got an unknown column 'None' in columns. To select every suitable column, leave columns out rather than a list holding null. The data has 3 columns: 'order', 'city' and 'score'."
+ },
+ "mcp: data-file-that-is-not-utf-8": {
+  "code": "unreadable_data_file",
+  "error": "True",
+  "expected_code": "unreadable_data_file",
+  "message": "Can't read <tmp>/shop.csv as CSV: 'utf-8' codec can't decode byte 0xfc in position 15: invalid start byte. Check that the file is UTF-8 text with a header row and fields separated by commas, or pass the path of a file that is."
+ },
+ "mcp: data-path-of-another-format": {
+  "code": "unsupported_data_format",
+  "error": "True",
+  "expected_code": "unsupported_data_format",
+  "message": "data_path '<tmp>/shop.xlsx' has the extension '.xlsx', which the MCP server can't read. It reads .csv, .tsv, .csv.gz, .tsv.gz, .parquet and .pq files, in upper or lower case. Save the data as CSV, TSV or Parquet and pass that file's path."
+ },
+ "mcp: data-path-that-is-a-directory": {
+  "code": "data_file_not_found",
+  "error": "True",
+  "expected_code": "data_file_not_found",
+  "message": "data_path leads to <tmp>/folder.csv, which is a directory, not a file. Pass the path of an existing file, absolute or relative to the MCP server's working directory, /Users/chris/Developer/agent-eda/.claude/worktrees/agent-a3406852ea8570f65."
+ },
+ "mcp: data-path-that-is-a-number": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "summarize_numeric got 3 for data_path, but data_path must be a string: the path to the data file, absolute or relative to the MCP server's working directory."
+ },
+ "mcp: data-without-columns": {
+  "code": "column_not_found",
+  "error": "True",
+  "expected_code": "column_not_found",
+  "message": "summarize_numeric got an unknown column 'score' in columns. The data has no columns."
+ },
+ "mcp: datetime-sentinel-written-as-a-date-for-a-column-with-a-time-zone": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got \"1900-01-01T00:00:00\" for column 'when' in sentinel_values, but 'when' holds datetimes in time zone UTC (dtype datetime64[ns, UTC]), so it can never match. Did you mean \"1900-01-01T00:00:00+00:00\"? Declare each value as the type its column holds, such as {\"sentinel_values\": {\"when\": [\"1900-01-01T00:00:00+00:00\"]}}."
+ },
+ "mcp: expected-label-of-a-type-the-target-cannot-hold": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "profile_target got true in expected_labels, but 'city' holds text (dtype object), so it can never equal a label. Did you mean \"True\"? Declare each label as the type the target holds."
+ },
+ "mcp: id-column-that-names-the-index": {
+  "code": "column_not_found",
+  "error": "True",
+  "expected_code": "column_not_found",
+  "message": "find_duplicate_rows got id_column 'order', which names the index, not a column. The index labels are already the row IDs: leave id_column out to use them. To use the index as a column instead, write it as a column in the data file. The data has 1 column: 'score'."
+ },
+ "mcp: mask-sensitive-for-an-analysis-that-shows-no-raw-values": {
+  "code": "invalid_call",
+  "error": "True",
+  "expected_code": "invalid_call",
+  "message": "find_candidate_keys takes no mask_sensitive: it shows no raw values, so there is nothing to mask. Leave mask_sensitive out. Allowed: data_path, columns, max_key_size, max_combinations, table_path."
+ },
+ "mcp: method-misspelled": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "compute_association_matrix got 'spearmen' for numeric_method, but numeric_method must be one of 'pearson', 'spearman' or 'kendall'. Did you mean 'spearman'? The MCP tool's input schema describes every argument."
+ },
+ "mcp: option-written-as-a-boolean": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "summarize_numeric got true for trim_fraction, but trim_fraction must be a number with 0 <= trim_fraction < 0.5. The MCP tool's input schema describes every argument."
+ },
+ "mcp: option-written-as-null": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "summarize_categorical got null for top_n, but top_n must be an integer with 1 <= top_n <= 100. The MCP tool's input schema describes every argument."
+ },
+ "mcp: project-file-that-is-not-toml": {
+  "code": "invalid_project_file",
+  "error": "True",
+  "expected_code": "invalid_project_file",
+  "message": "The MCP server found invalid TOML in the project_path file '<tmp>/project_not_toml.toml' at line 1, column 13: Expected ']' at the end of a table declaration. Fix the file; the project_path description in the MCP tool's input schema shows the format."
+ },
+ "mcp: project-file-with-a-misspelled-key": {
+  "code": "unknown_project_key",
+  "error": "True",
+  "expected_code": "unknown_project_key",
+  "message": "The MCP server found an unknown key 'mask_sensitve' in the [data_policy] table of the project_path file '<tmp>/project_with_a_typo.toml'. Did you mean 'mask_sensitive'? Allowed: name and data_policy at the top level; sensitive_columns and mask_sensitive in [data_policy]."
+ },
+ "mcp: project-for-an-analysis-that-shows-no-raw-values": {
+  "code": "invalid_call",
+  "error": "True",
+  "expected_code": "invalid_call",
+  "message": "summarize_numeric takes no project_path: it shows no raw values, so there is nothing to mask. Leave project_path out. Allowed: data_path, columns, quantiles, quantile_method, trim_fraction, table_path."
+ },
+ "mcp: project-given-in-place-of-project-path": {
+  "code": "invalid_call",
+  "error": "True",
+  "expected_code": "invalid_call",
+  "message": "summarize_categorical has no argument 'project'. Did you mean 'project_path'? Allowed: data_path, columns, top_n, project_path, mask_sensitive, table_path."
+ },
+ "mcp: project-path-that-is-a-directory": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "project_path got the directory '<tmp>' for project_path, but project_path must name a file in it, such as \"<tmp>/project.toml\"."
+ },
+ "mcp: project-path-that-is-empty": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "project_path got an empty path, but project_path must name a file, such as \"project.toml\"."
+ },
+ "mcp: project-path-without-a-file": {
+  "code": "project_file_not_found",
+  "error": "True",
+  "expected_code": "project_file_not_found",
+  "message": "project_path leads to '<tmp>/missing.toml', but no file is there. Write a project TOML file there, with a [data_policy] table that has sensitive_columns = [\"email\"] and mask_sensitive = true or false, or pass the path of an existing project file."
+ },
+ "mcp: quantiles-that-is-a-string": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "summarize_numeric got '0.5' for quantiles, but quantiles must be a list of numbers with 0 <= value <= 1. The MCP tool's input schema describes every argument."
+ },
+ "mcp: schema-that-is-a-list": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "validate_column_types got a list of 1 item for schema, but schema must be a mapping from column names to one of 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec. The MCP tool's input schema describes every argument."
+ },
+ "mcp: search-limit-that-is-zero": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "search_analyses got 0 for limit, but limit must be an integer of at least 1, such as {\"query\": \"missing values\", \"limit\": 3}."
+ },
+ "mcp: search-query-that-is-null": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "search_analyses takes the query as a string, such as {\"query\": \"missing values\"}, but got null."
+ },
+ "mcp: sentinel-value-listed-twice": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got -999 more than once in the sentinel_values list for \"score\". List each value once."
+ },
+ "mcp: sentinel-value-of-another-kind-written-as-a-boolean": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got true for column 'score' in sentinel_values, but 'score' holds numbers (dtype float64), so it can never match. Did you mean 1? Declare each value as the type its column holds, such as {\"sentinel_values\": {\"score\": [1]}}."
+ },
+ "mcp: sentinel-value-written-as-text-for-a-number": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got \"-999\" for column 'score' in sentinel_values, but 'score' holds numbers (dtype float64), so it can never match. Did you mean -999? Declare each value as the type its column holds, such as {\"sentinel_values\": {\"score\": [-999]}}."
+ },
+ "mcp: sentinel-values-of-the-id-column": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got sentinel values for 'order', but leaving the columns argument out leaves out the id_column, which identifies rows. Name it in columns to check it, or leave it out of sentinel_values."
+ },
+ "mcp: sentinel-values-that-are-true-twice": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got true more than once in the sentinel_values list for \"score\". List each value once."
+ },
+ "mcp: table-path-in-a-missing-directory": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "table_path leads to <tmp>/missing/table.csv, but its directory, <tmp>/missing, doesn't exist, and the MCP server doesn't create directories. Create it first, or pass a path in an existing directory, absolute or relative to the MCP server's working directory, /Users/chris/Developer/agent-eda/.claude/worktrees/agent-a3406852ea8570f65."
+ },
+ "mcp: table-path-of-another-format": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "table_path '<tmp>/table.xlsx' has the extension '.xlsx', which the MCP server can't write. It writes .csv, .parquet and .pq files, in upper or lower case: CSV for any reader, Parquet to keep the dtypes. Pass a path that ends in one of them."
+ },
+ "mcp: table-path-that-is-a-directory": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "table_path leads to <tmp>/folder.csv, which is a directory. Pass the path of a new file, such as <tmp>/folder.csv/table.csv."
+ },
+ "mcp: table-path-that-is-a-number": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "summarize_numeric got 3 for table_path, but table_path must be a string or null: the path of a new .csv, .parquet and .pq file, absolute or relative to the MCP server's working directory."
+ },
+ "mcp: table-path-where-a-file-exists": {
+  "code": "table_file_exists",
+  "error": "True",
+  "expected_code": "table_file_exists",
+  "message": "table_path leads to <tmp>/shop.csv, where a file already exists, and the MCP server never overwrites a file. Pass a path where no file exists yet, such as <tmp>/shop-2.csv, or read the file that is there."
+ },
+ "mcp: task-that-is-a-prefix": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "profile_target got 'binary' for task, but task must be one of 'binary_classification', 'multiclass_classification' or 'regression'. Did you mean 'binary_classification'? The MCP tool's input schema describes every argument."
+ },
+ "mcp: task-that-needs-more-expected-labels": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "profile_target got 1 label in expected_labels for a binary_classification task, which has 2 classes. List its 2 labels, or pass {\"task\": \"multiclass_classification\"}."
+ },
+ "mcp: value-inside-a-mapping-of-the-wrong-type": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "validate_column_types got 3 at schema/score, but each value in schema must be one of 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec. The MCP tool's input schema describes every argument."
+ },
+ "profile_missing_values | all missing | default": {
+  "json": "0d4b48da99308cfc22fa4c3a99e0b9755c17a31c4a969efba572e73a8fe7f557",
+  "table:columns": "32c8291d75bd7b1da9251818caac5d0fb0d206c9c88c55d115d4352480f4c3f9",
+  "table:row_distribution": "f2321d8c63b838eddc62d86240ed60db77b4df3ebc4311c5c3cf3ac8319b049e",
+  "text": "8c7691c97e99a372ea260279daedec0f61c8c09c40447c700ce2ceb5dc558f3b"
+ },
+ "profile_missing_values | all missing | masked": {
+  "json": "3cf33ba97ca61501b73dc54f5e0207e87e632b19e0c2423324bb2ad54a528da3",
+  "table:columns": "32c8291d75bd7b1da9251818caac5d0fb0d206c9c88c55d115d4352480f4c3f9",
+  "table:row_distribution": "f2321d8c63b838eddc62d86240ed60db77b4df3ebc4311c5c3cf3ac8319b049e",
+  "text": "db517860f03254bea3c8600815dc3f693181b53b276e35ed78586203ded79c46"
+ },
+ "profile_missing_values | constant | default": {
+  "json": "a6282b39804e7a71d0fe2b6ea167a408757a543c08a06639e0fe73ced84e00ad",
+  "table:columns": "53031775da12d25fdb209b6006be043085629735fcccda1cb65cc6d989c2e8be",
+  "table:row_distribution": "8e912ccc425c4dfd18a4ea480996b3295e8f3a03a5980925cb2542394ec67e1d",
+  "text": "a66a74b88cd5942bdc589321a660df95a64ec31eb9ba6f07bfc8416424e06349"
+ },
+ "profile_missing_values | constant | masked": {
+  "json": "23479259fe002660b89cc8eaed03aea4da22a8addc3279db6d902e01f0ca7bbb",
+  "table:columns": "53031775da12d25fdb209b6006be043085629735fcccda1cb65cc6d989c2e8be",
+  "table:row_distribution": "8e912ccc425c4dfd18a4ea480996b3295e8f3a03a5980925cb2542394ec67e1d",
+  "text": "535af2c6f14c82c3e2a7c6e508d424cd25b2a2ff086eb74d2cdefd53468bb1e7"
+ },
+ "profile_missing_values | every kind | default": {
+  "json": "0eb7a0c42195c148c0c127547c20f0b13c99a155a209f9925d30ea84cee24c10",
+  "table:columns": "18ce8ecd022cf7bebf1c146c253f717b8e78d6921ae52d21719b223db9eb5fd8",
+  "table:row_distribution": "d18556f0a3dda09aeb90c23e1f987ebd4696a7a7ad392359e623f171af1fc62e",
+  "text": "8da79f5d885065d63bbde6eac10dac2f1176ac19b7782c5ed11e9ad372009473"
+ },
+ "profile_missing_values | every kind | masked": {
+  "json": "05351882e031b812fb4f31ecae64db7e7f5c5509645c8eacd29b5d4aae88ba33",
+  "table:columns": "18ce8ecd022cf7bebf1c146c253f717b8e78d6921ae52d21719b223db9eb5fd8",
+  "table:row_distribution": "d18556f0a3dda09aeb90c23e1f987ebd4696a7a7ad392359e623f171af1fc62e",
+  "text": "a2067e20de79d35d368f06a74135f41d13cc8b7496dc3f0029ae641205eacb2d"
+ },
+ "profile_missing_values | generated 0 | default": {
+  "json": "3a6c9a066384db292586c2e4de99c6e8fb061288bbd77214049c1d34ce12a7ad",
+  "table:columns": "4354b413df1d886d9dbece777810380c40090eded84e781bb24168acc66cb48e",
+  "table:row_distribution": "3418874e3789f4ad0da36798ed786194331888377ae5f422027c71c0d6a9bb0a",
+  "text": "26bc62453bb60cdcc115e0eb59ace6b2e82a6072c430d71a44dc01df35acad04"
+ },
+ "profile_missing_values | generated 0 | masked": {
+  "json": "7b71534a984020fba3aee7f586feb530ce69b07c4a07f71b43d47035e6869b46",
+  "table:columns": "4354b413df1d886d9dbece777810380c40090eded84e781bb24168acc66cb48e",
+  "table:row_distribution": "3418874e3789f4ad0da36798ed786194331888377ae5f422027c71c0d6a9bb0a",
+  "text": "a37cb3a3b0b418684d653e5150f085727ffdd7c2da61daf9f20bb4834cd0bebe"
+ },
+ "profile_missing_values | generated 1 | default": {
+  "json": "43d21922c5433f4889e7e6f539103deb792f21ea3f775c12df483161f2565108",
+  "table:columns": "a06afb8eee79ee8c6e885ce17020e15241096aac8cf741e7ae017feb5fc0afe6",
+  "table:row_distribution": "662e660e9f171b50fed8d460996c80b57dbfb43af87de12c204acaf8de02e223",
+  "text": "f8d1a461a20f871b0fb00e1cc9c41a64761af82642341524fe99a9e4adb5a0a1"
+ },
+ "profile_missing_values | generated 1 | masked": {
+  "json": "0a0dc63d76a3241526e6bc3d6e0ac7a08c24437c2689361f3028f34bf31a21d2",
+  "table:columns": "a06afb8eee79ee8c6e885ce17020e15241096aac8cf741e7ae017feb5fc0afe6",
+  "table:row_distribution": "662e660e9f171b50fed8d460996c80b57dbfb43af87de12c204acaf8de02e223",
+  "text": "b45edc265ea7c823dddd7613e66db64cf1630cf3342bbcf7f22d8c036ec2339c"
+ },
+ "profile_missing_values | generated 2 | default": {
+  "json": "3d3d70535a04a63453804071aa4bd9bcce114bd82eaafa6a2bbc1aca45aa9ab5",
+  "table:columns": "0f09db851117d445f9f22b14a2ec8e2c218cddaade14feeecb530c48ed58a53b",
+  "table:row_distribution": "c58a48a6b378915eff5f550c5da28ac6789c92d49978ab3efd3e44ceee234c55",
+  "text": "63ca581598f27ebc89a44c90a9e3ae5190e54952a635f3027ad8866877258de6"
+ },
+ "profile_missing_values | generated 2 | masked": {
+  "json": "63d5491e22748b22046d5e984c67d09aa8c382466047ed6669cd7d43e21e5a7a",
+  "table:columns": "0f09db851117d445f9f22b14a2ec8e2c218cddaade14feeecb530c48ed58a53b",
+  "table:row_distribution": "c58a48a6b378915eff5f550c5da28ac6789c92d49978ab3efd3e44ceee234c55",
+  "text": "b6f021896d8c688169dda203799f3c9f3edb162d716cad08f1dd722debc5a00a"
+ },
+ "profile_missing_values | generated 3 | default": {
+  "json": "2fc5e46dff1b33bc7f3d3c6447fbbb865f803a970212ff4ac16cc09c315f9a1a",
+  "table:columns": "70b65a8c6c73127dff0cdec30ed8b748470e671d70dd0cf168d292861b34ebd3",
+  "table:row_distribution": "4741b1027eb2d17ac9e7784cc4a6c3abb9145ced78aeb235506e9e16d085a2b7",
+  "text": "b7f128dfab991b6dca7781b5b3ddbcf2a4bbf164eac0585e583236372256ef2a"
+ },
+ "profile_missing_values | generated 3 | masked": {
+  "json": "9e5e6044ea04c0b8328b064be4f613bbd419adb1ca5af3fa3669111dfff164a7",
+  "table:columns": "70b65a8c6c73127dff0cdec30ed8b748470e671d70dd0cf168d292861b34ebd3",
+  "table:row_distribution": "4741b1027eb2d17ac9e7784cc4a6c3abb9145ced78aeb235506e9e16d085a2b7",
+  "text": "f089bf672d71201cfd1e0e01107b425118381ba01e8c8fb9b0e8404629d8643c"
+ },
+ "profile_missing_values | labels: colliding labels | default": {
+  "error": "815a474c04e7d74b3d0af0a2de8705a46067678ce7b7b089a33e2419a227f63a"
+ },
+ "profile_missing_values | labels: colliding labels | masked": {
+  "error": "815a474c04e7d74b3d0af0a2de8705a46067678ce7b7b089a33e2419a227f63a"
+ },
+ "profile_missing_values | labels: missing labels | default": {
+  "json": "141df9e2ec91a8477080cfa2f4b58f00ead2e064a9a52620b4f863debd0d54d7",
+  "table:columns": "489a9c483a9ca13b6775e3aa801dcef18edb6f12a1cbaddc4504ff0e6007fb04",
+  "table:row_distribution": "bd6ded980cbadc1028802c2f8ec78ca54b28c382828d1a54a4b101bb49ae0c7a",
+  "text": "7d8d3263fd922c96d8b873fd2611b9177fd287c3c2877c7d2049b2743954319e"
+ },
+ "profile_missing_values | labels: missing labels | masked": {
+  "json": "0e542869e5b8cfd4d15d9acc961d96b271334e1be2ba7e972bd651910ab2bbbb",
+  "table:columns": "489a9c483a9ca13b6775e3aa801dcef18edb6f12a1cbaddc4504ff0e6007fb04",
+  "table:row_distribution": "bd6ded980cbadc1028802c2f8ec78ca54b28c382828d1a54a4b101bb49ae0c7a",
+  "text": "ceb02614a9c67437602abfb1e1185e13ee0722c70015fb9132e8b7c8a0f6c714"
+ },
+ "profile_missing_values | labels: multiindex columns | default": {
+  "error": "1bd86fed9d3f9c30ca6144578a376efc06294f429a2706cc3ec711a2801789ec"
+ },
+ "profile_missing_values | labels: multiindex columns | masked": {
+  "error": "1bd86fed9d3f9c30ca6144578a376efc06294f429a2706cc3ec711a2801789ec"
+ },
+ "profile_missing_values | labels: repeated labels | default": {
+  "error": "0528549443e5edab627a80e20c3a251afab81bf3dd4ab96a8e8c111b4d3ceda3"
+ },
+ "profile_missing_values | labels: repeated labels | masked": {
+  "error": "0528549443e5edab627a80e20c3a251afab81bf3dd4ab96a8e8c111b4d3ceda3"
+ },
+ "profile_missing_values | many columns | default": {
+  "json": "b4fb32d4c1f098391347425daa084ed7ca788742a67a27342241b270b9699d6d",
+  "table:columns": "72bdf944be87cbbda47ffa409bd658a0e8b42960242233deadf0953582572ec7",
+  "table:row_distribution": "42b9571fea4c8449a1f67ce4495d0d281ca3a92774d2bccb26a646af32530da5",
+  "text": "58072926b7762226afdae8f3362a8484bf7caa403d7c9c778113344e885eb159"
+ },
+ "profile_missing_values | many columns | masked": {
+  "json": "9eb5a5249fc1ddea64322d170bafe079a8701dc127b0205be5ceb103c849b84d",
+  "table:columns": "72bdf944be87cbbda47ffa409bd658a0e8b42960242233deadf0953582572ec7",
+  "table:row_distribution": "42b9571fea4c8449a1f67ce4495d0d281ca3a92774d2bccb26a646af32530da5",
+  "text": "c90a61e7e74742463456408259f372397a88b68b8bf0a94bf742ccb5ec27f558"
+ },
+ "profile_missing_values | many rows | default": {
+  "json": "3cc6a65db858e201917f4baa275736c9c7e2bc3569dbb7d3b44eac96879491c9",
+  "table:columns": "b5803ed103607a7dba390f8338105e72ab7c8bbab9185677731996fb9f895eb9",
+  "table:row_distribution": "3d8af48853fe36ac977cf551b32dfcb3106341ab33f246d3978c00bb20b54d57",
+  "text": "615c8a9007205c0f1f97a32791b86b4a7f7bc5f12478b2d643f0aa1d8dd097c6"
+ },
+ "profile_missing_values | many rows | masked": {
+  "json": "b21faf1f2cb03c6a402190ddfd199b9456f388647a8c7b1dff5bf6198deb97b1",
+  "table:columns": "b5803ed103607a7dba390f8338105e72ab7c8bbab9185677731996fb9f895eb9",
+  "table:row_distribution": "3d8af48853fe36ac977cf551b32dfcb3106341ab33f246d3978c00bb20b54d57",
+  "text": "89b2d28ce8b671cd5c8975272527151f445960d2411ed23cfba54a13833c00ed"
+ },
+ "profile_missing_values | no columns | default": {
+  "json": "8f22a7ddb7866632ef339b1ab7bcb9a9a39e0d9ec228788842da74e06bf9bd5d",
+  "table:columns": "e0a65c39d886a2f17e9805657de3acdde442bf7c2056bf0277ec4172bac3c499",
+  "table:row_distribution": "8e912ccc425c4dfd18a4ea480996b3295e8f3a03a5980925cb2542394ec67e1d",
+  "text": "01653fee62ad29ba3a04fc44588c80d2a49e144b4614fde2d1cb435dabc5b847"
+ },
+ "profile_missing_values | no columns | masked": {
+  "json": "3f079b12874b74cc224cf85299e5be180029ae59138c6941e41b5dec0f0be4b8",
+  "table:columns": "e0a65c39d886a2f17e9805657de3acdde442bf7c2056bf0277ec4172bac3c499",
+  "table:row_distribution": "8e912ccc425c4dfd18a4ea480996b3295e8f3a03a5980925cb2542394ec67e1d",
+  "text": "01653fee62ad29ba3a04fc44588c80d2a49e144b4614fde2d1cb435dabc5b847"
+ },
+ "profile_missing_values | no rows | default": {
+  "json": "6cb2041dd78be03581afbd2840a5e83af0b1c776249bab069d09917a49c6f6ff",
+  "table:columns": "7e96e82a3a4565217e69c418badd3b83674544caad679a0bff27b60c3ea5d446",
+  "table:row_distribution": "bc91f5b480d8bb5b51d0d10d143718a46b77f83196b16ab330c13326e417093d",
+  "text": "b009a5831770cc7361a31daf2499c104ef89669a7bbff0e1a11cec1ca74a832b"
+ },
+ "profile_missing_values | no rows | masked": {
+  "json": "8b2279a48a09e5a34b2e86c3c97bfabe8ed87afe16c29f4520b2ece7651e847e",
+  "table:columns": "7e96e82a3a4565217e69c418badd3b83674544caad679a0bff27b60c3ea5d446",
+  "table:row_distribution": "bc91f5b480d8bb5b51d0d10d143718a46b77f83196b16ab330c13326e417093d",
+  "text": "c90e9cf901ca68c726835548086d1e43883651ba9063a32d7f15bc2733c677fc"
+ },
+ "profile_missing_values | nothing | default": {
+  "json": "78f104a53f11d700f87d7c9148897919cee0bbdb6f6e63cc8a255ee2d99449b5",
+  "table:columns": "e0a65c39d886a2f17e9805657de3acdde442bf7c2056bf0277ec4172bac3c499",
+  "table:row_distribution": "bc91f5b480d8bb5b51d0d10d143718a46b77f83196b16ab330c13326e417093d",
+  "text": "16a24c3e287a50156e67f15cf50fbe8c222809b9755d8267037a20c62a803eb4"
+ },
+ "profile_missing_values | nothing | masked": {
+  "json": "c73541d7332d9076a5205cd7da9661f36389416b50f4a1adcfd9fc590c6c6af7",
+  "table:columns": "e0a65c39d886a2f17e9805657de3acdde442bf7c2056bf0277ec4172bac3c499",
+  "table:row_distribution": "bc91f5b480d8bb5b51d0d10d143718a46b77f83196b16ab330c13326e417093d",
+  "text": "16a24c3e287a50156e67f15cf50fbe8c222809b9755d8267037a20c62a803eb4"
+ },
+ "profile_missing_values | one row | default": {
+  "json": "5ad3ba4e1853874b78cbb89c181f5a41f1d44446be9148db81f1f4091b7215e3",
+  "table:columns": "53031775da12d25fdb209b6006be043085629735fcccda1cb65cc6d989c2e8be",
+  "table:row_distribution": "bd6ded980cbadc1028802c2f8ec78ca54b28c382828d1a54a4b101bb49ae0c7a",
+  "text": "6772dd1710afdedb7ba7349ebeba6ab0e01401f96d7e1bd3770160c2150cb264"
+ },
+ "profile_missing_values | one row | masked": {
+  "json": "29a9cf6f489ca558eeb6fcbf4d0e993600eafc10c47f13f4af512005eb311246",
+  "table:columns": "53031775da12d25fdb209b6006be043085629735fcccda1cb65cc6d989c2e8be",
+  "table:row_distribution": "bd6ded980cbadc1028802c2f8ec78ca54b28c382828d1a54a4b101bb49ae0c7a",
+  "text": "a348e7818731bc7593b49b556d8bded874425f31768704aba646774d6ed2c8cc"
+ },
+ "profile_missing_values | shared strings | default": {
+  "json": "6e03c06a0fb22d449291d42a7a3f0a13a02f73ea9f6f942c49c794f91d2c716f",
+  "table:columns": "bfbb51e1eb208176ee4daf60ab11747f360d02aa257c48640c3d337ef69e1d5c",
+  "table:row_distribution": "3d4a29c9edfc88f66c7e6d64f2c3dba7968beb9179aeca9599001d65c7012626",
+  "text": "b58eb8243811370d4d6e98a19a624b2a78c2b3434aba90551ea983c056ac6b0a"
+ },
+ "profile_missing_values | shared strings | masked": {
+  "json": "1201bd99599ac35e29bb280b67799e331c01d14f8ee753a0cbce372b1728da04",
+  "table:columns": "bfbb51e1eb208176ee4daf60ab11747f360d02aa257c48640c3d337ef69e1d5c",
+  "table:row_distribution": "3d4a29c9edfc88f66c7e6d64f2c3dba7968beb9179aeca9599001d65c7012626",
+  "text": "4fa246bef6428ea81451aa1ab0b0cf98c94daef9ddf5aebf21c0cb095bd397d6"
+ },
+ "profile_target | all missing | default": {
+  "json": "a7b28ad7d6d8f77509efec4ec236188489e2fcec78e7399523a35f1d536e783d",
+  "table:target": "cf160d4e531460b62ff901001649078cae360736658fdf9c9c313b9d86ad07ea",
+  "text": "33039e38c35d0355812bd6c0b6ec7543d4e991c905369e16edeab901a0276025"
+ },
+ "profile_target | all missing | masked": {
+  "json": "9f34419318d264a58c2a06a9f0df528bb9c4c49d1890b5f5b33666990a2b2499",
+  "table:target": "cf160d4e531460b62ff901001649078cae360736658fdf9c9c313b9d86ad07ea",
+  "text": "929d16367e68435460acb61b7286d543aa0d613cee202c6aaa3c5729e9a0d20d"
+ },
+ "profile_target | constant | default": {
+  "json": "3dc6db4b49e9ccbe8ff860285ad0cde15efd5896920d8e6b5debabf7149ef2da",
+  "table:target": "3cede509386634bd6889eac0550e08dfde410f27dd4344631f1b0cdd0bce4cfc",
+  "text": "fccb7274e385354f7896a2a747d3ec43832643ad40f31a495f7079f6311617d6"
+ },
+ "profile_target | constant | masked": {
+  "json": "8ae416eac99f8ef8ab3ee8f323f66ff277155a19a11946e2d1b4aaefce76f24d",
+  "table:target": "e72092e59877eab0cc806e5a497f2c2d31a2ae83185d200b8503582e125e6bf8",
+  "text": "ce0c2b47587ad9a910dafd481f99f3ae2a6d99afc0a42d24342ff557f238ba6b"
+ },
+ "profile_target | every kind | default": {
+  "json": "348cd52d9f3baeb867a5f13e9195e62190950d6093029ce57202669afcec6a74",
+  "table:target": "7121f97df0e91a76f9ddbfb183ce0967321bb4497cea61aa9d38c2853ca81a1f",
+  "text": "2c73c8a71b809baa6f83c177ff095f1f6366347b01a3fd69f04433007d0422b3"
+ },
+ "profile_target | every kind | masked": {
+  "json": "9a5231476875b41f7623a9ef1d0b5c642dffd67cefa516b7acaa79750d9e953e",
+  "table:target": "762ceef9fd5c722faa7df3d20285a2c2745b70975ed22ba8da75145a4156511f",
+  "text": "0c44fb6e87d1f7714a6a43fa5c6e090c81abf4eaafae2a037548cbdbb17889be"
+ },
+ "profile_target | generated 0 | default": {
+  "json": "53167f4ca8863dc4267bc935c358f80da8ea518e7331eb978c0a57736782fe1c",
+  "table:target": "d1ba2b5a78a74e9cada1bb194f15b1412c060b0cf19371b98370b49c4dbb8098",
+  "text": "e92c55ce3c038851aa5ae82b34f6a46682ca0969c8710453f3c136a3081945a2"
+ },
+ "profile_target | generated 0 | masked": {
+  "json": "dbcd3059079d2950c3ce349be8e81002fb9bb0e9c77f9b61dc28e5984ca638db",
+  "table:target": "a5eaaa6cae140a1ffd0f66ea4e5181ebe79264ca8b4ab839c0fa0fc2e634389f",
+  "text": "d7c9345033ac7448fa8fbcf83d5e03cec09f494b83ef9a27caa413b9634a214e"
+ },
+ "profile_target | generated 1 | default": {
+  "json": "8457cb8223519bfb49d7f8d0a4d933e07ec51ef58320ccedd7d64326c9836633",
+  "table:target": "b98ff5f71384aad43fde7aa4e26365ada116ad80be8289b736925851485bcdd3",
+  "text": "1c928cd7e6a5c338bb708d9824120332526055e010a3880ed1b9e55b171295fa"
+ },
+ "profile_target | generated 1 | masked": {
+  "json": "771af26f2bb239bd35e839fb6124ae63a335e17fa71da6ceb0de8dc6a2bfe471",
+  "table:target": "8e44960ec6b53477bdd689ab902208eb9bd0cb91fbb0ebc256d1ea0028f89d9b",
+  "text": "ae623d62949f7602bccce0008ef155e43655e3e31a93389bd5c2c4928432be06"
+ },
+ "profile_target | generated 2 | default": {
+  "json": "46af0b58702c7a28b9a35389505deba63f6e4c7f092e0b74a9559b493f2d1325",
+  "table:target": "336e4b81c44e743875261cb04f165c98304827410bfaf6ef2b5fbdca654fb3b0",
+  "text": "9150c60e67c222f46a8d322ae541a444b60dfcac86fbc37aea8e176cc48588a3"
+ },
+ "profile_target | generated 2 | masked": {
+  "json": "de70135e85c3aea6d8654fe2335bb62e6eb6e3307e5b930b8db2a847aa989457",
+  "table:target": "dee44ee3801818a5667d363beb9e6661851de63e76c8a092541e626547241a3d",
+  "text": "93a18730f6f739be5d970c455c9f6ab232fc91f54508424a29886c49374fc0d4"
+ },
+ "profile_target | generated 3 | default": {
+  "json": "3f644508454ac0fc33451829a9adeac7195664a64ea3f4d142f340b9d8066013",
+  "table:target": "4103e002cc349c3d6fac73dcfc3e4da5840fa5a1b38c57f935659a18bd38b3c6",
+  "text": "c9bbb4e79f101863787d5d54586af110bc66fe79907b116096476ca26a3b06bb"
+ },
+ "profile_target | generated 3 | masked": {
+  "json": "b8dd64bf77258f88443a5c136f8e4d6396b840efc1eabc7d707cebbad002608e",
+  "table:target": "02feb18b883ecf1245175f605c785856ef077ae44e13b2dd12aa8aa1b7897e7d",
+  "text": "94ecfead353d0e996f842559dd7a46a606202bbec82c1dd4348be92b539e2868"
+ },
+ "profile_target | labels: colliding labels | default": {
+  "error": "5e36297e3d6136a9e03e04b555050c7f53c992d50e2fbfae5b3d5a63868c6fee"
+ },
+ "profile_target | labels: colliding labels | masked": {
+  "error": "5e36297e3d6136a9e03e04b555050c7f53c992d50e2fbfae5b3d5a63868c6fee"
+ },
+ "profile_target | labels: missing labels | default": {
+  "json": "5d49ec2893087de687e367021cb4d5fbf7f7722055484a7a72d0e0f37a841c2e",
+  "table:target": "1482b50a09a827965e1e260001cc7ad688efeb74a5144506da008c9009839bd8",
+  "text": "ede2a1c064091db9cbefd401268a4996cad53a3c99d7cb326ecbcf54bec9ae3f"
+ },
+ "profile_target | labels: missing labels | masked": {
+  "json": "8d2bca28d3f20cd3342f7f7f51343e987186ce2455c7d5ac7783a6489453c83c",
+  "table:target": "30bf312e89d0e6ae38fb1c0de2dcb6af0896625fcbd1a8ee76fbe4e75524aff5",
+  "text": "b828a2ad9bc2d18a429d8c97fef3d4aa1b1584ae34f084ed0d1beb9ac401c48f"
+ },
+ "profile_target | labels: multiindex columns | default": {
+  "error": "0d2196b8a5533659d9bd50ea65720bc307f4d0a005232bf7478da5bc1abca201"
+ },
+ "profile_target | labels: multiindex columns | masked": {
+  "error": "0d2196b8a5533659d9bd50ea65720bc307f4d0a005232bf7478da5bc1abca201"
+ },
+ "profile_target | labels: repeated labels | default": {
+  "error": "5cb80faba7cb7f38e83cc7f41e6825a3e9d5592cf145d36810ed331e86b06f93"
+ },
+ "profile_target | labels: repeated labels | masked": {
+  "error": "5cb80faba7cb7f38e83cc7f41e6825a3e9d5592cf145d36810ed331e86b06f93"
+ },
+ "profile_target | many columns | default": {
+  "json": "ea4fa31cea4182f1a92bfcbd7d8766ef6455bfa8a9955de598f4367a812eeae0",
+  "table:target": "7121f97df0e91a76f9ddbfb183ce0967321bb4497cea61aa9d38c2853ca81a1f",
+  "text": "b933a9d6b35bb8c97249ff0874207126550b94e2529cffaeb59cf0f96d1983e3"
+ },
+ "profile_target | many columns | masked": {
+  "json": "e928059eeb7f70e094d8139e85191029de9c77340873d6e26f43310ca4b4196a",
+  "table:target": "762ceef9fd5c722faa7df3d20285a2c2745b70975ed22ba8da75145a4156511f",
+  "text": "ddd6c61fff16f3a61ed52db17ddcdf3c4dcd261e7a8cf7dbe88542e9a1da0f5c"
+ },
+ "profile_target | many rows | default": {
+  "json": "6f20c4bce85dabed1af809ca81743fc3c41790a6a76cf99403b2d1e434f67db2",
+  "table:target": "8a01f99da1528741506dc3bec583feedc5689bc30bf9676f03cb0b86b620b50b",
+  "text": "aa270fa3696c2d408e97728e389dd29d29107517db95fa817d1c35b0c70b7f25"
+ },
+ "profile_target | many rows | masked": {
+  "json": "8994cef541a47b4effe13242a3f3908ef87c7960f1fa5bd42e5ffb0b3fc0c0a5",
+  "table:target": "28336a43bdcc656ecb68a2be95a9e6532621850a321d8f8771a557fd8c21526c",
+  "text": "dc5283725ba32c2d17079b2ba8cf382249cad972aa788ae9edfd2dc23ecb1e38"
+ },
+ "profile_target | no rows | default": {
+  "json": "2a175ecfa24d881ed2723fbc262e5230847e96de469dcc5ebf6d313da6fd00cc",
+  "table:target": "cf160d4e531460b62ff901001649078cae360736658fdf9c9c313b9d86ad07ea",
+  "text": "9afbff562574139006721d1f00d907ad4388647c8c376113105af8b55cbd5c64"
+ },
+ "profile_target | no rows | masked": {
+  "json": "74a30c9e347a5ade85e10f6fecec602592efcf86666e177f627809aa18c6bad4",
+  "table:target": "cf160d4e531460b62ff901001649078cae360736658fdf9c9c313b9d86ad07ea",
+  "text": "639a0b96b79d25abc98464ad8e31cc745665501faae7b44aa3b78551e7a74791"
+ },
+ "profile_target | one row | default": {
+  "json": "514f3bb332535fcb8953b354ce114139622f43de1abf660738ac193075402048",
+  "table:target": "172d55b958b3280aeabe7604eb95293b32bfab92e968445214866d560956e74d",
+  "text": "dc5c6112766ab73dce2fe367e631aa6465de3e8563ac1ff0ff8c04d14b535733"
+ },
+ "profile_target | one row | masked": {
+  "json": "1c9c3695aa15357b63954bdc20ac799b6f12521b36055d606aa7ae3cba9fb1de",
+  "table:target": "ff17405a5ab48f3ca7dbd89e0a1f3a8f75e40b5aec9f1e006a8340334b9a94af",
+  "text": "3f2a37e3475c80146f4a87df2a03f7e05df9ac94418d860d09f13e7a21a118bc"
+ },
+ "profile_target | shared strings | default": {
+  "json": "7955ad6ffe4c1d844a2508d636561610473eae2e11fc8a95d7722ad71f13adea",
+  "table:target": "cac929d8a155de4a7dcce3ac5aec36a34e285d396261742596f30c98c9265f17",
+  "text": "ddf4d8265bdae3e6ab8f417c049c6ca4dacf88124f965ddcee272014247c6a10"
+ },
+ "profile_target | shared strings | masked": {
+  "json": "f8e985273194843abad688e56451e03df77544dde91aae6cf7223f7e910083b4",
+  "table:target": "5b70260d33253f3f619a909de64ba6b3257d11a1d3f9081b72c9e4e10f6fd890",
+  "text": "77f6d8b349d2c28efaf046e75ed0d3e98f40c7eb2fdf630adc7baa06d177bee3"
+ },
+ "python: argument-misspelled": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "profile_target has no argument 'target'. Did you mean 'target_column'? Allowed: data, target_column, task, expected_labels, rare_share, id_column, project, mask_sensitive."
+ },
+ "python: argument-misspelled-in-case-only": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "find_duplicate_rows has no argument 'ID_COLUMN'. Did you mean 'id_column'? Allowed: data, columns, id_column, project, mask_sensitive."
+ },
+ "python: column-spec-field-misspelled": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "ColumnSpec has no field 'logical_tpe'. Did you mean 'logical_type'? Allowed: logical_type, nullable, datetime_format."
+ },
+ "python: column-spec-field-misspelled-beside-another-mistake": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "ColumnSpec has no field 'nullabel'. Did you mean 'nullable'? Allowed: logical_type, nullable, datetime_format."
+ },
+ "python: column-spec-logical-type-by-position-and-by-keyword": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "ColumnSpec got logical_type both by position and by keyword; pass it once."
+ },
+ "python: columns-holding-none": {
+  "code": "column_not_found",
+  "expected_code": "column_not_found",
+  "message": "summarize_numeric got an unknown column 'None' in columns. To select every suitable column, pass columns=None rather than a list holding None. The data has 4 columns: 'customer_id', 'age', 'email' and 'target'."
+ },
+ "python: data-by-position-and-by-keyword": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "summarize_numeric got data both by position and by keyword; pass it once."
+ },
+ "python: data-is-a-path-object": {
+  "code": "unsupported_data_type",
+  "expected_code": "unsupported_data_type",
+  "message": "data must be a pandas DataFrame, but got a PosixPath. A path isn't data; read the file first: ae.describe_dataset(pd.read_csv(path)) for a CSV file, or ae.describe_dataset(pd.read_parquet(path)) for a Parquet file."
+ },
+ "python: data-is-a-path-string": {
+  "code": "unsupported_data_type",
+  "expected_code": "unsupported_data_type",
+  "message": "data must be a pandas DataFrame, but got a str. A path isn't data; read the file first: ae.describe_dataset(pd.read_csv(path)) for a CSV file, or ae.describe_dataset(pd.read_parquet(path)) for a Parquet file."
+ },
+ "python: data-is-a-record-batch": {
+  "code": "unsupported_data_type",
+  "expected_code": "unsupported_data_type",
+  "message": "data must be a pandas DataFrame, but got a pyarrow RecordBatch. Convert it first: ae.describe_dataset(batch.to_pandas())"
+ },
+ "python: data-is-a-series": {
+  "code": "unsupported_data_type",
+  "expected_code": "unsupported_data_type",
+  "message": "data must be a pandas DataFrame, but got a pandas Series. Convert it first: ae.describe_dataset(series.to_frame())"
+ },
+ "python: data-is-a-table": {
+  "code": "unsupported_data_type",
+  "expected_code": "unsupported_data_type",
+  "message": "data must be a pandas DataFrame, but got a pyarrow Table. Convert it first: ae.describe_dataset(table.to_pandas())"
+ },
+ "python: data-is-none": {
+  "code": "unsupported_data_type",
+  "expected_code": "unsupported_data_type",
+  "message": "data must be a pandas DataFrame, but got None. The variable holds no data, so whatever should have loaded or built it didn't. Check that step, then pass its DataFrame: ae.describe_dataset(df)."
+ },
+ "python: data-policy-that-is-a-number": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "Project got 5 for data_policy, but data_policy must be a DataPolicy, a dict or None. See help(ae.Project) for every field."
+ },
+ "python: data-without-columns": {
+  "code": "column_not_found",
+  "expected_code": "column_not_found",
+  "message": "summarize_numeric got an unknown column 'age' in columns. The data has no columns."
+ },
+ "python: describe-analysis-keyword-misspelled": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "describe_analysis has no argument 'nme'. Did you mean 'name'? Allowed: name."
+ },
+ "python: guide-with-a-keyword": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "guide takes no arguments, but got 'topic'. Call it as guide()."
+ },
+ "python: id-column-that-names-the-index": {
+  "code": "column_not_found",
+  "expected_code": "column_not_found",
+  "message": "find_duplicate_rows got id_column 'customer_id', which names the index, not a column. The index labels are already the row IDs: pass id_column=None to use them. To use the index as a column instead, call df.reset_index() first. The data has 3 columns: 'age', 'email' and 'target'."
+ },
+ "python: interval-for-a-number": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "summarize_numeric got an Interval for trim_fraction, but trim_fraction must be a number with 0 <= trim_fraction < 0.5. See help(ae.summarize_numeric) for every argument."
+ },
+ "python: list-analyses-with-a-keyword": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "list_analyses takes no arguments, but got 'limit'. Call it as list_analyses()."
+ },
+ "python: mask-sensitive-for-an-analysis-that-shows-no-raw-values": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "summarize_numeric takes no mask_sensitive: it shows no raw values, so there is nothing to mask. Leave mask_sensitive out. Allowed: data, columns, quantiles, quantile_method, trim_fraction."
+ },
+ "python: method-in-case-only": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "compute_association_matrix got 'Pearson' for numeric_method, but numeric_method must be one of 'pearson', 'spearman' or 'kendall'. Did you mean 'pearson'? See help(ae.compute_association_matrix) for every argument."
+ },
+ "python: method-misspelled": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "compute_association_matrix got 'spearmen' for numeric_method, but numeric_method must be one of 'pearson', 'spearman' or 'kendall'. Did you mean 'spearman'? See help(ae.compute_association_matrix) for every argument."
+ },
+ "python: name-that-is-a-number": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "Project got 3 for name, but name must be a string, or None. See help(ae.Project) for every field."
+ },
+ "python: nan-twice-in-expected-labels": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "profile_target got nan and nan in expected_labels, but NaN, NaT and infinity can't be class labels; missing labels are counted apart, in missing_count. Leave them out of expected_labels."
+ },
+ "python: object-for-a-number": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "summarize_numeric got an object for trim_fraction, but trim_fraction must be a number with 0 <= trim_fraction < 0.5. See help(ae.summarize_numeric) for every argument."
+ },
+ "python: project-field-misspelled-in-case-only": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "Project has no field 'NAME'. Did you mean 'name'? Allowed: name, data_policy."
+ },
+ "python: project-for-an-analysis-that-shows-no-raw-values": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "find_candidate_keys takes no project: it shows no raw values, so there is nothing to mask. Leave project out. Allowed: data, columns, max_key_size, max_combinations."
+ },
+ "python: project-given-as-a-path-object": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "summarize_categorical got a PosixPath for project, but project must be a Project, not a path. Load the file first, as project=ae.Project.load('project.toml'). See help(ae.summarize_categorical) for every argument."
+ },
+ "python: project-given-as-a-path-string": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "summarize_categorical got 'project.toml' for project, but project must be a Project, not a path. Load the file first, as project=ae.Project.load('project.toml'). See help(ae.summarize_categorical) for every argument."
+ },
+ "python: project-load-keyword-misspelled": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "Project.load has no argument 'paht'. Did you mean 'path'? Allowed: path."
+ },
+ "python: project-save-keyword-misspelled": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "Project.save has no argument 'paht'. Did you mean 'path'? Allowed: path, overwrite."
+ },
+ "python: project-save-overwrite-misspelled": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "Project.save has no argument 'overwite'. Did you mean 'overwrite'? Allowed: path, overwrite."
+ },
+ "python: quantiles-that-is-a-string": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "summarize_numeric got '0.5' for quantiles, but quantiles must be a list of numbers with 0 <= value <= 1. See help(ae.summarize_numeric) for every argument."
+ },
+ "python: schema-that-is-a-list": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "validate_column_types got a list of 1 item for schema, but schema must be a mapping from column names to one of 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec. See help(ae.validate_column_types) for every argument."
+ },
+ "python: schema-value-that-is-a-type": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "validate_column_types got the type int at schema['age'], but each value in schema must be one of 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec. See help(ae.validate_column_types) for every argument."
+ },
+ "python: search-analyses-keyword-misspelled": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "search_analyses has no argument 'question'. Allowed: query, limit."
+ },
+ "python: search-analyses-keyword-with-a-typo": {
+  "code": "invalid_call",
+  "expected_code": "invalid_call",
+  "message": "search_analyses has no argument 'quey'. Did you mean 'query'? Allowed: query, limit."
+ },
+ "python: sentinel-values-of-the-id-column": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got sentinel values for 'email', but leaving the columns argument out leaves out the id_column, which identifies rows. Name it in columns to check it, or leave it out of sentinel_values."
+ },
+ "python: set-for-a-list": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "summarize_numeric got a set for columns, and a set has no fixed order. Pass a list or tuple instead, such as columns=sorted(...)."
+ },
+ "python: set-inside-a-mapping": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got a set for sentinel_values['age'], and a set has no fixed order. Pass a list or tuple for that key instead, such as {'age': sorted(...)}."
+ },
+ "python: task-that-is-a-prefix": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "profile_target got 'binary' for task, but task must be one of 'binary_classification', 'multiclass_classification' or 'regression'. Did you mean 'binary_classification'? See help(ae.profile_target) for every argument."
+ },
+ "python: timedelta-finer-than-the-column-unit": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got datetime.timedelta(microseconds=1000) for column 'd' in sentinel_values, but 'd' holds durations in whole seconds (dtype timedelta64[s]), so it can never match. Leave it out of sentinel_values, or declare a value the column can hold."
+ },
+ "search_analyses(correlation)": {
+  "json": "28186bfbeeb906e848bc2dc844f7ef9c6599e52287614e832523725121d7a4af",
+  "text": "6b263a712284b5edf06d4a00495af18e2236eb0254882e641054626679217d6b"
+ },
+ "search_analyses(duplicate rows)": {
+  "json": "21f39f4e59ccc8ee59982eb330b7af0731751c893895bc789c6b4b8021c1c381",
+  "text": "3bf45f81ca15dd5f6e6a9d9d1998835202fca3844efe3b423d010b4bc432e45c"
+ },
+ "search_analyses(missing values)": {
+  "json": "ff727e7eadc22bfb09db2a0fa63e5e06c51ab013c5f60f74c4fb48cefa550923",
+  "text": "bdb66af5b7812fa146466681508100afe1e4ccf3019e300cc84d7d0788618743"
+ },
+ "search_analyses(target)": {
+  "json": "f9543c32d71f0b98cd3af3e76ae2ac9202bb8bbdfff6f7ff32da06aee5757108",
+  "text": "e173edc7a07370d47c66e8f8862d0cd27dfca27e2340a61d05e9333c3b53a563"
+ },
+ "search_analyses(zzzz)": {
+  "json": "4ed1bf997a3218573da8e15b50cdd1d4f8e87bb6f5bebfc1d221792887ecd23e",
+  "text": "ea74dfd6cf33c10ff1695bdbf21837e7e16ef3d366e91545bd5a531ead1d67c7"
+ },
+ "summarize_categorical | all missing | default": {
+  "json": "b726caf12a09f714ff27dbd29378e3b846ac63c7bce19116d6dc23cd7ba45302",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "8e5bc4b760f50c9cc729c72907c2b8e77eca331c201c0a43c815dc6e105cf1ac"
+ },
+ "summarize_categorical | all missing | masked": {
+  "json": "3d4df0ea7183a4e854dccb2d7c7b94825132c8d037a1d2b50f15a21d8ef4a000",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "f11f78c29392ef00cd7e61a03f83ea99ca45899c0054d79d170dca6cc8cc5af3"
+ },
+ "summarize_categorical | constant | default": {
+  "json": "96549b769ed44a6f4d558616b5f133d9c84fb6681646970a24b078b5fa2ad335",
+  "table:levels": "ccd19b2e54951e85d68534af9df17c66e76ba0a34cb732c9db38567e8937af4d",
+  "text": "ce3dfa5a92e49106bbf2c910369c7ea8b927624f716c30cd74f539fc301849d7"
+ },
+ "summarize_categorical | constant | masked": {
+  "json": "5f54d76c10038428622b4fd90a7c497a2b2e368dc9dcb56eaaa43f76e21fef9a",
+  "table:levels": "6b1b334411796e949e0e1bc3ad311849c59ace4584dea27c0ec394dca1edf21e",
+  "text": "18b2e0fe41722a5d04458a336ffc7af84107f11718fed55acf65dcf21a53b7c4"
+ },
+ "summarize_categorical | every kind | default": {
+  "json": "42a3751ad1e5b6ee05ba4eb86d5144b0c42f6c2ac80ecd5b056a7851fe60706f",
+  "table:levels": "cecc63a5c60cc3476c09f92e3e9f934e3fd6826b626ebcb1b39c3a88f6d71235",
+  "text": "29f6c1629d7ff27a13a01dcce27cd4d98168ad038e874f79d882b5e39199a53b"
+ },
+ "summarize_categorical | every kind | masked": {
+  "json": "bfd2dcbcc8bba3072e29d25c7653a8210eadba5471e40e354bcf539b508f6d16",
+  "table:levels": "cdb2964891a27bca6a39741523a232edd8e97264d9e6774acd35ef9333e155fc",
+  "text": "3478fd624c88c68f6f596e00321441753c3a11a50177f040bca57136b88bd2eb"
+ },
+ "summarize_categorical | generated 0 | default": {
+  "json": "08ebe3cc7ca441042fd2268a9fcf7107b3cc2448369053206695cfe09c464b48",
+  "table:levels": "c87cd58cd6a467073d96cd89ca9e9b9d03f387c20e077683f83bd419a2769539",
+  "text": "048dd55b956c82d6a4971015235a6e637173d12e9cfeb039e57c341cf2d6b81a"
+ },
+ "summarize_categorical | generated 0 | masked": {
+  "json": "8070f7b7ae95cd53049ae7419ce292f4bf85197f0b8960ffa171b72f23af5d4a",
+  "table:levels": "5d71599cd5ecca900c206fdaf0bcc92a455637627f42ab5f2ea2bb5d54194a21",
+  "text": "4dc9b30c5a526cbfa5e24a7354f19a7237ff29a88931af4df86354e676c3dcbe"
+ },
+ "summarize_categorical | generated 1 | default": {
+  "json": "4edde301a933af3928e8d75c10f615392bf3e47de545dec1a07cb2f4efbde40e",
+  "table:levels": "edd140d790cf6711490d3653de5307d1e1d36bd246cdffe0de87acc6f6ba24cb",
+  "text": "5eb683893d9c8be680931fc4f421f77d1dc7180001055f07cf3db1be8fcd981d"
+ },
+ "summarize_categorical | generated 1 | masked": {
+  "json": "7521561ca53e96bc157f713187b2af01f3fc066fb7c89a25517f8056890391ec",
+  "table:levels": "f81865a66f9d3a7e4b133b5cd2db93e4c20c088993e7c8bc7cc3b2cdf7047513",
+  "text": "fc32ddbfc8b0b1453718be1e2572698d4475124f8bfab6f3a1deca8ef189c99e"
+ },
+ "summarize_categorical | generated 2 | default": {
+  "json": "cc2e0e36cc0ef463d48eaed40754f2ca9381d768bf922553db786a5cc7c48b9e",
+  "table:levels": "5dfd4a2ecf3b9e50e4a28eda9deb2f2e96be15adab4525902d17866bb128716f",
+  "text": "60595ac271173bf3df7187b09085c1bb4c8a021c7a7c4cfdb598cfc68dfa9bec"
+ },
+ "summarize_categorical | generated 2 | masked": {
+  "json": "c20c192920a3f7a627cfc8d52df6b970c6debc92b61590998bbf9f078185346b",
+  "table:levels": "e9306bd36e648ffa2a6cf8b3ae5ec576303ac945ef84d51d122c368894da85c7",
+  "text": "f7fcd88bd4188fbacc8aa91c9a0ef046d63bb98c63a80de848b14bac12090f8d"
+ },
+ "summarize_categorical | generated 3 | default": {
+  "json": "e5fbda9293e233d68a5b31f3d38fec965b76dccf50fd6132b4175f5aba8f86a4",
+  "table:levels": "546d63293f5393288e4fb12119ec5def66d02a9533949bd56ad611688a695f4b",
+  "text": "eb795ea4a78aa99b48f3717ae7ba980dbf3f823f1962b74fe8a767cdf048c81e"
+ },
+ "summarize_categorical | generated 3 | masked": {
+  "json": "65bfd0efbcc408547f778c2e23cabe92fed77044bf60aebb31ba8ece86a556dc",
+  "table:levels": "3507e8f7bcd02a2fe3fd5d46a9538fa5cf3d289986b051a604a6eae339617f5c",
+  "text": "a9d3a6d77319d9cdd62959e47bdb4b0d0b0f8e65ef89b5ef1932e4cb1d8a44b5"
+ },
+ "summarize_categorical | labels: colliding labels | default": {
+  "error": "73f30194728761d21e5cd6ee7434629583e7241e61935fdd55b3f13ef336d4b6"
+ },
+ "summarize_categorical | labels: colliding labels | masked": {
+  "error": "73f30194728761d21e5cd6ee7434629583e7241e61935fdd55b3f13ef336d4b6"
+ },
+ "summarize_categorical | labels: missing labels | default": {
+  "json": "373507e1ae5e04cbc793a625d564c1a943551cf637a1a3b9da5a4b2e0c30a4d7",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "619bfe470a684be94483e3c88075ffa4a9f360863892bfebf427efac94750da4"
+ },
+ "summarize_categorical | labels: missing labels | masked": {
+  "json": "2d269f99ea7b5a19179f900f48a655021ac4d84669cba7bf0a78fb30427fdd5b",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "27fc9bd25f827015c5d4fb163f21d95a1c2209a266191e31f705c8a5dfcdfc94"
+ },
+ "summarize_categorical | labels: multiindex columns | default": {
+  "error": "4139d08c5ed690ea993501eb261df85d141d5b87a28706177535fa36c53fa239"
+ },
+ "summarize_categorical | labels: multiindex columns | masked": {
+  "error": "4139d08c5ed690ea993501eb261df85d141d5b87a28706177535fa36c53fa239"
+ },
+ "summarize_categorical | labels: repeated labels | default": {
+  "error": "9411b3ac7fa799a772a6d12c81a5c832daa1da17e48a56293535f6f5d186c1d7"
+ },
+ "summarize_categorical | labels: repeated labels | masked": {
+  "error": "9411b3ac7fa799a772a6d12c81a5c832daa1da17e48a56293535f6f5d186c1d7"
+ },
+ "summarize_categorical | many columns | default": {
+  "json": "f9598e3971a79446145a9f8c73ca74f7209fb977ba6c3c9f65149408a7e90b53",
+  "table:levels": "902f7c2e95a5c7319d043e7582e4b7e5be4034f2c7c6ee88c72f3f1348d8a37f",
+  "text": "34cb18be1f6556084ae2b816c39e7e86c2287b9cc5e3fa02d84c60a6db8ebc3d"
+ },
+ "summarize_categorical | many columns | masked": {
+  "json": "2a088209c1f8e5551edadbcaa06def8dac44eb41df48b0b32db3d9e1de8dc500",
+  "table:levels": "e5e52fcb1190b17bad326d1396d559e00b87070d5e5988de013e07e53b706965",
+  "text": "ebbec0321bd0a8799876bda32fb4c27bb30bf91cf5c04b54d5da6a31fc8cbe06"
+ },
+ "summarize_categorical | many rows | default": {
+  "json": "98602d89d0ffefd42e808d0b5da5235b837936654543bd18973fdd0fc8b7bb91",
+  "table:levels": "16c2ae011ba23e76b56fd3f103d22cc6caad54ed7bf5ec84f77697486ba41b0e",
+  "text": "971a68410ebc94dc95995ed14b933fb1b447ad5ee8b4cc26ede7bf4cffc3e13f"
+ },
+ "summarize_categorical | many rows | masked": {
+  "json": "3ae6f6e1fb0fde69765f660b3b0b8569817fc7d1a25ab6ab237c7b982e928bb4",
+  "table:levels": "4ba03d0998f102bf727637c9ee12eb4bd1708ec65d82e607d7843a5e2a76d775",
+  "text": "04158a3e45c73f5b58f959ce4a645090b6bc1b8115a139b9466a22ce5d252cfd"
+ },
+ "summarize_categorical | no columns | default": {
+  "json": "24a1f6a81a6d01bed480127cd897af734dc29704b1ae46c85560e397c6ffe92e",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "f3e25dbd069e35c7b4ca967cdd9c6f5f2e90fc2aedbe2e5c4dcbe3b08be77568"
+ },
+ "summarize_categorical | no columns | masked": {
+  "json": "8d5047f61dc3ff62ade9c1cef6711ba16ae6d15461a791ccd08379f0edf50847",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "f3e25dbd069e35c7b4ca967cdd9c6f5f2e90fc2aedbe2e5c4dcbe3b08be77568"
+ },
+ "summarize_categorical | no rows | default": {
+  "json": "f8bfbdc79edb8a5f012d3e38cc7abd402ecce0f7a3b47cc39836546b6e5c53f1",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "0420ef5869f78d3b075478c189d7594cc0ccd9a661fcb3ec77e9b5aa452293b9"
+ },
+ "summarize_categorical | no rows | masked": {
+  "json": "5df4fc8ce81670acaa3241fe12f37843cb2fe9a9fe1631f0c3d5777a004f78b6",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "3db16da78151c81f00ff5cece17006f9b49cd50df860915b5179f2499c6f6dc9"
+ },
+ "summarize_categorical | nothing | default": {
+  "json": "1722b012c066b1bdec012d8cc2fb25728fdfc1f8bcc65f8b7c81da8d1f7e1422",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "7486d5a184c42f72f662e217b7a3139981d2e168ff4aa144521df50a157ce205"
+ },
+ "summarize_categorical | nothing | masked": {
+  "json": "29b2cfa0bea9888e358125b67980bcf791f3d66330821e2859a2c0334864551a",
+  "table:levels": "9cd3b4abc2c02727c4b51093e52dd7fefe9bf9c1dcc410fa83f68b5402c89b3d",
+  "text": "7486d5a184c42f72f662e217b7a3139981d2e168ff4aa144521df50a157ce205"
+ },
+ "summarize_categorical | one row | default": {
+  "json": "f39ab317e96f178a5e69fa1b0be6bd2c4d0d0a2ba2c16ae5c42f6193ce337cd8",
+  "table:levels": "21612ab4fd8ff88fe2c4c753f6dc60bfddd818f5e6714970fb74b6c652e55457",
+  "text": "8c491a1a84ec54a29c908b6622357d567e0531b525a7f80b97eaded7f13cb7ad"
+ },
+ "summarize_categorical | one row | masked": {
+  "json": "f7c048d7a4e831e012318844b4ab6f7fc2c1292d6e6f6a77c125ce53aacb3dca",
+  "table:levels": "05e14fffbcf04f4694cf4ee003ff395164d935874db57cb892fce7678b1421a6",
+  "text": "dc7dc1eaa661ad4c8cf84b845f0eee5bd29290b5d8a37fb99472b612d7b43345"
+ },
+ "summarize_categorical | shared strings | default": {
+  "json": "99a66dd5092c9cdea4399138aa555fc341b269e60c8bc38da76f374b0c0cd293",
+  "table:levels": "ed270ca70942619f765a5c43b8ad62e737342e25fb7babbb0e9353aa27cb3c3b",
+  "text": "cf8f306f8062a46c746c0a6918b631ad8d42175ed4691c6a7c607e5ec0e9dfa8"
+ },
+ "summarize_categorical | shared strings | masked": {
+  "json": "d23ed52b1de449bd68d07303cbbbef74e2064eab0d2851026f3dfe83fb2732f0",
+  "table:levels": "a1a3459e6d75b154723439b9ea01b93aef1209ca91ddd66c913b41646835c160",
+  "text": "dea91062067e97fa26f77e48b06164f5f735bbf8f7ae1c8b10407b87639458d4"
+ },
+ "summarize_numeric | all missing | default": {
+  "json": "24cd671a340184cddcdd32b29e0badb383203f77f6ab20cb3100f206f41310eb",
+  "table:columns": "6a00d6f1757a53e81931ebcfc6cff736fc6b36ab5790b50241fb3cb4dbb9fd4c",
+  "text": "f572d44c2d7c455bef7550eb118a85f3b83eb261e908a34c67f094ddc1e19898"
+ },
+ "summarize_numeric | constant | default": {
+  "json": "43128a7658f86a307a65cee7bed2abcec08ed1bc1ad6e2376012a50a41a749d6",
+  "table:columns": "ecc7ee0f0d7e980e6ea90b312ce05c9e15431ff94655ecf76e237d486cde5227",
+  "text": "6294fcc433a905853fc387739fa23dcb67d2277651ad8f6eff4d28dbb9182e06"
+ },
+ "summarize_numeric | every kind | default": {
+  "json": "04a7e0680e608a9578348441927f89b4e47977db545d468faa2bde97503cd3ea",
+  "table:columns": "793503560a2fe46deb22c9740bbc8db0851125119f45458f9eeb334e77c1664e",
+  "text": "8d3fe43d58b5edaeb0829551ec076a0e4eb4848f572b25a4e7092a276a99af92"
+ },
+ "summarize_numeric | generated 0 | default": {
+  "json": "b7b24e9efbc8b88fb884eee792f4994cc27a40f8af864f506bfe565250f9d83f",
+  "table:columns": "ea87d07d9b7a7992272212890b9fff21526d808e03a20569e0fa3ce81b895929",
+  "text": "0cd03aa082bf7c7f64793cf0e54b1904fda36b6b4a7f012f5fb94445de31178c"
+ },
+ "summarize_numeric | generated 1 | default": {
+  "json": "2e485d88b936386e834673ccff861674dda583896e6499763d8bf35ac88e4db7",
+  "table:columns": "2e88b12598af3940b38f1f428f43ff2dfa75e680379be709bbb685f534ce48c9",
+  "text": "c00190e58f426245eaaca5e1b8ca174baff2522d582ea807c0889fad9c85a7ff"
+ },
+ "summarize_numeric | generated 2 | default": {
+  "json": "bfa11cc8d7e12967cfe7c45af538fadaaf4edb8933daf6b40447777f206e9137",
+  "table:columns": "6250cbcda7c7062649a78198c26d98f706232fddaf00b63112ffd7c43c40b91f",
+  "text": "2328d6b4dabe0fc7e9a5b8fce0e32413d11169be32104d097846f02aa5e283d4"
+ },
+ "summarize_numeric | generated 3 | default": {
+  "json": "abd28844898744c9a0630b5cae6eba17f0ec07f7187a6761b099bbd1eb36f89b",
+  "table:columns": "0ccfa4c52e5f839c8c787655f03cea44735d4f2bfe3e4841dcb192abeffb6625",
+  "text": "cb64b51f5be19f88b3e2998b104da4d559a8398b74f350ea4ad721805eec8ae2"
+ },
+ "summarize_numeric | labels: colliding labels | default": {
+  "error": "9ec37227d6739074c9fd655e5041ffe0745c2e112a89604be826ab1750fdd7f7"
+ },
+ "summarize_numeric | labels: missing labels | default": {
+  "json": "fd84310e8180816baf2b681c896a23dfc3fcb46655a89e1f93d97a5a26aa43d3",
+  "table:columns": "b54c9ff9f2c349e9eaa3632b7c87697cf6d037a64f2aa3d670b259eafab00299",
+  "text": "2a0361ae1a81c779efd4617a087d36938359e5996e7a4693015201c26642f9a5"
+ },
+ "summarize_numeric | labels: multiindex columns | default": {
+  "error": "3458c22675d009cdda5c573a51fecf33aada5eebe6d0eadce57ac737020a9d71"
+ },
+ "summarize_numeric | labels: repeated labels | default": {
+  "error": "23f342bd6d027e5519923806e0893828d519223df1e5519d4bcff737c5510186"
+ },
+ "summarize_numeric | many columns | default": {
+  "json": "17c7f1d9682309566b90f6fce161a7a3f86b90d1a956c331e8323f489bf6c17c",
+  "table:columns": "38a3f6ab1f69d88a6af67ce44de148afa4e56f80e74b33428100c54364b8dd97",
+  "text": "e7902ef6fc882f222a4fdf6a1a62051be665bf5d3104bb1e0d34e348800db878"
+ },
+ "summarize_numeric | many rows | default": {
+  "json": "b454146f685b522a4a4b1ffed95f6d78bd702c5a39b572a62dfe7c225fe46a4f",
+  "table:columns": "fc0c8987236469e2ba62ec19c8c7041ce7b416fea1cf50c6f47d9437b0ddaa56",
+  "text": "4ca3a783bb08df2e713f10469b1bd0b031b37693a31de999e1d4b6eef9c5ea74"
+ },
+ "summarize_numeric | no columns | default": {
+  "json": "4ce56d9aff5e7c3fd65aec2265c0e185ded88233c622b90b0bfc9d718f9d767f",
+  "table:columns": "fe7d8a5e1fa5fe020e1a91431999a9e80e148707e13d57fdd10cda9b54098d54",
+  "text": "d46292a585c53d3d1c661f45f5b28f10dc8b74cc80b092b38d08348902dbb832"
+ },
+ "summarize_numeric | no rows | default": {
+  "json": "bf9e6902aea2bd9d02d9e9b1ceb2c19a04ace88e123b8681061181f98bbe8ff7",
+  "table:columns": "4b7b15b26575f0dba6fa59dac4d4d50bf37dab5c1125db5a887f5013065bfce2",
+  "text": "2a7b0624ebd32870253a000319d7d2d2bb3141d60c345059e11e2bf843544d59"
+ },
+ "summarize_numeric | nothing | default": {
+  "json": "446d474eeb603b9ea5034e2c3f14a015b374cc7960db5b425fc817671bec1873",
+  "table:columns": "fe7d8a5e1fa5fe020e1a91431999a9e80e148707e13d57fdd10cda9b54098d54",
+  "text": "1067b5e0893c2c96629bc613e657603360d9dbf05fb047d58f26d144a65960e6"
+ },
+ "summarize_numeric | one row | default": {
+  "json": "6b9e5832658dad27e965b2d4d9fa014ad76a65c783ce6850c659457754a819c4",
+  "table:columns": "0996afcea9c639b2138c1f4bafed9e11eb0173fc61be1684eee685e619c86664",
+  "text": "4e1e629fef6e5abd23dade25f3190b2d98d69a9d3900d35e4ffe6bfea6e01571"
+ },
+ "summarize_numeric | shared strings | default": {
+  "json": "b0fbf253454ae20f3a9163cea1133540eb2c77fb28a6e70fdae41a967b566011",
+  "table:columns": "fe7d8a5e1fa5fe020e1a91431999a9e80e148707e13d57fdd10cda9b54098d54",
+  "text": "b130e92fc1d5ad8f5c65a0cb20c394af0a338a9124a64f9e8efb13de5687b499"
+ },
+ "tool: compute_association_matrix": {
+  "definition": "ce1e8ea07ea887908512bb83d54ce47bab92b0a268c585e6525fe52a2bce0bea"
+ },
+ "tool: describe_dataset": {
+  "definition": "c163435ba2ea29381dca73b11ba818f6c8ba953e7388f226be3825812aa3d4e2"
+ },
+ "tool: detect_missing_sentinels": {
+  "definition": "5a61447ecb3c2c565f946f63011b987550619d0a3b0aa8de937cfa37166fb813"
+ },
+ "tool: find_candidate_keys": {
+  "definition": "001d364a3b177b2ff434331666c93ecee2d18e3c3361af7aa53bce36bd4a999e"
+ },
+ "tool: find_duplicate_rows": {
+  "definition": "93414df38af86a7a184eae53f468c6195dbb73e02e4aa1d2da05ac6bae6433ac"
+ },
+ "tool: infer_column_semantics": {
+  "definition": "933b9547b1ce72ef374d4780096bb8cdd5d54f01be220337cc2c1747b8e617f6"
+ },
+ "tool: list_analyses": {
+  "definition": "0e32f54b33a1e2abb72ef764b02f679cb3cd12c8566c93a7dcd9637c6fd1407d"
+ },
+ "tool: profile_missing_values": {
+  "definition": "5b58377b56135e31983583dc4228dc310a6f98b1bb247fb20e3b0e0a3990ce4f"
+ },
+ "tool: profile_target": {
+  "definition": "a4e2c2528a5418204955bbca91685e335f1fe76579fa176edc9420041ffb85a3"
+ },
+ "tool: search_analyses": {
+  "definition": "b01155f7b4583449c3df462d218f1f2816ca47216b8d875a362dc1ddbbeff5c3"
+ },
+ "tool: summarize_categorical": {
+  "definition": "268f99af8181df69a07e3780a53355f43cf37dc4e5865689a3d0324f0dfac042"
+ },
+ "tool: summarize_numeric": {
+  "definition": "d1259b73e5bca0d5b873523c6b4a0e46063291099b73012a33e52ff4b496c68e"
+ },
+ "tool: validate_column_types": {
+  "definition": "542479302928d5f581157197a1cb32ab6c404075facc771359a01eeea9052497"
+ },
+ "validate_column_types | all missing | default": {
+  "json": "abb9557feac0a1d31d98fd96c9d04276aa591b52656975e57ee59d4415a4340e",
+  "table:columns": "2ffe52f3609228c7a8696dd3501a11a654f25db83bee85f659da902644a4c9bc",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "98b898843725b7346c6cd5a56ded273bd26922a55e6e0aa341ca59038791b639"
+ },
+ "validate_column_types | all missing | masked": {
+  "json": "022c60640ecb29c322e1931489a2dec77a35b7ff71a21c5de2d7c72c3517d80b",
+  "table:columns": "2ffe52f3609228c7a8696dd3501a11a654f25db83bee85f659da902644a4c9bc",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "c78f2bf76b53aedfef913c8544746facf5d5ab9ea597cf7e6ad9893a926fa3b1"
+ },
+ "validate_column_types | constant | default": {
+  "json": "fad8481d68686bfcef524fcc0127044f0731c57f7ecb755af9f855efbe7513ca",
+  "table:columns": "f646fcda1d90bf8ac4e5c7d177e8d46087137e9a9b189340e018f42a8e84a3ca",
+  "table:invalid_values": "3b6b6061b0549ab3bda052cd6efeaef0e01f7d392bd393265e40718b838afc46",
+  "text": "bcd46055b45aea4969ceb7a10adb739f57f6f65654c8ee630e0bebd184b6cca9"
+ },
+ "validate_column_types | constant | masked": {
+  "json": "d1ada483060a75c955e6e0f375cfd5a14003e04d11cfe68f7733a0750071bf2f",
+  "table:columns": "f646fcda1d90bf8ac4e5c7d177e8d46087137e9a9b189340e018f42a8e84a3ca",
+  "table:invalid_values": "6841a25b8995d4a9f241425d92fb2c5f38f4919af648b7fd1e8354991984cf27",
+  "text": "c8d2ed8012e0402375e2269b5bdbe938dd31e070e9140b8970e49e17951bcb15"
+ },
+ "validate_column_types | every kind | default": {
+  "json": "fb4ca1e578ce138caf35906a84359353071a6e6f9b9d9761dae73f4f3c8f8a40",
+  "table:columns": "cb9e6492935dd10f448eb2bd70137b7a6e8e6665713fb30736c1b303fcaba963",
+  "table:invalid_values": "73c846e7e73a6a39521459aef0ee08741941289850e089c249ffe4570ba5eabf",
+  "text": "aff2e649ddb4af27e2d911e44a5bd5aa02c2bf26fdd1a2bcd66ac1395ebbf737"
+ },
+ "validate_column_types | every kind | masked": {
+  "json": "96f8c58d5d8c6db68652083ee7de38b2f7156353093f2d872951cfa89294ce4c",
+  "table:columns": "cb9e6492935dd10f448eb2bd70137b7a6e8e6665713fb30736c1b303fcaba963",
+  "table:invalid_values": "4ec0b57161d586a25adbf8ed2948ef6916545e1243519eeee6f1fe332cccb371",
+  "text": "4f756778e513f1739c95b7f762a7182348c0e5f02a9fd8de993c4b937264b031"
+ },
+ "validate_column_types | generated 0 | default": {
+  "json": "fc68c34b053cca44792e289da7b1e2d098e9008ba095803e7c4d8b497a62e906",
+  "table:columns": "51ef2c54d88441c45548da13b21e4b44a63ddf53a6dabb6d10c94dde3dec2cd7",
+  "table:invalid_values": "87686689c453deaf3c569d3fa36b8b0c26942bd836cba552b3c4641008bff96b",
+  "text": "19081df02c703da8be5cdb18944a7f5061599807323aaaf8159fb487ff618935"
+ },
+ "validate_column_types | generated 0 | masked": {
+  "json": "b7325bd4bf50d75744d2aa5bba33a63db9f846beae4220c30d831577f46296b6",
+  "table:columns": "51ef2c54d88441c45548da13b21e4b44a63ddf53a6dabb6d10c94dde3dec2cd7",
+  "table:invalid_values": "0559ea80df19245ae6ae55eeae64bfe5d2f80f83553dbc88a89cc0e1b87c9490",
+  "text": "0b0822212fcbee2e6998e766853f9ba1f666fd0b43c4c348087f7acbb62d47e7"
+ },
+ "validate_column_types | generated 1 | default": {
+  "json": "cb67936aef80bc8ac274e9ee87e2f9e7427eb2048773638fd765317c4b8aa2f7",
+  "table:columns": "2731ca99b072a80838eb6876ec6ce4581ddbe2eb7d7f89971be34c0c66c47335",
+  "table:invalid_values": "c4a8077a1b8f655840e0a12a032b4ac2991368f54e0f9c77382376dd81faf882",
+  "text": "6ec179d5f5594a29748ceaecca158194620fd449ac6d717c03bc180862d7a0c7"
+ },
+ "validate_column_types | generated 1 | masked": {
+  "json": "8c895735d5c4be04c99ed395176453c13395cd0c821e5734178fd37f60c7029c",
+  "table:columns": "2731ca99b072a80838eb6876ec6ce4581ddbe2eb7d7f89971be34c0c66c47335",
+  "table:invalid_values": "2ad9120f942e1cbb31890f4efad93182f91dedfef40242280477170a0d0d553e",
+  "text": "68e18418411530bd9126c43d104322957aced1a840e6e3f35c1bed1e361c4194"
+ },
+ "validate_column_types | generated 2 | default": {
+  "json": "00e41900dff92f537ca22f6045495f84088b4e9456f5282a81f150f7cc949397",
+  "table:columns": "8f351f453f79d4cdf84ad69faae25de3be1b097355b3b34e2143162359a85fe3",
+  "table:invalid_values": "1858feea1d596648a237b3d99a9a9a584f87dfa56238603bf9ba2c443279a838",
+  "text": "c7e10349060e3707d864fa1c15c933bd1a51201d7cc8939ecbbf97564cbf5a33"
+ },
+ "validate_column_types | generated 2 | masked": {
+  "json": "1727c3af683833ad142a1b72f1ce2f1fa9320a5e9b7f33a1dc89f1d7677f2b8d",
+  "table:columns": "8f351f453f79d4cdf84ad69faae25de3be1b097355b3b34e2143162359a85fe3",
+  "table:invalid_values": "3791a6eb951b6d30304c1da384e3fdb05b2f861c564d488e34e2fbbfef551fd7",
+  "text": "949308fa6b14dec48c2b1d9347fdae7fe206f89ebad7d5320a7bf626cb832e0a"
+ },
+ "validate_column_types | generated 3 | default": {
+  "json": "aa8b27dfc2efd9678a78e8b042e83239f99b365287a030a3f3d475e83f1ee76e",
+  "table:columns": "1d3742e12aceac3bb5f9f5ca276af1fe5548310ef5f063c207faf74da03c61b4",
+  "table:invalid_values": "966515c2eb4c5ad446b40a8f8be371d2dfe9baf938e1c7b88b0354503da05e8c",
+  "text": "1ed99fa35602d3e4b234572fa4fb64f6b36ed46ace09a25e31ed85259e70ec0d"
+ },
+ "validate_column_types | generated 3 | masked": {
+  "json": "12026797d94dbfb408147668ffb6468f76eb9daf3cdc8cdec6b01aada945eb73",
+  "table:columns": "1d3742e12aceac3bb5f9f5ca276af1fe5548310ef5f063c207faf74da03c61b4",
+  "table:invalid_values": "0855de9a74353af70f554f7b3dcf3d4596e85959e11635ae114cb7e21b07b935",
+  "text": "5fcb1c459e9bdf55bd5e5d2b21aa5de0fe61d2bf0604c6ee1d1db7ea24f6ad80"
+ },
+ "validate_column_types | labels: colliding labels | default": {
+  "error": "d5bf129455a37585500e5dbb3b4e2a44a67681a51cc8dd372cea6aef7fd7a756"
+ },
+ "validate_column_types | labels: colliding labels | masked": {
+  "error": "d5bf129455a37585500e5dbb3b4e2a44a67681a51cc8dd372cea6aef7fd7a756"
+ },
+ "validate_column_types | labels: missing labels | default": {
+  "json": "b430800f4bf2e2859d8783dcf0576f92a27cf29a6debfb2ac5d8593451a7fa37",
+  "table:columns": "7c1fcd2c26ea0f57ac4b0a730c1065e06462aaa31ec137452640c442f089a20b",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "6ed4a0ea15651bd6d482e55386b0eaf8bcca7cfdd46b3214deb0dd944aa0322a"
+ },
+ "validate_column_types | labels: missing labels | masked": {
+  "json": "443aabe057503cf3707cb287c918bd34563061081f4a6e28aa5051a50fe6c4c4",
+  "table:columns": "7c1fcd2c26ea0f57ac4b0a730c1065e06462aaa31ec137452640c442f089a20b",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "b30c68736055ff965911ea2d7ce79aa12fd4f9cbed9cf3bd94fb04e04ce4f373"
+ },
+ "validate_column_types | labels: multiindex columns | default": {
+  "error": "dbc7667f92942235ad4d7bf0ca67cf7525db3e575cf68b67d6e0030959e1b5b6"
+ },
+ "validate_column_types | labels: multiindex columns | masked": {
+  "error": "dbc7667f92942235ad4d7bf0ca67cf7525db3e575cf68b67d6e0030959e1b5b6"
+ },
+ "validate_column_types | labels: repeated labels | default": {
+  "error": "2bc96ba73f3e0ad8d903996c7ef952b836cbcda4773da3edfe5d214857400837"
+ },
+ "validate_column_types | labels: repeated labels | masked": {
+  "error": "2bc96ba73f3e0ad8d903996c7ef952b836cbcda4773da3edfe5d214857400837"
+ },
+ "validate_column_types | many columns | default": {
+  "json": "b357a68735ae56b53569ab03c056c67d2c4c863850717864b7bb2f47a973a4e2",
+  "table:columns": "aae396a2dec46fac92fcc29b7e69b108102052f63595af67ad88ccf9a32c1109",
+  "table:invalid_values": "4af920c1767647b5a997a9528bb3b0b31cce6ea963018674a3e3df4a197b6ab6",
+  "text": "50c5a73e137734485f31773ae3dd116911b96f971e4d905281b2bdfc516905f5"
+ },
+ "validate_column_types | many columns | masked": {
+  "json": "0a35702b32f81441b3581464c95b3b6e739869dc72080f2b8a62f4a41997e29e",
+  "table:columns": "aae396a2dec46fac92fcc29b7e69b108102052f63595af67ad88ccf9a32c1109",
+  "table:invalid_values": "3711cb1f206e2be1287a1467fa6945b0064d279840267baa8f9084a98610dc87",
+  "text": "79d0feb6451b8f2c148d499b177c5d29290d00e2c9aad10cef1369bed604ec77"
+ },
+ "validate_column_types | many rows | default": {
+  "json": "758e2645867dec2b2381b2651d3b7d961f0a091948973783efe0eb9b2838e051",
+  "table:columns": "22cd78146ef0e712f51bbffd05e2e182edcd1020389caab5b31ba1f816ddd5b2",
+  "table:invalid_values": "75cf833e4c2227c9d8866cda342207377af197968ea928aaeb13c7cae09683ec",
+  "text": "747a4e1dcd2652862e87a45ee6b99dada25afda4a68f787c7dfa00f26b80f992"
+ },
+ "validate_column_types | many rows | masked": {
+  "json": "c5f090b4d0a260b595cf0c83d28b8bd7b7e880036763df3fec6f266f373e1e58",
+  "table:columns": "22cd78146ef0e712f51bbffd05e2e182edcd1020389caab5b31ba1f816ddd5b2",
+  "table:invalid_values": "cf0fa639df076088bd161fb428bc771c0bf05588e91b96cf8ef831afc01e412a",
+  "text": "7c0cf5f0317078fc6d25281d9e596dc319accb9714a4698d6fd8ebf8b1184abf"
+ },
+ "validate_column_types | no columns | default": {
+  "json": "ecf61605674d1d9637b8e48063c2501a917cc59344769fb130ca0a1fbdd43b2c",
+  "table:columns": "8a0d7d1953774e0ad9104772d252ffcf63c09c76060f84817aca11af01505c6b",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "8582502e44231fb026c5bb5739b8ed04e9f4a8888baa60463886ffea1b51d538"
+ },
+ "validate_column_types | no columns | masked": {
+  "json": "9bd125eae42fe10084d2b80081afb80f8d5b7c44f06cca539b3870b10d7cff80",
+  "table:columns": "8a0d7d1953774e0ad9104772d252ffcf63c09c76060f84817aca11af01505c6b",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "8582502e44231fb026c5bb5739b8ed04e9f4a8888baa60463886ffea1b51d538"
+ },
+ "validate_column_types | no rows | default": {
+  "json": "a43c82634abc61e3d8a5eddace4c971009c4cd42b6ff6d2963b0cbb123c86bd2",
+  "table:columns": "60b3bb3ad755068e0281e3c66c89967a5f8b7b1be8d773cbd0324ee2782d3bf1",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "8526c7d2fa7a67e7711c178d061a73f013bed1478232fb5af2899f22221f2b92"
+ },
+ "validate_column_types | no rows | masked": {
+  "json": "72a240359140b108f1d04774f5862758dd3469838cd51edfabea707ed154f422",
+  "table:columns": "60b3bb3ad755068e0281e3c66c89967a5f8b7b1be8d773cbd0324ee2782d3bf1",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "c611021e53620efd37dea3833e532e404e0272cfab441ebd821ab2243d353360"
+ },
+ "validate_column_types | nothing | default": {
+  "json": "335d5bbcbe65cabb2cf43a004925c00c08d8711f3e37b4aa6b6724f74328929d",
+  "table:columns": "8a0d7d1953774e0ad9104772d252ffcf63c09c76060f84817aca11af01505c6b",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "9917f2222e2382198c00a056cd443cae60b06ec9f9c2fc009308569b06fed530"
+ },
+ "validate_column_types | nothing | masked": {
+  "json": "c58a3e13e49c0e509c50dd870dadf3621bca9d8c1d9139c1651f871a1a2642d8",
+  "table:columns": "8a0d7d1953774e0ad9104772d252ffcf63c09c76060f84817aca11af01505c6b",
+  "table:invalid_values": "f8c18b67adf0fe9ddd80f45f9d345100689528433320f45c90746e32d6b7e807",
+  "text": "9917f2222e2382198c00a056cd443cae60b06ec9f9c2fc009308569b06fed530"
+ },
+ "validate_column_types | one row | default": {
+  "json": "ab48efb754fb38bbabdec7aeb13823f047999086e691afa922c7d5165c690615",
+  "table:columns": "3d5e22ef6e656d2a64e3e87d504e2a1344d4977b0f93779f675ab622f64c21aa",
+  "table:invalid_values": "c78f583418dc85758a603fe48fde773263a27fad5cffcf79fc341da882716c66",
+  "text": "c49ae49934bb40d08457811f931d7a38a83b65da95dc31734ad922bb7a36aefd"
+ },
+ "validate_column_types | one row | masked": {
+  "json": "3fb07699df08b34f60b32e0353568896ddf1ebe9a31342fe19edbefd3bd7c0ae",
+  "table:columns": "3d5e22ef6e656d2a64e3e87d504e2a1344d4977b0f93779f675ab622f64c21aa",
+  "table:invalid_values": "7bdd3553a21bb1a7eb6bdafa8eff4221cc3e5faf43415ade69aaa463b167c217",
+  "text": "5ba73a04220ee8f6a4e27707c2f60f7d479ed12e01ea18724c5ca6cf0b1520fb"
+ },
+ "validate_column_types | shared strings | default": {
+  "json": "6d6d07f5316a26fc563ca64b0dc22209042731824ea7ff9d4568e460538e02f0",
+  "table:columns": "5e9480784e6d41a8b1108318b6c3bf3d42bc6dc53f8b6e71f1258b26dffbaad3",
+  "table:invalid_values": "4d9a2b31b109293bcf5d83632e448323344422243d73dd97e851589ca3b98a18",
+  "text": "06e002c8b4425c95afa3fff506d376ece99ceda0a124052323d0ed5a433a1b72"
+ },
+ "validate_column_types | shared strings | masked": {
+  "json": "e1e0ee87b1122441857d035a0e4c8f148ff11253762cc72558aec25215a9121d",
+  "table:columns": "5e9480784e6d41a8b1108318b6c3bf3d42bc6dc53f8b6e71f1258b26dffbaad3",
+  "table:invalid_values": "b590beb1536a61161fc5f1462c71ed37f74469b9f36117865a7e2d377bedaf43",
+  "text": "1cb2f0cc671df3171f81017419c0be64bed73eb0ebf088faf06d4c3933b2d24b"
+ }
+}

@@ -14,17 +14,17 @@ import numpy as np
 import pandas as pd
 from pydantic import JsonValue
 
-from agent_eda._text import Surface, join_items, join_labels, plural
-from agent_eda._version import __version__
-from agent_eda._wording import echoed, worded
-from agent_eda.errors import InvalidArgumentError
-from agent_eda.results import (
+from agent_eda._result_base import (
     ColumnResult,
     Execution,
     Status,
     StatusReason,
     StatusReasonCode,
 )
+from agent_eda._text import Surface, join_items, join_labels, plural
+from agent_eda._version import __version__
+from agent_eda._wording import echoed, worded
+from agent_eda.errors import InvalidArgumentError
 
 # When no column completed and their statuses differ, the first of these that
 # occurs is the result's status.

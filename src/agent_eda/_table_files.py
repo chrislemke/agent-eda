@@ -31,8 +31,8 @@ from agent_eda._local_files import (
     shown,
 )
 from agent_eda._text import MAX_WIDTH, plural
+from agent_eda._written_form import row_id_json
 from agent_eda.errors import InvalidArgumentError, TableFileExistsError
-from agent_eda.results import row_id_json
 
 # What pyarrow raises for a column it can't store as one Arrow type, such as
 # numbers mixed with text, or numbers that don't fit one (a Python int past 64

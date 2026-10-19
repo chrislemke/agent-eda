@@ -44,6 +44,7 @@ from agent_eda._annotations import (
 from agent_eda._columns import check_column_labels
 from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
+from agent_eda._result_base import AnalysisResult, Limitation, Status, StatusReasonCode
 from agent_eda._run import capture_warnings, watch_all_warnings
 from agent_eda._text import (
     MAX_NAME_LENGTH,
@@ -56,7 +57,6 @@ from agent_eda._text import (
 )
 from agent_eda._wording import echoed, message, see_every, worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
-from agent_eda.results import AnalysisResult, Limitation, Status, StatusReasonCode
 
 _CODE = re.compile(r"[a-z][a-z0-9_]*")
 

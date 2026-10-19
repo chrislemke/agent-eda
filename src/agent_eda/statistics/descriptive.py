@@ -44,22 +44,24 @@ from agent_eda._numeric import (
     summarize_values,
 )
 from agent_eda._registry import analysis
-from agent_eda._run import check_distinct, data_shape, execution, overall_status
-from agent_eda._text import join_items, join_labels, label_text, plural
-from agent_eda.project import Project
-from agent_eda.results import (
+from agent_eda._result_base import (
     ColumnSupport,
     ExclusionReason,
     Finding,
     Limitation,
     StatusReason,
+    Support,
+)
+from agent_eda._run import check_distinct, data_shape, execution, overall_status
+from agent_eda._text import join_items, join_labels, label_text, plural
+from agent_eda.project import Project
+from agent_eda.statistics._descriptive_results import (
     SummarizeCategoricalColumn,
     SummarizeCategoricalLevel,
     SummarizeCategoricalResult,
     SummarizeCategoricalVariants,
     SummarizeNumericColumn,
     SummarizeNumericResult,
-    Support,
     level_label,
 )
 
