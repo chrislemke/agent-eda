@@ -342,7 +342,8 @@ def _call(
     if options.get("sentinel_values") is not None:
         options["sentinel_values"] = read_iso(data, options["sentinel_values"])
     if takes_project:
-        options["project"] = project
+        # _masking_on reads the project the call used from `arguments`.
+        arguments["project"] = options["project"] = project
     return _response(served.function(data, **options), table)
 
 
