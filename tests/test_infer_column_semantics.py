@@ -145,11 +145,10 @@ def test_distinct_whole_numbers_that_arent_a_sequence_are_no_identifiers():
 def test_ranks_candidates_by_score_with_reasons_from_fixed_templates():
     entry = infer(["1", "2", "2", "x"])
 
-    # "1" reads as a boolean too; ties go to the more specific type.
+    # "x" isn't a boolean, so the column has no boolean candidate.
     assert [(c.logical_type, c.score) for c in entry.candidates] == [
         ("integer", 0.75),
         ("float", 0.75),
-        ("boolean", 0.25),
         ("categorical", 0.25),
         ("text", 0.09375),
     ]
@@ -164,7 +163,8 @@ def test_ranks_candidates_by_score_with_reasons_from_fixed_templates():
 
 
 def test_scores_follow_the_documented_rules():
-    # 6 values: 4 distinct, 2 plain text of several words, 1 date, 1 boolean.
+    # 6 values: 4 distinct, 2 plain text of several words, 1 date, 1 boolean word,
+    # which doesn't make a boolean candidate while other values aren't booleans.
     entry = infer(["a b", "a b", "x", "2024-01-05", "yes", "x"])
 
     scores = {c.logical_type: c.score for c in entry.candidates}
@@ -177,7 +177,6 @@ def test_scores_follow_the_documented_rules():
             "categorical": 1 - 4 / 6,
             "text": (4 / 6 * 4 / 6 + 2 / 6) / 2,
             "datetime": 1 / 6,
-            "boolean": 1 / 6,
         },
         abs=1e-15,
     )
@@ -721,8 +720,8 @@ def test_prints_each_column_with_its_top_candidates_and_flags():
         "parse as ISO 8601 only."
     )
     assert lines[2] == (
-        "declared_schema: 1 column declared in the data, 0 with that top "
-        "candidate, 1 with another; 0 not in the data."
+        "declared_schema: 1 column declared in the data, 0 matching (a tie with "
+        "the top counts), 1 not; 0 not in the data."
     )
     assert lines[3] == "Columns (4 of 4 shown):"
     header = lines[4].split()

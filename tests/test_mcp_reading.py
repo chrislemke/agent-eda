@@ -333,9 +333,6 @@ def test_every_csv_format_reads_trailing_delimiters_and_codes_alike(
         ('"007"', "007"),
         ("-007", "-007"),
         ("+007", "+007"),
-        ("00.5", "00.5"),
-        ("0123.5", "0123.5"),
-        ("01e3", "01e3"),
         ("00", "00"),
     ],
 )
@@ -353,7 +350,9 @@ def test_each_way_to_write_a_leading_zero_code_keeps_the_column_text(
     assert sorted(level["label"] for level in levels) == sorted(["5", kept, "12"])
 
 
-@pytest.mark.parametrize("field", ["0", "0.5", "-0.5", "10", "100", "2024"])
+@pytest.mark.parametrize(
+    "field", ["0", "0.5", "-0.5", "10", "100", "2024", "00.5", "0123.5", "01e3"]
+)
 def test_a_number_that_only_contains_a_zero_stays_a_number(tmp_path, field):
     path = tmp_path / "numbers.csv"
     path.write_text(f"n\n5\n{field}\n12\n", encoding="utf-8")

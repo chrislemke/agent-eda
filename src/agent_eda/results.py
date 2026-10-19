@@ -2899,11 +2899,13 @@ class ColumnEvidence(ResultModel):
     )
     boolean_share: float | None = Field(
         description="Values that are booleans or read as one: numbers equal to 0 "
-        "or 1, and the words true, false, t, f, yes, no, y and n in any case."
+        "or 1, and the words true, false, t, f, yes, no, y and n in any case. "
+        "The boolean candidate needs a share of 1."
     )
     number_share: float | None = Field(
         description="Values that are numbers or text that parses as a decimal "
-        "number, such as '42', '-3.5' or '1e-3'."
+        "number that float64 can hold, such as '42', '-3.5' or '1e-3'; '1e400' "
+        "doesn't count."
     )
     integer_share: float | None = Field(
         description="Values that are or parse as whole numbers, such as 42, 42.0 "
@@ -2911,12 +2913,14 @@ class ColumnEvidence(ResultModel):
     )
     datetime_share: float | None = Field(
         description="Values that are datetimes or dates, or text that parses as "
-        "an ISO 8601 date, with or without a time."
+        "an ISO 8601 date, with or without a time, or as a ColumnSpec's "
+        "datetime_format for that column."
     )
     timedelta_share: float | None = Field(description="Values that are durations.")
     leading_zero_share: float | None = Field(
-        description="Text values that are whole numbers written with a leading "
-        "zero, such as '007': codes, which don't parse as numbers."
+        description="Text values that are whole numbers written as digits alone "
+        "with a leading zero, such as '007': codes, which don't parse as "
+        "numbers. A decimal such as '05.50' is a number."
     )
     non_iso_date_share: float | None = Field(
         description="Text values that look like dates without being ISO 8601, "
@@ -2954,14 +2958,14 @@ class InferColumnSemanticsColumn(ColumnResult):
         "it declares none. Inference never overwrites it."
     )
     matches_declared: bool | None = Field(
-        description="Whether inferred_logical_type equals declared_logical_type; "
-        "null when either is null."
+        description="Whether declared_logical_type is the top candidate or ties "
+        "with it in score; null when it is null or no type was inferred."
     )
     candidates: list[LogicalTypeCandidate] = Field(
         description="The logical types with a score above 0, best first, ties in "
         "the order boolean, integer, float, datetime, timedelta, categorical, "
         "text. Integer and float also appear, scored 0, when leading zeros rule "
-        "them out."
+        "them out. A column where every candidate scores 0 has no inferred type."
     )
     flags: list[ColumnFlag] = Field(
         description="What needs attention, in a fixed order: identifier_like, "
@@ -3007,8 +3011,8 @@ class InferColumnSemanticsResult(AnalysisResult):
             missing = len(self.missing_declared_columns)
             facts.append(
                 f"declared_schema: {_text.plural(declared, 'column', 'columns')} "
-                f"declared in the data, {matching:,} with that top candidate, "
-                f"{differing:,} with another; {missing:,} not in the data."
+                f"declared in the data, {matching:,} matching (a tie with the top "
+                f"counts), {differing:,} not; {missing:,} not in the data."
             )
         return facts
 
@@ -3023,8 +3027,11 @@ class InferColumnSemanticsResult(AnalysisResult):
         headers.append("flags")
         rows = []
         for entry in self.columns.values():
-            top = entry.candidates[0] if entry.candidates else None
-            runner_up = entry.candidates[1] if len(entry.candidates) > 1 else None
+            # Candidates scored 0 rank no type: a column with none has no top.
+            top = entry.candidates[0] if entry.inferred_logical_type else None
+            runner_up = (
+                entry.candidates[1] if top and len(entry.candidates) > 1 else None
+            )
             row: list[_text.Cell] = [
                 entry.column,
                 top.logical_type if top else None,
@@ -3070,7 +3077,10 @@ class InferColumnSemanticsResult(AnalysisResult):
                 [e.inferred_logical_type for e in entries], dtype=object
             ),
             "score": pd.Series(
-                [e.candidates[0].score if e.candidates else None for e in entries],
+                [
+                    e.candidates[0].score if e.inferred_logical_type else None
+                    for e in entries
+                ],
                 dtype="float64",
             ),
             "declared_logical_type": pd.Series(
