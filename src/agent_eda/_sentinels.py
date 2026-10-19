@@ -289,11 +289,12 @@ def declared_values(
         # the same when they are equal and of one family.
         check_distinct(
             analysis,
-            f"sentinel_values[{name!r}]",
+            "sentinel_values",
             values,
             "value",
             key=lambda value: (family(value), value),
             hide=name in hidden,
+            within=name,
         )
         column_holds = holds(data.iloc[:, column.position])
         problems.extend(
@@ -674,13 +675,17 @@ def _closing(problems: list[_Problem], hidden: set[str], surface: Surface) -> st
             else "Leave out the values their columns can't hold."
         )
     if "missing" in kinds:
+        stand_ins = "-999 or 'N/A'" if surface == "python" else '-999 or "N/A"'
         sentences.append(
-            "Declare only stand-ins for missing values, such as -999 or 'N/A'."
+            f"Declare only stand-ins for missing values, such as {stand_ins}."
         )
     if "infinite" in kinds:
         sentences.append(
             "Replace infinite values with NaN first if they mean missing, such as "
             "df.replace([np.inf, -np.inf], np.nan)."
+            if surface == "python"
+            else "Leave infinite values out of sentinel_values: the analyses read "
+            "them as numbers, never as missing."
         )
     return " ".join(sentences)
 

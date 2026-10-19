@@ -26,16 +26,14 @@ import anyio
 import pandas as pd
 from mcp import Client, MCPError
 from mcp.types import INVALID_PARAMS
+from python_syntax import python_in
 
 from agent_eda.mcp import create_server
 
 CSV = "order,city,score\nA1,Oslo,1.5\nA2,Lyon,2.5\nA3,Oslo,\nA4,Oslo,4.0\n"
 
 # What only a Python caller can write or run.
-PYTHON_FIX = re.compile(
-    r"\bae\.|\bhelp\(|\b\w+=(None|True|False|'|\{|\[)|\bdf\b|\bpd\.|\.astype\(|"
-    r"\bres\.|to_frame\(|reset_index\(|sorted\("
-)
+PYTHON_FIX = re.compile(r"\bdf\b|\.astype\(|reset_index\(|sorted\(")
 
 # What no message may show: a typing annotation, or what pydantic says.
 LEAKS = re.compile(
@@ -48,6 +46,18 @@ INDEXED = pd.DataFrame(
     {"order": ["A1", "A2", "A3"], "score": [1.5, 2.5, 4.0]}
 ).set_index("order")
 NO_COLUMNS = pd.DataFrame(index=range(3))
+ZONED = pd.DataFrame({"when": pd.to_datetime(["2024-01-05", "2024-02-05"], utc=True)})
+MULTI_INDEX = pd.DataFrame(
+    [[1.5, 2.0]], columns=pd.MultiIndex.from_tuples([("a", "x"), ("a", "y")])
+)
+
+# The project files a mistake can pass, as {name} in an argument.
+PROJECT_FILES = {
+    "project_not_toml": "[data_policy\n",
+    "project_with_a_typo": (
+        '[data_policy]\nsensitive_columns = ["city"]\nmask_sensitve = true\n'
+    ),
+}
 
 
 # Each mistake: the MCP tool, its arguments besides data_path, the kind of data
@@ -168,7 +178,173 @@ MISTAKES = {
         "column_not_found",
         ["unknown column 'score' in columns", "The data has no columns."],
     ),
+    # Fixes an MCP caller makes in JSON, never in Python.
+    "sentinel-value-written-as-text-for-a-number": (
+        "detect_missing_sentinels",
+        {"sentinel_values": {"score": ["-999"]}},
+        "csv",
+        "invalid_argument",
+        [
+            "got \"-999\" for column 'score'",
+            "Did you mean -999?",
+            'such as {"sentinel_values": {"score": [-999]}}',
+        ],
+    ),
+    "sentinel-value-of-another-kind-written-as-a-boolean": (
+        "detect_missing_sentinels",
+        {"sentinel_values": {"score": [True]}},
+        "csv",
+        "invalid_argument",
+        ["got true for column 'score'", "Did you mean 1?"],
+    ),
+    "sentinel-value-listed-twice": (
+        "detect_missing_sentinels",
+        {"sentinel_values": {"score": [-999, -999.0]}},
+        "csv",
+        "invalid_argument",
+        ['got -999 more than once in the sentinel_values list for "score"'],
+    ),
+    "sentinel-values-that-are-true-twice": (
+        "detect_missing_sentinels",
+        {"sentinel_values": {"score": [True, True]}},
+        "csv",
+        "invalid_argument",
+        ['got true more than once in the sentinel_values list for "score"'],
+    ),
+    "datetime-sentinel-written-as-a-date-for-a-column-with-a-time-zone": (
+        "detect_missing_sentinels",
+        {"sentinel_values": {"when": ["1900-01-01"]}},
+        "zoned",
+        "invalid_argument",
+        ['"1900-01-01T00:00:00+00:00"', "Did you mean"],
+    ),
+    "task-that-needs-more-expected-labels": (
+        "profile_target",
+        {
+            "target_column": "city",
+            "task": "binary_classification",
+            "expected_labels": ["Oslo"],
+        },
+        "csv",
+        "invalid_argument",
+        [
+            "got 1 label in expected_labels for a binary_classification task",
+            'pass {"task": "multiclass_classification"}.',
+        ],
+    ),
+    "expected-label-of-a-type-the-target-cannot-hold": (
+        "profile_target",
+        {
+            "target_column": "city",
+            "task": "multiclass_classification",
+            "expected_labels": ["Oslo", True],
+        },
+        "csv",
+        "invalid_argument",
+        ["got true in expected_labels", "Declare each label as the type"],
+    ),
+    "project-path-that-is-empty": (
+        "summarize_categorical",
+        {"project_path": ""},
+        "csv",
+        "invalid_argument",
+        [
+            "project_path got an empty path",
+            'project_path must name a file, such as "project.toml"',
+        ],
+    ),
+    "project-path-that-is-a-directory": (
+        "summarize_categorical",
+        {"project_path": "{directory}"},
+        "csv",
+        "invalid_argument",
+        ["project_path got the directory", "for project_path"],
+    ),
+    "option-written-as-a-boolean": (
+        "summarize_numeric",
+        {"trim_fraction": True},
+        "csv",
+        "invalid_argument",
+        ["got true for trim_fraction"],
+    ),
+    "option-written-as-null": (
+        "summarize_categorical",
+        {"top_n": None},
+        "csv",
+        "invalid_argument",
+        ["got null for top_n"],
+    ),
+    "value-inside-a-mapping-of-the-wrong-type": (
+        "validate_column_types",
+        {"schema": {"score": 3}},
+        "csv",
+        "invalid_argument",
+        ["at schema/score", "got 3"],
+    ),
+    "search-query-that-is-null": (
+        "search_analyses",
+        {"query": None},
+        None,
+        "invalid_argument",
+        ['such as {"query": "missing values"}', "but got null"],
+    ),
+    "search-limit-that-is-zero": (
+        "search_analyses",
+        {"query": "nulls", "limit": 0},
+        None,
+        "invalid_argument",
+        ["got 0 for limit", "must be an integer of at least 1"],
+    ),
+    "column-of-a-type-the-analysis-cannot-use": (
+        "summarize_numeric",
+        {"columns": ["city"]},
+        "csv",
+        "unsupported_column_type",
+        ["column 'city'", "Use summarize_categorical"],
+    ),
+    "column-labels-that-form-a-multiindex": (
+        "summarize_numeric",
+        {},
+        "multi-index",
+        "ambiguous_column_labels",
+        ["MultiIndex", "Flatten them in the data file first"],
+    ),
     # Paths.
+    "data-path-of-another-format": (
+        "summarize_numeric",
+        {"data_path": "{directory}/shop.xlsx"},
+        None,
+        "unsupported_data_format",
+        ["'.xlsx'", ".csv"],
+    ),
+    "data-file-that-is-not-utf-8": (
+        "summarize_numeric",
+        {},
+        "latin1",
+        "unreadable_data_file",
+        ["Can't read", "UTF-8"],
+    ),
+    "project-path-without-a-file": (
+        "summarize_categorical",
+        {"project_path": "{directory}/missing.toml"},
+        "csv",
+        "project_file_not_found",
+        ["project_path"],
+    ),
+    "project-file-that-is-not-toml": (
+        "summarize_categorical",
+        {"project_path": "{project_not_toml}"},
+        "csv",
+        "invalid_project_file",
+        ["project_path"],
+    ),
+    "project-file-with-a-misspelled-key": (
+        "summarize_categorical",
+        {"project_path": "{project_with_a_typo}"},
+        "csv",
+        "unknown_project_key",
+        ["mask_sensitve", "Did you mean 'mask_sensitive'?"],
+    ),
     "data-path-that-is-a-directory": (
         "summarize_numeric",
         {"data_path": "{folder}"},
@@ -224,13 +400,8 @@ MISTAKES = {
 @pytest.mark.parametrize("mistake", list(MISTAKES))
 def test_an_argument_mistake_gets_its_code_and_an_mcp_fix(tmp_path, mistake):
     name, arguments, kind, code, fragments = MISTAKES[mistake]
-    data = data_file(tmp_path, kind)
-    (tmp_path / "folder.csv").mkdir()
-    arguments = {key: fill(value, tmp_path, data) for key, value in arguments.items()}
-    if kind is not None and "data_path" not in arguments:
-        arguments["data_path"] = str(data)
 
-    response = anyio.run(call, name, arguments)
+    response = anyio.run(call, name, arguments_of(tmp_path, arguments, kind))
 
     assert response.is_error
     assert response.structured_content["code"] == code
@@ -239,6 +410,7 @@ def test_an_argument_mistake_gets_its_code_and_an_mcp_fix(tmp_path, mistake):
     for fragment in fragments:
         assert fragment in message
     assert PYTHON_FIX.findall(message) == []
+    assert python_in(message) == []
     assert LEAKS.findall(message) == []
 
 
@@ -279,22 +451,46 @@ def test_an_unknown_mcp_tool_is_a_json_rpc_invalid_params_error():
     assert "There is no MCP tool named 'summarise_numeric'" in error.error.message
 
 
-def fill(value, tmp_path, data):
-    """A path argument written with {directory}, {folder} (a directory named like a
-    CSV file) or {data} for the test's own."""
-    if isinstance(value, str):
-        return value.format(
-            directory=tmp_path, folder=tmp_path / "folder.csv", data=data
-        )
-    return value
+def arguments_of(tmp_path, arguments, kind):
+    """A mistake's arguments with the data file as data_path, unless it gives
+    one, and each path written as {directory}, {folder} (a directory named like a
+    CSV file), {data} or the name of a project file filled in for the test's
+    own."""
+    data = data_file(tmp_path, kind)
+    (tmp_path / "folder.csv").mkdir()
+    names = {
+        "directory": tmp_path,
+        "folder": tmp_path / "folder.csv",
+        "data": data,
+    }
+    for name, text in PROJECT_FILES.items():
+        names[name] = tmp_path / f"{name}.toml"
+        names[name].write_text(text, encoding="utf-8")
+    filled = {
+        key: value.format(**names) if isinstance(value, str) else value
+        for key, value in arguments.items()
+    }
+    if kind is not None and "data_path" not in filled:
+        filled["data_path"] = str(data)
+    return filled
 
 
 def data_file(tmp_path, kind):
-    """The file a mistake reads: CSV, or a Parquet file that keeps an index or
-    holds no column, which a CSV file can't."""
+    """The file a mistake reads: CSV, or a Parquet file that keeps an index,
+    holds no column or has a MultiIndex of columns, or a CSV file that isn't
+    UTF-8, which a plain CSV file can't be."""
     if kind == "csv":
         path = tmp_path / "shop.csv"
         path.write_text(CSV, encoding="utf-8")
+    elif kind == "latin1":
+        path = tmp_path / "shop.csv"
+        path.write_bytes("order,city\nA1,Zürich\n".encode("latin-1"))
+    elif kind == "zoned":
+        path = tmp_path / "zoned.parquet"
+        ZONED.to_parquet(path)
+    elif kind == "multi-index":
+        path = tmp_path / "shop.parquet"
+        MULTI_INDEX.to_parquet(path)
     elif kind == "indexed":
         path = tmp_path / "shop.parquet"
         INDEXED.to_parquet(path)

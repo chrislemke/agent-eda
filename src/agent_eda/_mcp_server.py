@@ -45,8 +45,8 @@ from agent_eda._table_files import (
 )
 from agent_eda._text import closest_names, join_alternatives
 from agent_eda._version import __version__
+from agent_eda._wording import json_words, json_words_in, see_every
 from agent_eda._wording import message as worded_message
-from agent_eda._wording import see_every
 from agent_eda.discovery import list_analyses, search_analyses
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
@@ -543,7 +543,9 @@ def _input_schema(spec: AnalysisSpec) -> dict[str, Any]:
         definitions.pop(name, None)
     if "$defs" in schema and not definitions:
         del schema["$defs"]
-    return schema
+    # The docstrings say None, True and False; an MCP caller passes null, true
+    # and false.
+    return json_words_in(schema)
 
 
 def _no_json_schema(spec: AnalysisSpec) -> str:
@@ -575,14 +577,16 @@ def _description(spec: AnalysisSpec) -> str:
     doc = spec.docstring
     statuses = [f"{status}: {doc.statuses.get(status, '')}" for status in spec.statuses]
     see_also = [f"{name}: {text}" for name, text in doc.see_also.items()]
-    return "\n\n".join(
-        [
-            doc.summary,
-            f"When to use:\n{doc.when_to_use}",
-            f"Returns:\n{doc.returns}",
-            "Statuses:\n" + "\n".join(statuses),
-            "See Also:\n" + "\n".join(see_also),
-        ]
+    return json_words(
+        "\n\n".join(
+            [
+                doc.summary,
+                f"When to use:\n{doc.when_to_use}",
+                f"Returns:\n{doc.returns}",
+                "Statuses:\n" + "\n".join(statuses),
+                "See Also:\n" + "\n".join(see_also),
+            ]
+        )
     )
 
 

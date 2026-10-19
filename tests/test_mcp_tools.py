@@ -25,6 +25,7 @@ import anyio
 import jsonschema
 import pandas as pd
 from mcp import Client
+from python_syntax import json_words, json_words_in
 from recipes import recipe_for
 from serving import serving
 
@@ -81,7 +82,9 @@ def test_the_description_holds_the_docstring_sections_in_order(tools, name):
     assert description.startswith(described.summary + "\n")
     lines = description.splitlines()
     assert [line for line in lines if line in DESCRIBED] == DESCRIBED
-    assert described.when_to_use in " ".join(section(description, "When to use:"))
+    assert json_words(described.when_to_use) in " ".join(
+        section(description, "When to use:")
+    )
     returns = " ".join(section(description, "Returns:"))
     assert [
         c.code for c in described.finding_codes if f"`{c.code}`" not in returns
@@ -112,7 +115,8 @@ def test_the_input_schema_is_the_arguments_schema_with_a_required_data_path(
     data_path = properties.pop("data_path")
     # The server's own property, checked in the test below.
     properties.pop("table_path")
-    expected = ae.describe_analysis(name).to_dict()["parameters_schema"]
+    # The docstrings' None, True and False are null, true and false over MCP.
+    expected = json_words_in(ae.describe_analysis(name).to_dict()["parameters_schema"])
     # project becomes project_path (tests/test_mcp_project.py), and the
     # Project's definitions go with it.
     expected_properties = dict(expected["properties"])
