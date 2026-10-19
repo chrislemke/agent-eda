@@ -40,6 +40,7 @@ from agent_eda.project import Project
 from agent_eda.results import (
     ColumnResult,
     ColumnSupport,
+    ExclusionReason,
     Finding,
     Limitation,
     StatusReason,
@@ -76,7 +77,7 @@ _NUMERIC = ColumnRule(
 
 
 @analysis(
-    statuses=("completed", "partial", "insufficient_data", "not_applicable", "failed"),
+    statuses=("completed", "partial", "insufficient_data", "not_applicable"),
     finding_codes=("constant_columns", "infinite_values"),
     tags=("distribution", "mean", "standard deviation", "quantiles", "numeric"),
 )
@@ -177,14 +178,11 @@ def summarize_numeric(
     Statuses:
         completed: Every selected column has a finite value.
         partial: Some selected columns have no finite value; their entries have
-            status insufficient_data.
+            status insufficient_data. Reason code: `incomplete_columns`.
         insufficient_data: The data has no rows, or no selected column has a
-            finite value.
+            finite value. Reason codes: `no_rows` and `no_values`.
         not_applicable: columns is left out and the data has no numeric columns
-            other than booleans.
-        failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. No such failure is known today:
-            a statistic that can't be computed is null, with a limitation, instead.
+            other than booleans. Reason code: `no_columns`.
 
     Examples:
         >>> import pandas as pd
@@ -298,7 +296,7 @@ _DEFINITIONS = {
     if name not in ColumnResult.model_fields
 }
 _NO_NUMERIC_COLUMNS = StatusReason(
-    code="no_numeric_columns",
+    code="no_columns",
     message=(
         "The data has no numeric columns. Booleans count only when named in "
         "columns, which reads them as 0 and 1."
@@ -368,7 +366,7 @@ _CATEGORICAL = ColumnRule(
 
 
 @analysis(
-    statuses=("completed", "partial", "insufficient_data", "not_applicable", "failed"),
+    statuses=("completed", "partial", "insufficient_data", "not_applicable"),
     finding_codes=("case_or_space_variants", "mixed_value_types", "unused_categories"),
     tags=(
         "value counts",
@@ -492,15 +490,14 @@ def summarize_categorical(
     Statuses:
         completed: Every selected column has a non-missing value.
         partial: Some selected columns have no non-missing value or hold values
-            that can't be hashed; their entries say which.
+            that can't be hashed; their entries say which. Reason code:
+            `incomplete_columns`.
         insufficient_data: The data has no rows, or no selected column has a
-            non-missing value.
+            non-missing value. Reason codes: `no_rows` and `no_values`.
         not_applicable: columns is left out and the data has no text, object,
             categorical or boolean columns, or every selected column holds
-            values that can't be hashed.
-        failed: An anticipated computation failure stopped the analysis, and
-            `status_reason` gives its code and message. No such failure is known today:
-            a count that can't be computed is null, with a limitation, instead.
+            values that can't be hashed. Reason codes: `no_columns` and
+            `unhashable_values`.
 
     Examples:
         >>> import pandas as pd
@@ -623,7 +620,7 @@ def summarize_categorical(
 
 
 _NO_CATEGORICAL_COLUMNS = StatusReason(
-    code="no_categorical_columns",
+    code="no_columns",
     message=(
         "The data has no text, object, categorical or boolean columns. Name a "
         "numeric column in columns to count its values."
@@ -727,17 +724,11 @@ def _level(
 def _categorical_support(
     entry: SummarizeCategoricalColumn, row_count: int
 ) -> ColumnSupport:
-    excluded = {
-        reason: count
-        for reason, count in (
-            ("missing", entry.missing_count),
-            (
-                "unhashable",
-                entry.non_missing_count if entry.distinct_count is None else 0,
-            ),
-        )
-        if count
-    }
+    excluded: dict[ExclusionReason, int] = {}
+    if entry.missing_count:
+        excluded["missing"] = entry.missing_count
+    if entry.distinct_count is None and entry.non_missing_count:
+        excluded["unhashable_values"] = entry.non_missing_count
     return ColumnSupport(
         column=entry.column,
         eligible_count=row_count,

@@ -22,9 +22,10 @@ from pathlib import Path
 
 import agent_eda as ae
 from agent_eda import mcp
+from agent_eda._codes import limitation_meanings
 from agent_eda._docstring import parse as parse_docstring
 from agent_eda.discovery import FIRST_LOOK
-from agent_eda.results import AnalysisDescription, Finding
+from agent_eda.results import AnalysisDescription, Finding, StatusDescription
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
@@ -132,9 +133,15 @@ def _analysis(description: AnalysisDescription) -> str:
             )
         findings.append(f"- `{code.code}` ({assessment}): {_sentence(claim)}")
     lines.extend(["\n".join(findings)] if findings else [])
-    statuses = ", ".join(f"`{status.status}`" for status in description.statuses)
+    statuses = ", ".join(_status(status) for status in description.statuses)
     lines.append(f"**Statuses:** {statuses}")
     return "\n\n".join(lines)
+
+
+def _status(status: StatusDescription) -> str:
+    """A status with the reason codes it returns, such as `not_applicable` (`no_columns`)."""
+    codes = ", ".join(f"`{entry.code}`" for entry in status.reason_codes)
+    return f"`{status.status}`" + (f" ({codes})" if codes else "")
 
 
 def _fields(description: AnalysisDescription) -> str:
@@ -206,6 +213,7 @@ def _projects() -> str:
 
 
 def _results() -> str:
+    limitations = limitation_meanings().items()
     rows = [
         (f"`{name}`", _sentence(field.description or ""))
         for name, field in ae.AnalysisResult.model_fields.items()
@@ -226,6 +234,10 @@ def _results() -> str:
             + "\n".join(f"| {name} | {text} |" for name, text in rows),
             "The shared methods:",
             "\n".join(methods),
+            "Each limitation's `code` is one of these:",
+            "\n".join(
+                f"- `{code}`: {_sentence(meaning)}" for code, meaning in limitations
+            ),
         ]
     )
 

@@ -607,8 +607,7 @@ def test_repeated_row_ids_give_an_ambiguous_row_ids_limitation():
     res = ae.validate_column_types(df, schema={"qty": "integer"})
 
     assert res.columns["qty"].invalid_row_ids == [7, 8]
-    [limitation] = res.limitations
-    assert limitation.code == "ambiguous_row_ids"
+    [limitation] = [lim for lim in res.limitations if lim.code == "ambiguous_row_ids"]
     assert limitation.fields == ["columns['qty'].invalid_row_ids"]
 
 
@@ -741,7 +740,9 @@ def test_prints_the_counts_per_declared_column_violations_first():
         "- violation missing_declared_columns: 1 declared column is not in the data: 'customer'.",
         "- descriptive convertible_values: 3 columns hold convertible values: 'order_id', 'ordered' and 'qty'.",
         "- passed passing_columns: 1 column passes every check: 'order_id'.",
-        "Limitations (1 of 1 shown):",
+        "Limitations (2 of 2 shown):",
+        "- nullable_not_declared: nullable wasn't declared, so missing values "
+        "weren't checked: 'ordered', 'qty' and 'customer'.",
         "- column_not_in_data: 1 declared column isn't in the data, so its dtype and counts are null: 'customer'.",
         "More: res.to_frame() has all 4 declared columns; res.to_frame(table='invalid_values') "
         "counts every distinct invalid",
@@ -800,8 +801,9 @@ def test_nan_stored_as_a_value_counts_as_missing_with_a_limitation():
     res = ae.validate_column_types(df, schema={"x": "float"})
 
     assert counts(res.columns["x"]) == (1, 0, 0, 2)
-    [limitation] = res.limitations
-    assert limitation.code == "nan_counted_as_missing"
+    [limitation] = [
+        lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
+    ]
     assert limitation.reason == (
         "1 column stores NaN as a value, which pandas doesn't count as "
         "missing; missing_count counts it: 'x'."
@@ -934,8 +936,7 @@ def test_the_counts_of_a_column_missing_from_the_data_are_null_with_the_reason()
 
     res = ae.validate_column_types(df, schema={"zip": "categorical"})
 
-    [limitation] = res.limitations
-    assert limitation.code == "column_not_in_data"
+    [limitation] = [lim for lim in res.limitations if lim.code == "column_not_in_data"]
     assert limitation.fields == ["columns['zip']"]
     assert limitation.reason == (
         "1 declared column isn't in the data, so its dtype and counts are null: 'zip'."

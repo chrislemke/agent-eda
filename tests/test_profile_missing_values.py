@@ -348,7 +348,6 @@ def test_declares_its_statuses_and_finding_codes():
         "completed",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
     assert info.finding_codes == ["all_missing_columns", "sentinel_values_present"]
 

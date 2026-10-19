@@ -20,6 +20,7 @@ from agent_eda._text import join_labels, plural
 from agent_eda._values import is_constant, stored_nan_mask
 from agent_eda.results import (
     ColumnSupport,
+    ExclusionReason,
     Limitation,
     StatusReason,
     SummarizeNumericColumn,
@@ -314,7 +315,7 @@ def summarize_values(
 
 # Why a column without a finite value has status insufficient_data.
 NO_FINITE_VALUES = StatusReason(
-    code="no_finite_values", message="There are no finite values to summarize."
+    code="no_values", message="There are no finite values to summarize."
 )
 
 
@@ -339,14 +340,11 @@ def numeric_entry[Entry: SummarizeNumericColumn](
 
 def numeric_support(name: str, summary: NumericSummary) -> ColumnSupport:
     """The support of a column's summary: missing and infinite values are excluded."""
-    excluded = {
-        reason: count
-        for reason, count in (
-            ("missing", summary.missing_count),
-            ("infinite", summary.infinite_count),
-        )
-        if count
-    }
+    excluded: dict[ExclusionReason, int] = {}
+    if summary.missing_count:
+        excluded["missing"] = summary.missing_count
+    if summary.infinite_count:
+        excluded["infinite"] = summary.infinite_count
     eligible = summary.non_missing_count + summary.missing_count
     return ColumnSupport(
         column=name,

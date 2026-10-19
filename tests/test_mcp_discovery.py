@@ -8,6 +8,7 @@ list_analyses MCP tools return what the Python calls return.
 
 import inspect
 import re
+import typing
 
 import pytest
 
@@ -28,6 +29,7 @@ from test_search_analyses import SEARCH_ACCEPTANCE
 import agent_eda as ae
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.mcp import create_server
+from agent_eda.results import Status
 
 ANALYSES = [info.name for info in ae.list_analyses().analyses]
 # Python call syntax, such as to_frame() or ae.guide(): a name and a bracket.
@@ -120,17 +122,17 @@ def test_the_instructions_explain_data_paths(instructions):
 def test_the_instructions_explain_results_and_statuses(instructions):
     text = unwrapped(instructions)
 
-    for status in [
+    # Only the statuses some analysis can return, computed from the registry.
+    reachable = {s for info in ae.list_analyses().analyses for s in info.statuses}
+    assert reachable == {
         "completed",
         "partial",
         "insufficient_data",
         "not_applicable",
-        "missing_prerequisites",
         "budget_exceeded",
-        "blocked_by_policy",
-        "failed",
-    ]:
-        assert status in text
+    }
+    for status in typing.get_args(Status):
+        assert (status in text) == (status in reachable), status
     for assessment in ["descriptive", "suspected", "violation", "passed", "unknown"]:
         assert assessment in text
     # The text is the printed result, the structured content the record, and

@@ -15,6 +15,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import to_jsonable_python
 
 from agent_eda._annotations import choices, python_literal, type_text, valid_range
+from agent_eda._codes import limitation_meanings, status_reason_meanings
 from agent_eda._registry import AnalysisSpec, checked_keywords, registered
 from agent_eda._search import rank, terms
 from agent_eda._text import (
@@ -23,6 +24,7 @@ from agent_eda._text import (
     join_alternatives,
     join_items,
     plural,
+    wrap,
 )
 from agent_eda._version import __version__
 from agent_eda._wording import as_written, echoed, type_of, worded
@@ -33,11 +35,14 @@ from agent_eda.results import (
     AnalysisListing,
     AnalysisResult,
     FindingCodeDescription,
+    LimitationCodeDescription,
     ParameterDescription,
+    ReasonCodeDescription,
     ResultFieldDescription,
     SearchListing,
     SearchMatch,
     SearchTerm,
+    Status,
     StatusDescription,
 )
 
@@ -75,8 +80,7 @@ _GUIDE_RESULTS = """\
 Read the result:
 - print(res) shows a short summary: status, key numbers, findings and limitations. Always print it: Code
   Interpreter returns only what you print.
-- res.status says how the run ended: completed, partial, insufficient_data, not_applicable, missing_prerequisites,
-  budget_exceeded, blocked_by_policy or failed; res.status_reason says why it didn't complete.
+{status}
 - res.findings are claims about the data, each with a code and an assessment: descriptive, suspected, violation,
   passed or unknown. res.limitations say what limits how far the numbers can be read.
 - res.to_frame() returns the complete table; res.to_dict() and res.to_json() return the whole record."""
@@ -124,6 +128,31 @@ def guide() -> None:
     print(_guide_text())
 
 
+def reachable_statuses(listing: AnalysisListing) -> list[str]:
+    """The statuses some listed analysis can return, in the order Status has them.
+
+    The guide and the MCP server's instructions list these, so that no caller
+    writes a branch for a status no analysis returns.
+    """
+    declared = {status for info in listing.analyses for status in info.statuses}
+    return [status for status in typing.get_args(Status) if status in declared]
+
+
+def status_lines(listing: AnalysisListing, subject: str, after: str = "") -> list[str]:
+    """The bullet on `subject.status`, naming the reachable statuses, wrapped.
+
+    `subject` is "res" for Python and "" over MCP, where the response's fields
+    have no object name.
+    """
+    prefix = f"{subject}." if subject else ""
+    statuses = join_alternatives(reachable_statuses(listing))
+    text = (
+        f"- {prefix}status says how the run ended: {statuses}; {prefix}status_reason "
+        f"says why it didn't complete.{after}"
+    )
+    return wrap(text, first="", indent="  ")
+
+
 def _guide_text() -> str:
     listing = list_analyses()
     first_look = _first_look_lines(listing)
@@ -133,7 +162,7 @@ def _guide_text() -> str:
             "",
             _GUIDE_CALL,
             "",
-            _GUIDE_RESULTS,
+            _GUIDE_RESULTS.format(status="\n".join(status_lines(listing, "res"))),
             "",
             str(listing),
             "",
@@ -250,6 +279,7 @@ def describe_analysis(name: str) -> AnalysisDescription:
         '0 <= trim_fraction < 0.5'
     """
     spec = _find(name)
+    meanings = status_reason_meanings()
     parameters = [
         _parameter(spec, parameter) for parameter in spec.signature.parameters.values()
     ]
@@ -263,7 +293,12 @@ def describe_analysis(name: str) -> AnalysisDescription:
         parameters_schema=spec.parameters_schema(),
         statuses=[
             StatusDescription(
-                status=status, reason=spec.docstring.statuses.get(status, "")
+                status=status,
+                reason=spec.docstring.statuses.get(status, ""),
+                reason_codes=[
+                    ReasonCodeDescription(code=code, meaning=meanings.get(code, ""))
+                    for code in spec.reason_codes(status)
+                ],
             )
             for status in spec.statuses
         ],
@@ -272,6 +307,10 @@ def describe_analysis(name: str) -> AnalysisDescription:
                 code=code, description=spec.docstring.codes.get(code)
             )
             for code in spec.finding_codes
+        ],
+        limitation_codes=[
+            LimitationCodeDescription(code=code, meaning=meaning)
+            for code, meaning in limitation_meanings().items()
         ],
         result_class=spec.result_class.__name__,
         result_fields=[

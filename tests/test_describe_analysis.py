@@ -193,19 +193,33 @@ def test_lists_the_allowed_quantile_methods_and_the_trim_fraction_range():
 def test_lists_the_declared_statuses_with_their_reasons():
     description = ae.describe_analysis("describe_dataset")
 
-    assert [(s.status, s.reason) for s in description.statuses] == [
+    assert [(s.status, s.reason, s.reason_codes) for s in description.statuses] == [
         (
             "completed",
             "The description finished, also for data with no rows, no columns or "
-            "neither.",
-        ),
-        (
-            "failed",
-            "An anticipated computation failure stopped the description, and "
-            "`status_reason` gives its code and message. No such failure is known today: a "
-            "count that can't be computed is null, with a limitation, instead.",
+            "neither; a count that can't be computed is null, with a limitation.",
+            [],
         ),
     ]
+
+
+def test_lists_the_reason_codes_of_each_status_with_their_meanings():
+    description = ae.describe_analysis("summarize_numeric")
+
+    assert [
+        (s.status, [c.code for c in s.reason_codes]) for s in description.statuses
+    ] == [
+        ("completed", []),
+        ("partial", ["incomplete_columns"]),
+        ("insufficient_data", ["no_rows", "no_values"]),
+        ("not_applicable", ["no_columns"]),
+    ]
+    [no_rows] = [
+        c for s in description.statuses for c in s.reason_codes if c.code == "no_rows"
+    ]
+    assert no_rows.meaning == "The data has no rows."
+    printed = str(description).splitlines()
+    assert "    no_rows: The data has no rows." in printed
 
 
 def test_lists_the_finding_codes_with_their_meanings():

@@ -4,16 +4,15 @@ import re
 import agent_eda as ae
 
 ANALYSES = ae.list_analyses().analyses
+# The statuses some analysis can return; the guide lists these and no others.
 STATUSES = [
     "completed",
     "partial",
     "insufficient_data",
     "not_applicable",
-    "missing_prerequisites",
     "budget_exceeded",
-    "blocked_by_policy",
-    "failed",
 ]
+UNREACHABLE = ["missing_prerequisites", "blocked_by_policy", "failed"]
 # The order for a first look at a new dataset, which names all 11 first-look
 # analyses; a step can name two.
 FIRST_LOOK = [
@@ -82,6 +81,7 @@ def test_says_what_the_package_is_how_to_call_it_and_how_to_read_results(capsys)
     for word in ["res.status", "res.status_reason", "res.findings", "res.limitations"]:
         assert word in text
     assert all(status in text for status in STATUSES)
+    assert not any(status in text for status in UNREACHABLE)
     assert "res.to_frame()" in text
     assert "res.to_json()" in text
     for call in ["ae.search_analyses(", "ae.describe_analysis(", "ae.list_analyses()"]:

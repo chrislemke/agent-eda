@@ -26,7 +26,7 @@ def test_records_what_the_registration_decorator_declares():
 
     assert info.parameters == ["data", "source", "source_version"]
     assert info.methods == []
-    assert info.statuses == ["completed", "failed"]
+    assert info.statuses == ["completed"]
     assert info.finding_codes == [
         "empty_data",
         "duplicated_column_labels",

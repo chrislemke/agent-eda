@@ -703,7 +703,6 @@ def test_declares_its_statuses_and_finding_codes():
         "partial",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
     assert info.finding_codes == ["constant_columns", "infinite_values"]
     assert info.parameters == [
@@ -735,7 +734,7 @@ def test_a_column_without_finite_values_makes_the_result_partial():
     assert empty.status == "insufficient_data"
     assert empty.status_reason is not None
     assert (empty.status_reason.code, empty.status_reason.message) == (
-        "no_finite_values",
+        "no_values",
         NO_FINITE_VALUES,
     )
     assert res.columns["a"].status == "completed"
@@ -755,7 +754,7 @@ def test_no_column_with_finite_values_gives_insufficient_data():
     assert res.status == "insufficient_data"
     assert res.status_reason is not None
     assert (res.status_reason.code, res.status_reason.message) == (
-        "no_finite_values",
+        "no_values",
         f"No column completed: 'a' and 'b'. {NO_FINITE_VALUES}",
     )
     assert [e.status for e in res.columns.values()] == ["insufficient_data"] * 2
@@ -799,7 +798,7 @@ def test_data_without_numeric_columns_is_not_applicable(df):
     assert res.status == "not_applicable"
     assert res.status_reason is not None
     assert (res.status_reason.code, res.status_reason.message) == (
-        "no_numeric_columns",
+        "no_columns",
         "The data has no numeric columns. Booleans count only when named in "
         "columns, which reads them as 0 and 1.",
     )
@@ -938,7 +937,7 @@ def test_to_frame_types_counts_as_integers_and_statistics_as_floats():
     assert frame["non_missing_count"].dtype == "int64"
     assert frame["std"].dtype == "float64"
     assert frame["std"].isna().all()
-    assert frame["status_reason"].tolist() == ["no_finite_values", None]
+    assert frame["status_reason"].tolist() == ["no_values", None]
 
 
 def test_to_frame_keeps_every_column_beyond_the_records_100():

@@ -54,7 +54,7 @@ from agent_eda._text import (
 )
 from agent_eda._wording import echoed, message, see_every, worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
-from agent_eda.results import AnalysisResult, Limitation, Status
+from agent_eda.results import AnalysisResult, Limitation, Status, StatusReasonCode
 
 _CODE = re.compile(r"[a-z][a-z0-9_]*")
 
@@ -88,6 +88,12 @@ class AnalysisSpec:
     @property
     def parameters(self) -> tuple[str, ...]:
         return tuple(self.signature.parameters)
+
+    def reason_codes(self, status: str) -> tuple[StatusReasonCode, ...]:
+        """The status reason codes the Statuses: section gives a status."""
+        return cast(
+            "tuple[StatusReasonCode, ...]", self.docstring.status_codes.get(status, ())
+        )
 
     def parameters_schema(self) -> dict[str, Any]:
         """The JSON Schema of the options, with each one's Args: description.
@@ -269,6 +275,18 @@ def _spec(
             **cast("dict[str, Any]", options),
         )
     docstring = parse_docstring(doc)
+    known_codes = typing.get_args(StatusReasonCode)
+    bad_reasons = [
+        code
+        for codes in docstring.status_codes.values()
+        for code in codes
+        if code not in known_codes
+    ]
+    if bad_reasons:
+        raise TypeError(
+            f"analysis {name!r} names status reason codes {bad_reasons} that "
+            f"StatusReasonCode doesn't list: {list(known_codes)}"
+        )
     return AnalysisSpec(
         name=name,
         module=func.__module__,
@@ -892,6 +910,12 @@ def _check_result(spec: AnalysisSpec, result: object) -> None:
             problems.append(f"named itself {result.analysis!r}")
         if result.status not in spec.statuses:
             problems.append(f"returned undeclared status {result.status!r}")
+        reason = result.status_reason
+        if reason is not None and reason.code not in spec.reason_codes(result.status):
+            problems.append(
+                f"returned undeclared reason code {reason.code!r} with status "
+                f"{result.status!r}"
+            )
         undeclared = [
             f.code for f in result.findings if f.code not in spec.finding_codes
         ]

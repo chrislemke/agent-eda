@@ -12,7 +12,7 @@ import pytest
 import agent_eda as ae
 from agent_eda.errors import ColumnNotFoundError, InvalidArgumentError
 
-STATUSES = ["completed", "partial", "insufficient_data", "not_applicable", "failed"]
+STATUSES = ["completed", "partial", "insufficient_data", "not_applicable"]
 
 
 def infer(values, **arguments):
@@ -481,8 +481,9 @@ def test_nan_a_float_column_stores_as_a_value_counts_as_missing():
     )
 
     assert res.columns["x"].evidence.non_missing_count == 2
-    [limitation] = res.limitations
-    assert limitation.code == "nan_counted_as_missing"
+    [limitation] = [
+        lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
+    ]
     assert limitation.fields == ["columns['x'].evidence.non_missing_count"]
 
 
@@ -497,7 +498,10 @@ def test_values_that_cant_be_hashed_leave_the_distinct_count_null():
     assert entry.evidence.value_type_counts.other == 3
     assert entry.evidence.number_share == 0.4
     assert "mixed_value_types" in entry.flags
-    assert [lim.code for lim in res.limitations] == ["unhashable_values"]
+    assert [lim.code for lim in res.limitations] == [
+        "schema_not_declared",
+        "unhashable_values",
+    ]
 
 
 def test_a_column_whose_values_fit_no_logical_type_is_not_applicable():

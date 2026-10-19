@@ -400,7 +400,6 @@ def test_declares_the_statuses_it_can_return():
         "budget_exceeded",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
     assert info.module == "agent_eda.data.structure"
 
@@ -608,7 +607,7 @@ def test_data_whose_values_cannot_be_hashed_is_not_applicable():
 
     assert res.status == "not_applicable"
     assert res.status_reason is not None
-    assert res.status_reason.code == "no_hashable_columns"
+    assert res.status_reason.code == "unhashable_values"
     assert res.status_reason.message == (
         "No selected column can be searched: their values can't be hashed, such "
         "as lists or dicts."
