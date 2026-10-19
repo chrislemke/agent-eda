@@ -182,7 +182,7 @@ A mistake in a call, such as a misspelled column or an unknown option, raises a 
 
 Every analysis decides which values are equal the same way, as pandas does, so `1`, `1.0` and `True` are one value. Text that holds a NUL character (`"\x00"`) stays apart from text that is equal up to it, as Python's `==` has it. Values pandas can't hash, such as lists, are the one place analyses differ, each as its docstring says: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
-`find_candidate_keys` treats floats as measurements. With `columns=None` it leaves out every float column in which some finite value isn't a whole number (such as `0.5`), names those columns in `non_integral_float_columns` and says so in a `non_integral_float_columns` limitation; name one in `columns` to search it. A float column that holds only whole numbers, `NaN` allowed, stays a candidate, since integer IDs often turn float when a value is missing. Any `max_key_size` works: values above the number of searched columns count as that number, and when `max_combinations` stops the search, the message names the largest `max_key_size` that fits.
+`find_candidate_keys` leaves out float columns holding a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; floats holding only whole numbers, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as the column count.
 
 `infer_column_semantics` and `validate_column_types` read text by the same rules:
 
