@@ -1070,3 +1070,28 @@ def test_support_counts_the_values_checked_in_each_column():
         )
         for s in res.support.columns
     ] == [("age", 3, 2, 1, {"missing": 1}), ("flag", 3, 3, 0, {})]
+
+
+@pytest.mark.parametrize(
+    "analysis", ["detect_missing_sentinels", "profile_missing_values"]
+)
+def test_true_and_one_can_both_be_declared_for_an_object_column(analysis):
+    # Matching keeps them apart: True matches the True, and 1 matches 1 and 1.0.
+    df = pd.DataFrame({"o": pd.Series([True, 1, 1.0, "1"], dtype=object)})
+
+    res = getattr(ae, analysis)(df, sentinel_values={"o": [True, 1]})
+
+    assert res.status == "completed"
+    if analysis == "detect_missing_sentinels":
+        assert [(c.value, c.count) for c in res.candidates] == [(True, 1), (1, 2)]
+    else:
+        declared = res.columns["o"].sentinel_values
+        assert [(d.value, d.count) for d in declared] == [(True, 1), (1, 2)]
+
+
+@pytest.mark.parametrize("values", [[1, 1.0], [True, True], [-999, -999]])
+def test_a_value_declared_twice_still_raises_when_both_are_one_value(values):
+    df = pd.DataFrame({"o": pd.Series([True, 1, 1.0, -999], dtype=object)})
+
+    with pytest.raises(InvalidArgumentError, match="more than once in sentinel_values"):
+        ae.detect_missing_sentinels(df, sentinel_values={"o": values})

@@ -54,10 +54,16 @@ def test_describe_dataset_is_an_mcp_tool_that_requires_a_data_path():
 
 def test_a_call_returns_the_printed_result_in_mcp_wording_and_the_record(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text(CSV)
+    path.write_text(CSV, encoding="utf-8")
     # The server reads a CSV counting only an empty field as missing.
     expected = ae.describe_dataset(
-        pd.read_csv(path, keep_default_na=False, na_values=[""])
+        pd.DataFrame(
+            {
+                "city": ["Oslo", "Lyon", "Oslo"],
+                "score": [1.5, None, 2.5],
+                "note": ["N/A", "ok", float("nan")],
+            }
+        )
     )
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
@@ -76,7 +82,7 @@ def test_a_call_returns_the_printed_result_in_mcp_wording_and_the_record(tmp_pat
 
 def test_the_printed_result_names_what_an_mcp_caller_can_reach(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text(CSV)
+    path.write_text(CSV, encoding="utf-8")
 
     response = anyio.run(call, "summarize_numeric", {"data_path": str(path)})
 
@@ -116,10 +122,13 @@ def test_the_printed_result_names_record_fields_without_python(tmp_path):
 
 def test_the_masking_line_says_how_to_mask_in_json(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text("customer,plan\nann@example.org,pro\nbo@example.org,team\n")
+    path.write_text(
+        "customer,plan\nann@example.org,pro\nbo@example.org,team\n", encoding="utf-8"
+    )
     project_path = tmp_path / "project.toml"
     project_path.write_text(
-        '[data_policy]\nsensitive_columns = ["customer"]\nmask_sensitive = false\n'
+        '[data_policy]\nsensitive_columns = ["customer"]\nmask_sensitive = false\n',
+        encoding="utf-8",
     )
 
     response = anyio.run(
@@ -137,7 +146,7 @@ def test_the_masking_line_says_how_to_mask_in_json(tmp_path):
 
 def test_a_stand_in_such_as_n_a_reaches_the_analysis_as_a_value(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text(CSV)
+    path.write_text(CSV, encoding="utf-8")
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
@@ -150,7 +159,7 @@ def test_a_stand_in_such_as_n_a_reaches_the_analysis_as_a_value(tmp_path):
 
 
 def test_agent_eda_mcp_answers_a_call_over_stdio(tmp_path):
-    (tmp_path / "shop.csv").write_text(CSV)
+    (tmp_path / "shop.csv").write_text(CSV, encoding="utf-8")
 
     # A relative path, which the server resolves against its working directory.
     response = anyio.run(call_over_stdio, tmp_path, "1", "shop.csv")
@@ -163,7 +172,7 @@ def test_agent_eda_mcp_answers_a_call_over_stdio(tmp_path):
 def test_two_mcp_server_processes_with_different_hash_seeds_return_the_same_record(
     tmp_path,
 ):
-    (tmp_path / "shop.csv").write_text(CSV)
+    (tmp_path / "shop.csv").write_text(CSV, encoding="utf-8")
 
     records = [
         json.dumps(

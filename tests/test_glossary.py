@@ -33,7 +33,7 @@ REQUIRED = {
 def entries():
     """The glossary's entries: heading line -> the lines that follow it."""
     found = {}
-    lines = GLOSSARY.read_text().splitlines()
+    lines = GLOSSARY.read_text(encoding="utf-8").splitlines()
     for number, line in enumerate(lines):
         if re.match(r"^\*\*.+\*\*.*:$", line):
             body = []

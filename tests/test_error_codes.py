@@ -33,7 +33,7 @@ def test_every_error_code_is_documented_and_every_documented_code_is_in_use():
 
 def test_every_error_code_is_in_the_readme_errors_table_and_every_listed_code_is_in_use():
     in_use = codes_in_use()
-    listed = README_ROW.findall(README.read_text())
+    listed = README_ROW.findall(README.read_text(encoding="utf-8"))
 
     assert listed, (
         "README.md has no errors table with rows like | `code` | `Class` | ... |"
@@ -113,7 +113,7 @@ def codes_in_use():
     classes = error_classes()
     found = {cls.code: name for name, cls in classes.items() if name != "AgentEDAError"}
     for path in sorted(PACKAGE.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Call):
                 continue
             code = next(

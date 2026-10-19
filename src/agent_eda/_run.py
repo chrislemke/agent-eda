@@ -3,9 +3,11 @@
 import contextlib
 import importlib
 import platform
+import threading
 import warnings
 from collections import Counter
-from collections.abc import Generator, Hashable, Sequence
+from collections.abc import Callable, Generator, Hashable, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -70,6 +72,21 @@ def overall_status(
     )
 
 
+# warnings.catch_warnings swaps the process's warning filters and showwarning
+# hook, so two captures that overlap in time restore each other's state and
+# leave the caller's changed. Every capture runs under this one lock. It is
+# reentrant because a capture can start inside another, such as a numeric
+# summary inside an analysis.
+_CAPTURE_LOCK = threading.RLock()
+
+
+@contextlib.contextmanager
+def capture_warnings() -> Generator[list[warnings.WarningMessage], None, None]:
+    """Record the warnings raised in the block, one capture at a time process-wide."""
+    with _CAPTURE_LOCK, warnings.catch_warnings(record=True) as caught:
+        yield caught
+
+
 @contextlib.contextmanager
 def watch_all_warnings() -> Generator[list[warnings.WarningMessage], None, None]:
     """Record every warning raised in the block instead of showing it.
@@ -77,7 +94,7 @@ def watch_all_warnings() -> Generator[list[warnings.WarningMessage], None, None]
     NumPy's floating-point errors warn inside the block, whatever numpy.seterr
     says outside it, so they are recorded too.
     """
-    with warnings.catch_warnings(record=True) as caught:
+    with capture_warnings() as caught:
         warnings.simplefilter("always")
         with np.errstate(all="warn", under="ignore"):
             yield caught
@@ -133,10 +150,21 @@ def budget_exceeded_reason(
 
 
 def check_distinct(
-    analysis: str, parameter: str, values: Sequence[Hashable], noun: str
+    analysis: str,
+    parameter: str,
+    values: Sequence[Hashable],
+    noun: str,
+    *,
+    key: Callable[[Any], Hashable] | None = None,
 ) -> None:
-    """Raise when a list argument holds the same value more than once."""
-    repeated = [value for value, count in Counter(values).items() if count > 1]
+    """Raise when a list argument holds the same value more than once.
+
+    Values are the same when Python's == says so, or when their `key` is.
+    """
+    keyed = values if key is None else [key(value) for value in values]
+    repeated = [
+        values[keyed.index(item)] for item, count in Counter(keyed).items() if count > 1
+    ]
     if repeated:
         raise InvalidArgumentError(
             f"{analysis} got {join_items([repr(value) for value in repeated])} more "

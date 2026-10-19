@@ -267,7 +267,7 @@ def test_a_mistake_over_mcp_gives_the_python_message_with_an_mcp_fix(tmp_path, m
     arguments = {"data_path": str(path), **arguments}
     project_path = tmp_path / "project.toml"
     if mistake in PROJECT_FILES:
-        project_path.write_text(PROJECT_FILES[mistake])
+        project_path.write_text(PROJECT_FILES[mistake], encoding="utf-8")
         arguments["project_path"] = str(project_path)
     with pytest.raises(AgentEDAError) as raised:
         call_in_python(name, data, arguments)
@@ -301,8 +301,14 @@ def data_file(tmp_path, frame):
     server reads from it."""
     if frame is None:
         path = tmp_path / "shop.csv"
-        path.write_text(CSV)
-        return path, pd.read_csv(path, keep_default_na=False, na_values=[""])
+        path.write_text(CSV, encoding="utf-8")
+        return path, pd.DataFrame(
+            {
+                "order": ["A1", "A2", "A3", "A4"],
+                "city": ["Oslo", "Lyon", "Oslo", "Oslo"],
+                "score": [1.5, 2.5, None, 4.0],
+            }
+        )
     path = tmp_path / "shop.parquet"
     frame.to_parquet(path)
     with warnings.catch_warnings():

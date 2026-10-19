@@ -242,7 +242,9 @@ def test_package_code_never_reads_files_through_dunder_file():
     sources = sorted((ROOT / "src" / "agent_eda").rglob("*.py"))
 
     assert sources
-    assert [p.name for p in sources if "__file__" in p.read_text()] == []
+    assert [
+        p.name for p in sources if "__file__" in p.read_text(encoding="utf-8")
+    ] == []
 
 
 def run_python(code, *, args=(), env=None, cwd=None):

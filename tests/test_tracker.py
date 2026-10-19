@@ -19,7 +19,9 @@ ROADMAP_SPEC_LINK = re.compile(r"\]\(([^)\s]+/spec\.md)\)")
 def test_every_ticket_has_a_status_label_and_a_blocked_by_line():
     problems = []
     for ticket in sorted(SCRATCH.glob("*/issues/*.md")):
-        problems += ticket_problems(ticket.read_text(), ticket.relative_to(ROOT))
+        problems += ticket_problems(
+            ticket.read_text(encoding="utf-8"), ticket.relative_to(ROOT)
+        )
 
     assert problems == []
 
@@ -29,13 +31,15 @@ def test_every_spec_has_a_status_label():
     for spec in sorted(SCRATCH.glob("*/spec.md")):
         if spec.parent.name == "audit":
             continue
-        problems += status_problems(spec.read_text(), spec.relative_to(ROOT))
+        problems += status_problems(
+            spec.read_text(encoding="utf-8"), spec.relative_to(ROOT)
+        )
 
     assert problems == []
 
 
 def test_every_spec_in_the_roadmap_exists():
-    roadmap = (SCRATCH / "ROADMAP.md").read_text()
+    roadmap = (SCRATCH / "ROADMAP.md").read_text(encoding="utf-8")
     links = ROADMAP_SPEC_LINK.findall(roadmap)
 
     missing = [link for link in links if not (SCRATCH / link).is_file()]
@@ -77,7 +81,11 @@ def test_the_triage_labels_include_done():
 
 def labels():
     """The label strings in the second column of triage-labels.md's table."""
-    return set(re.findall(r"^\|[^|]*\|\s*`([^`]+)`", TRIAGE_LABELS.read_text(), re.M))
+    return set(
+        re.findall(
+            r"^\|[^|]*\|\s*`([^`]+)`", TRIAGE_LABELS.read_text(encoding="utf-8"), re.M
+        )
+    )
 
 
 def status_problems(text, name):
@@ -121,7 +129,7 @@ def test_the_finished_specs_and_all_their_tickets_say_done():
     not_done = [
         str(path.relative_to(ROOT))
         for path in files
-        if STATUS_LINE.findall(path.read_text())[:1] != ["done"]
+        if STATUS_LINE.findall(path.read_text(encoding="utf-8"))[:1] != ["done"]
     ]
 
     assert len(files) == 27
@@ -132,9 +140,13 @@ def test_a_spec_whose_tickets_are_all_done_says_done():
     stale = []
     for spec in sorted(SCRATCH.glob("*/spec.md")):
         tickets = sorted((spec.parent / "issues").glob("*.md"))
-        statuses = [STATUS_LINE.findall(t.read_text())[:1] for t in tickets]
+        statuses = [
+            STATUS_LINE.findall(t.read_text(encoding="utf-8"))[:1] for t in tickets
+        ]
         all_done = bool(tickets) and all(s == ["done"] for s in statuses)
-        if all_done and STATUS_LINE.findall(spec.read_text())[:1] != ["done"]:
+        if all_done and STATUS_LINE.findall(spec.read_text(encoding="utf-8"))[:1] != [
+            "done"
+        ]:
             stale.append(str(spec.relative_to(ROOT)))
 
     assert stale == [], f"All tickets are done, so set 'Status: done' in: {stale}"
@@ -150,11 +162,15 @@ def test_a_spec_whose_tickets_are_all_done_says_done():
     ],
 )
 def test_agents_md_holds_no_stale_state(stale):
-    assert stale not in (ROOT / "AGENTS.md").read_text()
+    assert stale not in (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
 
 def test_agents_md_names_no_spec_directory():
-    section = (ROOT / "AGENTS.md").read_text().split("## Working on a ticket")[1]
+    section = (
+        (ROOT / "AGENTS.md")
+        .read_text(encoding="utf-8")
+        .split("## Working on a ticket")[1]
+    )
     section = section.split("\n## ")[0]
 
     named = [
@@ -167,7 +183,7 @@ def test_agents_md_names_no_spec_directory():
 
 
 def test_agents_md_says_when_to_ask_the_maintainer_and_which_tickets_to_skip():
-    text = (ROOT / "AGENTS.md").read_text()
+    text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
     for phrase in (
         "ready-for-human",

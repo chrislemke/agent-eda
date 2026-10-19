@@ -82,7 +82,8 @@ def test_type_checkers_see_every_export_and_flag_typos(tmp_path):
         "first: str = ae.search_analyses('nulls', limit=3).matches[0].name\n"
         "signature: str = ae.describe_analysis('describe_dataset').signature\n"
         "nothing: None = ae.guide()\n"
-        "ae.describe_datset\n"
+        "ae.describe_datset\n",
+        encoding="utf-8",
     )
     ty = Path(sys.executable).with_name("ty")
 
