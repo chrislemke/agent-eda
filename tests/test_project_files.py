@@ -929,7 +929,9 @@ def test_overwrite_takes_only_true_or_false(tmp_path, overwrite):
 
 
 def test_a_path_starting_with_a_tilde_means_the_home_directory(tmp_path, monkeypatch):
+    # os.path.expanduser reads HOME on POSIX and USERPROFILE on Windows.
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     path = EMAIL_MASKED.save("~/project.toml")
 

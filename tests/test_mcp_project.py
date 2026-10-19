@@ -473,7 +473,7 @@ async def call(name, arguments, project=None):
 
 
 def write(path, text):
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return path
 
 

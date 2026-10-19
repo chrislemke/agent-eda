@@ -62,7 +62,7 @@ def test_the_usage_examples_run_as_written_and_print_what_the_readme_shows(
         if i + 1 < len(blocks) and blocks[i + 1][0] == "text":
             assert printed.getvalue() == blocks[i + 1][1]
         if i + 1 < len(blocks) and blocks[i + 1][0] == "toml":
-            assert Path("project.toml").read_text() == blocks[i + 1][1]
+            assert Path("project.toml").read_text(encoding="utf-8") == blocks[i + 1][1]
 
 
 def test_the_first_look_table_follows_the_guide_with_each_analysis_question(capsys):
@@ -79,21 +79,23 @@ def test_the_first_look_table_follows_the_guide_with_each_analysis_question(caps
 
     # Rows such as: | 1 | `describe_dataset` | What does this dataset contain? | none |
     row = re.compile(r"^\| (\d+) \| `(\w+)` \| ([^|]+?) \|", flags=re.MULTILINE)
-    assert row.findall(README.read_text()) == expected
+    assert row.findall(README.read_text(encoding="utf-8")) == expected
 
 
 def test_the_readme_has_the_sections_of_a_user_guide_in_order():
-    headings = re.findall(r"^## (.+)$", README.read_text(), flags=re.MULTILINE)
+    headings = re.findall(
+        r"^## (.+)$", README.read_text(encoding="utf-8"), flags=re.MULTILINE
+    )
 
     assert headings == SECTIONS
 
 
 def test_an_agent_reads_the_whole_readme_in_one_go():
-    assert len(README.read_text()) <= READ_LIMIT
+    assert len(README.read_text(encoding="utf-8")) <= READ_LIMIT
 
 
 def test_each_analysis_has_one_row_in_the_first_look_table_or_the_other_table():
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     analyses = text[text.index("## Analyses") : text.index("## Discovery")]
     first_look, other = analyses.split("### Other analyses")
     # First-look rows: | 1 | `describe_dataset` | What does ...? | none |
@@ -112,7 +114,9 @@ def test_each_analysis_has_one_row_in_the_first_look_table_or_the_other_table():
 def test_lists_each_planned_function_once_and_no_shipped_analysis_as_planned():
     # Rows such as: | `estimate_quantiles` | `statistics.descriptive` | Estimate ... |
     names = re.findall(
-        r"^\| `(\w+)` \| `[\w.]+` \|", PLANNED.read_text(), flags=re.MULTILINE
+        r"^\| `(\w+)` \| `[\w.]+` \|",
+        PLANNED.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
     )
     shipped = {info.name for info in ae.list_analyses().analyses}
 
@@ -122,8 +126,8 @@ def test_lists_each_planned_function_once_and_no_shipped_analysis_as_planned():
 
 
 def test_the_readme_and_agents_md_point_to_the_planned_analyses_file():
-    readme = README.read_text()
-    agents = (ROOT / "AGENTS.md").read_text()
+    readme = README.read_text(encoding="utf-8")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
     assert f"({BLOB}docs/planned-analyses.md)" in readme
     assert "docs/planned-analyses.md" in agents
@@ -132,7 +136,7 @@ def test_the_readme_and_agents_md_point_to_the_planned_analyses_file():
 
 
 def test_planned_analyses_stay_within_the_adrs_and_the_glossary():
-    text = PLANNED.read_text()
+    text = PLANNED.read_text(encoding="utf-8")
     rows = {
         match[1]: line
         for line in text.splitlines()
@@ -152,7 +156,7 @@ def test_planned_analyses_stay_within_the_adrs_and_the_glossary():
 
 
 def test_no_link_in_the_readme_is_relative_and_each_repository_link_leads_to_a_file():
-    links = re.findall(r"\]\(([^)\s]+)\)", README.read_text())
+    links = re.findall(r"\]\(([^)\s]+)\)", README.read_text(encoding="utf-8"))
 
     assert links
     for link in links:
@@ -165,7 +169,7 @@ def test_no_link_in_the_readme_is_relative_and_each_repository_link_leads_to_a_f
 
 
 def test_the_documentation_section_links_to_every_guide_for_contributors():
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     documentation = text[text.index("## Documentation") : text.index("## License")]
     files = ["CONTRIBUTING.md", "AGENTS.md", "GLOSSARY.md", "docs/planned-analyses.md"]
     files += [f"docs/adr/{p.name}" for p in sorted((ROOT / "docs/adr").glob("*.md"))]
@@ -175,22 +179,30 @@ def test_the_documentation_section_links_to_every_guide_for_contributors():
 
 
 def test_contributing_holds_the_development_notes_and_leaves_the_commands_to_agents_md():
-    text = CONTRIBUTING.read_text()
+    text = CONTRIBUTING.read_text(encoding="utf-8")
 
     assert f"({BLOB}AGENTS.md)" in text or "(AGENTS.md)" in text
     assert "lowest-direct" not in text
     assert "| Task | Command |" not in text
-    assert "## Development" not in README.read_text()
-    assert f"({BLOB}CONTRIBUTING.md)" in README.read_text()
+    assert "## Development" not in README.read_text(encoding="utf-8")
+    assert f"({BLOB}CONTRIBUTING.md)" in README.read_text(encoding="utf-8")
     for notes in ("Property tests", "Benchmark", "tests/recipes.py", "pre-commit"):
         assert notes in text, notes
 
 
 def test_contributing_names_the_architectures_the_workflow_runs():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
     include = workflow["jobs"]["tests-latest"]["strategy"]["matrix"]["include"]
-    arm64 = sorted({cell["python"] for cell in include if cell["arch"] == "ARM64"})
-    text = " ".join(CONTRIBUTING.read_text().split())
+    arm64 = sorted(
+        {
+            cell["python"]
+            for cell in include
+            if cell["arch"] == "ARM64" and cell["os"] == "Linux"
+        }
+    )
+    text = " ".join(CONTRIBUTING.read_text(encoding="utf-8").split())
 
     assert arm64 == ["3.12"]
     assert "Python 3.12 on Linux ARM64" in text
@@ -198,7 +210,7 @@ def test_contributing_names_the_architectures_the_workflow_runs():
 
 
 def test_the_readme_describes_leading_zeros_and_columns_as_the_analyses_treat_them():
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     codes = pd.DataFrame({"zip": ["01234", "00123", "02345", "01111", "01010"]})
     res = ae.infer_column_semantics(codes)
     lacking = sorted(
@@ -221,7 +233,7 @@ def test_the_readme_describes_leading_zeros_and_columns_as_the_analyses_treat_th
 def test_the_readme_gives_a_list_cell_example_that_a_table_has():
     keys = ae.find_candidate_keys(pd.DataFrame({"a": [1, 2, 3], "b": [1, 1, 2]}))
     cells = keys.to_frame()["columns"]
-    text = " ".join(README.read_text().split())
+    text = " ".join(README.read_text(encoding="utf-8").split())
 
     assert all(isinstance(cell, list) for cell in cells)
     assert "such as the columns of a candidate key from `find_candidate_keys`" in text
@@ -229,7 +241,7 @@ def test_the_readme_gives_a_list_cell_example_that_a_table_has():
 
 
 def test_the_readme_words_sentinels_tools_and_determinism_as_the_glossary_and_code_do():
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     prose = re.sub(r"^```.*?^```$", "", text, flags=re.MULTILINE | re.DOTALL)
 
     assert "placeholder codes" not in text
@@ -239,7 +251,7 @@ def test_the_readme_words_sentinels_tools_and_determinism_as_the_glossary_and_co
 
 
 def test_the_reference_is_the_one_the_generator_writes_from_the_docstrings():
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
 
     assert START in text
     assert END in text
@@ -251,24 +263,30 @@ def test_the_reference_is_the_one_the_generator_writes_from_the_docstrings():
 def test_running_the_generator_twice_in_a_row_changes_nothing(tmp_path):
     copy = tmp_path / "README.md"
     stale = re.sub(
-        f"{START}.*{END}", f"{START}\nold\n{END}", README.read_text(), flags=re.S
+        f"{START}.*{END}",
+        f"{START}\nold\n{END}",
+        README.read_text(encoding="utf-8"),
+        flags=re.S,
     )
-    copy.write_text(stale)
+    copy.write_text(stale, encoding="utf-8")
 
     generator().main(["--readme", str(copy)])
-    first = copy.read_text()
+    first = copy.read_text(encoding="utf-8")
     generator().main(["--readme", str(copy)])
 
     assert first != stale
-    assert first == README.read_text()
-    assert copy.read_text() == first
+    assert first == README.read_text(encoding="utf-8")
+    assert copy.read_text(encoding="utf-8") == first
 
 
 def test_the_generator_check_names_the_command_to_run_when_the_reference_is_stale(
     tmp_path, capsys
 ):
     copy = tmp_path / "README.md"
-    copy.write_text(README.read_text().replace("**Statuses:**", "**Status:**", 1))
+    copy.write_text(
+        README.read_text(encoding="utf-8").replace("**Statuses:**", "**Status:**", 1),
+        encoding="utf-8",
+    )
 
     assert generator().main(["--check", "--readme", str(copy)]) == 1
     assert COMMAND in capsys.readouterr().err
@@ -378,7 +396,7 @@ def test_the_reference_covers_the_discovery_functions_the_classes_and_the_result
 
 
 def test_the_reference_lists_every_error_code_with_the_class_that_raises_it():
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     errors = text[text.index("### Errors") : text.index("### MCP server command")]
     # Rows such as: | `column_not_found` | `ColumnNotFoundError` | ... |
     rows = re.findall(r"^\| `(\w+)` \| `(\w+)` \|", errors, flags=re.MULTILINE)
@@ -390,7 +408,7 @@ def test_the_reference_lists_every_error_code_with_the_class_that_raises_it():
 
 
 def test_the_reference_gives_the_mcp_server_command_and_its_option():
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     command = text[text.index("### MCP server command") : text.index(END)]
 
     assert "`agent-eda-mcp [--project PATH]`" in command
@@ -399,7 +417,7 @@ def test_the_reference_gives_the_mcp_server_command_and_its_option():
 
 
 def test_calls_masking_a_guardrail_not_anonymization_or_access_control():
-    text = " ".join(README.read_text().split())
+    text = " ".join(README.read_text(encoding="utf-8").split())
 
     assert (
         "Masking is a guardrail against accidental exposure, not anonymization or "
@@ -429,7 +447,7 @@ def generator():
 
 def reference_entries():
     """The Reference section's entries by public name, from its #### headings."""
-    text = README.read_text()
+    text = README.read_text(encoding="utf-8")
     reference = text[text.index(START) : text.index(END)]
     parts = re.split(r"^#### `(\w+)`\n", reference, flags=re.MULTILINE)
     return dict(zip(parts[1::2], parts[2::2], strict=True))
@@ -438,4 +456,4 @@ def reference_entries():
 def fenced_blocks():
     """The README's fenced code blocks in order, as (language, code) pairs."""
     fence = re.compile(r"^```(\w*)\n(.*?)^```$", flags=re.MULTILINE | re.DOTALL)
-    return fence.findall(README.read_text())
+    return fence.findall(README.read_text(encoding="utf-8"))
