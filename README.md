@@ -230,6 +230,7 @@ project = ae.Project.load("project.toml")
 
 ```toml
 # An agent-eda Project. Load it with ae.Project.load(path).
+format_version = 1
 name = "churn"
 
 [data_policy]
@@ -238,6 +239,8 @@ sensitive_columns = [
 ]
 mask_sensitive = true
 ```
+
+`format_version` is the layout of the file. A file without it loads as version 1, and a file from a newer agent-eda raises an `invalid_project_file` error that names its version. `project.save` writes through a temporary file and a rename, so an interrupted save leaves the file that was there. A new file is readable by its owner only, and a replaced file keeps its permissions. It refuses a target that isn't a regular file, such as a named pipe, and a project bigger than the 1 MiB that `Project.load` reads. `Project.load` raises `invalid_project_file` when the file isn't a regular file, holds more than 1 MiB, can't be read (for example without permission) or has a newer `format_version`, as well as for invalid TOML and missing or wrong keys.
 
 Masking is a guardrail against accidental exposure, not anonymization or access control. The package runs in the agent's own Python process, so an agent that can call it can also read the data directly. [ADR 0001](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0001-data-policy-is-a-guardrail.md) records why.
 
@@ -704,9 +707,10 @@ Exceptions that agent-eda raises when a call is wrong.
 | `column_not_found` | `ColumnNotFoundError` | A column name isn't in the data. |
 | `unsupported_column_type` | `ColumnTypeError` | A named column has a dtype the analysis can't use, or an id_column holds values that can't be hashed, such as lists. |
 | `unknown_analysis` | `UnknownAnalysisError` | describe_analysis got a name that isn't an analysis. |
-| `invalid_project_file` | `ProjectFileError` | Project.load got a file that isn't UTF-8 TOML, and the message gives the line at fault, that lacks the [data_policy] table or one of its keys, or that holds a value a Project can't take. |
+| `invalid_project_file` | `ProjectFileError` | Project.load got a file that isn't UTF-8 TOML, and the message gives the line at fault, that lacks the [data_policy] table or one of its keys, or that holds a value a Project can't take, that isn't a regular file, that holds more than 1 MiB, that the operating system refuses to read, or that has a newer format_version than this agent-eda reads. |
 | `unknown_project_key` | `ProjectFileError` | Project.load got a file with a key that is neither a field of the Project nor one of its data policy, such as a misspelling. |
 | `project_file_not_found` | `ProjectFileNotFoundError` | Project.load found no file at the path. |
+| `result_table_unavailable` | `ResultTableUnavailableError` | to_frame() was called on a result that was rebuilt from its record, such as by model_validate(res.model_dump()), which doesn't hold the tables that only a call of the analysis keeps. |
 | `project_file_exists` | `ProjectFileExistsError` | project.save found a file at the path and overwrite was False. |
 | `missing_dependency` | `MissingDependencyError` | A feature needs an optional extra that isn't installed, such as the MCP server without the mcp extra. |
 | `unsupported_data_format` | `UnsupportedDataFormatError` | An MCP tool got a data path whose extension it can't read. |

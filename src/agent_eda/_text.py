@@ -325,11 +325,19 @@ def _footer(
     )
 
 
+# The categories of characters the text writes as escapes: controls such as
+# newlines, line and paragraph separators, lone surrogates, which no output can
+# encode, and format characters such as the right-to-left override, which
+# reorder or hide what is around them.
+_ESCAPED_CATEGORIES = ("Cc", "Zl", "Zp", "Cs", "Cf")
+
+
 def _printable(text: str) -> str:
-    """Escape characters that would break or hide lines, such as newlines."""
+    """Escape characters that would break, hide or reorder text, such as newlines
+    and bidirectional controls, and lone surrogates, which can't be encoded."""
     return "".join(
         ch.encode("unicode_escape").decode("ascii")
-        if unicodedata.category(ch) in ("Cc", "Zl", "Zp")
+        if unicodedata.category(ch) in _ESCAPED_CATEGORIES
         else ch
         for ch in text
     )
