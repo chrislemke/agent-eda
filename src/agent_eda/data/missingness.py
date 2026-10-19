@@ -23,7 +23,6 @@ from agent_eda._masking import mask_values, resolve_masking
 from agent_eda._numeric import stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._result_base import (
-    ROW_IDS_KEPT,
     ColumnSupport,
     Finding,
     Limitation,
@@ -49,13 +48,14 @@ from agent_eda.data._missingness_results import (
 from agent_eda.data._sentinel_rules import read_by_rules, suspects
 from agent_eda.project import Project
 
+# How many row IDs of a candidate the record keeps; the result class holds it.
+_ROW_IDS_KEPT = SentinelCandidate.limit_of("row_ids")
+
 # Every dtype can have missing values.
 _EVERY_COLUMN = any_column("every column")
 
 
 @analysis(
-    statuses=("completed", "insufficient_data", "not_applicable"),
-    finding_codes=("all_missing_columns", "sentinel_values_present"),
     tags=(
         *("missing values", "completeness", "per column", "per row", "gaps"),
         *("nulls", "null counts", "na counts", "nan", "missingness", "missing data"),
@@ -405,8 +405,6 @@ _ANY_COLUMN = any_column("every column except id_column")
 
 
 @analysis(
-    statuses=("completed", "insufficient_data", "not_applicable"),
-    finding_codes=("sentinel_values_present", "suspected_sentinel_values"),
     tags=(
         "sentinel",
         "stand-ins",
@@ -496,8 +494,8 @@ def detect_missing_sentinels(
         suspected ones, most frequent first. Each has its `column`, `value`,
         `count` and `share` of all rows, its `evidence` codes, its
         `confirmation` (declared or suspected) and the `row_ids` of its first
-        10 rows. Row IDs are index labels, or id_column values when given. The
-        record keeps the first 100 candidates and adds candidates_total.
+        {row_ids_kept} rows. Row IDs are index labels, or id_column values when given. The
+        record keeps the first {entries_kept} candidates and adds candidates_total.
         `columns_without_rules` names the checked columns whose values
         no rule reads, such as booleans and durations, where only declared values
         were looked for. NaN that a pyarrow-backed or nullable float column
@@ -626,7 +624,7 @@ def detect_missing_sentinels(
         for column in selection.columns
     }
     found = [candidate for done in checked.values() for candidate in done.candidates]
-    shown = [candidate.positions[:ROW_IDS_KEPT] for candidate in found]
+    shown = [candidate.positions[:_ROW_IDS_KEPT] for candidate in found]
     view = _View(
         declared={
             name: [json_value(value) for value in declared.get(name, [])]

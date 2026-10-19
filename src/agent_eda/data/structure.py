@@ -58,13 +58,6 @@ _ANY_COLUMN = any_column("every column")
 
 
 @analysis(
-    statuses=(
-        "completed",
-        "budget_exceeded",
-        "insufficient_data",
-        "not_applicable",
-    ),
-    finding_codes=("keys_found", "keys_with_missing_values", "no_key_found"),
     tags=(
         "primary key",
         "unique key",
@@ -524,16 +517,6 @@ def _unhashable_values(left_out: list[str]) -> list[Limitation]:
 
 
 @analysis(
-    statuses=("completed",),
-    finding_codes=(
-        "empty_data",
-        "duplicated_column_labels",
-        "colliding_column_labels",
-        "multiindex_columns",
-        "non_unique_index",
-        "all_missing_columns",
-        "constant_columns",
-    ),
     tags=(
         "overview",
         "shape",

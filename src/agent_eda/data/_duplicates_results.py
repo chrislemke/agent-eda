@@ -27,8 +27,7 @@ class DuplicateGroup(ResultModel):
         description="The rows' IDs in row order: index labels, or values of "
         "id_column when it is given. With masking on and a sensitive id_column, "
         "numbered placeholders, '<masked 1>' for the first ID the groups show "
-        "and so on, equal IDs alike. The record keeps the first 10 and adds "
-        "row_ids_total. " + _BIG_INTEGERS
+        "and so on, equal IDs alike. {cap}. " + _BIG_INTEGERS
     )
 
 
@@ -39,14 +38,12 @@ class FindDuplicateRowsResult(MaskableResult):
         description="The columns in which rows must be equal to count as duplicates, "
         "in the order compared. Missing values of every kind equal each other, as "
         "in pandas' duplicate check over two or more columns, and lists, dicts "
-        "and sets compare by content. The record keeps the first 100 and adds "
-        "compared_columns_total."
+        "and sets compare by content. {cap}."
     )
     duplicate_groups: Annotated[list[DuplicateGroup], _ENTRIES] = Field(
         description="Each group of rows equal in every compared column, ordered "
-        "by first occurrence; a group's number is its position here. The record "
-        "keeps the first 100 and adds duplicate_groups_total; the complete table "
-        "has every row of every group."
+        "by first occurrence; a group's number is its position here. {cap}; the complete "
+        "table has every row of every group."
     )
     duplicate_group_count: int = Field(description="Groups of duplicate rows.")
     duplicate_group_row_count: int = Field(

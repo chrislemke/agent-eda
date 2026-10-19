@@ -17,11 +17,11 @@ from agent_eda._result_base import (
     _BY_NAME,
     _ENTRIES,
     _FRAME_DTYPES,
+    _ROW_IDS,
     ColumnResult,
     MaskableResult,
     ResultModel,
     RowId,
-    _Cap,
     _entries_frame,
     _hint,
     _tables_unavailable,
@@ -76,8 +76,7 @@ class ProfileMissingValuesColumn(ColumnResult):
     )
     sentinel_values: Annotated[list[DeclaredSentinelValue], _ENTRIES] = Field(
         description="The sentinel values declared for the column, in the order "
-        "given, each with its count; empty when none was declared. The record "
-        "keeps the first 100 and adds sentinel_values_total."
+        "given, each with its count; empty when none was declared. {cap}."
     )
 
 
@@ -97,8 +96,7 @@ class ProfileMissingValuesResult(MaskableResult):
     columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES, _BY_NAME] = (
         Field(
             description="One entry per selected column, keyed by column name, in the "
-            "selected order. The record keeps the first 100 and adds columns_total; "
-            "the complete table has every column."
+            "selected order. {cap}; the complete table has every column."
         )
     )
     missing_count: int = Field(
@@ -119,8 +117,7 @@ class ProfileMissingValuesResult(MaskableResult):
     )
     row_distribution: Annotated[list[ProfileMissingValuesRowCount], _ENTRIES] = Field(
         description="How many rows miss each number of selected values, one entry "
-        "per number that occurs, fewest missing first. The record keeps the first "
-        "100 and adds row_distribution_total; the Python-only table "
+        "per number that occurs, fewest missing first. {cap}; the Python-only table "
         "row_distribution has every entry."
     )
 
@@ -257,8 +254,8 @@ class SentinelCandidate(ResultModel):
         description="declared: you declared it in sentinel_values. suspected: a "
         "built-in rule found it, and it stays a valid value until you declare it."
     )
-    row_ids: Annotated[list[RowId], _Cap(10, total="count")] = Field(
-        description="The IDs of the first 10 rows that hold the value, in row "
+    row_ids: Annotated[list[RowId], _ROW_IDS.derive(total="count")] = Field(
+        description="The IDs of the first {limit} rows that hold the value, in row "
         "order: index labels, or values of id_column when it is given. The "
         "record adds row_ids_total, which equals count. " + _BIG_INTEGERS
     )
@@ -307,7 +304,7 @@ class DetectMissingSentinelsResult(MaskableResult):
 
     # Every row ID of each candidate, in the order of candidates, outside the
     # record: pandas labels, or lists of placeholders when masked. None for a
-    # result rebuilt from its record, which holds the first 10 of each.
+    # result rebuilt from its record, which holds only the row IDs the record keeps.
     _row_ids: list[Any] | None = PrivateAttr(default=None)
 
     TABLES: ClassVar[Mapping[str, str | None]] = {
@@ -446,7 +443,7 @@ class DetectMissingSentinelsResult(MaskableResult):
 
         The columns are the candidate's fields. value holds each value as the
         result does, and evidence and row_ids hold lists; row_ids has the ID of
-        every row that holds the value, where the record keeps the first 10.
+        every row that holds the value, where the record keeps only the first row IDs.
 
         Args:
             table: 'candidates', the only table.

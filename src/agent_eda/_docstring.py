@@ -23,8 +23,9 @@ _REASON_CODES = re.compile(
 )
 _CODE = re.compile(r"`([a-z]\w*)`")
 # A bullet that defines a code, such as "- `constant_columns`: a column holds",
-# whose text continues on the lines below it indented by two spaces.
-_BULLET = re.compile(r"- `(?P<code>[a-z]\w*)`: (?P<text>.*)")
+# whose text continues on the lines below it indented by two spaces. Any text
+# between the backticks reads as a code, so registration can reject a malformed one.
+_BULLET = re.compile(r"- `(?P<code>[^`]+)`: (?P<text>.*)")
 
 
 @dataclass(frozen=True)

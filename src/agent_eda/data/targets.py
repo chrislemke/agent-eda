@@ -61,7 +61,6 @@ from agent_eda._numeric import (
 )
 from agent_eda._registry import analysis
 from agent_eda._result_base import (
-    ROW_IDS_KEPT,
     Assessment,
     ColumnSupport,
     Finding,
@@ -201,13 +200,15 @@ _FINDINGS: dict[str, _FindingKind] = {
     "two_value_target": _FindingKind("suspected", ("statistics.min", "statistics.max")),
 }
 
-# The classes and unexpected labels each result keeps; to_frame() has every label.
-_KEPT_LABELS = 100
+# What the record keeps of each list; to_frame() has every label. The result
+# classes hold the numbers.
+_CLASSES_KEPT = ProfileTargetResult.limit_of("classes")
+_RARE_CLASSES_KEPT = ProfileTargetResult.limit_of("rare_classes")
+_UNEXPECTED_KEPT = ProfileTargetResult.limit_of("unexpected_labels")
+_ROW_IDS_KEPT = ProfileTargetUnexpectedLabel.limit_of("row_ids")
 
 
 @analysis(
-    statuses=("completed", "insufficient_data"),
-    finding_codes=tuple(_FINDINGS),
     tags=(
         "target",
         "label",
@@ -299,13 +300,13 @@ def profile_target(
             against accidental exposure, not anonymization or access control.
 
     Returns:
-        ProfileTargetResult: For classification, read `classes` (the first 100 of
+        ProfileTargetResult: For classification, read `classes` (the first {entries_kept} of
         `class_count`, by count, with `count` and `share`), `majority_share`,
         `minority_share` and `imbalance_ratio` (1 for balanced classes, null with a
         `too_few_values` limitation when a class has no rows). A class declared in
         expected_labels that no row holds has count 0. With expected_labels,
         `unexpected_labels` lists the labels outside it with the `row_ids` of their
-        first 10 rows; with rare_share, `rare_classes` lists the classes whose share
+        first {row_ids_kept} rows; with rare_share, `rare_classes` lists the classes whose share
         lies below it. A check that didn't run leaves its fields null, with an
         `expected_labels_not_declared` or `rare_share_not_declared` limitation.
 
@@ -329,24 +330,24 @@ def profile_target(
           a classifier has nothing to tell apart.
         - `more_than_two_classes`: violation; a binary_classification target
           has more than two classes. One class gives single_class instead.
-        - `missing_expected_classes`: violation; declared classes have no
-          rows.
         - `unexpected_labels`: violation; labels lie outside expected_labels.
         - `no_unexpected_labels`: passed; every label that isn't missing is in
           expected_labels.
         - `all_labels_distinct`: suspected; the values of a classification
           target that aren't missing are all distinct, as an identifier's or a
           measurement's are, not class labels'.
-        - `case_or_space_variants`: suspected; labels differ only by case or
-          surrounding spaces.
         - `constant_target`: violation; at least two values of a regression
           target aren't missing and all of them are equal; NaN is missing.
-        - `two_value_target`: suspected; a regression target has two
-          distinct values, so it may be binary labels.
         - `infinite_values`: suspected; a regression target holds inf or -inf,
           which every statistic leaves out.
         - `missing_labels`: descriptive; rows have no target value.
         - `rare_classes`: descriptive; classes have a share below rare_share.
+        - `missing_expected_classes`: violation; declared classes have no
+          rows.
+        - `case_or_space_variants`: suspected; labels differ only by case or
+          surrounding spaces.
+        - `two_value_target`: suspected; a regression target has two
+          distinct values, so it may be binary labels.
 
     Statuses:
         completed: The target has a valid label, or for regression a finite
@@ -689,7 +690,7 @@ def _classification(
     counts = levels.counts[valid]
     classes = [
         _class(view, position, valid_count)
-        for position in ordered_among(levels, valid, _KEPT_LABELS)
+        for position in ordered_among(levels, valid, _CLASSES_KEPT)
     ]
     rare = below = None
     if rare_share is not None:
@@ -697,7 +698,7 @@ def _classification(
         below = valid & (levels.counts / max(valid_count, 1) < rare_share)
         rare = [
             _class(view, position, valid_count)
-            for position in ordered_among(levels, below, _KEPT_LABELS)
+            for position in ordered_among(levels, below, _RARE_CLASSES_KEPT)
         ]
     unexpected = None
     # Row IDs show only when labels are checked; then repeated ones limit them.
@@ -814,7 +815,7 @@ def _unexpected_labels(
     """
     levels = view.levels
     outside_order = ordered_among(levels, outside).tolist()
-    kept = outside_order[:_KEPT_LABELS]
+    kept = outside_order[:_UNEXPECTED_KEPT]
     rows = _rows_of(
         row_levels, np.asarray(outside_order, dtype=np.intp), len(levels.counts)
     )
@@ -822,7 +823,7 @@ def _unexpected_labels(
         position: row_ids.labels.take(found)
         for position, found in zip(outside_order, rows, strict=True)
     }
-    ids: list[list[object]] = [row_ids.at(found[:ROW_IDS_KEPT]) for found in rows]
+    ids: list[list[object]] = [row_ids.at(found[:_ROW_IDS_KEPT]) for found in rows]
     if masking.masks(row_ids.id_column):
         if row_ids.id_column == target.name and view.masked is not None:
             masked = view.masked
@@ -830,10 +831,14 @@ def _unexpected_labels(
                 position: [masked.label(position)] * len(found)
                 for position, found in zip(outside_order, rows, strict=True)
             }
-            ids = [every[position][:ROW_IDS_KEPT] for position in kept]
+            ids = [every[position][:_ROW_IDS_KEPT] for position in kept]
         else:
-            shown = [entry[:ROW_IDS_KEPT] for entry in map(row_id_list, every.values())]
-            later = [entry[ROW_IDS_KEPT:] for entry in map(row_id_list, every.values())]
+            shown = [
+                entry[:_ROW_IDS_KEPT] for entry in map(row_id_list, every.values())
+            ]
+            later = [
+                entry[_ROW_IDS_KEPT:] for entry in map(row_id_list, every.values())
+            ]
             placeholders = iter(
                 mask_values([i for entry in [*shown, *later] for i in entry])
             )

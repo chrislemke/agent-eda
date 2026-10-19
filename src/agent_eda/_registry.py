@@ -40,7 +40,13 @@ from agent_eda._columns import check_column_labels
 from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
 from agent_eda._envelope import DATA_VALUED, Call, data_shape, recording
-from agent_eda._result_base import AnalysisResult, Status, StatusReasonCode
+from agent_eda._result_base import (
+    AnalysisResult,
+    Assessment,
+    Status,
+    StatusReasonCode,
+    fill_caps,
+)
 from agent_eda._warnings import absorb_warnings, watch_all_warnings
 from agent_eda._wording import (
     SeeArguments,
@@ -104,8 +110,6 @@ _REGISTRY: dict[str, AnalysisSpec] = {}
 
 def analysis[F: FunctionType](
     *,
-    statuses: tuple[Status, ...],
-    finding_codes: tuple[str, ...],
     tags: tuple[str, ...] = (),
     methods: tuple[str, ...] = (),
     masking: bool = False,
@@ -114,9 +118,11 @@ def analysis[F: FunctionType](
 ) -> Callable[[F], F]:
     """Register an analysis and wrap it with the shared checks.
 
+    The statuses it can return and the finding codes it can report are the ones
+    its docstring declares: the entries of Statuses: and the Returns: bullets
+    that start with an assessment.
+
     Args:
-        statuses: Every status the analysis can return.
-        finding_codes: Every finding code the analysis can report.
         tags: Words that help search find the analysis.
         methods: The values its `method` argument accepts, if it has one.
         masking: Whether it supports masking sensitive columns. Such an
@@ -129,10 +135,12 @@ def analysis[F: FunctionType](
     """
 
     def register(func: F) -> F:
+        # The docstring names the record's caps by placeholder; help() shows the
+        # numbers.
+        if func.__doc__:
+            func.__doc__ = fill_caps(func.__doc__)
         spec = _spec(
             func,
-            statuses=statuses,
-            finding_codes=finding_codes,
             tags=tags,
             methods=methods,
             masking=masking,
@@ -218,8 +226,7 @@ def spec_of(function: Callable[..., Any]) -> AnalysisSpec:
     """The registry entry of an analysis function.
 
     A function the registry doesn't hold, such as a stand-in a test defines, is
-    read the way the decorator reads an analysis, without registering it: its
-    statuses and finding codes are the ones its docstring lists.
+    read the way the decorator reads an analysis, without registering it.
     """
     name = getattr(function, "__name__", None)
     spec = _REGISTRY.get(name) if isinstance(name, str) else None
@@ -227,11 +234,8 @@ def spec_of(function: Callable[..., Any]) -> AnalysisSpec:
         return spec
     if not isinstance(function, FunctionType):
         raise TypeError(f"{function!r} is not an analysis function")
-    docstring = parse_docstring(inspect.getdoc(function) or "")
     return _spec(
         function,
-        statuses=cast("tuple[Status, ...]", tuple(docstring.statuses)),
-        finding_codes=tuple(docstring.codes),
         tags=(),
         methods=(),
         masking=False,
@@ -243,8 +247,6 @@ def spec_of(function: Callable[..., Any]) -> AnalysisSpec:
 def _spec(
     func: FunctionType,
     *,
-    statuses: tuple[Status, ...],
-    finding_codes: tuple[str, ...],
     tags: tuple[str, ...],
     methods: tuple[str, ...],
     masking: bool,
@@ -255,6 +257,7 @@ def _spec(
     doc = inspect.getdoc(func)
     if not doc:
         raise TypeError(f"analysis {name!r} has no docstring")
+    doc = fill_caps(doc)
     signature = inspect.signature(func)
     # include_extras keeps the ranges declared with Annotated.
     hints = typing.get_type_hints(func, include_extras=True)
@@ -273,9 +276,6 @@ def _spec(
         isinstance(result_class, type) and issubclass(result_class, AnalysisResult)
     ):
         raise TypeError(f"analysis {name!r} must return an AnalysisResult subclass")
-    bad_codes = [code for code in finding_codes if not _CODE.fullmatch(code)]
-    if bad_codes:
-        raise TypeError(f"analysis {name!r} has malformed finding codes {bad_codes}")
     bad_limits = [p for p in work_limits if p not in names or not p.startswith("max_")]
     if bad_limits:
         raise TypeError(f"analysis {name!r} has unknown work limits {bad_limits}")
@@ -301,6 +301,26 @@ def _spec(
             **cast("dict[str, Any]", options),
         )
     docstring = parse_docstring(doc)
+    known_statuses = typing.get_args(Status)
+    bad_statuses = [
+        status for status in docstring.statuses if status not in known_statuses
+    ]
+    if bad_statuses:
+        raise TypeError(
+            f"analysis {name!r} lists statuses {bad_statuses} in Statuses: that "
+            f"Status doesn't have: {list(known_statuses)}"
+        )
+    finding_codes = tuple(
+        code
+        for code, text in docstring.codes.items()
+        if text.partition("; ")[0] in typing.get_args(Assessment)
+    )
+    bad_codes = [code for code in finding_codes if not _CODE.fullmatch(code)]
+    if bad_codes:
+        raise TypeError(
+            f"analysis {name!r} has malformed finding codes {bad_codes}: a code "
+            "is lowercase letters, digits and underscores, starting with a letter"
+        )
     known_codes = typing.get_args(StatusReasonCode)
     bad_reasons = [
         code
@@ -321,7 +341,7 @@ def _spec(
         tags=(*tags, *MASKING_TAGS) if masking else tags,
         signature=signature,
         methods=methods,
-        statuses=statuses,
+        statuses=cast("tuple[Status, ...]", tuple(docstring.statuses)),
         finding_codes=finding_codes,
         result_class=result_class,
         supports_masking=masking,

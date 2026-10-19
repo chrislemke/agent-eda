@@ -98,8 +98,8 @@ class DescribeDatasetResult(AnalysisResult):
         list[DescribeDatasetColumn], _ENTRIES, AfterValidator(_list_by_name)
     ] = Field(
         description="One entry per column, in DataFrame order: a list, not a mapping "
-        "by name, because column labels can repeat. The record keeps the first "
-        "100 and adds columns_total; the complete table has every column."
+        "by name, because column labels can repeat. {cap}; the complete table has "
+        "every column."
     )
     index: DescribeDatasetIndex = Field(description="Facts about the row index.")
     provenance: Provenance = Field(description="The provenance as supplied.")
@@ -230,8 +230,7 @@ class FindCandidateKeysResult(AnalysisResult):
     keys: Annotated[list[CandidateKey], _ENTRIES] = Field(
         description="Minimal keys without missing values, each fit to serve as a "
         "primary key: column sets whose combination of values no two rows share. "
-        "Fewest columns first, then in column order. The record keeps the first "
-        "100 and adds keys_total; the complete table has every one."
+        "Fewest columns first, then in column order. {cap}; the complete table has every one."
     )
     keys_with_missing_values: Annotated[list[CandidateKey], _ENTRIES] = Field(
         description="Minimal keys with a missing value in some rows, which can't "
