@@ -171,7 +171,7 @@ def _check_format_version(fields: dict[str, Any], given: str) -> None:
         raise worded(
             ProjectFileError,
             lambda surface: (
-                f"{_loader(surface)} found {_kind(version)} for format_version at "
+                f"{_loader(surface)} found {toml_type(version)} for format_version at "
                 f"the top level of {_file(given, surface)}, but format_version "
                 f"takes a positive integer, such as format_version = "
                 f"{FORMAT_VERSION}, or can be left out."
@@ -278,7 +278,9 @@ def _unreadable(given: str, error: OSError) -> ProjectFileError:
     )
 
 
-def invalid(path: str | os.PathLike[str], error: AgentEDAError) -> ProjectFileError:
+def invalid_project_error(
+    path: str | os.PathLike[str], error: AgentEDAError
+) -> ProjectFileError:
     """The error for a file that holds values a Project can't take together.
 
     `error` is the one building the Project raised, which names the field, the
@@ -623,7 +625,7 @@ def _check_table(
         raise worded(
             ProjectFileError,
             lambda surface: (
-                f"{_loader(surface)} found {_kind(fields[table])} for {table} "
+                f"{_loader(surface)} found {toml_type(fields[table])} for {table} "
                 f"in {_file(given, surface)}, but {table} is one table: "
                 f"{form(surface)}."
             ),
@@ -656,11 +658,11 @@ def _check_forms(fields: Mapping[str, Any], given: str, *, table: str) -> None:
         form, fits = _FORMS[key]
         items = value if key in _ARRAYS and isinstance(value, list) else None
         if items is None and not fits(value):
-            raise _wrong_form(given, _kind(value), f"for {key} {place}", key, form)
+            raise _wrong_form(given, toml_type(value), f"for {key} {place}", key, form)
         for index, item in enumerate(items or []):
             if not fits(item):
                 raise _wrong_form(
-                    given, _kind(item), f"at {key}[{index}] {place}", key, form
+                    given, toml_type(item), f"at {key}[{index}] {place}", key, form
                 )
 
 
@@ -677,7 +679,7 @@ def _wrong_form(
     )
 
 
-def _kind(value: object) -> str:
+def toml_type(value: object) -> str:
     """What TOML calls the type of a value, with an article."""
     if isinstance(value, bool):
         return "a boolean"

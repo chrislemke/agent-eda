@@ -5,8 +5,6 @@ differs: an MCP caller passes JSON arguments and files, so its message points to
 them, and a Python caller's message keeps the Python fix.
 """
 
-import warnings
-
 import pytest
 
 pytest.importorskip(
@@ -20,12 +18,10 @@ pytest.importorskip(
 
 import anyio
 import pandas as pd
-from mcp import Client
+from mcp_helpers import call, call_in_python, read_parquet
 from python_syntax import python_in
 
-import agent_eda as ae
 from agent_eda.errors import AgentEDAError
-from agent_eda.mcp import create_server
 
 CSV = "order,city,score\nA1,Oslo,1.5\nA2,Lyon,2.5\nA3,Oslo,\nA4,Oslo,4.0\n"
 
@@ -290,15 +286,6 @@ def test_a_mistake_over_mcp_gives_the_python_message_with_an_mcp_fix(tmp_path, m
     assert python_in(response.structured_content["message"]) == []
 
 
-def call_in_python(name, data, arguments):
-    """Make the Python call that matches the MCP call: the data read from
-    data_path, and the project loaded from project_path."""
-    options = {k: v for k, v in arguments.items() if not k.endswith("_path")}
-    if "project_path" in arguments:
-        options["project"] = ae.Project.load(arguments["project_path"])
-    return getattr(ae, name)(data, **options)
-
-
 def data_file(tmp_path, frame):
     """The data file, CSV unless a frame is given, and the DataFrame the MCP
     server reads from it."""
@@ -314,16 +301,4 @@ def data_file(tmp_path, frame):
         )
     path = tmp_path / "shop.parquet"
     frame.to_parquet(path)
-    with warnings.catch_warnings():
-        # pandas 2.2 deprecates the internals pyarrow 14 builds DataFrames from.
-        warnings.filterwarnings(
-            "ignore",
-            message="Passing a BlockManager to DataFrame is deprecated",
-            category=DeprecationWarning,
-        )
-        return path, pd.read_parquet(path)
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
+    return path, read_parquet(path)

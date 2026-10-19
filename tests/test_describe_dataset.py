@@ -360,7 +360,7 @@ def test_column_labels_are_duplicated_exactly_when_pandas_says_so(labels, duplic
 
     res = ae.describe_dataset(df)
 
-    assert ("duplicated_column_labels" in codes(res)) is duplicated
+    assert ("duplicated_column_labels" in finding_codes(res)) is duplicated
     assert columns.duplicated().any() == duplicated
 
 
@@ -381,7 +381,7 @@ def test_flags_labels_whose_string_forms_collide():
         "2 different column labels share a string form with another label: 1 and '1'."
     )
     assert [c.label_type for c in res.columns] == ["int", "str", "str"]
-    assert "duplicated_column_labels" not in codes(res)
+    assert "duplicated_column_labels" not in finding_codes(res)
 
 
 def test_flags_multiindex_columns():
@@ -445,7 +445,7 @@ def test_unhashable_values_give_a_null_distinct_count_and_a_limitation(values):
         "1 column holds values that can't be hashed, such as lists or dicts, so "
         "its distinct values weren't counted: 'tags'."
     )
-    assert "constant_columns" not in codes(res)
+    assert "constant_columns" not in finding_codes(res)
 
 
 @pytest.mark.parametrize(
@@ -465,7 +465,7 @@ def test_results_use_only_declared_statuses_and_finding_codes(df):
     res = ae.describe_dataset(df)
 
     assert res.status in info.statuses
-    assert set(codes(res)) <= set(info.finding_codes)
+    assert set(finding_codes(res)) <= set(info.finding_codes)
 
 
 def test_docstring_points_to_the_next_steps_and_no_further():
@@ -483,13 +483,13 @@ def test_docstring_points_to_the_next_steps_and_no_further():
         assert f"\n    {next_step}: " in see_also
 
 
-def codes(res):
+def finding_codes(res):
     return [f.code for f in res.findings]
 
 
 def only_finding(res, code):
     matches = [f for f in res.findings if f.code == code]
-    assert len(matches) == 1, f"expected one {code!r} finding, got {codes(res)}"
+    assert len(matches) == 1, f"expected one {code!r} finding, got {finding_codes(res)}"
     return matches[0]
 
 

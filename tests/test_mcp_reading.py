@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 from mcp import Client
 from mcp.types import TextContent
+from mcp_helpers import call
 
 import agent_eda as ae
 from agent_eda.mcp import create_server
@@ -363,11 +364,6 @@ def test_a_number_that_only_contains_a_zero_stays_a_number(tmp_path, field):
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
     assert response.structured_content["columns"][0]["dtype"] in ("int64", "float64")
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
 
 
 class ToolError:

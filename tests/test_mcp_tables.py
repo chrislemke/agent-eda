@@ -19,19 +19,24 @@ pytest.importorskip(
 import json
 import math
 import numbers
-import warnings
 from typing import Literal
 
 import anyio
 import numpy as np
 import pandas as pd
-from mcp import Client
+from mcp_helpers import (
+    call,
+    list_tools,
+    read_parquet,
+    read_table,
+    reference_read,
+    write,
+)
 from recipes import recipe_for
 from serving import serving
 
 import agent_eda as ae
 from agent_eda.errors import AgentEDAError, TableFileExistsError
-from agent_eda.mcp import create_server
 from agent_eda.results import SummarizeNumericResult
 
 ANALYSES = [info.name for info in ae.list_analyses().analyses]
@@ -204,7 +209,7 @@ def test_every_analysis_writes_its_full_table_in_either_format(
     )
 
     assert not response.is_error, response.content[0].text
-    written = read_back(table_path)
+    written = read_table(table_path)
     assert list(written.columns) == list(documented_cells(expected).columns)
     assert len(written) == len(expected)
     assert different_cells(written, documented_cells(expected)) == []
@@ -223,7 +228,7 @@ def test_lists_become_json_text_and_parquet_writes_mixed_values_as_text(
         {"data_path": str(data_path), "table_path": str(table_path)},
     )
 
-    written = read_back(table_path)
+    written = read_table(table_path)
     # The text "N/A" and the number -999 share the value column, which
     # value_type tells apart.
     shown = written[["column", "value", "value_type"]].astype(str)
@@ -253,7 +258,7 @@ def test_an_index_that_holds_more_than_row_numbers_is_written_first(
         server,
     )
 
-    written = read_back(table_path)
+    written = read_table(table_path)
     assert list(written.columns[:2]) == ["column", "status"]
     assert written["column"].tolist() == ["score", "visits"]
     assert written["non_missing_count"].tolist() == [3, 4]
@@ -456,11 +461,6 @@ def cells(frame):
     return values.where(values.notna(), None)
 
 
-def write(path, text):
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
 def read(path):
     """The DataFrame the server reads from this file's CSV text, built by hand.
     Only an empty field is missing."""
@@ -490,26 +490,7 @@ def read(path):
         ),
         "score\n1.5\n2.5\n": pd.DataFrame({"score": [1.5, 2.5]}),
     }
-    return frames[path.read_text(encoding="utf-8")]
-
-
-def read_back(path):
-    """A written table, read as CSV or Parquet by its extension."""
-    if path.suffix == ".csv":
-        return pd.read_csv(path, keep_default_na=False, na_values=[""])
-    return read_parquet(path)
-
-
-def read_parquet(path):
-    with warnings.catch_warnings():
-        # pandas 2.2 deprecates the internals pyarrow 14 builds DataFrames from.
-        warnings.filterwarnings(
-            "ignore",
-            message="(Passing a BlockManager to DataFrame|DatetimeTZBlock) is "
-            "deprecated",
-            category=DeprecationWarning,
-        )
-        return pd.read_parquet(path)
+    return reference_read(path, frames)
 
 
 def written_lines(path, rows):
@@ -525,13 +506,3 @@ def written_lines(path, rows):
         f"Full table written ({rows}); its path is table_file.path in the "
         "structured content."
     )
-
-
-async def list_tools():
-    async with Client(create_server(), mode="legacy") as client:
-        return (await client.list_tools()).tools
-
-
-async def call(name, arguments, server=None):
-    async with Client(server or create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)

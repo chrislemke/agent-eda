@@ -395,7 +395,7 @@ def test_values_that_neither_have_nor_convert_to_the_declared_type_are_invalid()
     assert counts(res.columns["flags"]) == (0, 0, 4, 0)
 
 
-def codes():
+def product_codes():
     """14 product codes; 12 aren't integers, 'n/a' three times and 'x' twice."""
     values = [
         "1",
@@ -418,7 +418,7 @@ def codes():
 
 
 def test_invalid_values_come_with_the_first_10_row_ids_and_their_total():
-    res = ae.validate_column_types(codes(), schema={"code": "integer"})
+    res = ae.validate_column_types(product_codes(), schema={"code": "integer"})
 
     entry = res.columns["code"]
     assert entry.invalid_count == 12
@@ -438,7 +438,7 @@ def test_invalid_values_come_with_the_first_10_row_ids_and_their_total():
 
 
 def test_invalid_values_come_with_5_distinct_examples_most_frequent_first():
-    res = ae.validate_column_types(codes(), schema={"code": "integer"})
+    res = ae.validate_column_types(product_codes(), schema={"code": "integer"})
 
     entry = res.columns["code"]
     # Ties go by value, in the order summarize_categorical gives levels.
@@ -488,7 +488,7 @@ def findings_by_code(res):
 
 
 def test_invalid_values_give_a_violation_naming_the_columns():
-    res = ae.validate_column_types(codes(), schema={"code": "integer"})
+    res = ae.validate_column_types(product_codes(), schema={"code": "integer"})
 
     finding = findings_by_code(res)["invalid_values"]
     assert finding.assessment == "violation"

@@ -25,6 +25,9 @@ from agent_eda.results import (
 
 
 def test_text_follows_the_fixed_template():
+    # The one golden test of the analysis result template, footer included. Other
+    # tests of printed text assert structure, codes, fields and key fragments, so
+    # rewording the template fails this test, the README example and no other.
     df = pd.DataFrame(
         {"age": [34, 51, 29, 51], "score": [0.5, None, 0.75, 0.5], "flag": [1] * 4},
         index=pd.Index([10, 20, 30, 40]),

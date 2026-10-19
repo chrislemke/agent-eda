@@ -36,7 +36,7 @@ def exact_std(values: list[float]) -> float:
     return float(root)
 
 
-def codes(res) -> list[str]:
+def finding_codes(res) -> list[str]:
     return [finding.code for finding in res.findings]
 
 
@@ -49,17 +49,17 @@ def big_ids() -> pd.DataFrame:
 
 
 def test_summarize_numeric_does_not_call_distinct_big_integers_constant(big_ids):
-    assert "constant_columns" not in codes(ae.summarize_numeric(big_ids))
+    assert "constant_columns" not in finding_codes(ae.summarize_numeric(big_ids))
 
 
 def test_profile_target_does_not_call_distinct_big_integers_a_constant_target(big_ids):
     res = ae.profile_target(big_ids, target_column="id", task="regression")
 
-    assert "constant_target" not in codes(res)
+    assert "constant_target" not in finding_codes(res)
 
 
 def test_describe_dataset_and_infer_column_semantics_agree_on_big_integers(big_ids):
-    assert "constant_columns" not in codes(ae.describe_dataset(big_ids))
+    assert "constant_columns" not in finding_codes(ae.describe_dataset(big_ids))
     assert "constant" not in ae.infer_column_semantics(big_ids).columns["id"].flags
 
 
@@ -75,11 +75,11 @@ def test_describe_dataset_and_infer_column_semantics_agree_on_big_integers(big_i
 def test_equal_big_integers_are_still_constant(values):
     df = pd.DataFrame({"id": values})
 
-    assert "constant_columns" in codes(ae.summarize_numeric(df))
-    assert "constant_columns" in codes(ae.describe_dataset(df))
+    assert "constant_columns" in finding_codes(ae.summarize_numeric(df))
+    assert "constant_columns" in finding_codes(ae.describe_dataset(df))
     assert "constant" in ae.infer_column_semantics(df).columns["id"].flags
     target = ae.profile_target(df, target_column="id", task="regression")
-    assert "constant_target" in codes(target)
+    assert "constant_target" in finding_codes(target)
 
 
 def test_distinct_big_decimals_are_not_constant():
@@ -89,16 +89,16 @@ def test_distinct_big_decimals_are_not_constant():
     )
     df = pd.DataFrame({"d": values})
 
-    assert "constant_columns" not in codes(ae.summarize_numeric(df))
-    assert "constant_columns" not in codes(ae.describe_dataset(df))
+    assert "constant_columns" not in finding_codes(ae.summarize_numeric(df))
+    assert "constant_columns" not in finding_codes(ae.describe_dataset(df))
 
 
 def test_infinite_values_of_one_sign_are_constant_and_mixed_ones_are_not():
     same = pd.DataFrame({"x": [np.inf, np.inf, np.nan]})
     mixed = pd.DataFrame({"x": [np.inf, -np.inf, 1.0]})
 
-    assert "constant_columns" in codes(ae.summarize_numeric(same))
-    assert "constant_columns" not in codes(ae.summarize_numeric(mixed))
+    assert "constant_columns" in finding_codes(ae.summarize_numeric(same))
+    assert "constant_columns" not in finding_codes(ae.summarize_numeric(mixed))
 
 
 # The standard deviation of very small values.
@@ -340,13 +340,16 @@ def test_stored_nan_gives_every_analysis_the_same_constancy_answer(values):
 
     for frame in (df, as_float64):
         answers = {
-            "describe_dataset": "constant_columns" in codes(ae.describe_dataset(frame)),
+            "describe_dataset": "constant_columns"
+            in finding_codes(ae.describe_dataset(frame)),
             "summarize_numeric": "constant_columns"
-            in codes(ae.summarize_numeric(frame)),
+            in finding_codes(ae.summarize_numeric(frame)),
             "infer_column_semantics": "constant"
             in ae.infer_column_semantics(frame).columns["x"].flags,
             "profile_target": "constant_target"
-            in codes(ae.profile_target(frame, target_column="x", task="regression")),
+            in finding_codes(
+                ae.profile_target(frame, target_column="x", task="regression")
+            ),
         }
         assert set(answers.values()) == {True}, answers
 
@@ -356,7 +359,7 @@ def test_a_column_of_only_stored_nan_is_empty_in_every_analysis():
 
     describe = ae.describe_dataset(df)
 
-    assert "all_missing_columns" in codes(describe)
-    assert "constant_columns" not in codes(describe)
+    assert "all_missing_columns" in finding_codes(describe)
+    assert "constant_columns" not in finding_codes(describe)
     assert ae.summarize_numeric(df).columns["x"].status == "insufficient_data"
     assert "all_missing" in ae.infer_column_semantics(df).columns["x"].flags
