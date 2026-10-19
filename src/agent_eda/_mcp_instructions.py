@@ -27,8 +27,8 @@ GUARDRAIL = (
 )
 
 _INTRO = """\
-agent-eda {version}: deterministic exploratory data analysis (EDA) of data files. Each MCP tool runs one analysis,
-which answers one EDA question; the same call on the same file always gives the same result."""
+agent-eda {version}: deterministic exploratory data analysis (EDA) of data files. Each analysis is an MCP tool that
+answers one EDA question; the same call on the same file always gives the same result."""
 
 # Wrapped when the instructions are built, since the extensions come from the
 # reader.
@@ -64,8 +64,8 @@ _MASKING = (
 )
 
 _MORE = """\
-Find more: search_analyses finds MCP tools for a question in your own words, such as "nulls per column", and
-list_analyses lists every one with what it declares. Each MCP tool's description and input schema hold its docs."""
+Find more: search_analyses finds analyses for a question in your own words, such as "nulls per column", and
+list_analyses lists them with what each declares. Each MCP tool's description and input schema hold its docs."""
 
 
 def instructions() -> str:

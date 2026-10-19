@@ -160,7 +160,7 @@ def test_agent_eda_mcp_answers_a_call_over_stdio(tmp_path):
     assert response.content[0].text.startswith("describe_dataset: completed on 3 rows")
 
 
-def test_two_server_processes_with_different_hash_seeds_return_the_same_record(
+def test_two_mcp_server_processes_with_different_hash_seeds_return_the_same_record(
     tmp_path,
 ):
     (tmp_path / "shop.csv").write_text(CSV)

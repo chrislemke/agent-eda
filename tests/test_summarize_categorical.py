@@ -871,13 +871,13 @@ def test_identical_calls_in_processes_with_different_hash_seeds_give_the_same_js
         "print(ae.summarize_categorical(df).to_json())\n"
     )
 
-    outputs = [
+    printed = [
         run_python(code, env={**os.environ, "PYTHONHASHSEED": seed})
         for seed in ("1", "2")
     ]
 
-    assert outputs[0] == outputs[1]
-    assert '"label":"a"' in outputs[0]
+    assert printed[0] == printed[1]
+    assert '"label":"a"' in printed[0]
 
 
 def run_python(code, *, env):

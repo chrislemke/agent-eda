@@ -177,12 +177,12 @@ df["tier"] = pd.Categorical(["gold", "silver", "gold", "bronze"])
 print(ae.describe_dataset(df, source="shop.csv").to_json())
 """
 
-    outputs = {
+    printed = {
         run_python(code, env={**os.environ, "PYTHONHASHSEED": seed})
         for seed in ("1", "2", "3")
     }
 
-    assert len(outputs) == 1
+    assert len(printed) == 1
 
 
 def test_search_and_descriptions_are_identical_under_different_hash_seeds():
@@ -194,12 +194,12 @@ for info in ae.list_analyses().analyses:
     print(ae.describe_analysis(info.name).to_json())
 """
 
-    outputs = {
+    printed = {
         run_python(code, env={**os.environ, "PYTHONHASHSEED": seed})
         for seed in ("1", "2", "3")
     }
 
-    assert len(outputs) == 1
+    assert len(printed) == 1
 
 
 def test_the_mcp_server_without_the_extra_names_the_install_commands():

@@ -156,7 +156,9 @@ def test_id_column_replaces_the_row_numbers_of_a_csv(tmp_path):
     assert [group["row_ids"] for group in groups] == [["A1", "A3", "A4"]]
 
 
-def test_a_relative_path_starts_at_the_server_working_directory(tmp_path, monkeypatch):
+def test_a_relative_path_starts_at_the_mcp_server_working_directory(
+    tmp_path, monkeypatch
+):
     (tmp_path / "data").mkdir()
     write(ORDERS, tmp_path / "data" / "orders.csv")
     monkeypatch.chdir(tmp_path)

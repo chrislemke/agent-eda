@@ -1136,19 +1136,19 @@ def _example_code(doctest_text: str) -> list[str]:
     after a '>>>' line continues that statement.
     """
     code: list[str] = []
-    output: list[str] = []
+    printed: list[str] = []
 
-    def add_output() -> None:
-        if len(output) == 1 and code:
-            commented = f"{code[-1]}  # {output[0].strip()}"
+    def add_printed() -> None:
+        if len(printed) == 1 and code:
+            commented = f"{code[-1]}  # {printed[0].strip()}"
             if len(commented) + 2 <= _text.MAX_WIDTH:
                 code[-1] = commented
-        output.clear()
+        printed.clear()
 
     in_statement = False
     for line in doctest_text.splitlines():
         if line.startswith(">>>"):
-            add_output()
+            add_printed()
             code.append(line[4:])
             in_statement = True
         elif in_statement and line.startswith("..."):
@@ -1156,8 +1156,8 @@ def _example_code(doctest_text: str) -> list[str]:
         else:
             in_statement = False
             if line.strip():
-                output.append(line)
-    add_output()
+                printed.append(line)
+    add_printed()
     return code
 
 
@@ -3194,7 +3194,7 @@ class ValidateColumnTypesColumn(ResultModel):
         "has every one."
     )
     assessment: Literal["passed", "violation", "unknown"] = Field(
-        description="The verdict on the column, as its findings give it: violation "
+        description="The assessment of the column, as its findings give it: violation "
         "when the data lacks it, it holds invalid values, or it is declared "
         "non-nullable and has missing values; unknown when it has no value to "
         "check; passed otherwise."

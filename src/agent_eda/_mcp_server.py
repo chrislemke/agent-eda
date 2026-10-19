@@ -2,7 +2,7 @@
 
 It imports the mcp extra at the top, so only agent_eda.mcp imports it, after
 checking that the extra is installed. Every analysis call goes through one data
-reader, the server's DataReader, and one response builder, _response.
+reader, the MCP server's DataReader, and one response builder, _response.
 """
 
 import inspect
@@ -159,7 +159,7 @@ def _discovery_tools() -> dict[str, _DiscoveryTool]:
 
     describe_analysis and guide are not MCP tools: each analysis MCP tool's
     description and input schema carry what describe_analysis says, and the
-    server's instructions carry the guide.
+    MCP server's instructions carry the guide.
     """
     search = types.Tool(
         name="search_analyses",
@@ -214,11 +214,11 @@ def create_server(
 ) -> Server:
     """The MCP server named 'agent-eda', with one MCP tool per analysis.
 
-    The MCP tools are built here, when the server starts, from the registry
+    The MCP tools are built here, when the MCP server starts, from the registry
     entry of each analysis: every registered one when analyses is None, and
     otherwise the ones a test passes (a test seam, unsupported for serving). The
-    server reads data paths through one DataReader, which keeps the most
-    recently read files. project is the server's Project, which every call of
+    MCP server reads data paths through one DataReader, which keeps the most
+    recently read files. project is the MCP server's Project, which every call of
     an MCP tool with project_path uses unless the call names its own. The
     discovery MCP tools and the instructions read the registry, as their
     Python counterparts do.
@@ -284,12 +284,12 @@ def _call(
     """Check the arguments, read the data, run the analysis and build the response.
 
     The SDK passes the arguments on without checking them against the input
-    schema. The server checks what the MCP tool adds to the analysis's own
+    schema. The MCP server checks what the MCP tool adds to the analysis's own
     arguments (unknown and missing names among the MCP tool's properties, and
     data_path); the analysis checks its options, with the message a Python
     caller gets, its fix worded for an MCP caller. A table_path is checked before the data is read, so an
     existing file or a missing directory stops the call before the analysis
-    runs. A project_path replaces the server's project for the call; a
+    runs. A project_path replaces the MCP server's project for the call; a
     mask_sensitive goes to the analysis, where it wins over either.
     """
     _check_arguments(served, arguments)
@@ -310,7 +310,7 @@ def _discover(
     """Run search_analyses or list_analyses: the listing's text, in MCP wording,
     and its record.
 
-    The server checks the argument names; the function checks the values, with
+    The MCP server checks the argument names; the function checks the values, with
     the message a Python caller gets, its fix worded for an MCP caller.
     """
     _check_names(

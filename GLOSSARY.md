@@ -44,6 +44,14 @@ _Avoid_: sample size, n (when you mean these counts)
 The label a result uses to point at a row: the DataFrame index label, or the value in a declared ID column.
 _Avoid_: observation ID, example ID, row number
 
+**Limitation**:
+Something that limits how far a result can be read, such as a check that didn't run or a field that is null. It has a stable code, a one-sentence reason and the paths of the result fields it affects. A finding makes a claim about the data; a limitation says what the result can't tell.
+_Avoid_: warning, caveat, note, error (a limitation is part of a result, not a raised error)
+
+**First look**:
+The order in which a new dataset is examined, from its structure through its types, missing values, sentinel values, distributions, duplicates and keys, and target to the associations. `guide()` gives it; nothing runs it as one call.
+_Avoid_: standard EDA, default pipeline, preset (a preset is a set of analyses run together, which the first look isn't)
+
 **Preset**:
 A named set of analyses meant to run together.
 _Avoid_: profile (only a verb here, as in profiling missing values)
@@ -61,6 +69,30 @@ _Avoid_: semantic type, data type (when you mean the meaning)
 **Sentinel value**:
 A stand-in value that means "missing", such as -999, "N/A" or 1900-01-01.
 _Avoid_: placeholder, missing code, magic number
+
+**Level**:
+A distinct non-missing value of a column, counted as pandas' `value_counts` and `factorize` tell values apart: 1, 1.0 and True are one level, while 'Yes' and 'yes ' are two, and None, NaN, NaT and pd.NA are no level.
+_Avoid_: category (unless you mean a category of a pandas categorical dtype), unique value (a level can occur many times), factor
+
+**Native missing value**:
+A value pandas `isna()` counts as missing: None, NaN, NaT or pd.NA. A sentinel value is not one until the caller declares it, and then it is counted apart.
+_Avoid_: null (in results, null means a field that has no value for the data), NA, empty value
+
+**Compatible value**, **convertible value** and **invalid value**:
+The three groups into which `validate_column_types` sorts the non-missing values of a column against its declared logical type. A compatible value is already stored as that type. A convertible value is stored as another type and converts to it exactly, without changing its meaning. An invalid value is neither. Nothing is converted.
+_Avoid_: valid (for compatible and convertible together), mismatch, bad value, castable, coercible
+
+**Key**, **primary key** and **candidate key**:
+A key is a set of columns whose combination of values no two rows share, with missing values compared equal. A primary key is a key without missing values, so it is fit to identify rows. A candidate key is a minimal key: each of its columns adds distinct combinations, so no subset of it is a key.
+_Avoid_: unique key, composite key (say a key of several columns), identifier (that is a row ID), index
+
+**Target**, **class** and **label**:
+The target is the column a model learns to predict. A label is a value of the target column. For classification, each distinct non-missing label is a class, counted with its share of the valid labels; a regression target has no classes.
+_Avoid_: outcome, response, dependent variable, y; label (for a column's name: that is a column label, always qualified); category (for a class)
+
+**Sentinel candidate**:
+A value of one column that `detect_missing_sentinels` reports as possibly standing in for missing values: one the caller declared, or one a built-in rule suspects. A suspected candidate stays a valid value until the caller declares it.
+_Avoid_: possible sentinel, placeholder candidate, magic value, outlier
 
 ### Projects and guardrails
 

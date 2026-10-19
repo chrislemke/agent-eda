@@ -370,19 +370,19 @@ def compute_association_matrix(
             reason = _KIND_SKIPS[column_kind(dtype)]
             skipped.append(_skipped(name, str(dtype), reason, max_categories))
     for column in selection.columns:
-        outcome = _read(data, column, column.name in categorical, max_categories)
-        if isinstance(outcome, _Paired):
-            paired.append(outcome)
-            support.append(outcome.support(row_count))
+        read = _read(data, column, column.name in categorical, max_categories)
+        if isinstance(read, _Paired):
+            paired.append(read)
+            support.append(read.support(row_count))
         else:
-            skipped.append(_skipped(column.name, column.dtype, outcome, max_categories))
+            skipped.append(_skipped(column.name, column.dtype, read, max_categories))
             support.append(
                 ColumnSupport(
                     column=column.name,
                     eligible_count=row_count,
                     evaluated_count=0,
                     excluded_count=row_count,
-                    excluded_by_reason={outcome: row_count} if row_count else {},
+                    excluded_by_reason={read: row_count} if row_count else {},
                 )
             )
     if columns is None:
@@ -405,7 +405,7 @@ def compute_association_matrix(
             unit=("pair", "pairs"),
             parameter="max_pairs",
             limit=max_pairs,
-            outcome="no pair was computed",
+            consequence="no pair was computed",
             narrow="name fewer columns in columns",
         )
     else:

@@ -62,7 +62,7 @@ def test_the_instructions_keep_within_one_page_of_the_guides_limits(instructions
     assert lines == [line.rstrip() for line in lines]
 
 
-def test_the_instructions_call_the_server_mcp_server_as_the_glossary_does(
+def test_the_instructions_say_mcp_server_as_the_glossary_does(
     instructions,
 ):
     # GLOSSARY.md: "MCP server", never "server" alone.
@@ -92,6 +92,17 @@ def test_the_instructions_say_what_the_package_does(instructions):
 
     assert first.startswith(f"agent-eda {ae.__version__}: deterministic ")
     assert "exploratory data analysis" in first
+
+
+def test_the_instructions_do_not_say_that_every_mcp_tool_runs_an_analysis(instructions):
+    # list_analyses and search_analyses are MCP tools too: they find analyses.
+    text = unwrapped(instructions)
+
+    assert "Each MCP tool runs one analysis" not in text
+    assert "Every MCP tool runs" not in text
+    assert "Each analysis is an MCP tool" in text
+    assert "search_analyses finds analyses" in text
+    assert "list_analyses lists them" in text
 
 
 def test_the_instructions_explain_data_paths(instructions):

@@ -373,14 +373,14 @@ def test_to_frame_lists_every_candidate_with_its_kind():
 @pytest.mark.parametrize("frame", [orders, unkeyed, keyed])
 def test_shows_no_raw_data_value(frame):
     # Every value becomes text that no count, share or column name could spell,
-    # so finding one in an output means a raw value leaked.
+    # so finding one in a rendering means a raw value leaked.
     df = frame().astype(str).map(lambda value: f"secret-{value}-zq")
 
     res = ae.find_candidate_keys(df)
 
-    outputs = [str(res), res.to_json(), res.to_frame().to_string()]
+    renderings = [str(res), res.to_json(), res.to_frame().to_string()]
     for value in pd.unique(df.to_numpy().ravel()):
-        assert all(value not in output for output in outputs), value
+        assert all(value not in rendering for rendering in renderings), value
 
 
 def test_declares_the_statuses_it_can_return():
