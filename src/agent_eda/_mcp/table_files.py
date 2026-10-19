@@ -14,23 +14,24 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-from agent_eda._local_files import (
+from agent_eda._mcp.local_files import (
     PATH_ERRORS,
     WRITABLE,
     FileFormat,
     extension_text,
     extensions,
     format_of,
-    os_cause,
     path_argument,
     shown,
 )
 from agent_eda._text import MAX_WIDTH, plural
+from agent_eda._wording import os_cause
 from agent_eda._written_form import row_id_json
 from agent_eda.errors import InvalidArgumentError, TableFileExistsError
 
@@ -132,33 +133,38 @@ class WrittenTable:
         ]
 
     def record(self) -> dict[str, object]:
-        """What the record gains under RECORD_KEY, as RECORD_SCHEMA describes."""
+        """What the record gains under RECORD_KEY, as record_schema describes."""
         return {"path": str(self.path), "row_count": self.row_count}
 
 
-# The key the record of a call with table_path gains, and its JSON Schema. A
-# client that shows the model only the structured content, such as Claude
-# Code, shows it this way where the table went.
+# The key the record of a call with table_path gains, and its JSON Schema,
+# record_schema. A client that shows the model only the structured content, such
+# as Claude Code, shows it this way where the table went.
 RECORD_KEY = "table_file"
-RECORD_SCHEMA = {
-    "type": "object",
-    "description": "Only in the response of a call with table_path: the file the "
-    "full table was written to and its row count. The record a Python caller gets "
-    "has no such field.",
-    "properties": {
-        "path": {
-            "type": "string",
-            "description": "The absolute path of the file written.",
+
+
+def record_schema() -> dict[str, Any]:
+    """The JSON Schema of what a call with table_path adds to the record, new
+    for each MCP tool so that no tool's output schema shares an object."""
+    return {
+        "type": "object",
+        "description": "Only in the response of a call with table_path: the file the "
+        "full table was written to and its row count. The record a Python caller gets "
+        "has no such field.",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The absolute path of the file written.",
+            },
+            "row_count": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The rows written, every row of the full table.",
+            },
         },
-        "row_count": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The rows written, every row of the full table.",
-        },
-    },
-    "required": ["path", "row_count"],
-    "additionalProperties": False,
-}
+        "required": ["path", "row_count"],
+        "additionalProperties": False,
+    }
 
 
 def table_file(name: str, table_path: object) -> TableFile:
@@ -286,7 +292,7 @@ def _encode(table: pd.DataFrame, file_format: FileFormat) -> bytes:
     """The file's content. A missing value is an empty CSV field, which the MCP
     server reads back as missing, and a Parquet null. An empty string is the
     quoted CSV field "", which it reads back as an empty string."""
-    if file_format.kind == "CSV":
+    if not file_format.is_parquet:
         return _csv_text(table).encode("utf-8")
     buffer = io.BytesIO()
     _as_arrow_types(table).to_parquet(buffer, index=False)
@@ -375,10 +381,10 @@ def _cannot_write(path: Path, error: BaseException) -> str:
 
 
 def _not_storable(file: "TableFile", error: BaseException) -> str:
-    kind = file.file_format.kind
-    other = ".csv" if kind == "Parquet" else ".parquet"
+    label = file.file_format.label
+    other = ".csv" if file.file_format.is_parquet else ".parquet"
     return (
-        f"The full table can't be stored as {kind} ({type(error).__name__}: "
+        f"The full table can't be stored as {label} ({type(error).__name__}: "
         f"{str(error).strip()[:200]}). Nothing was written. Pass a table_path that "
         f"ends in {other}, or read the structured content."
     )

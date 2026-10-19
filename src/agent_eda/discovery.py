@@ -16,6 +16,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import to_jsonable_python
 
 from agent_eda._annotations import choices, python_literal, type_text, valid_range
+from agent_eda._arguments import checked_keywords
 from agent_eda._codes import limitation_meanings, status_reason_meanings
 from agent_eda._discovery_results import (
     AnalysisDescription,
@@ -31,7 +32,7 @@ from agent_eda._discovery_results import (
     SearchTerm,
     StatusDescription,
 )
-from agent_eda._registry import AnalysisSpec, checked_keywords, registered
+from agent_eda._registry import AnalysisSpec, registered
 from agent_eda._result_base import AnalysisResult, Status
 from agent_eda._search import MAX_TERMS, asks_for_first_look, rank, terms
 from agent_eda._text import (

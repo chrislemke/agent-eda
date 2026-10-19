@@ -16,9 +16,8 @@ import pandas as pd
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from agent_eda import _project_file
+from agent_eda._arguments import check_distinct, checked_keywords, python_scalar
 from agent_eda._declarations import Declaration, keyword_signature
-from agent_eda._registry import checked_keywords, python_scalar
-from agent_eda._run import check_distinct
 from agent_eda._text import a_or_an
 from agent_eda._wording import DeclareSensitive, Words, mistake
 from agent_eda.errors import AgentEDAError, InvalidArgumentError

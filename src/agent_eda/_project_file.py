@@ -40,10 +40,9 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from agent_eda._local_files import os_cause
-from agent_eda._registry import _value_text, python_scalar
+from agent_eda._arguments import python_scalar, value_text
 from agent_eda._text import a_or_an, closest_names, join_items
-from agent_eda._wording import Of, Wording, Words, mistake
+from agent_eda._wording import Of, Wording, Words, mistake, os_cause
 from agent_eda.errors import (
     AgentEDAError,
     InvalidArgumentError,
@@ -303,7 +302,7 @@ def write(path: object, fields: Mapping[str, Any], *, overwrite: object) -> Path
     overwrite = python_scalar(overwrite)
     if not isinstance(overwrite, bool):
         raise InvalidArgumentError(
-            f"Project.save got {_value_text(overwrite)} for overwrite, but overwrite "
+            f"Project.save got {value_text(overwrite)} for overwrite, but overwrite "
             "must be bool: True replaces an existing file, False leaves it. See "
             "help(ae.Project.save) for every argument."
         )
@@ -419,7 +418,7 @@ def _file_path(owner: str, path: object) -> str:
     given = os.fspath(path) if isinstance(path, str | os.PathLike) else None
     if not isinstance(given, str):
         raise InvalidArgumentError(
-            f"{owner} got {_value_text(path)} for path, but path must be a str or a "
+            f"{owner} got {value_text(path)} for path, but path must be a str or a "
             f"pathlib.Path, such as 'project.toml'. See help(ae.{owner}) for every "
             "argument."
         )

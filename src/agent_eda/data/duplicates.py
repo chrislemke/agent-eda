@@ -19,7 +19,7 @@ from agent_eda._result_base import (
 )
 from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS
+from agent_eda._status import NO_ROWS
 from agent_eda._text import format_number, plural
 from agent_eda.data._duplicates_results import FindDuplicateRowsResult
 from agent_eda.project import Project

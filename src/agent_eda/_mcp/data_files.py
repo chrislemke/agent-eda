@@ -25,19 +25,20 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from agent_eda._local_files import (
+from agent_eda._mcp.local_files import (
     PATH_ERRORS,
     READABLE,
     FileFormat,
     extension_text,
     extensions,
+    format_names,
     format_of,
-    os_cause,
     resolve,
     shown,
 )
 from agent_eda._parse import read_texts
 from agent_eda._text import closest_names, join_alternatives
+from agent_eda._wording import os_cause
 from agent_eda.errors import (
     DataFileError,
     DataFileNotFoundError,
@@ -149,19 +150,15 @@ class DataReader:
         return data
 
 
-def supported_extensions() -> str:
-    """The extensions the reader reads, as text for a message."""
-    return extensions(READABLE)
-
-
 def _format_of(data_path: str) -> FileFormat:
     file_format = format_of(data_path, READABLE)
     if file_format is not None:
         return file_format
     raise UnsupportedDataFormatError(
         f"data_path {data_path!r} has {extension_text(data_path)}, which the MCP "
-        f"server can't read. It reads {supported_extensions()} files, in upper or "
-        "lower case. Save the data as CSV, TSV or Parquet and pass that file's path."
+        f"server can't read. It reads {extensions(READABLE)} files, in upper or "
+        f"lower case. Save the data as {format_names(READABLE)} and pass that "
+        "file's path."
     )
 
 
@@ -190,7 +187,7 @@ def _stat(data_path: str) -> tuple[Path, Any]:
         raise DataFileError(
             f"data_path leads to {path}, which isn't a regular file (it is a named "
             "pipe, a device or a socket), so the MCP server doesn't open it. Pass "
-            "the path of a CSV, TSV or Parquet file."
+            f"the path of a {format_names(READABLE)} file."
         )
     return path, status
 
@@ -207,24 +204,23 @@ def _refused(data_path: str, cause: str) -> str:
 
 def _read(path: Path, file_format: FileFormat) -> pd.DataFrame:
     try:
-        if file_format.kind == "Parquet":
+        if file_format.is_parquet:
             with path.open("rb") as handle:
                 return _read_parquet(handle, path)
         return _read_csv(path, file_format)
     except DataFileError:
         raise
     except _PARSE_ERRORS as error:
-        gzipped = "gzipped " if file_format.gzip else ""
         if isinstance(error, OSError) and error.errno is not None:
             # The operating system refused the file; it isn't the file's content.
             raise DataFileError(
-                f"Can't read {path} as {gzipped}{file_format.kind}: "
+                f"Can't read {path} as {file_format.label}: "
                 f"{os_cause(error)}. Give the user that runs the MCP server read "
                 "permission on the file, or pass the path of a file it can read."
             ) from None
         detail = _detail(error, file_format)
         raise DataFileError(
-            f"Can't read {path} as {gzipped}{file_format.kind}: {detail}. Check "
+            f"Can't read {path} as {file_format.label}: {detail}. Check "
             f"that the file is {_expected(file_format)}, or pass the path of a "
             "file that is."
         ) from None
@@ -234,7 +230,7 @@ def _detail(error: Exception, file_format: FileFormat) -> str:
     """What the parser said, or for an error from broken Parquet metadata what
     that means."""
     text = str(error).strip().rstrip(".") or type(error).__name__
-    if file_format.kind == "Parquet" and isinstance(
+    if file_format.is_parquet and isinstance(
         error, KeyError | TypeError | IndexError | AttributeError
     ):
         return (
@@ -254,7 +250,7 @@ def _read_csv(path: Path, file_format: FileFormat) -> pd.DataFrame:
     missing value. A column whose numbers include a code with a leading zero
     stays text, and repeated header names stay repeated.
     """
-    sep = "\t" if file_format.kind == "TSV" else ","
+    sep = file_format.separator
     source = _Source(path, file_format.gzip)
     token = _mark_quoted_empties(source, sep)
     if token is not None:
@@ -299,9 +295,9 @@ def _read_csv(path: Path, file_format: FileFormat) -> pd.DataFrame:
 
 
 def _semicolons(path: Path, file_format: FileFormat, name: str) -> str:
-    separator = "tabs" if file_format.kind == "TSV" else "commas"
+    separator = file_format.separator_word
     return (
-        f"Can't read {path} as {_kind(file_format)}: the only column is named "
+        f"Can't read {path} as {file_format.label}: the only column is named "
         f"{name!r}, which looks like a header whose fields are separated by "
         f"semicolons, but the MCP server separates fields by {separator}. Save the "
         f"file with {separator}, or, if the column really has that name, rename it "
@@ -469,7 +465,7 @@ def _check_extra_fields(
                 # A row ends on the line the reader is at; the row's text may
                 # start earlier when a quoted field holds line breaks.
                 raise DataFileError(
-                    f"Can't read {source.path} as {_kind(file_format)}: line "
+                    f"Can't read {source.path} as {file_format.label}: line "
                     f"{reader.line_num} has {len(row)} fields, and {extra} of "
                     f"those past the header's {width} names aren't empty. Check "
                     f"that every row has at most {width} fields, or add the "
@@ -477,11 +473,6 @@ def _check_extra_fields(
                 )
             widest = max(widest, len(row))
     return widest, header_lines
-
-
-def _kind(file_format: FileFormat) -> str:
-    gzipped = "gzipped " if file_format.gzip else ""
-    return f"{gzipped}{file_format.kind}"
 
 
 def _keep_codes_as_text(
@@ -584,9 +575,9 @@ def _read_parquet(handle: BinaryIO, path: Path) -> pd.DataFrame:
 
 
 def _expected(file_format: FileFormat) -> str:
-    if file_format.kind == "Parquet":
+    if file_format.is_parquet:
         return "a Parquet file"
-    separator = "tabs" if file_format.kind == "TSV" else "commas"
+    separator = file_format.separator_word
     compressed = ", gzip-compressed," if file_format.gzip else ""
     return (
         f"UTF-8 text{compressed} with a header row and fields separated by {separator}"

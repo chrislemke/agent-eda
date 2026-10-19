@@ -2,17 +2,16 @@
 
 A data path, a table path and a project path each name a local file, absolute
 or relative to the MCP server's working directory. One table of formats serves
-the reader (_data_files) and the writer (_table_files), and one check says what
+the reader (data_files) and the writer (table_files), and one check says what
 a path argument must be. Nothing here imports mcp.
 """
 
-import errno
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from agent_eda._text import ELLIPSIS, join_items
+from agent_eda._text import ELLIPSIS, join_alternatives, join_items
 from agent_eda.errors import InvalidArgumentError
 
 
@@ -25,6 +24,25 @@ class FileFormat:
     gzip: bool = False
     # Whether table_path writes this format too.
     writable: bool = False
+
+    @property
+    def is_parquet(self) -> bool:
+        return self.kind == "Parquet"
+
+    @property
+    def separator(self) -> str:
+        """The character that separates the fields of a CSV or TSV file."""
+        return "\t" if self.kind == "TSV" else ","
+
+    @property
+    def separator_word(self) -> str:
+        """The separator as a message says it."""
+        return "tabs" if self.kind == "TSV" else "commas"
+
+    @property
+    def label(self) -> str:
+        """The format as a message names it: "CSV", "gzipped TSV", "Parquet"."""
+        return f"{'gzipped ' if self.gzip else ''}{self.kind}"
 
 
 # Every format the MCP server reads, matched by extension in any case.
@@ -72,41 +90,17 @@ def shown(path: str) -> str:
     return f"{text[:half]}{ELLIPSIS}{text[-half:]}"
 
 
-def os_cause(error: BaseException) -> str:
-    """Why the operating system refused a path, in words that say what to
-    change: for an error in PATH_ERRORS."""
-    code = error.errno if isinstance(error, OSError) else None
-    if isinstance(error, ValueError):
-        return "it holds a NUL character, which no file name can"
-    if isinstance(error, RuntimeError):
-        if "home directory" in str(error):
-            return "its ~ can't be expanded because no home directory is known for it"
-        return "it leads through symbolic links that loop back on themselves"
-    if code == errno.ENAMETOOLONG:
-        return (
-            "a name in it is longer than 255 characters, or the whole path is "
-            "longer than the operating system allows"
-        )
-    if code == errno.ELOOP:
-        return "it leads through symbolic links that loop back on themselves"
-    if code in (errno.EACCES, errno.EPERM):
-        return (
-            "permission denied: the process that runs agent-eda may not search a "
-            "directory on the path or read the file"
-        )
-    if code == errno.EROFS:
-        return "the volume is read-only"
-    if code == errno.ENOSPC:
-        return "No space left on device"
-    if code == errno.ENOTDIR:
-        return "a part of the path that should be a directory is a file"
-    reason = getattr(error, "strerror", None) or str(error)
-    return reason.strip().rstrip(".") or type(error).__name__
+def extensions(formats: Sequence[FileFormat], *, either: bool = False) -> str:
+    """The extensions of formats, as text for a message: ".csv, .tsv and .pq", or
+    with `either` ".csv, .tsv or .pq"."""
+    names = [f.extension for f in formats]
+    return join_alternatives(names) if either else join_items(names, limit=len(names))
 
 
-def extensions(formats: Sequence[FileFormat]) -> str:
-    """The extensions of formats, as text for a message: ".csv, .tsv and .pq"."""
-    return join_items([f.extension for f in formats], limit=len(formats))
+def format_names(formats: Sequence[FileFormat]) -> str:
+    """The kinds of formats, each once, as text for a message: "CSV, TSV or
+    Parquet"."""
+    return join_alternatives(list(dict.fromkeys(f.kind for f in formats)))
 
 
 def format_of(path: str, formats: Sequence[FileFormat]) -> FileFormat | None:

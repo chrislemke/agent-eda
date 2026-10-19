@@ -147,7 +147,7 @@ def record(event, args):
 sys.addaudithook(record)
 def is_mcp(name):
     # mcp, its submodules, mcp_types, and the package's own MCP modules.
-    return name.startswith("mcp.") or name.split(".")[-1].lstrip("_").startswith("mcp")
+    return any(part.lstrip("_").startswith("mcp") for part in name.split("."))
 heavy = {{"scipy", "statsmodels", "sklearn"}}
 seen = {{"heavy": set(), "mcp": set(), "network": set()}}
 report = {{}}

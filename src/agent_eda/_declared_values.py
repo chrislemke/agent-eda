@@ -28,6 +28,7 @@ from typing import Literal, TypeGuard, cast
 import numpy as np
 import pandas as pd
 
+from agent_eda._arguments import check_distinct
 from agent_eda._columns import (
     ALL_KINDS,
     Column,
@@ -36,7 +37,6 @@ from agent_eda._columns import (
     select_columns,
 )
 from agent_eda._parse import ReadFamily, read_as, read_decimal
-from agent_eda._run import check_distinct
 from agent_eda._text import Surface, join_items, join_labels
 from agent_eda._values import categorical_array, is_arrow_dictionary
 from agent_eda._wording import Fix, Wording, Words, mistake

@@ -1,14 +1,12 @@
-"""Pieces every analysis puts into its result, and checks every analysis runs."""
+"""How an analysis's run ends: its status, and why.
 
-import contextlib
-import json
-import threading
-import warnings
-from collections import Counter
-from collections.abc import Callable, Generator, Hashable, Sequence
-from typing import Any
+An analysis that works column by column ends with one status for the run, which
+`overall_status` picks from the columns', and one that stops at a work limit says
+why with `budget_exceeded_reason`. `NO_ROWS` is the reason shared by every
+analysis of data without rows.
+"""
 
-import numpy as np
+from collections.abc import Sequence
 
 from agent_eda._result_base import (
     ColumnResult,
@@ -17,12 +15,11 @@ from agent_eda._result_base import (
     StatusReasonCode,
 )
 from agent_eda._text import join_labels, plural
-from agent_eda._wording import Echo, Listed, Wording, Words, mistake
-from agent_eda.errors import InvalidArgumentError
 
 # When no column completed and their statuses differ, the first of these that
 # occurs is the result's status.
 _PRECEDENCE: tuple[Status, ...] = ("failed", "insufficient_data", "not_applicable")
+
 
 # Why an analysis of data without rows ends with insufficient_data.
 NO_ROWS = StatusReason(code="no_rows", message="The data has no rows.")
@@ -74,55 +71,6 @@ def overall_status(
     )
 
 
-# warnings.catch_warnings swaps the process's warning filters and showwarning
-# hook, so two captures that overlap in time restore each other's state and
-# leave the caller's changed. Every capture runs under this one lock. It is
-# reentrant because a capture can start inside another, such as a numeric
-# summary inside an analysis.
-_CAPTURE_LOCK = threading.RLock()
-
-
-@contextlib.contextmanager
-def capture_warnings() -> Generator[list[warnings.WarningMessage], None, None]:
-    """Record the warnings raised in the block, one capture at a time process-wide."""
-    with _CAPTURE_LOCK, warnings.catch_warnings(record=True) as caught:
-        yield caught
-
-
-@contextlib.contextmanager
-def watch_all_warnings() -> Generator[list[warnings.WarningMessage], None, None]:
-    """Record every warning raised in the block instead of showing it.
-
-    NumPy's floating-point errors warn inside the block, whatever numpy.seterr
-    says outside it, so they are recorded too.
-    """
-    with capture_warnings() as caught:
-        warnings.simplefilter("always")
-        with np.errstate(all="warn", under="ignore"):
-            yield caught
-
-
-@contextlib.contextmanager
-def watch_warnings() -> Generator[list[str], None, None]:
-    """Collect the messages of the RuntimeWarnings raised in the block.
-
-    NumPy's floating-point errors (division by zero, overflow, invalid values)
-    warn inside the block, whatever numpy.seterr says outside it. Once the block
-    ends, the list holds each message once, in order; other warnings pass on.
-    """
-    messages: list[str] = []
-    with watch_all_warnings() as caught:
-        yield messages
-    for warning in caught:
-        if issubclass(warning.category, RuntimeWarning):
-            if str(warning.message) not in messages:
-                messages.append(str(warning.message))
-        else:
-            warnings.warn_explicit(
-                warning.message, warning.category, warning.filename, warning.lineno
-            )
-
-
 def budget_exceeded_reason(
     *,
     code: StatusReasonCode,
@@ -163,51 +111,4 @@ def budget_exceeded_reason(
             f"{needs} {plural(required, *unit)}, more than the {parameter} limit of {limit:,} "
             f"allows; {consequence}. {fix[0].upper()}{fix[1:]}."
         ),
-    )
-
-
-def check_distinct(
-    analysis: str,
-    parameter: str,
-    values: Sequence[Hashable],
-    noun: str,
-    *,
-    key: Callable[[Any], Hashable] | None = None,
-    hide: bool = False,
-    within: str | None = None,
-) -> None:
-    """Raise when a list argument holds the same value more than once.
-
-    Values are the same when Python's == says so, or when their `key` is. With
-    `hide`, the message counts the repeated values and doesn't quote them: they
-    are values of a sensitive column. `within` names the key of a mapping
-    argument whose list this is, such as a column of sentinel_values.
-    """
-    keyed = values if key is None else [key(value) for value in values]
-    repeated = [
-        values[keyed.index(item)] for item, count in Counter(keyed).items() if count > 1
-    ]
-    if not repeated:
-        return
-
-    if hide:
-        named: Wording = (
-            f"{plural(len(repeated), noun, noun + 's')} (not shown: masking "
-            "hides the values of a sensitive column)"
-        )
-    else:
-        named = Listed(Echo(value) for value in repeated)
-    where: Wording = parameter
-    if within is not None:
-        where = Words(
-            f"{parameter}[{within!r}]",
-            f"the {parameter} list for {json.dumps(within)}",
-        )
-    raise mistake(
-        InvalidArgumentError,
-        f"{analysis} got ",
-        named,
-        " more than once in ",
-        where,
-        f". List each {noun} once.",
     )

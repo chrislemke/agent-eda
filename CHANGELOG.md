@@ -73,6 +73,7 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 
 - `describe_dataset` lives in `agent_eda.data.structure`, which `ae.list_analyses()` reports as its module. `agent_eda.data.provenance` no longer exists. `ae.describe_dataset` is unchanged.
 - Result classes are defined in private modules next to their analyses, so a class's `__module__` is no longer `agent_eda.results`. `ae.results.<Name>` and `from agent_eda.results import <Name>` still give every class, and a result pickled with 0.1.0 still loads. Records, printed text and tables are byte-identical.
+- The MCP adapter's modules moved into a private `agent_eda/_mcp/` package, the engines of single analyses (`_association`, `_keys`, `_conversions`, `_sentinel_rules`) next to their analysis, and `_sentinels` became `_declared_values`. The argument helpers of `_registry` are in `_arguments`, and `_run` is split into `_status` and `_warnings`. All private: `agent_eda.mcp`, the `agent-eda-mcp` command, every public name and every result are unchanged.
 
 ### Changed
 

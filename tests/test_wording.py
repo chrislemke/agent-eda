@@ -20,8 +20,8 @@ from python_syntax import python_in
 
 import agent_eda as ae
 import agent_eda._wording as wording
-from agent_eda._registry import ShownValue
-from agent_eda._sentinels import Declared
+from agent_eda._arguments import ShownValue
+from agent_eda._declared_values import Declared
 from agent_eda._wording import (
     NONE,
     DeclareSensitive,

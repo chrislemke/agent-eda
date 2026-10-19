@@ -12,7 +12,8 @@ share.
 
 import textwrap
 
-from agent_eda._data_files import CSV_RULES, PARQUET_RULES, supported_extensions
+from agent_eda._mcp.data_files import CSV_RULES, PARQUET_RULES
+from agent_eda._mcp.local_files import READABLE, WRITABLE, extensions
 from agent_eda._version import __version__
 from agent_eda.discovery import overview, status_lines
 
@@ -48,7 +49,7 @@ Read the response: an MCP client may show you its text, its structured content o
 - The text is the printed result: status, key numbers, findings and limitations, in at most 40 lines.
 - The structured content is the whole record as strict JSON. Lists that grow with the data are capped (10 row IDs,
   5 example values, 100 other entries) and <field>_total gives the full count; a value that doesn't exist is null.
-- table_path, a new .csv, .parquet or .pq file in a directory that exists and is writable, gets the main table in full
+- table_path, a new {tables} file in a directory that exists and is writable, gets the main table in full
   (not an analysis's other tables), with lists and mappings as JSON text and the index as first column only when it
   is more than row numbers. The text then ends with "Full table written to <path> (<n> rows).", and the record's
   table_file gives the path and row_count. It never overwrites or writes through a symbolic link: an existing path
@@ -79,14 +80,11 @@ def instructions() -> str:
         [
             _INTRO.format(version=__version__),
             "",
-            _fill(
-                _DATA.format(
-                    extensions=supported_extensions().replace(" and ", " or "),
-                )
-            ),
+            _fill(_DATA.format(extensions=extensions(READABLE, either=True))),
             "",
             _RESULTS.format(
-                status="\n".join(status_lines("", " That is not an error."))
+                status="\n".join(status_lines("", " That is not an error.")),
+                tables=extensions(WRITABLE, either=True),
             ),
             "",
             _fill(_MASKING),

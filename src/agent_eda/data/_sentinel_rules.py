@@ -36,9 +36,7 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._columns import Column, column_kind
-from agent_eda._levels import stored_label
-from agent_eda._parse import number_texts, read_as
-from agent_eda._sentinels import (
+from agent_eda._declared_values import (
     Family,
     Holds,
     can_match,
@@ -47,6 +45,8 @@ from agent_eda._sentinels import (
     numpy_dtype,
     type_family,
 )
+from agent_eda._levels import stored_label
+from agent_eda._parse import number_texts, read_as
 from agent_eda._values import categorical_array, value_codes
 
 # Numbers often used for missing values; they count at the column's minimum
@@ -111,7 +111,7 @@ def suspects(
 ) -> list[Suspect]:
     """The values of a column the rules suspect, among the rows in `remaining`.
 
-    `holding` is what the column holds, as _sentinels.holds() tells. The most
+    `holding` is what the column holds, as _declared_values.holds() tells. The most
     frequent values come first, and values as frequent as each other in the
     order of their first row.
     """
