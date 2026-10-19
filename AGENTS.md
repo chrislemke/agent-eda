@@ -89,7 +89,7 @@ Google style. Every public analysis has these sections, in this order, under the
 
 ## Implementation
 
-- Deterministic: no LLM calls, no network access, no global state, no threads or processes of our own. Randomness comes only from the `seed` argument. Results hold no timestamps or durations, and output order never follows hash or set iteration, so identical calls give byte-identical JSON across processes.
+- Deterministic: no LLM calls, no network access, no global state, no threads or processes of our own. Concurrent calls from several threads are safe: warning capture, the one process-wide state an analysis touches, runs under a module-level lock (`_run.capture_warnings`), so captures run one at a time and a call never changes the caller's warning filters or another call's limitations. Randomness comes only from the `seed` argument. Results hold no timestamps or durations, and output order never follows hash or set iteration, so identical calls give byte-identical JSON across processes.
 - pandas at the boundary, NumPy inside. Convert to NumPy arrays wherever the computation allows; keep pandas for grouping, nullable types, categoricals and time zones (ADR 0002).
 - When two analyses compute the same thing (numeric summaries, parse rules, declared sentinel values, row IDs, masking), they call one shared implementation, so they can't disagree.
 - Support Python 3.12 to 3.14, numpy 1.26 through 2.x and pandas 2.2 through 3.x, the minimums in `pyproject.toml`. The default environment only has the latest versions, so the minimum-versions run is what catches these:

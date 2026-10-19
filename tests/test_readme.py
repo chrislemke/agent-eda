@@ -457,3 +457,11 @@ def fenced_blocks():
     """The README's fenced code blocks in order, as (language, code) pairs."""
     fence = re.compile(r"^```(\w*)\n(.*?)^```$", flags=re.MULTILINE | re.DOTALL)
     return fence.findall(README.read_text(encoding="utf-8"))
+
+
+def test_the_readme_and_agents_md_say_concurrent_calls_are_safe():
+    for path in (README, ROOT / "AGENTS.md"):
+        text = " ".join(path.read_text(encoding="utf-8").split()).lower()
+
+        assert "concurrent calls from several threads are safe" in text, path.name
+        assert "one at a time" in text, path.name
