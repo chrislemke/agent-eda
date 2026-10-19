@@ -1,6 +1,6 @@
 # Roadmap
 
-The specs in the order they are worked on. The current spec is the first one below with a `ready-for-agent` ticket that isn't finished and whose `Blocked by:` tickets are finished; within it, take the lowest-numbered such ticket. A blocked ticket, such as release's "Prepare 0.1.0", which waits for specs 3 and 4, doesn't hold agents in its spec. Tickets marked `ready-for-human` or `needs-info` are for the maintainer, and agents skip them.
+The specs in the order they are worked on. The current spec is the first one below with a `ready-for-agent` ticket that isn't `Status: done` and whose `Blocked by:` tickets are all `Status: done`; within it, take the lowest-numbered such ticket. A blocked ticket, such as release's "Prepare 0.1.0", which waits for specs 3 and 4, doesn't hold agents in its spec. Tickets marked `ready-for-human` or `needs-info` are for the maintainer, and agents skip them. When no spec has such a ticket, ask the maintainer which spec comes next.
 
 | Order | Spec | What it delivers |
 | --- | --- | --- |

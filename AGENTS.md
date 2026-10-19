@@ -24,19 +24,19 @@ uv add --dev <package>      # add a dev dependency and update uv.lock
 
 ## Working on a ticket
 
-Specs and tickets live under `.scratch/<feature>/` (see `docs/agents/issue-tracker.md`). `.scratch/ROADMAP.md` lists the specs in the order they are worked on. The current spec is the first one there with a `ready-for-agent` ticket that still has an unticked box and whose `Blocked by:` tickets have every box ticked. `first-look` and `mcp-server` are finished.
+Specs and tickets live under `.scratch/<feature>/` (see `docs/agents/issue-tracker.md`). `.scratch/ROADMAP.md` lists the specs in the order they are worked on. The current spec is the first one there with a `ready-for-agent` ticket that isn't `Status: done` and whose `Blocked by:` tickets are all `Status: done`. When no spec has such a ticket, ask the maintainer which spec comes next.
 
-1. In the current spec, take the lowest-numbered `ready-for-agent` ticket whose `Blocked by:` tickets have every box ticked. Read the ticket, the spec sections it names, and the ADRs behind them.
+1. In the current spec, take the lowest-numbered such ticket. Skip tickets marked `ready-for-human` or `needs-info`: they are for the maintainer. Read the ticket, the spec sections it names, and the ADRs behind them.
 2. Work test-first with the `/tdd` skill: for each acceptance box, write a failing test through the public API, then the code that makes it pass.
 3. Tick a box (`- [x]`) once a test or a command shows it holds.
 4. Under `## Comments` at the end of the ticket, record what the ticket settled that the spec left open, any measurement it asks for, and any check you couldn't run locally.
-5. A ticket is finished when every box is ticked and the finish checks under Tests pass. Leave its `Status:` line as it is, and commit with the message `NN: <ticket title>`.
+5. A ticket is finished when every box is ticked and the finish checks under Tests pass. Set its `Status:` line to `done`, and commit with the message `NN: <ticket title>`.
 
 The ticket is the acceptance bar. Where it settles a point the spec left open, the ticket wins, and the spec overrides the proposed names in Planned analyses. Later tickets extend the shared parts that earlier ones built (the result base class, the text template, the registry, the errors, the column and row ID rules, masking). If a ticket contradicts an ADR, flag it as `docs/agents/domain.md` describes instead of overriding the ADR.
 
 ## Layout
 
-- `src/agent_eda/`: the package, in a src layout built by the uv build backend (ticket 01 creates it). An analysis lives in the submodule that Planned analyses gives it, such as `agent_eda.data.missingness` or `agent_eda.statistics.descriptive`. Exceptions live in the public `agent_eda.errors` module and result classes in `agent_eda.results`.
+- `src/agent_eda/`: the package, in a src layout built by the uv build backend. An analysis lives in the submodule that Planned analyses gives it, such as `agent_eda.data.missingness` or `agent_eda.statistics.descriptive`. Exceptions live in the public `agent_eda.errors` module and result classes in `agent_eda.results`.
 - `tests/`: pytest tests. They import only `agent_eda`.
 
 ## Rules for every analysis
@@ -82,7 +82,7 @@ Google style. Every public analysis has these sections, in this order, under the
 
 ## Tests
 
-pytest, with Hypothesis for property tests (ticket 03 adds it).
+pytest, with Hypothesis for property tests.
 
 - One seam: the public `agent_eda` API, used the way callers use it. A test imports the package, calls an analysis or discovery function and checks what comes back: result fields, status, findings, printed text, `to_frame()`, `to_json()`, or the exception and its message. Private modules and helpers are covered through the analyses that use them.
 - Use small hand-built DataFrames where the right answer is obvious. Check numbers against reference values computed on the same data with SciPy, statsmodels, pandas or a published worked example, within a stated tolerance.
@@ -94,11 +94,11 @@ pytest, with Hypothesis for property tests (ticket 03 adds it).
 
 ### Issue tracker
 
-Local markdown: specs and tickets live under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Local markdown. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-The five default roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded on each issue file's `Status:` line. See `docs/agents/triage-labels.md`.
+The five default roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) and `done` for a finished ticket, recorded on each issue file's `Status:` line. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
