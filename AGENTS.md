@@ -34,7 +34,7 @@ Run these before finishing a change. CI runs the same ones, and the git hooks ru
 ## Sources of truth
 
 - `GLOSSARY.md`: use its terms in code, docstrings and messages. Check it before naming anything.
-- `docs/adr/`: read the ADRs before touching dependencies, the call pattern, data policy behaviour, or anything that would add LLM or network use.
+- `docs/adr/`: read the ADRs before touching dependencies, the call pattern, data policy behaviour, anything that would add LLM or network use, or (ADR 0006) the MCP server, data reading and anything an MCP caller reads.
 - `README.md`, section Planned analyses: the backlog of planned analyses. Its names and modules are proposals. When an analysis ships, move it from Planned analyses to the README's Analyses table; from then on the code and docstring are authoritative.
 
 ## Working on a ticket
@@ -56,6 +56,8 @@ The ticket is the acceptance bar. Where it settles a point the spec left open, t
 
 ## Rules for every analysis
 
+Before adding or renaming an analysis, follow docs/agents/new-analysis.md.
+
 - **Call pattern.** `def analysis(data: pd.DataFrame, *, ...) -> AnalysisSpecificResult`. Data first, everything else keyword-only. Columns are referenced by name, in parameters ending in `column` or `columns`; `columns=None` means all suitable columns. Analyses over several DataFrames name each by role (`before=`/`after=`, `sample=`/`population=`). Treat `data` as read-only.
 - **Typed arguments.** Fixed choices such as `method` are `Literal[...]`. Options are typed keyword arguments; genuinely nested specs are small pydantic models. Free-form dicts (`dict[str, Any]`, JSON mappings) are not part of any public signature. Numeric arguments have documented valid ranges.
 - **Defaults.** Only standard conventions (`seed=0`, `confidence_level=0.95`, quantile levels) and work or display limits (`max_*`, `top_n`) get defaults, and the result records the value used. Project-specific values such as thresholds, units, schemas, sentinel values and expected labels never get one: they are required, or optional with `None` meaning the check that needs them doesn't run and the result says so.
@@ -65,6 +67,7 @@ The ticket is the acceptance bar. Where it settles a point the spec left open, t
 - **Statuses.** `completed`, `partial`, `insufficient_data`, `not_applicable`, `missing_prerequisites`, `budget_exceeded`, `blocked_by_policy`, `failed`. A status says how the run ended; a finding's assessment says what the data showed. Each analysis declares the statuses it can return and never returns another. `failed` is for anticipated numerical failures and carries an error code; an unexpected exception is a bug and propagates.
 - **Errors.** Caller mistakes raise a subclass of `AgentEDAError` with a stable `code`, before any computation starts. The message names what is wrong, what is allowed and the fix: list the available columns and suggest the closest name. pydantic validation errors are re-raised as `InvalidArgumentError` in this format. Data problems return a status with a reason, and data issues go into findings and limitations.
 - **Warnings.** Data problems never become Python warnings. Inside an analysis, numerical RuntimeWarnings become limitations, and DeprecationWarning and FutureWarning are suppressed for callers but fail the test suite. `warnings.warn` is reserved for renamed names.
+- **MCP surface.** `agent-eda-mcp` serves every analysis as an MCP tool built from the registry and the docstring (ADR 0006), so what you write is read by MCP callers too. The docstring's sections become the tool description. A message an MCP tool can reach gives a fix an MCP caller can make: build it with `agent_eda._wording.worded`, since an MCP caller passes JSON arguments and file paths, not Python. Every parameter type needs a JSON Schema, and a DataFrame passed by role needs a `<role>_path` argument. Nothing an MCP caller reads holds Python: no `res.columns[...]`, `df.loc[...]`, `to_frame()` or `ae.` calls.
 - **Cost limits.** Analyses whose cost grows faster than the row count take `max_*` arguments and return `budget_exceeded` when a limit is hit.
 - **Names.** Verb first, unique across the package, exported lazily from `agent_eda` so that type checkers and `dir()` still see them. Analyses that run statistical hypothesis tests keep natural `test_*` names; the registration decorator sets `__test__ = False` so pytest skips them. A renamed analysis keeps its old name working for two minor releases, with a warning that names the replacement.
 
@@ -103,6 +106,8 @@ pytest, with Hypothesis for property tests.
 - Use small hand-built DataFrames where the right answer is obvious. Check numbers against reference values computed on the same data with SciPy, statsmodels, pandas or a published worked example, within a stated tolerance.
 - Cover edge cases with Hypothesis: empty data, all missing, constant, one row, ties, infinities, mixed types, nullable, pyarrow-backed and pandas 2 and 3 string dtypes. Hypothesis runs derandomized, and every test is independent of the network, unseeded randomness and test order.
 - A test function's name never reuses an analysis name.
+- `tests/recipes.py`: a `Recipe` for a new analysis builds its valid arguments, which puts it into the property, masking, benchmark and MCP contract tests; one without a recipe fails the suite. `tests/strategies.py`: `data_frames()` draws DataFrames full of edge cases and `EDGE_FRAMES` holds fixed ones; reuse them rather than writing new generators.
+- The repository's MCP server (`.mcp.json`) serves the code as it was when the Claude Code session started. After you change an analysis, restart the session before you check the change through its MCP tools, or you read the old behaviour.
 - Before finishing a change, run the Finish checks under Commands. A `# noqa` or `# ty: ignore` carries its reason on the same line.
 
 ## Agent skills
