@@ -275,19 +275,24 @@ def write(path: object, fields: Mapping[str, Any], *, overwrite: object) -> Path
             "file and would refuse it. Declare fewer sensitive columns, or build "
             "the project in code in each script instead of saving it."
         )
-    # A link is followed, so that the file it points to is replaced and it stays.
-    target = Path(os.path.realpath(absolute))
-    if target.exists():
-        if not overwrite:
+    if not overwrite:
+        # lexists sees a dangling link too, which must not lead the new file
+        # somewhere else; the exclusive creation below refuses it as well.
+        if os.path.lexists(absolute):
             raise _exists(given)
-        if not stat.S_ISREG(target.stat().st_mode):
-            raise InvalidArgumentError(
-                f"Project.save found {_where(given)}, but it isn't a regular file, "
-                "such as a named pipe or a device, so it can't hold a project "
-                "file, and writing to it could wait for a reader without end. Pass "
-                "the path of a regular file, such as 'project.toml'."
-            )
-    _replace(target, content, overwrite=overwrite, given=given)
+        _replace(absolute, content, overwrite=False, given=given)
+        return absolute
+    # A link to a file is followed, so that the file it points to is replaced and
+    # the link stays. A dangling link is replaced itself, not written through.
+    target = Path(os.path.realpath(absolute)) if absolute.exists() else absolute
+    if target.exists() and not stat.S_ISREG(target.stat().st_mode):
+        raise InvalidArgumentError(
+            f"Project.save found {_where(given)}, but it isn't a regular file, "
+            "such as a named pipe or a device, so it can't hold a project "
+            "file, and writing to it could wait for a reader without end. Pass "
+            "the path of a regular file, such as 'project.toml'."
+        )
+    _replace(target, content, overwrite=True, given=given)
     return absolute
 
 
@@ -303,14 +308,18 @@ def _replace(target: Path, content: bytes, *, overwrite: bool, given: str) -> No
     """Put the content at the target in one step, so that a save cut short, such
     as by a full disk or an interrupt, leaves the file that was there.
 
-    The content goes to a temporary file in the same directory first, which
-    takes the permissions a new file gets. Without overwrite, a hard link puts
-    it in place only if no file has appeared meanwhile.
+    The content goes to a temporary file in the same directory first. It is
+    readable by its owner only, since a project names sensitive columns, unless
+    a file is replaced: that file's permissions carry over. Without overwrite,
+    a hard link puts the file in place only if nothing is there, not even a
+    dangling link, so a file that appears meanwhile is never replaced.
     """
+    mode = 0o600
+    if overwrite and target.exists():
+        mode = stat.S_IMODE(target.stat().st_mode)
     temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
     try:
-        with open(temporary, "xb") as file:
-            file.write(content)
+        _create(temporary, content, mode)
         if overwrite:
             os.replace(temporary, target)
             return
@@ -320,13 +329,21 @@ def _replace(target: Path, content: bytes, *, overwrite: bool, given: str) -> No
             raise _exists(given) from None
         except OSError:
             # A file system without hard links: create the file exclusively.
-            with open(target, "xb") as file:
-                file.write(content)
+            _create(target, content, mode)
     except FileExistsError:
         raise _exists(given) from None
     finally:
         with contextlib.suppress(OSError):
             os.unlink(temporary)
+
+
+def _create(path: Path, content: bytes, mode: int) -> None:
+    """Create a new file with exactly these permissions, whatever the umask."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    with os.fdopen(descriptor, "wb") as file:
+        file.write(content)
+        if hasattr(os, "fchmod"):
+            os.fchmod(file.fileno(), mode)
 
 
 def _file_path(owner: str, path: object) -> str:

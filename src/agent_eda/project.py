@@ -339,7 +339,9 @@ class Project(Declaration):
         and the name at the top level, the name left out when there is none,
         and the data policy in a [data_policy] table. The save is atomic: it
         writes a temporary file next to the target and renames it into place,
-        so an interrupted save leaves the file that was there. It is laid out
+        so an interrupted save leaves the file that was there. A new file is
+        readable by its owner only, and a replaced file keeps its permissions.
+        It is laid out
         the same way every time, so equal
         projects give identical files on the same Python version. Column names
         keep every character: quotes, backslashes and characters that print as

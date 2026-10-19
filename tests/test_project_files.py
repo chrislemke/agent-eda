@@ -1184,3 +1184,46 @@ def test_a_format_version_that_is_not_a_positive_integer_raises(tmp_path, versio
 
     with pytest.raises(ProjectFileError, match="format_version"):
         ae.Project.load(path)
+
+
+def test_save_without_overwrite_refuses_a_dangling_link_and_creates_nothing(tmp_path):
+    (tmp_path / "project.toml").symlink_to(tmp_path / "elsewhere.toml")
+
+    with pytest.raises(ProjectFileExistsError):
+        EMAIL_MASKED.save(tmp_path / "project.toml")
+
+    assert not (tmp_path / "elsewhere.toml").exists()
+    assert sorted(os.listdir(tmp_path)) == ["project.toml"]
+
+
+def test_save_with_overwrite_replaces_a_dangling_link_instead_of_writing_through(
+    tmp_path,
+):
+    link = tmp_path / "project.toml"
+    link.symlink_to(tmp_path / "elsewhere.toml")
+
+    EMAIL_MASKED.save(link, overwrite=True)
+
+    assert not link.is_symlink()
+    assert not (tmp_path / "elsewhere.toml").exists()
+    assert ae.Project.load(link) == EMAIL_MASKED
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permissions")
+def test_save_keeps_the_permissions_of_the_file_it_replaces(tmp_path):
+    path = write(tmp_path / "project.toml", "old\n")
+    path.chmod(0o640)
+
+    EMAIL_MASKED.save(path, overwrite=True)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permissions")
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_save_makes_a_new_file_readable_by_its_owner_only(tmp_path, overwrite):
+    path = tmp_path / "project.toml"
+
+    EMAIL_MASKED.save(path, overwrite=overwrite)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
