@@ -72,6 +72,9 @@ LimitationCode = Literal[
     # Values such as lists or dicts can't be hashed, so distinct values weren't
     # counted and the affected counts are null.
     "unhashable_values",
+    # A key search left out float columns that hold fractions, which are
+    # measurements rather than IDs, because columns=None doesn't select them.
+    "non_integral_float_columns",
     # A statistic needs more values than a column has, such as a standard
     # deviation of one value, so it is null.
     "too_few_values",
@@ -2493,11 +2496,12 @@ class CandidateKey(ResultModel):
     )
     distinct_count: int = Field(
         description="Distinct combinations of values in these columns, with missing "
-        "values compared equal: the rows df.drop_duplicates(subset=columns) keeps."
+        "values of every kind (None, NaN, NaT, NA) compared equal: the rows of the "
+        "set that no earlier row repeats."
     )
     duplicate_row_count: int = Field(
-        description="Rows whose combination another row shares, the rows "
-        "df.duplicated(subset=columns, keep=False) marks; 0 for a key."
+        description="Rows whose combination another row shares, counting every row "
+        "of a repeated combination, the first one too; 0 for a key."
     )
     missing_row_count: int = Field(
         description="Rows with a missing value in at least one of these columns."
@@ -2572,6 +2576,12 @@ class FindCandidateKeysResult(AnalysisResult):
         "can't be hashed, such as lists or dicts, in the selected order; empty "
         "when it searched every selected column."
     )
+    non_integral_float_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Columns of floats with at least one fractional value, such "
+        "as 0.5, which columns=None leaves out because they are measurements, not "
+        "IDs, in DataFrame order. Empty when columns named the columns searched, "
+        "or when none holds a fraction."
+    )
 
     def _candidates(self) -> list[tuple[str, CandidateKey]]:
         """Every reported column set with its kind, in the order of the lists."""
@@ -2612,6 +2622,9 @@ class FindCandidateKeysResult(AnalysisResult):
         if self.left_out_columns:
             names = _text.join_labels(self.left_out_columns)
             facts.append(f"Left out, values can't be hashed: {names}.")
+        if self.non_integral_float_columns:
+            names = _text.join_labels(self.non_integral_float_columns)
+            facts.append(f"Left out, floats with fractions: {names}.")
         return facts
 
     def _text_table(self) -> _text.Table | None:

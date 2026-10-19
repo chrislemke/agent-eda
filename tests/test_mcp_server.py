@@ -205,3 +205,25 @@ async def call_over_stdio(cwd, hash_seed, data_path):
     )
     async with Client(server, mode="legacy") as client:
         return await client.call_tool("describe_dataset", {"data_path": data_path})
+
+
+# send_ping is the one way the client checks that the server still answers, and
+# legacy mode, which these tests use, supports it.
+@pytest.mark.filterwarnings("ignore:ping is removed")
+def test_a_huge_max_key_size_returns_and_the_mcp_server_still_answers_a_ping(tmp_path):
+    (tmp_path / "keys.csv").write_text("a,b\n1,1\n2,1\n3,2\n", encoding="utf-8")
+
+    async def scenario():
+        async with Client(create_server(), mode="legacy") as client:
+            with anyio.fail_after(10):
+                response = await client.call_tool(
+                    "find_candidate_keys",
+                    {"data_path": str(tmp_path / "keys.csv"), "max_key_size": 10**20},
+                )
+                await client.send_ping()  # ty: ignore[deprecated]  # legacy mode, which this test runs, answers pings
+            return response
+
+    response = anyio.run(scenario)
+
+    assert not response.is_error
+    assert (response.structured_content or {})["status"] == "completed"

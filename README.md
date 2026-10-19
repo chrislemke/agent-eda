@@ -182,6 +182,8 @@ A mistake in a call, such as a misspelled column or an unknown option, raises a 
 
 Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. Values pandas can't hash, such as lists, are the one place analyses differ, as each docstring says: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
+`find_candidate_keys` leaves out float columns holding a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; floats holding only whole numbers, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as the column count.
+
 `infer_column_semantics` and `validate_column_types` read text by the same rules:
 
 - A column ranks boolean only when every value is a boolean, a 0 or 1, or a word such as `yes` or `f`, and at least two values differ: grades `A, B, F` and only 1s are not boolean.
@@ -539,7 +541,7 @@ Which columns, alone or combined, uniquely identify rows?
 | `max_key_size` | `int` | `2` | The most columns a key may combine, at least 1; defaults to 2. |
 | `max_combinations` | `int` | `10000` | The most column sets the search examines, at least 1; defaults to 10,000, which covers every set of up to 2 of 140 columns. |
 
-**Fields:** `keys` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `keys_with_missing_values` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `most_unique_column_sets` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `exhaustive`, `search` (`column_count`, `combination_count`, `examined_count`, `rejected_on_subset_count`, `checked_on_all_rows_count`, `subset_row_count`), `left_out_columns`
+**Fields:** `keys` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `keys_with_missing_values` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `most_unique_column_sets` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `exhaustive`, `search` (`column_count`, `combination_count`, `examined_count`, `rejected_on_subset_count`, `checked_on_all_rows_count`, `subset_row_count`), `left_out_columns`, `non_integral_float_columns`
 
 - `keys_found` (descriptive): column sets identify every row and have no missing values.
 - `keys_with_missing_values` (descriptive): column sets identify every row but have missing values, so they can't serve as primary keys.
