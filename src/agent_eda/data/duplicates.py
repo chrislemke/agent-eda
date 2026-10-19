@@ -61,17 +61,15 @@ def find_duplicate_rows(
     When to use:
         Call it after `describe_dataset` to find rows that are equal in every compared
         column, such as records loaded twice. It groups the equal rows and reports each
-        group's row IDs, the rows in groups, the excess copies and the duplicate share.
-        It removes no rows, so you decide what to do with them. Missing values compare
-        equal, as in pandas' DataFrame.duplicated over two or more columns, even when
-        only one column is compared. Pass id_column when a column identifies rows, such
-        as an order number: row IDs then come from it, and the default columns leave it
-        out of the comparison, so unique IDs don't hide duplicated records. Row IDs are
-        raw values, so when id_column holds personal data, such as email addresses,
-        declare it sensitive in a project and switch masking on. Index labels are never
-        masked: when the index holds sensitive values, pass a non-sensitive id_column.
-        `describe_dataset` reports duplicated column labels and a non-unique index,
-        `find_candidate_keys` the columns that identify rows, and
+        group's row IDs, the excess copies and the duplicate share; it removes no rows.
+        Missing values compare equal, as in pandas' DataFrame.duplicated over two or more
+        columns, even when only one column is compared. Pass id_column when a column
+        identifies rows, such as an order number: row IDs then come from it, and the
+        default columns leave it out of the comparison, so unique IDs don't hide
+        duplicated records. Row IDs are raw values: when id_column holds personal data,
+        declare it sensitive in a project and switch masking on; index labels are never
+        masked, so pass a non-sensitive id_column. `describe_dataset` reports duplicated column labels and a non-unique
+        index, `find_candidate_keys` the columns that identify rows, and
         `compute_association_matrix` the columns whose values duplicate or derive from
         each other.
 
@@ -105,18 +103,14 @@ def find_duplicate_rows(
     Returns:
         FindDuplicateRowsResult: `duplicate_groups` lists each group of rows that are
         equal in every compared column, ordered by first occurrence, with its `size` and
-        its `row_ids` in row order. Row IDs are index labels, or id_column values when
-        given. `duplicate_group_count` counts the groups and `duplicate_group_row_count`
-        the rows in them. `excess_copy_count` counts the rows beyond the first of each
-        group, the ones that removing duplicates would drop, and `duplicate_share` is
-        the excess copies over all rows; it is null, with a `too_few_values` limitation,
-        when nothing was compared: no rows, or no column to compare.
-        `compared_columns` names the columns compared. Missing values of every
-        kind (None, NaN, NaT and NA) equal each other, and lists, dicts and sets
-        compare by content.
-        `to_frame` returns every row in a duplicate group with its group number. The
-        record keeps the first 100 groups and the first 10 row IDs of each, with their
-        totals.
+        its `row_ids` in row order (index labels, or id_column values when given).
+        `duplicate_group_count` counts the groups, `duplicate_group_row_count` the rows
+        in them, and `excess_copy_count` the rows beyond the first of each group, the
+        ones that removing duplicates would drop. `duplicate_share` is the excess
+        copies over all rows; it is null, with a `too_few_values` limitation, when
+        nothing was compared. `compared_columns` names the columns compared. Missing
+        values of every kind (None, NaN, NaT and NA) equal each other, and lists, dicts
+        and sets compare by content.
 
         When index labels or id_column values repeat, a row ID can match more
         than one row: the `ambiguous_row_ids` limitation names the groups whose
@@ -125,14 +119,12 @@ def find_duplicate_rows(
         count, is a missing value here and equals every other: the
         `nan_counted_as_missing` limitation names such columns.
 
-        `masking` says whether masking was on and names id_column when it is
-        sensitive. With masking on, its row IDs are placeholders, numbered in
-        the order the groups show them, in the printed text, `to_dict`,
-        `to_json` and `to_frame` alike; the groups and counts stay.
+        With masking on, the row IDs from a sensitive id_column are placeholders in
+        every output; the groups and counts stay.
 
         When no two rows are equal in every compared column, `findings` is empty
         and `duplicate_group_count` is 0: a search that finds nothing gives no
-        finding, and the printed text says which columns were compared.
+        finding.
 
         - `duplicate_rows`: suspected; two or more rows are equal in every compared
           column. Repeated records can be real, such as two identical purchases.

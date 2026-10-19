@@ -94,10 +94,9 @@ class ColumnSpec(Declaration):
     """What a column is declared to hold: its logical type and more.
 
     A declared schema maps column names to a ColumnSpec or to a logical type
-    alone, which is short for a ColumnSpec with only logical_type.
-    infer_column_semantics compares what it infers with the declared logical
-    type, and never overwrites it. Fields other than logical_type are optional,
-    and None declares nothing, so no check depends on them. An invalid spec is rejected with the code invalid_argument.
+    alone, which is short for a ColumnSpec with only logical_type. Fields other
+    than logical_type are optional, and None declares nothing, so no check
+    depends on them. An invalid spec is rejected with the code invalid_argument.
 
     Examples:
         >>> import agent_eda as ae
@@ -128,8 +127,8 @@ class ColumnSpec(Declaration):
         "default, declares none, so only ISO 8601 text reads as a datetime. "
         "infer_column_semantics and validate_column_types both read text in "
         "this format as datetimes. Directives that depend on the locale, such "
-        "as %b, %B, %a, %A and %p, read in the process's locale, so the same "
-        "call can count differently in a process with another locale.",
+        "as %b and %p, read in the process's locale, so a process with another "
+        "locale can count differently.",
     )
 
     if TYPE_CHECKING:
@@ -336,9 +335,8 @@ def infer_column_semantics(
         logical types ranked by a heuristic score, the evidence behind them and flags
         for what needs attention. Pass the logical types you expect as schema to compare
         each with what the values show; a declaration is never overwritten. To test
-        every value against the logical types you declare, with the invalid ones and
-        their row IDs, call `validate_column_types`. For how the values of each numeric
-        column are distributed, call `summarize_numeric` next.
+        every value against the logical types you declare, call `validate_column_types`.
+        For how numeric values are distributed, call `summarize_numeric` next.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -366,84 +364,49 @@ def infer_column_semantics(
 
     Returns:
         InferColumnSemanticsResult: `columns` maps each selected column name to
-        its entry. An entry holds:
-
-        - `inferred_logical_type`, the top candidate: a guess from the values,
-          null when no candidate scores above 0.
-        - `candidates`, the logical types the values fit, best first, each
-          with its `score` and `reasons`. When a text value is a whole number
-          with a leading zero, integer and float are listed too, scored 0, so
-          that you see why numbers were ruled out. A column where every
-          candidate scores 0 has no inferred type and no top score.
-        - `flags`, what needs attention, each explained by a finding below.
-        - `declared_logical_type` and `matches_declared`, when schema
-          declares the column: true when the declared type is the top candidate
-          or ties with it, such as float for a column of whole numbers.
-        - `evidence`: `non_missing_count`, `distinct_count`,
-          `uniqueness_share`, the shares of values that read as booleans,
-          numbers, whole numbers, datetimes and durations, the shares of
-          leading zeros, date-like text, plain text and text of several words,
-          and `value_types`, the names of the values' Python types.
-        - `status` and `status_reason`, the column's own.
-
-        Scores lie between 0 and 1 and come from fixed rules over the evidence; they are
-        heuristic, not probabilities. Every share is of the non-missing values. boolean
-        scores 1 when every value is a boolean, a number equal to 0 or 1, or true,
-        false, t, f, yes, no, y or n in any case, and the column holds at least two
-        distinct values, so a column of F and M, grades with some F, or only 1s isn't
-        boolean; a column stored as booleans is always boolean. Otherwise it has no
-        boolean candidate. integer scores integer_share, the values that are or parse as
-        whole numbers, and float number_share, the values that are or parse as decimal
-        numbers that float64 can hold: text such as 1e400 parses as neither. datetime
-        scores datetime_share: datetimes, and text in ISO 8601, YYYY-MM-DD with an
-        optional time and offset, or in the datetime_format of a ColumnSpec declared for
-        the column. No other date format parses, so day and month order is never
-        guessed. timedelta scores timedelta_share. categorical scores 1 -
-        uniqueness_share, high when a few values repeat over many rows. text scores
-        (plain_text_share * uniqueness_share + multi_word_share) / 2, high for mostly
-        distinct text with several words. When a text value is a whole number written as
-        digits alone with a leading zero, such as 01234, the column holds codes: integer
-        and float score 0, and its numbers count as plain text. A decimal such as 05.50
-        is a number, not a code. Scores equal as exact fractions tie, and ties go
-        to boolean, then integer, float, datetime, timedelta, categorical and
-        text. Text is parsed once per distinct value,
-        weighted by how often it occurs. `to_frame` returns every column's evidence, and
-        its Python-only table `candidates` every candidate with its reasons.
+        its entry: `inferred_logical_type` (null when no candidate scores above 0),
+        the `candidates` best first with their `score` and `reasons`, `flags`,
+        the `evidence` behind them and, for a column schema declares,
+        `declared_logical_type` and `matches_declared` (true when it is the top
+        candidate or ties with it). Scores run from 0 to 1 by fixed rules over
+        the evidence and are heuristic, not probabilities. boolean scores 1 when
+        every value reads as a boolean and the column holds at least two distinct
+        values, otherwise it isn't a candidate; integer scores integer_share,
+        float number_share, datetime datetime_share (ISO 8601 text or the
+        ColumnSpec's datetime_format only, so day and month order is never
+        guessed), timedelta timedelta_share, categorical 1 - uniqueness_share
+        and text (plain_text_share * uniqueness_share + multi_word_share) / 2.
+        Text that is a whole number with a leading zero, such as 01234, is a
+        code: integer and float are listed too, scored 0, and it counts as plain
+        text. A column where every candidate scores 0 has no inferred type. Equal
+        scores tie, in the order boolean, integer, float, datetime, timedelta,
+        categorical, text.
 
         A share is null for a column without values, with a `too_few_values`
-        limitation. `unhashable_values` means values such as lists left the
-        distinct count null, and `nan_counted_as_missing` that a float column
-        stores NaN as a value, counted as missing.
+        limitation; `unhashable_values` leaves the distinct count null, and
+        `nan_counted_as_missing` counts a float column's NaN values as missing.
 
         Findings name the columns with each flag, and compare declarations:
 
         - `identifier_like_columns`: suspected; every value is distinct, there are at
-          least two, and the top candidate is integer or text without spaces, as for
-          IDs. Rows that repeat a whole other row don't count, so a few exact
-          duplicate rows don't hide an ID column; only a column with distinct values
-          in at least 90% of its rows is looked at again after dropping them. Text
-          that looks like a date, such as 01/02/2020, is never an identifier.
-          Numbers stored as numbers must also run like a sequence: at least half the
-          whole numbers from the smallest to the largest occur. Don't use these
-          columns as numbers or features. Flag identifier_like.
-        - `constant_columns`: suspected; a single distinct value in at least two rows; NaN is
-          missing. Flag constant.
-        - `all_missing_columns`: suspected; no value in at least one row. Flag
-          all_missing.
+          least two, and the top candidate is integer or text without spaces. Exact
+          duplicate rows are set aside first for a column distinct in at least 90% of
+          its rows. Date-like text never counts; numbers stored as numbers must also
+          run like a sequence: at least half the whole numbers from the smallest to
+          the largest occur. Don't use these columns as numbers or features.
+        - `constant_columns`: suspected; a single distinct value in at least two rows;
+          NaN is missing.
+        - `all_missing_columns`: suspected; no value in at least one row.
         - `numbers_as_text`: suspected; the top candidate is integer or float and some
-          of the numbers are stored as text. Flag numbers_as_text.
+          of the numbers are stored as text.
         - `dates_as_text`: suspected; the top candidate is datetime and some of the
-          datetimes are text, in ISO 8601 or the declared datetime_format. Flag
-          dates_as_text.
+          datetimes are text, in ISO 8601 or the declared datetime_format.
         - `non_iso_date_text`: suspected; at least half the values look like dates, and
-          some of them aren't ISO 8601, such as 01/02/2020 or 5 Jan 2020; they are never
-          parsed. Flag non_iso_date_text.
+          some of them aren't ISO 8601, such as 01/02/2020; they are never parsed.
         - `boolean_like_columns`: descriptive; the top candidate is boolean and some
-          values are numbers or text that read as booleans, such as 0/1 or yes/no. Flag
-          boolean_like.
+          values are numbers or text that read as booleans, such as 0/1 or yes/no.
         - `mixed_value_types`: suspected; the values have more than one Python type,
-          such as int and str: evidence value_types lists them, as summarize_categorical
-          does. Flag mixed_value_types.
+          such as int and str, as `evidence.value_types` lists.
         - `declared_type_mismatch`: suspected; a declared column's declared logical type
           scores below its top candidate, or isn't a candidate.
         - `declared_type_match`: passed; a declared column's top candidate, or a
@@ -1442,12 +1405,11 @@ def validate_column_types(
         column gets counts of the values already stored as its type, the values that
         convert to it exactly, such as numbers or ISO 8601 dates stored as text, and the
         invalid ones, with example row IDs and values. A declared column the data lacks
-        is reported, not raised, so a broken file still gets checked. Example values and
-        row IDs are raw values: when a column holds personal data, declare it sensitive
-        in a project and switch masking on. Index labels are never masked, so pass a
-        non-sensitive id_column when the index holds sensitive values. To guess each
-        column's logical type from its values instead, call `infer_column_semantics`;
-        `describe_dataset` gives every dtype.
+        is reported, not raised. Example values and row IDs are raw values: when a column
+        holds personal data, declare it sensitive in a project and switch masking on.
+        Index labels are never masked, so pass a non-sensitive id_column when the index
+        holds sensitive values. To guess each column's logical type from its values
+        instead, call `infer_column_semantics`; `describe_dataset` gives every dtype.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -1461,11 +1423,10 @@ def validate_column_types(
             and one with a datetime_format, a datetime.strptime format such as
             '%d/%m/%Y', lets datetime text in that format convert as ISO 8601
             text does; strptime reads each distinct text, which takes about 4
-            seconds per million. Locale-dependent directives, such as %b, read in
-            the process's locale, so a process with another locale can count
-            differently. A declared column the data lacks is reported as a
-            violation. A label that isn't a string can be given as itself
-            or as its string form. It must declare at least one column; there
+            seconds per million. Locale-dependent directives, such as %b, read
+            in the process's locale. A declared column the data lacks is
+            reported as a violation. A label that isn't a string can be given
+            as itself or as its string form. It must declare at least one column; there
             is no default.
         id_column (str | None): Name of a column whose values identify rows,
             such as an order number; row IDs are then its values. Its values
@@ -1486,30 +1447,16 @@ def validate_column_types(
             accidental exposure, not anonymization or access control.
 
     Returns:
-        ValidateColumnTypesResult: `columns` maps each declared column, in
-        declared order, to its entry. An entry
-        holds the declaration (`declared_logical_type`, `nullable`,
-        `datetime_format`), `present`, `dtype` and four counts that add up to
-        the rows:
-
-        - `compatible_count`: values already stored as the declared type,
-          such as integers in an int64 or Int64 column for 'integer'.
-        - `convertible_count`: values stored as another type that convert to
-          it exactly, without changing their meaning, such as '42' or 42.0
-          for 'integer'.
-        - `invalid_count`: values that neither are of the declared type nor
-          convert to it, with `invalid_row_ids`, the first 10 rows that hold
-          one, and `invalid_values`, the first 5 distinct ones with their
-          counts, most frequent first, then by value as summarize_categorical
-          orders levels; `invalid_distinct_count` counts them. `to_frame` has
-          the ID of every row that holds an invalid value.
-        - `missing_count`: None, NaN, NaT and NA, and NaN that a float
-          column stores as a value.
-
-        Each entry's `assessment` is violation, unknown or passed, as its
-        findings give it. `undeclared_columns` lists the columns schema leaves
-        out, which aren't checked. A declared column the data lacks has a null
-        dtype and null counts, with a `column_not_in_data` limitation.
+        ValidateColumnTypesResult: `columns` maps each declared column, in declared
+        order, to its entry: the declaration, `present`, `dtype` and four counts that
+        add up to the rows (`compatible_count`, `convertible_count`, `invalid_count`
+        and `missing_count`), with `invalid_row_ids` (the first 10 rows that hold an
+        invalid value) and `invalid_values` (the first 5 distinct ones with their
+        counts).
+        `undeclared_columns` lists the columns schema leaves out, which aren't
+        checked. A declared column the data lacks has a null dtype and null counts,
+        with a `column_not_in_data` limitation. Each entry's `assessment` is
+        violation, unknown or passed, as its findings give it.
 
         What converts: to boolean, numbers equal to 0 or 1 and text such as yes, no,
         true, false, t, f, y, n, 0 or 1 in any case; to integer, whole floats and
@@ -1524,14 +1471,10 @@ def validate_column_types(
         declared one parses, so day and month order is never guessed. Text is read after
         stripping surrounding whitespace, once per distinct value, by the rules
         infer_column_semantics reads it with. Values of different types count apart, so
-        1 and true are two values. `to_frame` returns one row per declared column, and
-        its Python-only table `invalid_values` every distinct invalid value with its
-        count.
+        1 and true are two values.
 
-        `masking` says whether masking was on and names the sensitive columns
-        whose values the result shows. With masking on, their invalid values
-        and row IDs from a sensitive id_column are numbered placeholders in
-        the printed text, `to_dict`, `to_json` and `to_frame` alike.
+        With masking on, the invalid values of sensitive columns and row IDs from a
+        sensitive id_column are placeholders in every output.
 
         - `invalid_values`: violation; columns that hold invalid values.
         - `missing_declared_columns`: violation; declared columns the data doesn't have,

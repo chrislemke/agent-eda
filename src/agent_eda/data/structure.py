@@ -100,11 +100,10 @@ def find_candidate_keys(
         It lists minimal keys, keys with missing values, which can't serve as primary
         keys, and, when no key exists, the column sets closest to one, such as an ID
         broken by a few duplicates. Missing values compare equal, whichever kind they
-        are: None, NaN, NaT and NA are one value, though pandas' duplicated tells None
-        from NaN in an object column. With the default columns, float columns holding a
-        fraction are left out: a measurement such as 0.5 is no identifier, and listing
-        them buries the real keys. For the rows that repeat on a near-key's columns,
-        call `find_duplicate_rows`; for each column's distinct and missing counts,
+        are: None, NaN, NaT and NA are one value. With the default columns, float
+        columns holding a fraction are left out: a measurement such as 0.5 is no
+        identifier. For the rows that repeat on a near-key's columns, call
+        `find_duplicate_rows`; for each column's distinct and missing counts,
         `describe_dataset`.
 
     Args:
@@ -116,11 +115,11 @@ def find_candidate_keys(
             name. Columns of every dtype are accepted; one whose values can't be
             hashed, such as lists, is left out and named in left_out_columns.
             None, the default, searches every column in DataFrame order, except
-            the non-integral float columns: floats of which some finite value
-            isn't a whole number, such as 0.5. They are named in
-            non_integral_float_columns with a limitation. Name one in columns to
-            search it. A float column holding only whole numbers, with or without
-            missing values, stays a candidate.
+            the non-integral float columns, floats of which some finite value
+            isn't a whole number, such as 0.5: they are named in
+            non_integral_float_columns with a limitation, and naming one in
+            columns searches it. A float column of whole numbers, missing
+            values or not, stays a candidate.
         max_key_size (int): The most columns a key may combine, at least 1;
             defaults to 2. Each column more multiplies the sets to examine. A value
             above the number of searched columns acts as that number.
@@ -137,26 +136,21 @@ def find_candidate_keys(
         lists the 10 minimal sets with the most distinct combinations, most
         first. A set is minimal when each of its columns adds combinations, so
         supersets of a key are never listed. Each entry has `columns`,
-        `distinct_row_count`, `duplicate_group_row_count` (rows whose combination another
-        row shares), `missing_row_count`, `uniqueness_share` and `is_minimal`,
-        all counted on all rows. `to_frame` lists every entry with its kind.
+        `uniqueness_share` and the counts behind it, all on all rows.
 
         `exhaustive` says whether the search examined every set of up to
         max_key_size columns; a key with more columns can exist either way.
-        Each set is checked on 16,384 evenly spaced rows first and, when it has
-        several columns and the data more than 65,536 rows, on every 4th row: a
-        repeated combination there proves it isn't a key. Only a check on all
-        rows confirms a key. `search`
-        counts the sets examined, rejected on those subsets and checked on all
-        rows. The ranking counts sets on all rows, highest upper bound first,
-        until the bounds prove that no other set ranks higher. If that would
-        hash more rows than 100 passes over the data, or 100,000,000, it stops
-        with a `ranking_not_proven` limitation. `left_out_columns` names the
-        columns left out for unhashable values, with an `unhashable_values`
+        Each set is checked on evenly spaced subsets of rows first: a repeated
+        combination there proves it isn't a key, and only a check on all rows
+        confirms one. `search` counts the sets examined, rejected on those
+        subsets and checked on all rows. The ranking stops with a
+        `ranking_not_proven` limitation when proving it would hash more rows
+        than 100 passes over the data, or 100,000,000. `left_out_columns` names
+        the columns left out for unhashable values, with an `unhashable_values`
         limitation, and `non_integral_float_columns` the float columns left out
-        for their fractions, with a `non_integral_float_columns` limitation.
+        for their fractions, with a limitation of the same name.
         `nan_counted_as_missing` names the columns that store NaN as a value,
-        which counts as missing here though pandas' `isna` doesn't count it.
+        which counts as missing here.
 
         Every finding is descriptive:
 
@@ -597,10 +591,10 @@ def describe_dataset(
         labels, MultiIndex columns, a non-unique index, all-missing columns and constant
         columns. Every other analysis raises on bad column labels, so run this one to
         find them. It never shows a raw data value. A dtype only tells how pandas stores
-        a column: to learn each column's logical type from its values, such as
-        identifiers or numbers and dates stored as text, call `infer_column_semantics`
-        next. For missing values per column and per row, call `profile_missing_values`;
-        for how the values of each numeric column are distributed, `summarize_numeric`.
+        a column: to learn each column's logical type from its values, call
+        `infer_column_semantics` next. For missing values per column and per row, call
+        `profile_missing_values`; for how numeric values are distributed,
+        `summarize_numeric`.
 
     Args:
         data (pd.DataFrame): The data to describe. Any column labels are
@@ -617,17 +611,15 @@ def describe_dataset(
         DescribeDatasetResult: Read `row_count`, `column_count` and
         `memory_bytes` (columns plus index) for the size. `columns` has one
         entry per column in DataFrame order with its `dtype` as pandas reports
-        it, `non_missing_count`, `missing_count` (what pandas' `isna` counts, plus NaN that a pyarrow-backed
+        it, `non_missing_count`, `missing_count` (also NaN that a pyarrow-backed
         or nullable float column stores as a value, with a `nan_counted_as_missing`
-        limitation naming such columns),
-        `distinct_count` (distinct non-missing values; null, with an
+        limitation naming such columns), `distinct_count` (null, with an
         `unhashable_values` limitation, when values such as lists can't be
         hashed) and `memory_bytes`. `index` holds the index dtype, whether its
         labels are unique and how many are missing. `provenance` holds the
         source and version as supplied, and `not_supplied` names what wasn't.
         Memory counts the values only, not pandas' lookup tables or the UTF-8
-        copies Python caches inside strings, so earlier work on the data
-        doesn't change it. `to_frame` returns the per-column table.
+        copies Python caches inside strings.
 
         Every finding is suspected:
 

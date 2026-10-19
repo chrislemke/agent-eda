@@ -146,18 +146,16 @@ def profile_target(
     When to use:
         Call it once you know the column a model should learn to predict and the task:
         binary or multiclass classification, or regression. The task is never inferred
-        from the dtype, so numbers can be class labels and a numeric label isn't
-        mistaken for a regression target. For classification it counts each class and
-        its share of the valid labels, gives the majority and minority shares and the
-        imbalance ratio, and counts missing labels; with expected_labels it lists the
-        labels outside that set with the IDs of their first rows and the declared
-        classes no row holds, and with rare_share the classes whose share lies below it.
-        For regression it gives the statistics `summarize_numeric` gives, from the same
-        implementation, and counts the values that aren't finite. It flags a target that
-        doesn't fit the task, such as a single class or a constant regression target,
-        before you train anything. Class labels and row IDs are raw values, so when the
-        target holds personal data, such as a diagnosis, declare it sensitive in a
-        project and switch masking on; index labels are never masked, so pass a
+        from the dtype, so numbers can be class labels. For classification it counts
+        each class and its share of the valid labels, gives the majority and minority
+        shares and the imbalance ratio, and counts missing labels; with expected_labels
+        it lists the labels outside that set and the declared classes no row holds, and
+        with rare_share the classes below that share. For regression it gives the
+        statistics `summarize_numeric` gives and counts the values that aren't finite.
+        It flags a target that doesn't fit the task, such as a single class or a
+        constant regression target, before you train anything. Class labels and row IDs
+        are raw values, so when the target holds personal data, declare it sensitive in
+        a project and switch masking on; index labels are never masked, so pass a
         non-sensitive id_column when the index holds sensitive values. For the values of
         other categorical columns, call `summarize_categorical`; for other numeric
         columns, `summarize_numeric`; for how the target goes with other columns,
@@ -179,9 +177,9 @@ def profile_target(
         expected_labels (Sequence[str | bool | int | float | datetime | date | Period] | None): The labels
             the task allows, such as ['no', 'yes'] or [0, 1]: exactly 2 for
             binary_classification and at least 2 for multiclass_classification, each
-            listed once; regression takes none. A value matches a label equal to it, as
-            equality decides, so 1 matches 1.0 and true, and text matches with its case
-            and surrounding spaces. A target of datetimes, dates or periods, such as a
+            listed once; regression takes none. A value matches a label equal to it,
+            so 1 matches 1.0 and true, and text matches with its case and
+            surrounding spaces. A target of datetimes, dates or periods, such as a
             categorical column of them, takes labels of that type, which an MCP call
             writes as ISO 8601 text; NaN, NaT and infinity can't be labels. A label of a
             type the target never holds, such as '1' for an integer column, is
@@ -211,45 +209,29 @@ def profile_target(
             against accidental exposure, not anonymization or access control.
 
     Returns:
-        ProfileTargetResult: For classification, `classes` lists the first 100
-        classes, the distinct valid labels, by count, descending, then by
-        label, in level order, each with its `label`, `label_type`,
-        `count` and `share`. With expected_labels, a declared class no row
-        holds is a class of count 0, last in the list. `class_count` counts
-        every class, and
-        `valid_label_count` counts the labels the shares divide by: those that
-        aren't missing, or with expected_labels, those in it. `majority_share`
-        and `minority_share` are the shares of the most and least common
-        classes, 0 for a class without rows, and `imbalance_ratio` is the
-        majority count over the minority count: 1 for balanced classes, higher
-        the more imbalanced, null with a `too_few_values` limitation when a
-        class has no rows, which would divide by 0. With
-        expected_labels, `unexpected_labels` lists the first 100 labels outside
-        it, each with its `count` and the `row_ids` of its first 10 rows, and
-        `unexpected_label_count` counts them. With rare_share, `rare_classes`
-        lists the classes whose share lies below it, and `rare_class_count`
-        counts them. A check that didn't run leaves its fields null, with an
-        `expected_labels_not_declared` or `rare_share_not_declared`
-        limitation. `to_frame` returns every label with its count, its
-        share, whether expected_labels holds it, whether it is rare and, for
-        a label outside expected_labels, the ID of every row that holds it.
+        ProfileTargetResult: For classification, read `classes` (the first 100 of
+        `class_count`, by count, with `count` and `share`), `majority_share`,
+        `minority_share` and `imbalance_ratio` (1 for balanced classes, null with a
+        `too_few_values` limitation when a class has no rows). A class declared in
+        expected_labels that no row holds has count 0. With expected_labels,
+        `unexpected_labels` lists the labels outside it with the `row_ids` of their
+        first 10 rows; with rare_share, `rare_classes` lists the classes whose share
+        lies below it. A check that didn't run leaves its fields null, with an
+        `expected_labels_not_declared` or `rare_share_not_declared` limitation.
 
         For regression, `statistics` holds summarize_numeric's fields for the
-        target, from the same implementation with summarize_numeric's default
-        quantiles, quantile method and trimmed mean, and `non_finite_count`
-        counts the values that are missing, inf or -inf. `to_frame` returns
-        the statistics in one row.
+        target at its default quantiles, quantile method and trimmed mean, and
+        `non_finite_count` counts the values that are missing, inf or -inf.
 
         For both tasks, `missing_count` and `missing_share` count the rows without a
         label, and a share without rows is null, with a `too_few_values` limitation.
         Labels are kept exactly as stored. Row IDs are index labels, or id_column values
-        when given, and an `ambiguous_row_ids` limitation flags row IDs that repeat. NaN
+        when given; an `ambiguous_row_ids` limitation flags row IDs that repeat. NaN
         is a missing label, also NaN that a pyarrow-backed or nullable float column
-        stores as a value, which pandas' `isna` doesn't count; the
-        `nan_counted_as_missing` limitation names such a target. `masking` says whether
-        masking was on and names the sensitive columns whose values the result shows;
-        with masking on, their labels and row IDs are placeholders in the printed text,
-        `to_dict`, `to_json` and `to_frame` alike, while counts and shares stay.
+        stores as a value, which pandas' `isna` doesn't count: the
+        `nan_counted_as_missing` limitation names such a target. With masking on,
+        a sensitive target's labels and row IDs are placeholders in every output;
+        counts and shares stay.
 
         The findings:
 

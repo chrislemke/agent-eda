@@ -104,14 +104,13 @@ def summarize_numeric(
         Call it for the distribution of every numeric column: missing, infinite, zero
         and negative counts; the mean and standard deviation; the extremes, quantiles
         and median; a trimmed mean and the median absolute deviation, which outliers
-        barely move; and skewness and excess kurtosis. The result states how each
-        statistic is defined. Booleans are left out unless named in columns. Statistics
-        of identifiers or codes stored as numbers mean nothing, and numbers stored as
-        text are left out: `infer_column_semantics` finds both. A text, categorical or
-        datetime column named in columns is rejected. For which values occur in text,
-        categorical and boolean columns and how often, call `summarize_categorical`
-        instead. Stand-ins count here as values and distort every statistic:
-        `detect_missing_sentinels` finds the likely ones.
+        barely move; and skewness and excess kurtosis. Booleans are left out unless named
+        in columns. Statistics of identifiers or codes stored as numbers mean nothing,
+        and numbers stored as text are left out: `infer_column_semantics` finds both. A
+        text, categorical or datetime column named in columns is rejected. For which
+        values occur in text, categorical and boolean columns and how often, call
+        `summarize_categorical`. Stand-ins count here as values and distort every
+        statistic: `detect_missing_sentinels` finds the likely ones.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -139,24 +138,14 @@ def summarize_numeric(
 
     Returns:
         SummarizeNumericResult: `columns` maps each selected column name to its
-        entry. An entry holds:
-
-        - `non_missing_count`, the values that aren't missing, infinite ones included, and
-          `missing_count`, `infinite_count`, `zero_count` and `negative_count`.
-        - `mean`, `std` with ddof 1, `min` and `max`.
-        - `quantiles`, keyed by level, and `median`.
-        - `trimmed_mean`, and the median absolute deviation as `mad`, unscaled,
-          and `mad_scaled`, multiplied by 1.4826 to estimate the standard
-          deviation of normal data.
-        - `skewness` and `excess_kurtosis`, both bias-corrected, as SciPy's skew and
-          kurtosis are with bias correction on, and both 0 for normal data.
-        - `status` and `status_reason`, the column's own.
-
-        Every statistic uses the finite values only, and the description of each
-        entry field, in `describe_analysis`, defines it.
+        entry: the counts (`non_missing_count`, `missing_count`, `infinite_count`,
+        `zero_count` and `negative_count`), `mean`, `std` with ddof 1, `min`, `max`,
+        `quantiles` keyed by level, `median`, `trimmed_mean`, the median absolute
+        deviation as `mad` and `mad_scaled`, `skewness` and `excess_kurtosis`
+        (both bias-corrected, 0 for normal data), and the column's own `status`
+        and `status_reason`. Every statistic uses the finite values only, and the
+        description of each entry field, in `describe_analysis`, defines it.
         `left_out_columns` names the columns that the default columns skipped.
-        `to_frame` returns every statistic, one row per column and one column per
-        quantile level, such as q0.25.
 
         A statistic that doesn't exist is null, and a limitation names its
         field and the reason. `too_few_values` means too few finite values:
@@ -166,8 +155,6 @@ def summarize_numeric(
         limitations flag booleans read as 0 and 1, `boolean_as_numeric`;
         integers or decimals beyond ±2^53 that float64 rounds, `float_precision`;
         and NaN stored as a value and counted as missing, `nan_counted_as_missing`.
-        The standard deviation and shape statistics stay exact for very small
-        values, such as 1e-200.
 
         Both findings are suspected:
 
@@ -388,10 +375,10 @@ def summarize_categorical(
         which a model treats as different categories; values of different Python types
         in one column, such as 1 and '1'; and categories of a categorical dtype that
         never occur. Name a numeric column in columns to count its values, such as codes
-        1, 2 and 3. Levels are raw values, so for columns that hold personal data, such
-        as names, declare them sensitive in a project and switch masking on. Labels that
-        stand in for missing values, such as 'N/A' or 'unknown', count here as levels:
-        `detect_missing_sentinels` finds them. For how numeric values are distributed,
+        1, 2 and 3. Levels are raw values: for columns that hold personal data, declare
+        them sensitive in a project and switch masking on. Labels that stand in for
+        missing values, such as 'N/A', count here as levels: `detect_missing_sentinels`
+        finds them. For how numeric values are distributed,
         call `summarize_numeric` instead. For the classes of the column a model will
         predict, call `profile_target` instead: it checks them against the task and the
         labels you expect, and measures their imbalance.
@@ -423,42 +410,21 @@ def summarize_categorical(
 
     Returns:
         SummarizeCategoricalResult: `columns` maps each selected column name to
-        its entry. An entry holds:
-
-        - `non_missing_count`, `missing_count` and `distinct_count`, the number of
-          levels: the distinct non-missing values, as pandas value_counts tells
-          them apart, so 1, 1.0 and true are one level.
-        - `levels`, the first top_n levels, each with its `label`, `label_type`,
-          `count` and `share`; the record adds `levels_total`, which equals
-          `distinct_count`. `left_out_level_count` counts the levels beyond top_n,
-          and `seen_once_count` the levels that occur once.
-        - `unused_categories`, the categories of a categorical dtype that no
-          value takes.
-        - `value_types`, the Python types of the values, and
-          `mixed_value_types`, whether there is more than one.
-        - `case_or_space_variants`, groups of labels that differ only by case
-          or surrounding spaces, tabs included.
-        - `status` and `status_reason`, the column's own.
-
-        Shares divide by the column's `non_missing_count`, so missing values
-        never dilute them. Levels go by count, descending, then by label:
-        booleans and numbers by value, then text by Unicode code point, then
-        other types by type name. Labels are kept as stored, so
-        'Yes' and 'yes ' are two levels; a label JSON can't hold, such as a
-        Decimal or a timestamp, appears as its string form, with its type in
-        `label_type`. `to_frame` returns every level of every column, with
-        each label exactly as stored. `left_out_columns` names the columns
-        that the default columns skipped. Values that can't be hashed, such as
-        lists, leave a column's levels uncounted, with an `unhashable_values`
-        limitation. NaN is missing, not a level, also NaN that a pyarrow-backed
-        or nullable float column stores as a value, which pandas' `isna` doesn't
-        count; the `nan_counted_as_missing` limitation names such columns.
-
-        `masking` says whether masking was on and names the sensitive columns
-        among the selected ones. With masking on, their labels and unused
-        categories are placeholders, numbered per column in level order, in
-        the printed text, `to_dict`, `to_json` and `to_frame` alike,
-        while counts, shares and label types stay.
+        its entry. `levels` holds the first top_n levels by count, descending,
+        then by label: booleans and numbers by value, then text by Unicode code
+        point, then other types by type name; the record adds `levels_total`,
+        which equals `distinct_count`. Shares divide by the column's
+        `non_missing_count`, so missing values never dilute them. Labels are kept
+        as stored, so 'Yes' and 'yes ' are two levels; a label JSON can't hold,
+        such as a Decimal or a timestamp, appears as its string form, with its
+        type in `label_type`.
+        `left_out_columns` names the columns that the default columns skipped.
+        Values that can't be hashed, such as lists, leave a column's levels
+        uncounted, with an `unhashable_values` limitation. NaN is missing, not a
+        level, also NaN that a pyarrow-backed or nullable float column stores as
+        a value: the `nan_counted_as_missing` limitation names such columns. With
+        masking on, a sensitive column's labels and unused categories are
+        placeholders in every output; counts, shares and label types stay.
 
         Two findings are suspected and one is descriptive:
 

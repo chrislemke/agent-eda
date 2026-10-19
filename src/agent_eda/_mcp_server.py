@@ -55,23 +55,21 @@ _log = logging.getLogger("agent_eda.mcp")
 # project sit once, in the MCP server's instructions.
 _DATA_PATH = {
     "type": "string",
-    "description": "Path to the CSV, TSV or Parquet file that holds the data, "
-    "absolute or relative to the MCP server's working directory.",
+    "description": "Path to the CSV, TSV or Parquet file that holds the data.",
 }
 
 _PROJECT_PATH = {
     "anyOf": [{"type": "string"}, {"type": "null"}],
     "default": None,
-    "description": "Path to a project TOML file whose data policy names the "
-    "sensitive columns; null uses the project agent-eda-mcp "
-    "--project loaded, or none.",
+    "description": "Path to a project TOML file that names the sensitive "
+    "columns; null uses the --project file, or none.",
 }
 
 _TABLE_PATH = {
     "anyOf": [{"type": "string"}, {"type": "null"}],
     "default": None,
-    "description": "Path of a new .csv, .parquet or .pq file that gets the "
-    "result's full main table; null writes no file.",
+    "description": "Path of a new .csv, .parquet or .pq file for the "
+    "result's full main table; null writes none.",
 }
 
 # Follows the docstring's mask_sensitive text, which speaks of the project
@@ -553,14 +551,17 @@ def _reason_codes(codes: tuple[str, ...]) -> str:
 
 def _description(spec: AnalysisSpec) -> str:
     """The docstring an MCP caller needs: summary, When to use:, Returns:,
-    Statuses: and See Also:, in that order. Args: goes into the input schema,
-    and Examples: is left out because it is Python."""
+    Statuses: and See Also:, in that order. See Also: gives the names only.
+    Args: goes into the input schema, and Examples: is left out because it is
+    Python."""
     doc = spec.docstring
     statuses = [
         f"{status}: {doc.statuses.get(status, '')}{_reason_codes(doc.status_codes.get(status, ()))}"
         for status in spec.statuses
     ]
-    see_also = [f"{name}: {text}" for name, text in doc.see_also.items()]
+    # Only the names: each one's summary is in its own description and in
+    # list_analyses, so the text would repeat what an MCP caller can read there.
+    see_also = ", ".join(doc.see_also)
     return json_words(
         "\n\n".join(
             [
@@ -568,7 +569,7 @@ def _description(spec: AnalysisSpec) -> str:
                 f"When to use:\n{doc.when_to_use}",
                 f"Returns:\n{doc.returns}",
                 "Statuses:\n" + "\n".join(statuses),
-                "See Also:\n" + "\n".join(see_also),
+                f"See Also:\n{see_also}",
             ]
         )
     )
