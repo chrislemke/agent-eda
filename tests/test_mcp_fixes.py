@@ -112,7 +112,7 @@ MISTAKES = {
         {"target_column": "city", "task": "regression"},
         {
             "pass task='binary_classification' or task='multiclass_classification'; "
-            "if they are numbers stored as text, convert them with "
+            "or convert numbers stored as text with "
             "pd.to_numeric(df['city'], errors='coerce').": (
                 'pass {"task": "binary_classification"} or '
                 '{"task": "multiclass_classification"}.'
@@ -123,8 +123,8 @@ MISTAKES = {
         "profile_target",
         {"target_column": "joined", "task": "regression"},
         {
-            "Convert datetimes to numbers first, such as the seconds since the "
-            "earliest: (df['joined'] - df['joined'].min()).dt.total_seconds().": (
+            "Convert datetimes to numbers with "
+            "(df['joined'] - df['joined'].min()).dt.total_seconds().": (
                 "Pass a column of numbers instead."
             ),
         },
@@ -133,7 +133,8 @@ MISTAKES = {
         "profile_target",
         {"target_column": "joined", "task": "binary_classification"},
         {
-            "Convert its values to labels first, such as df['joined'].astype(str).": (
+            "Convert datetimes to labels with df['joined'].astype(str), or to months "
+            "with df['joined'].dt.strftime('%Y-%m').": (
                 "Pass a column of labels instead."
             ),
         },

@@ -825,7 +825,8 @@ def test_a_datetime_named_in_columns_raises_with_conversions():
         "categorical columns, nullable and pyarrow-backed ones of those kinds "
         "included. Convert "
         "datetimes to numbers with (df['when'] - df['when'].min())"
-        ".dt.total_seconds() or to labels with df['when'].dt.strftime('%Y-%m'), "
+        ".dt.total_seconds(); convert datetimes to labels with "
+        "df['when'].astype(str), or to months with df['when'].dt.strftime('%Y-%m'), "
         "or leave 'when' out of columns."
     )
 
@@ -846,9 +847,10 @@ def test_categorical_columns_must_name_columns_the_call_pairs():
         "compute_association_matrix got an unknown column 'Zip' in "
         "categorical_columns. Did you mean 'zip'?"
     )
-    assert "Convert datetimes to labels with df['when'].dt.strftime('%Y-%m')" in (
-        str(datetime.value)
-    )
+    assert (
+        "Convert datetimes to labels with df['when'].astype(str), or to months "
+        "with df['when'].dt.strftime('%Y-%m')"
+    ) in str(datetime.value)
     assert str(outside.value) == (
         "compute_association_matrix got 'zip' in categorical_columns, but columns "
         "leaves it out. Add it to columns, or leave it out of categorical_columns."

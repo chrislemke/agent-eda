@@ -11,6 +11,8 @@ from annotated_types import Ge
 
 from agent_eda._association import Codes, Measure, NumericMethod, measure_pairs
 from agent_eda._columns import (
+    TO_LABELS,
+    TO_NUMBERS,
     Column,
     ColumnKind,
     ColumnRule,
@@ -65,11 +67,8 @@ _ASSOCIATION = ColumnRule(
         "pyarrow-backed ones of those kinds included"
     ),
     fixes={
-        "datetime": (
-            "convert datetimes to numbers with ({column} - {column}.min())"
-            ".dt.total_seconds() or to labels with {column}.dt.strftime('%Y-%m')"
-        ),
-        "timedelta": "convert durations with {column}.dt.total_seconds()",
+        "datetime": f"{TO_NUMBERS['datetime']}; {TO_LABELS['datetime']}",
+        "timedelta": TO_NUMBERS["timedelta"],
     },
 )
 _CATEGORICAL = ColumnRule(
@@ -80,10 +79,7 @@ _CATEGORICAL = ColumnRule(
         "numeric columns to read as categorical; boolean, text, object and "
         "categorical columns are categorical anyway"
     ),
-    fixes={
-        "datetime": "convert datetimes to labels with {column}.dt.strftime('%Y-%m')",
-        "timedelta": "convert durations to labels with {column}.astype(str)",
-    },
+    fixes={kind: TO_LABELS[kind] for kind in ("datetime", "timedelta")},
 )
 # Why columns=None leaves out a column of each other kind.
 _KIND_SKIPS: dict[str, LeftOutReason] = {

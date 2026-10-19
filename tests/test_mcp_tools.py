@@ -71,6 +71,13 @@ def test_the_mcp_server_lists_one_mcp_tool_per_analysis(tools):
     assert sorted(set(tools) - set(DISCOVERY)) == sorted(ANALYSES)
 
 
+def test_the_schema_argument_of_validate_column_types_needs_at_least_one_column(tools):
+    schema = tools["validate_column_types"].input_schema
+
+    assert "schema" in schema["required"]
+    assert schema["properties"]["schema"]["minProperties"] == 1
+
+
 @pytest.fixture(params=ANALYSES)
 def name(request):
     return request.param

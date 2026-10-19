@@ -184,7 +184,7 @@ Every result takes `to_frame(table=...)`. `res.columns["Age"]` raises a `KeyErro
 
 A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and the fix; data problems never raise.
 
-Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. NaN in a pyarrow-backed or nullable float column is missing, with a limitation. Values pandas can't hash, such as lists, are the exception: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
+Equal values are decided as pandas does: `1`, `1.0` and `True` are one value. NaN in a pyarrow-backed or nullable float column is missing, with a limitation. Values pandas can't hash, such as lists, are the exception: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
 `find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats stay candidates.
 
@@ -194,10 +194,10 @@ Arrow time-of-day, binary and nested columns, and sparse columns of anything but
 
 - A column ranks boolean only when every value is a boolean, a 0 or 1, or a word such as `yes` or `f`, and at least two values differ: grades `A, B, F` and only 1s are not.
 - Digits alone with a leading zero, such as `01234`, are a code. `05.50` is a number; `1e400`, beyond float64, is not.
-- Dates that aren't ISO 8601, such as `01/02/2020`, are never parsed and never `identifier_like`, unless a `ColumnSpec` declares a `datetime_format`.
+- Dates that aren't ISO 8601, such as `01/02/2020`, are never parsed and never `identifier_like`, unless a `ColumnSpec` declares a `datetime_format`, whose `%b`-style directives read in the process's locale.
 - `identifier_like` is judged without rows that exactly repeat another row, for columns distinct in at least 90% of rows.
 
-Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples; an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is.
+Labels and row IDs read the same in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples; an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is.
 
 A record writes a datetime as ISO 8601 text, and a decimal as a number when float64 holds it as written, else as exact text. `detect_missing_sentinels` gives number text such as `"-999"` the numeric-code rule, lists pandas' default NA strings, and matches text stand-ins after stripping whitespace, showing the raw form that occurred (`" N/A"`).
 
@@ -712,7 +712,7 @@ The shared methods:
 
 - `res.to_frame()`: The complete main table of the result as a DataFrame.
 - `res.to_dict()`: The result record as JSON-compatible Python objects.
-- `res.to_json()`: The result record from to_dict() as strict JSON, without NaN or Infinity.
+- `res.to_json()`: The record from to_dict() as strict JSON, without NaN or Infinity.
 - `ResultClass.record_schema()`: The JSON Schema of the record that to_dict() and to_json() give.
 
 Each limitation's `code` is one of these:

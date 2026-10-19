@@ -44,6 +44,34 @@ ColumnKind = Literal[
 # Every kind of column, for analyses that take any column.
 ALL_KINDS: frozenset[ColumnKind] = frozenset(typing.get_args(ColumnKind))
 
+# How to convert a column of a kind that an analysis rejects, in one wording for
+# every analysis. {column} becomes the code for the column. An analysis picks
+# the kinds it rejects from these, and builds its other advice around them.
+_STRFTIME_MONTHS = "{column}.dt.strftime('%Y-%m')"
+TO_NUMBERS: Mapping[ColumnKind, str] = {
+    "text": "convert numbers stored as text with pd.to_numeric({column}, errors='coerce')",
+    "object": "convert numbers stored as text with pd.to_numeric({column}, errors='coerce')",
+    "categorical": "convert numeric categories with {column}.astype(float)",
+    "boolean": "convert False and True to 0 and 1 with {column}.astype(float)",
+    "datetime": (
+        "convert datetimes to numbers with ({column} - {column}.min()).dt.total_seconds()"
+    ),
+    "timedelta": "convert durations to numbers with {column}.dt.total_seconds()",
+}
+TO_LABELS: Mapping[ColumnKind, str] = {
+    "datetime": (
+        "convert datetimes to labels with {column}.astype(str), or to months with "
+        + _STRFTIME_MONTHS
+    ),
+    "timedelta": "convert durations to labels with {column}.astype(str)",
+    "other": "convert its values to labels with {column}.astype(str)",
+}
+
+
+def sentence(fix: str) -> str:
+    """A conversion from TO_NUMBERS or TO_LABELS, started with a capital."""
+    return f"{fix[0].upper()}{fix[1:]}"
+
 
 class Labels:
     """The column labels, with a code per label that equal labels share."""
@@ -222,7 +250,7 @@ class ColumnRule:
     # What a column named in the call may hold, and how to say it: "It accepts ...".
     accepted: frozenset[ColumnKind]
     accepted_text: str
-    # For a rejected kind, how to fix the call, such as "convert durations with
+    # For a rejected kind, how to fix the call, such as "convert durations to numbers with
     # {column}.dt.total_seconds()"; {column} becomes the code for the column.
     fixes: Mapping[ColumnKind, str]
     # For a rejected kind, the analysis that fits it, such as
@@ -408,5 +436,5 @@ def _wrong_type(
         fix = "; ".join([*steps, f"or {leave}"])
     return (
         f"{analysis} can't use {what}. It accepts {rule.accepted_text}. "
-        f"{fix[0].upper()}{fix[1:]}."
+        f"{sentence(fix)}."
     )

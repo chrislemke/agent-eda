@@ -6,7 +6,13 @@ from typing import Annotated
 import pandas as pd
 from annotated_types import Ge, Le, Lt
 
-from agent_eda._columns import ColumnKind, ColumnRule, select_columns
+from agent_eda._columns import (
+    TO_LABELS,
+    TO_NUMBERS,
+    ColumnKind,
+    ColumnRule,
+    select_columns,
+)
 from agent_eda._levels import (
     Levels,
     count_levels,
@@ -57,9 +63,6 @@ from agent_eda.results import (
     level_label,
 )
 
-_TEXT_FIX = (
-    "convert numbers stored as text with pd.to_numeric({column}, errors='coerce')"
-)
 _NUMERIC = ColumnRule(
     default=frozenset({"numeric"}),
     default_text="every numeric column except booleans",
@@ -69,10 +72,8 @@ _NUMERIC = ColumnRule(
         "those kinds included"
     ),
     fixes={
-        "text": _TEXT_FIX,
-        "object": _TEXT_FIX,
-        "categorical": "convert numeric categories with {column}.astype(float)",
-        "timedelta": "convert durations with {column}.dt.total_seconds()",
+        kind: TO_NUMBERS[kind]
+        for kind in ("text", "object", "categorical", "datetime", "timedelta")
     },
     alternatives=dict.fromkeys(
         ("text", "object", "categorical"), "summarize_categorical"
@@ -338,7 +339,6 @@ def _infinite_values(summaries: dict[str, NumericSummary]) -> list[Finding]:
     ]
 
 
-_AS_TEXT_FIX = "count its values as text with {column}.astype(str)"
 _CATEGORICAL = ColumnRule(
     default=frozenset({"text", "object", "categorical", "boolean"}),
     default_text="every text, object, categorical and boolean column",
@@ -347,7 +347,7 @@ _CATEGORICAL = ColumnRule(
         "text, object, categorical, boolean and numeric columns, nullable and "
         "pyarrow-backed ones of those kinds included"
     ),
-    fixes=dict.fromkeys(("datetime", "timedelta", "other"), _AS_TEXT_FIX),
+    fixes={kind: TO_LABELS[kind] for kind in ("datetime", "timedelta", "other")},
 )
 
 
@@ -474,8 +474,10 @@ def summarize_categorical(
         partial: Some selected columns have no non-missing value or hold values
             that can't be hashed; their entries say which. Reason code:
             `incomplete_columns`.
-        insufficient_data: The data has no rows, or no selected column has a
-            non-missing value. Reason codes: `no_rows` and `no_values`.
+        insufficient_data: The data has no rows, or no selected column
+            completed and at least one of them has no non-missing value, even
+            if the others hold values that can't be hashed. Reason codes:
+            `no_rows` and `no_values`.
         not_applicable: columns is left out and the data has no text, object,
             categorical or boolean columns, or every selected column holds
             values that can't be hashed. Reason codes: `no_columns` and

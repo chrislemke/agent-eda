@@ -214,6 +214,30 @@ def test_rich_renders_the_capped_text_of_the_result(name):
     assert len(printed.getvalue().splitlines()) <= 40
 
 
+@pytest.mark.parametrize("name", ANALYSES)
+def test_rich_prints_the_result_as_text_inside_a_container_and_in_a_pretty_dump(name):
+    console_module = pytest.importorskip("rich.console")
+    pretty = pytest.importorskip("rich.pretty")
+    res = call(name)
+    printed = io.StringIO()
+    console = console_module.Console(
+        file=printed, width=120, force_terminal=False, color_system=None
+    )
+
+    console.print([res])
+    dumped = pretty.pretty_repr(res, max_width=120)
+
+    assert len(printed.getvalue().splitlines()) <= 40 + 2
+    assert dumped == str(res)
+
+
+def test_rich_pretty_dump_of_a_discovery_record_is_its_text():
+    pretty = pytest.importorskip("rich.pretty")
+    listing = ae.list_analyses()
+
+    assert pretty.pretty_repr(listing, max_width=120) == str(listing)
+
+
 def test_rich_shows_text_with_square_brackets_as_it_is():
     console_module = pytest.importorskip("rich.console")
     df = pd.DataFrame({"[red]x[/red]": [1.0, 2.0, 3.0]})

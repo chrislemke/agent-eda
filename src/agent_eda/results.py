@@ -8,7 +8,7 @@ import json
 import re
 import textwrap
 import typing
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from decimal import Decimal
 from typing import Annotated, Any, ClassVar, Literal, Self
 
@@ -660,7 +660,10 @@ class _ResultMeta(type(BaseModel)):
 
 
 class ResultModel(BaseModel, metaclass=_ResultMeta):
-    """Base for every record inside an analysis result: frozen and strict."""
+    """Base for every record inside an analysis result.
+
+    Frozen, with unknown fields forbidden and no NaN or infinity.
+    """
 
     # An analysis result's docstring as written, before the fields were added to
     # the class docstring that help() shows.
@@ -1017,7 +1020,44 @@ class ColumnResult(ResultModel):
         return self
 
 
-class AnalysisResult(ResultModel):
+class _PrintedRecord(ResultModel):
+    """A record that prints as plain text and gives its full record as JSON.
+
+    What `print`, `repr`, Rich and devtools show is the text, never pydantic's
+    dump of every field, which would bypass the text's caps.
+    """
+
+    def _render(self, surface: _text.Surface) -> str:
+        """The text, worded for the surface the caller reads it on."""
+        raise NotImplementedError(f"{type(self).__name__} has no text")
+
+    def to_dict(self) -> dict[str, Any]:
+        """The record as JSON-compatible Python objects."""
+        raise NotImplementedError(f"{type(self).__name__} has no record")
+
+    def __str__(self) -> str:
+        return self._render("python")
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def __rich_console__(self, console: Any, options: Any) -> Iterator[Any]:
+        """Rich prints the text that print(res) gives, not pydantic's field dump."""
+        yield from _rich_text(str(self))
+
+    def __rich_repr__(self) -> None:  # ty: ignore[invalid-method-override]  # None makes Rich use repr(), the text, instead of listing every field
+        return None
+
+    def __pretty__(self, fmt: Any, **kwargs: Any) -> Generator[Any, None, None]:
+        """devtools prints the text, as it does for print(res)."""
+        yield str(self)
+
+    def to_json(self) -> str:
+        """The record from to_dict() as strict JSON, without NaN or Infinity."""
+        return _record_json(self.to_dict())
+
+
+class AnalysisResult(_PrintedRecord):
     """The record an analysis returns.
 
     Every analysis returns its own subclass, named after it, with its typed fields
@@ -1074,9 +1114,6 @@ class AnalysisResult(ResultModel):
             other.model_dump(mode="json")
         )
 
-    def __str__(self) -> str:
-        return self._render("python")
-
     def _render(self, surface: _text.Surface, reserve: int = 0) -> str:
         """The printed result, worded for the surface the caller reads it on;
         print(res) shows the Python one, an MCP tool's response the MCP one.
@@ -1109,13 +1146,6 @@ class AnalysisResult(ResultModel):
             surface=surface,
             reserve=reserve,
         )
-
-    def __repr__(self) -> str:
-        return self.__str__()
-
-    def __rich_console__(self, console: Any, options: Any) -> Iterator[Any]:
-        """Rich prints the text that print(res) gives, not pydantic's field dump."""
-        yield from _rich_text(str(self))
 
     def _heading(self) -> str:
         shape = self.parameters.get("data")
@@ -1197,10 +1227,6 @@ class AnalysisResult(ResultModel):
         )
         self._renumber_paths(record, pointed)
         return record_integers(record)
-
-    def to_json(self) -> str:
-        """The result record from to_dict() as strict JSON, without NaN or Infinity."""
-        return _record_json(self.to_dict())
 
     def _capped_entry_fields(self) -> dict[str, _Cap]:
         """The result's own lists and mappings that the record caps at their
@@ -1303,30 +1329,12 @@ class MaskableResult(AnalysisResult):
         return self.masking.applied and column in self.masking.columns
 
 
-class _DiscoveryRecord(ResultModel):
+class _DiscoveryRecord(_PrintedRecord):
     """What a discovery function returns: plain text to print and a JSON record."""
-
-    def __str__(self) -> str:
-        return self._render("python")
-
-    def __repr__(self) -> str:
-        return self.__str__()
-
-    def __rich_console__(self, console: Any, options: Any) -> Iterator[Any]:
-        """Rich prints the text that print(res) gives, not pydantic's field dump."""
-        yield from _rich_text(str(self))
-
-    def _render(self, surface: _text.Surface) -> str:
-        """The text, worded for the surface the caller reads it on."""
-        raise NotImplementedError(f"{type(self).__name__} has no text")
 
     def to_dict(self) -> dict[str, Any]:
         """The record as JSON-compatible Python objects."""
         return record_integers(self.model_dump(mode="json"))
-
-    def to_json(self) -> str:
-        """The record from to_dict() as strict JSON, without NaN or Infinity."""
-        return _record_json(self.to_dict())
 
 
 class AnalysisInfo(ResultModel):
@@ -3159,7 +3167,7 @@ class DetectMissingSentinelsResult(MaskableResult):
     columns_without_rules: Annotated[list[str], _ENTRIES] = Field(
         description="Checked columns whose values no built-in rule reads, such as "
         "booleans, durations or lists, in the order checked: only declared values "
-        "were looked for there. A column without values isn't listed."
+        "were looked for there. A column without values is listed too."
     )
 
     # Every row ID of each candidate, in the order of candidates, outside the
@@ -3853,7 +3861,7 @@ class ColumnEvidence(ResultModel):
     multi_word_share: float | None = Field(
         description="Plain text values with a space between other characters."
     )
-    value_types: list[str] = Field(
+    value_types: Annotated[list[str], _ENTRIES] = Field(
         description="The names of the Python types of the non-missing values, "
         "sorted, as summarize_categorical reports them, such as ['int', 'str']; "
         "more than one flags mixed_value_types."
@@ -4281,8 +4289,9 @@ class ValidateColumnTypesResult(MaskableResult):
         Args:
             table: 'columns', the default, gives one row per declared column in
                 declared order: its declaration, whether it is present, its
-                dtype, the four counts, the distinct invalid values, the IDs of
-                every row with an invalid value, and the assessment.
+                dtype, the four counts, the number of distinct invalid values,
+                the IDs of every row with an invalid value, and the assessment.
+                The values themselves are in table='invalid_values'.
                 'invalid_values' gives one row per distinct invalid value of
                 each column, by column in declared order, then by count,
                 descending, then by value: column, value as stored (or its

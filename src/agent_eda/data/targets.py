@@ -13,10 +13,13 @@ from pydantic.json_schema import SkipJsonSchema
 
 from agent_eda._columns import (
     ALL_KINDS,
+    TO_LABELS,
+    TO_NUMBERS,
     Column,
     ColumnKind,
     ColumnRule,
     select_columns,
+    sentence,
 )
 from agent_eda._levels import (
     Levels,
@@ -565,30 +568,17 @@ _CLASSIFY = (
     "If its values are class labels, pass task='binary_classification' or "
     "task='multiclass_classification'"
 )
-_TEXT_FIX = (
-    f"{_CLASSIFY}; if they are numbers stored as text, convert them with "
-    "pd.to_numeric({column}, errors='coerce')"
-)
+_CLASSIFY_BINARY = "If its values are class labels, pass task='binary_classification'"
 # How to fix a regression task on a column of each kind that isn't numeric;
-# {column} becomes the code for the column.
+# {column} becomes the code for the column. The conversions are the package's
+# shared ones.
 _REGRESSION_FIXES: dict[ColumnKind, str] = {
-    "text": _TEXT_FIX,
-    "object": _TEXT_FIX,
-    "categorical": (
-        f"{_CLASSIFY}; if its categories are numbers, convert them with "
-        "{column}.astype(float)"
-    ),
-    "boolean": (
-        "If its values are class labels, pass task='binary_classification'; to read "
-        "False and True as 0 and 1, convert them with {column}.astype(float)"
-    ),
-    "timedelta": (
-        "Convert durations to numbers first, such as {column}.dt.total_seconds()"
-    ),
-    "datetime": (
-        "Convert datetimes to numbers first, such as the seconds since the "
-        "earliest: ({column} - {column}.min()).dt.total_seconds()"
-    ),
+    "text": f"{_CLASSIFY}; or {TO_NUMBERS['text']}",
+    "object": f"{_CLASSIFY}; or {TO_NUMBERS['object']}",
+    "categorical": f"{_CLASSIFY}; or {TO_NUMBERS['categorical']}",
+    "boolean": f"{_CLASSIFY_BINARY}; or {TO_NUMBERS['boolean']}",
+    "timedelta": sentence(TO_NUMBERS["timedelta"]),
+    "datetime": sentence(TO_NUMBERS["datetime"]),
     "other": "Pass a column of numbers instead",
 }
 
@@ -643,7 +633,7 @@ def _check_target(target: Column, task: Task) -> None:
         )
     if task != "regression" and target.kind not in _LABEL_KINDS:
         fixes = {
-            "python": f"Convert its values to labels first, such as {code}.astype(str)",
+            "python": sentence(TO_LABELS[target.kind]).format(column=code),
             "mcp": "Pass a column of labels instead",
         }
         raise worded(
