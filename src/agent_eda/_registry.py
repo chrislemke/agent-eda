@@ -11,6 +11,7 @@ import difflib
 import functools
 import importlib
 import inspect
+import json
 import re
 import reprlib
 import types
@@ -388,11 +389,29 @@ def _conversion(data: object) -> tuple[str, str]:
     return f"a {kind.__name__}", "pd.DataFrame(data)"
 
 
-def _validate(spec: AnalysisSpec, options: dict[str, Any]) -> dict[str, Any]:
+def validate_json(spec: AnalysisSpec, options: dict[str, Any]) -> dict[str, Any]:
+    """Check the arguments of an MCP call the way their input schema reads them.
+
+    The options are JSON values, so they are validated in pydantic's JSON mode:
+    an ISO 8601 string becomes a datetime, date or timedelta wherever the
+    annotation allows one and no other type matches the string better. Raises
+    the same InvalidArgumentError a Python call with a bad option does. Returns
+    the validated value of each option passed, not the defaults of the others.
+    """
+    validated = _validate(spec, options, json_mode=True)
+    return {name: validated[name] for name in options}
+
+
+def _validate(
+    spec: AnalysisSpec, options: dict[str, Any], *, json_mode: bool = False
+) -> dict[str, Any]:
     """Check the keyword options against their annotations, defaults included."""
     options = {name: _normalize(spec, name, value) for name, value in options.items()}
     try:
-        validated = spec.arguments.model_validate(options)
+        if json_mode:
+            validated = spec.arguments.model_validate_json(json.dumps(options))
+        else:
+            validated = spec.arguments.model_validate(options)
     except pydantic.ValidationError as error:
         problems = error.errors()
         # The package's own error about a whole option, such as a Project
