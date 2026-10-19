@@ -262,6 +262,7 @@ class Project(Declaration):
         project's name at the top level and its data policy in a [data_policy]
         table, as project.save() writes it:
 
+            format_version = 1
             name = "churn"
 
             [data_policy]
@@ -273,6 +274,9 @@ class Project(Declaration):
         a file cut short raises instead of loading with masking off. A key
         that isn't one of these raises and names the closest one, so that a
         typo such as mask_sensitve can't leave masking off quietly either.
+        format_version is the layout version of the file: project.save() writes
+        1, and a file without the key loads as version 1. A file of a higher
+        version, which a newer agent-eda wrote, raises and names it.
 
         Args:
             path (str | os.PathLike[str]): The file to read, such as
@@ -291,7 +295,9 @@ class Project(Declaration):
                 invalid_project_file). Or it can't be read: it isn't a regular
                 file, such as a named pipe or a device; the operating system
                 refuses it, such as without read permission; or it holds more
-                than 1 MiB (code invalid_project_file). Or it holds a key that
+                than 1 MiB (code invalid_project_file). Or its format_version
+                is newer than this agent-eda reads, and the message names the
+                version (code invalid_project_file). Or it holds a key that
                 isn't a field, and the message names the closest key (code
                 unknown_project_key).
             InvalidArgumentError: path isn't a str or a path, is empty, or
@@ -329,9 +335,14 @@ class Project(Declaration):
 
         An agent that runs each script in a new process saves its project once
         and loads it with ae.Project.load(path) at the start of each later
-        script, instead of building it again. The file holds the name at the
-        top level, left out when there is none, and the data policy in a
-        [data_policy] table. It is laid out the same way every time, so equal
+        script, instead of building it again. The file holds format_version = 1
+        and the name at the top level, the name left out when there is none,
+        and the data policy in a [data_policy] table. The save is atomic: it
+        writes a temporary file next to the target and renames it into place,
+        so an interrupted save leaves the file that was there. A new file is
+        readable by its owner only, and a replaced file keeps its permissions.
+        It is laid out
+        the same way every time, so equal
         projects give identical files on the same Python version. Column names
         keep every character: quotes, backslashes and characters that print as
         nothing are escaped.
@@ -351,9 +362,12 @@ class Project(Declaration):
             ProjectFileExistsError: A file is already at path and overwrite is
                 False (code project_file_exists). It is a FileExistsError too.
             ProjectFileError: The name or a column name holds a lone
-                surrogate, which TOML can't hold (code invalid_project_file).
+                surrogate, which TOML can't hold, or the file would hold more
+                than the 1 MiB that Project.load reads (code
+                invalid_project_file).
             InvalidArgumentError: path isn't a str or a path, is empty, names
-                a directory or lies in a directory that doesn't exist, or
+                a directory or a file that isn't a regular one, such as a
+                named pipe, or lies in a directory that doesn't exist, or
                 overwrite isn't a bool (code invalid_argument).
             OSError: The file can't be written, such as without permission.
 
@@ -372,6 +386,7 @@ class Project(Declaration):
             ...     print(path.read_text(encoding="utf-8"))
             ...     loaded = ae.Project.load(path)
             # An agent-eda Project. Load it with ae.Project.load(path).
+            format_version = 1
             name = "churn"
             <BLANKLINE>
             [data_policy]

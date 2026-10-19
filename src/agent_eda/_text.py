@@ -12,6 +12,7 @@ writes and the structured content. Only those phrases differ; the rest of the
 text is the same on both surfaces.
 """
 
+import reprlib
 import textwrap
 import unicodedata
 from collections.abc import Sequence
@@ -27,6 +28,12 @@ MAX_FINDINGS = 5
 MAX_LIMITATIONS = 5
 # Claims name at most this many columns or labels and count the rest.
 MAX_NAMED = 5
+
+# A message names at most this many names it didn't find, each cut to
+# MAX_NAME_LENGTH characters, so that a column's values passed for names can't
+# put more than a glimpse of the data into it.
+MAX_UNKNOWN_NAMED = 3
+MAX_NAME_LENGTH = 40
 
 ELLIPSIS = "..."
 COLUMN_GAP = "  "
@@ -152,11 +159,17 @@ def format_bytes(count: int) -> str:
     return f"{format_number(size)} {unit} ({count:,} bytes)"
 
 
-def join_items(items: Sequence[str], *, limit: int = MAX_NAMED) -> str:
-    """Join items as "a, b and c", naming at most `limit` and counting the rest."""
-    if len(items) > limit:
+def join_items(
+    items: Sequence[str], *, limit: int = MAX_NAMED, total: int | None = None
+) -> str:
+    """Join items as "a, b and c", naming at most `limit` and counting the rest.
+
+    `total` is how many items there are when `items` holds only the first ones.
+    """
+    count = len(items) if total is None else total
+    if count > limit:
         shown = list(items[:limit])
-        return ", ".join(shown) + f" and {len(items) - limit:,} more"
+        return ", ".join(shown) + f" and {count - limit:,} more"
     if len(items) <= 1:
         return "".join(items)
     return ", ".join(items[:-1]) + " and " + items[-1]
@@ -198,6 +211,17 @@ def placeholder(number: int) -> str:
     Such as '<masked 1>': it reveals neither the value's content nor its length.
     """
     return f"<masked {number}>"
+
+
+_SHORT = reprlib.Repr(maxstring=MAX_NAME_LENGTH, maxother=MAX_NAME_LENGTH)
+
+
+def short_repr(value: object) -> str:
+    """A scalar as repr() shows it, cut to MAX_NAME_LENGTH characters.
+
+    A long string keeps its start and end around '...'.
+    """
+    return _SHORT.repr(value)
 
 
 def label_text(label: object) -> str:
@@ -307,11 +331,19 @@ def _footer(
     )
 
 
+# The categories of characters the text writes as escapes: controls such as
+# newlines, line and paragraph separators, lone surrogates, which no output can
+# encode, and format characters such as the right-to-left override, which
+# reorder or hide what is around them.
+_ESCAPED_CATEGORIES = ("Cc", "Zl", "Zp", "Cs", "Cf")
+
+
 def _printable(text: str) -> str:
-    """Escape characters that would break or hide lines, such as newlines."""
+    """Escape characters that would break, hide or reorder text, such as newlines
+    and bidirectional controls, and lone surrogates, which can't be encoded."""
     return "".join(
         ch.encode("unicode_escape").decode("ascii")
-        if unicodedata.category(ch) in ("Cc", "Zl", "Zp")
+        if unicodedata.category(ch) in _ESCAPED_CATEGORIES
         else ch
         for ch in text
     )

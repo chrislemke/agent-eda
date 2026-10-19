@@ -27,9 +27,10 @@ def row_id_json(value: object) -> JsonValue:
     durations, MultiIndex tuples lists, and NumPy scalars Python numbers.
     Missing values become null, and infinite floats the strings 'inf' and
     '-inf'. A set becomes a list ordered by its items' JSON, not by Python's
-    hash order, and a dict a JSON object. Anything else, such as a Period or a
-    Decimal, becomes its str(), and an object whose repr holds a memory address
-    becomes '<TypeName object>'.
+    hash order, and a dict a JSON object. Anything else becomes its str(), such
+    as a Period, a Decimal, or a duration in years or months, which has no ISO
+    form pandas can write; an object whose repr holds a memory address becomes
+    '<TypeName object>'.
     """
     if isinstance(value, tuple | list):
         return [row_id_json(item) for item in value]
@@ -47,7 +48,11 @@ def row_id_json(value: object) -> JsonValue:
         return pd.Timestamp(value).isoformat()
     # Before the integers: NumPy's timedelta64 is one of its integer types.
     if isinstance(value, dt.timedelta | np.timedelta64):
-        return pd.Timedelta(value).isoformat()
+        try:
+            return pd.Timedelta(value).isoformat()
+        except (ValueError, OverflowError):
+            # A duration in years or months, or beyond what pandas holds.
+            return str(value)
     if isinstance(value, int | np.integer):
         return int(value)
     if isinstance(value, float | np.floating):

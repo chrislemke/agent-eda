@@ -3,6 +3,7 @@
 import difflib
 import itertools
 import json
+import re
 import typing
 from collections.abc import Sequence
 from typing import Annotated, Any, Literal, Self
@@ -26,7 +27,7 @@ from agent_eda import _text
 from agent_eda._annotations import TypeName, python_literal
 from agent_eda._levels import Levels, level_rows, levels_frame
 from agent_eda._written_form import row_id_json
-from agent_eda.errors import InvalidArgumentError
+from agent_eda.errors import InvalidArgumentError, ResultTableUnavailableError
 
 Status = Literal[
     "completed",
@@ -146,6 +147,35 @@ _ENTRIES = _Cap(100)
 _LISTS_INSIDE = _Cap(100, each_list=True, whole=("data",))
 
 _RECORD = "agent_eda_record"
+
+
+# Lone surrogates, which no UTF-8 output can hold.
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _record_json(record: object) -> str:
+    """A record as strict JSON that encodes as UTF-8.
+
+    A lone surrogate, such as in a column label decoded with
+    errors='surrogateescape', is written as its \\uXXXX escape, which JSON
+    allows and json.loads reads back as the same text.
+    """
+    text = json.dumps(
+        record, allow_nan=False, ensure_ascii=False, separators=(",", ":")
+    )
+    return _LONE_SURROGATE.sub(lambda found: f"\\u{ord(found[0]):04x}", text)
+
+
+def _tables_unavailable(result: "AnalysisResult") -> ResultTableUnavailableError:
+    """The error for a result that was rebuilt from its record and so lost the
+    tables that only the analysis call keeps."""
+    return ResultTableUnavailableError(
+        f"{type(result).__name__}.to_frame() needs the full tables that only a "
+        "call of the analysis keeps, but this result was rebuilt from its "
+        "record, such as by model_validate(res.model_dump()), which doesn't hold "
+        f"them. Call ae.{result.analysis}(...) again, or copy the result with "
+        "copy.deepcopy(res) or res.model_copy(), which keep the tables."
+    )
 
 
 # A row ID: an index label, or a value of the column id_column names. The result
@@ -415,6 +445,14 @@ class Masking(ResultModel):
         "column names exactly, so check them for typos; a project spanning "
         "several datasets has some anyway."
     )
+    near_miss_columns: Annotated[dict[str, str], _ENTRIES] = Field(
+        description="The absent sensitive columns whose names match a column or "
+        "index level of the data once case and Unicode form are ignored (casefold "
+        "and NFC), each with that name as the data spells it, such as "
+        "'Email' for the declared 'email'. Masking matches names exactly, so the "
+        "values of such a column are not masked: declare it by the name the data "
+        "spells."
+    )
 
 
 def _masking_text(
@@ -461,7 +499,7 @@ def _masking_text(
                 f"as {'its' if one else 'their'} minimum and maximum, show as "
                 "computed."
             )
-        elif not masking.index_columns:
+        elif not masking.index_columns and not masking.near_miss_columns:
             text = (
                 f"Masking on ({setting}), but the result shows no value of a "
                 "sensitive column."
@@ -477,9 +515,23 @@ def _masking_text(
                 "values show as row IDs. Pass a non-sensitive id_column"
                 f"{', such as after df.reset_index()' if python else ''}."
             )
-        if masking.absent_columns:
-            absent = _text.join_labels(masking.absent_columns)
-            text += f" Sensitive columns the data lacks: {absent}."
+        for declared, spelled in masking.near_miss_columns.items():
+            sentence = (
+                f"sensitive column {declared!r} isn't a column of the data, and "
+                f"masking matches names exactly: did you mean {spelled!r}? The "
+                f"values of {spelled!r} are not masked."
+            )
+            # After "but" the sentence continues; otherwise it starts a new one.
+            if not text.endswith("but"):
+                sentence = f"{sentence[0].upper()}{sentence[1:]}"
+            text += f" {sentence}"
+        lacking = [
+            name
+            for name in masking.absent_columns
+            if name not in masking.near_miss_columns
+        ]
+        if lacking:
+            text += f" Sensitive columns the data lacks: {_text.join_labels(lacking)}."
     return _text.wrap(text, first="", indent="    ")
 
 
@@ -556,6 +608,20 @@ class AnalysisResult(ResultModel):
     def _reason_matches_status(self) -> Self:
         _check_status_reason(self.status, self.status_reason)
         return self
+
+    def __eq__(self, other: object) -> bool:
+        """Whether both are results of the same class with the same record.
+
+        The record is every field, with row IDs as to_dict() writes them but no
+        list cut short. The tables that to_frame() builds from the analysis call
+        don't take part, since they follow from the record.
+        """
+        if type(other) is not type(self):
+            return NotImplemented
+        assert isinstance(other, AnalysisResult)
+        return json.dumps(self.model_dump(mode="json")) == json.dumps(
+            other.model_dump(mode="json")
+        )
 
     def __str__(self) -> str:
         return self._render("python")
@@ -638,9 +704,7 @@ class AnalysisResult(ResultModel):
 
     def to_json(self) -> str:
         """The result record from to_dict() as strict JSON, without NaN or Infinity."""
-        return json.dumps(
-            self.to_dict(), allow_nan=False, ensure_ascii=False, separators=(",", ":")
-        )
+        return _record_json(self.to_dict())
 
     @classmethod
     def record_schema(cls) -> dict[str, Any]:
@@ -711,9 +775,7 @@ class _DiscoveryRecord(ResultModel):
 
     def to_json(self) -> str:
         """The record from to_dict() as strict JSON, without NaN or Infinity."""
-        return json.dumps(
-            self.to_dict(), allow_nan=False, ensure_ascii=False, separators=(",", ":")
-        )
+        return _record_json(self.to_dict())
 
 
 class AnalysisInfo(ResultModel):
@@ -1524,7 +1586,8 @@ class SummarizeCategoricalResult(MaskableResult):
     )
     # Every level of every counted column, outside the record; to_frame() sorts
     # them when asked, since sorting a million labels is slow.
-    _tables: dict[str, Levels] = PrivateAttr(default_factory=dict)
+    # None for a result rebuilt from its record, which holds no levels.
+    _tables: dict[str, Levels] | None = PrivateAttr(default=None)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
@@ -1575,6 +1638,10 @@ class SummarizeCategoricalResult(MaskableResult):
         placeholder, as in levels. Columns whose values can't be hashed have
         no rows.
         """
+        if self._tables is None:
+            if any(column.cardinality for column in self.columns.values()):
+                raise _tables_unavailable(self)
+            return levels_frame({})
         return levels_frame(self._tables)
 
 
@@ -2026,6 +2093,8 @@ class ProfileTargetResult(MaskableResult):
             return frame
         levels = self._labels
         if levels is None:
+            if (self.class_count or 0) + (self.unexpected_label_count or 0) > 0:
+                raise _tables_unavailable(self)
             order = np.zeros(0, dtype=np.intp)
             labels: list[object] = []
             types: list[str] = []
@@ -2072,7 +2141,8 @@ class DeclaredSentinelValue(ResultModel):
 
     value: bool | int | float | str = Field(
         description="The value as declared; dates, datetimes and timedeltas as ISO "
-        "8601 text."
+        "8601 text. With masking on, a sensitive column's values are numbered "
+        "placeholders, '<masked 1>', '<masked 2>' and so on, in the order declared."
     )
     count: int = Field(
         description="Values in the column equal to it, among those pandas doesn't "
@@ -2120,7 +2190,7 @@ def _percent(share: float | None) -> str:
     return "" if share is None else f" ({_text.format_number(share * 100)}%)"
 
 
-class ProfileMissingValuesResult(AnalysisResult):
+class ProfileMissingValuesResult(MaskableResult):
     """The result of profile_missing_values."""
 
     columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES] = Field(
@@ -3179,7 +3249,8 @@ class ValidateColumnTypesResult(MaskableResult):
     )
     # Every distinct invalid value of every declared column in the data,
     # outside the record; masked columns hold placeholders' numbers instead.
-    _tables: dict[str, Levels] = PrivateAttr(default_factory=dict)
+    # None for a result rebuilt from its record, which holds no values.
+    _tables: dict[str, Levels] | None = PrivateAttr(default=None)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
@@ -3278,7 +3349,11 @@ class ValidateColumnTypesResult(MaskableResult):
         """
         _check_table(table, ("columns", "invalid_values"))
         if table == "invalid_values":
-            frame = levels_frame(self._tables).drop(columns="share")
+            if self._tables is None and any(
+                column.invalid_distinct_count for column in self.columns.values()
+            ):
+                raise _tables_unavailable(self)
+            frame = levels_frame(self._tables or {}).drop(columns="share")
             return frame.rename(columns={"label": "value", "label_type": "value_type"})
         entries = list(self.columns.values())
         columns: dict[str, pd.Series] = {}
