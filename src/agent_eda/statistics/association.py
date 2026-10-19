@@ -218,11 +218,10 @@ def compute_association_matrix(
         complete rows, so gaps in one column don't shrink every pair. Perfect
         associations are flagged, since one column may duplicate or derive from the
         other. List numeric codes, such as postal codes or class labels 1, 2 and 3, in
-        categorical_columns so they count as categories instead of numbers:
-        `infer_column_semantics` finds them. It measures association, not causation,
-        without p-values. For how one numeric column is distributed, call
-        `summarize_numeric`; for how the column a model will predict goes with the
-        others, `profile_target`.
+        categorical_columns so they count as categories: `infer_column_semantics` finds
+        them. It measures association, not causation, without p-values. For how one
+        numeric column is distributed, call `summarize_numeric`; for how the column a
+        model will predict goes with the others, `profile_target`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -249,9 +248,7 @@ def compute_association_matrix(
             for ties. The rank methods rank each pair's own complete rows, one
             pair at a time: up to about 0.3 seconds per numeric pair per
             million rows, against a few milliseconds for 'pearson', so narrow
-            columns before using them on large data. 'spearman' ranks a column
-            only once for the pairs whose complete rows hold all its values,
-            as in data without missing values.
+            columns before using them on large data.
         categorical_method (str): The measure for two categorical columns:
             'cramers_v_bias_corrected', the default, Cramér's V with Bergsma's
             (2013) correction, which removes most of the upward bias that few
@@ -277,29 +274,24 @@ def compute_association_matrix(
     Returns:
         ComputeAssociationMatrixResult: `pairs` holds one entry per pair,
         strongest first by absolute value, with null values last. An entry
-        gives `x_column` and `y_column` with their `x_type` and `y_type`, the
-        `method`, the `value`, the `pair_count` of complete rows it uses, the
-        `direction` and, when the value is null, the `undefined_reason`.
-        pearson, spearman and kendall run from -1 to 1, Cramér's V and the
-        correlation ratio from 0, no association, to 1. Two numeric columns get
-        numeric_method and two categorical ones categorical_method. A
-        categorical and a numeric column get mixed_method, a correlation ratio,
-        with direction x_to_y: it says how much the categorical x_column
-        explains the numeric y_column, not the reverse. Complete rows have both
-        values present, and finite in a numeric column. A pair's value can
-        differ in its last digits, about 1e-15 relative, with the other columns
-        in the call, since the sums behind all pairs run in batches whose
-        rounding follows their size; no pair differs by more than 1e-12.
+        gives the two columns and their types, the `method`, the `value`, the
+        `pair_count` of complete rows it uses, the `direction` and, when the
+        value is null, the `undefined_reason`. pearson, spearman and kendall
+        run from -1 to 1, Cramér's V and the correlation ratio from 0, no
+        association, to 1. Two numeric columns get numeric_method and two
+        categorical ones categorical_method. A categorical and a numeric column
+        get mixed_method, a correlation ratio, with direction x_to_y: it says
+        how much the categorical x_column explains the numeric y_column, not the
+        reverse. Complete rows have both values present, and finite in a numeric
+        column. A pair's value can differ in its last digits, about 1e-15
+        relative, with the other columns in the call; no pair differs by more
+        than 1e-12.
 
-        `columns` describes each paired column, keyed by name: its `type`,
-        `value_count`, `missing_count`, `infinite_count` and, for a categorical one,
-        `distinct_count`. `left_out_columns` lists the columns paired with no other, each
-        with its `reason`: datetime, timedelta, unsupported_dtype, all_missing,
-        no_finite_values, unhashable_values or too_many_categories. The record keeps the
-        100 strongest pairs and adds pairs_total. `to_frame` returns every pair, and its
-        Python-only table `matrix` the paired columns as rows and columns: the cell in
-        row x and column y holds the pair's value, and a correlation ratio fills only
-        the cell from its categorical row to its numeric column.
+        `columns` describes each paired column, keyed by name. `left_out_columns`
+        lists the columns paired with no other, each with its `reason`: datetime,
+        timedelta, unsupported_dtype, all_missing, no_finite_values,
+        unhashable_values or too_many_categories. The record keeps the 100
+        strongest pairs and adds pairs_total.
 
         A value that doesn't exist is null with its `undefined_reason`:
         too_few_rows, fewer than 3 complete rows; single_level or

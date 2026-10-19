@@ -103,8 +103,10 @@ def test_the_description_holds_the_docstring_sections_in_order(tools, name):
         for s in described.statuses
         if not any(line.startswith(f"{s.status}: ") for line in statuses)
     ] == []
-    see_also = [line.split(":")[0] for line in section(description, "See Also:")]
-    assert see_also == docstring_entries(name, "See Also:")
+    # The names only: list_analyses and each tool's own description say what
+    # each answers.
+    see_also = section(description, "See Also:")
+    assert see_also == [", ".join(docstring_entries(name, "See Also:"))]
 
 
 def test_the_description_leaves_out_examples_and_python_calls(tools, name):
@@ -238,10 +240,16 @@ def definition_size(tools):
 
 
 # The size of the descriptions plus input schemas once ticket 09 cut the
-# repeated path rules and the pydantic titles (see .scratch/agent-experience/
-# issues/09-smaller-mcp-tool-definitions.md). Raise it on purpose, in the same
+# repeated path rules, the pydantic titles and the docstring prose that
+# repeated the field descriptions (see .scratch/agent-experience/issues/
+# 09-smaller-mcp-tool-definitions.md): 30% under the 100,159 characters the
+# audit measured in October 2026 is 70,111. Raise it on purpose, in the same
 # change as the text that grows, never to make this test pass.
-DEFINITION_SIZE = 84_500
+DEFINITION_SIZE = 69_730
+
+
+def test_the_tool_definitions_are_30_percent_smaller_than_the_audit_measured(tools):
+    assert definition_size(tools) <= 100_159 * 0.7
 
 
 def test_the_tool_definitions_stay_within_ten_percent_of_their_recorded_size(tools):

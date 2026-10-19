@@ -52,10 +52,18 @@ def strings_in(schema: object, path: str = "") -> list[tuple[str, str]]:
 _WORDS = {"None": "null", "True": "true", "False": "false"}
 
 
+# No file an MCP tool reads has a label that isn't a string.
+NON_STRING_LABELS = re.compile(
+    r"\s?A label that isn't a string can be given as itself(?:, such as 0,)? "
+    r"or as its string form\."
+)
+
+
 def json_words(text: str) -> str:
-    """The text with None, True and False written as JSON writes them, which is
-    how an MCP caller reads a docstring's Args."""
-    return CONSTANT.sub(lambda match: _WORDS[match[0]], text)
+    """The text with None, True and False written as JSON writes them, and
+    without the sentence on labels that aren't strings, which is how an MCP
+    caller reads a docstring's Args."""
+    return CONSTANT.sub(lambda match: _WORDS[match[0]], NON_STRING_LABELS.sub("", text))
 
 
 def titles_in(schema: Any, path: str = "") -> list[str]:

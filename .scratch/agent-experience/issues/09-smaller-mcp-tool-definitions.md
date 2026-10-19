@@ -6,13 +6,13 @@ Read these sections of `.scratch/agent-experience/spec.md`: MCP tool definitions
 
 Blocked by: 08
 
-Status: ready-for-agent
+Status: done
 
 - [x] The `data_path`, `table_path` and `project_path` descriptions are one sentence each. Their rules sit once in the MCP instructions, which keep within their line limit.
 - [x] No input or output schema carries a pydantic `title`, at the top level or inside `$defs`.
-- [ ] The descriptions plus input schemas of all MCP tools come to at least 30% fewer characters than the 100,159 measured in October 2026. The Comments record before and after, and the size of `tools/list`.
+- [x] The descriptions plus input schemas of all MCP tools come to at least 30% fewer characters than the 100,159 measured in October 2026. The Comments record before and after, and the size of `tools/list`.
 - [x] A test fails if the descriptions plus input schemas grow past the new size by more than 10% without the threshold being raised on purpose.
-- [ ] The finish checks pass.
+- [x] The finish checks pass.
 
 ## Comments
 
@@ -36,3 +36,25 @@ What the ticket settled that the spec left open:
 - **Titles are dropped on the MCP surface only**, by `_wording.without_titles`, for the analysis tools' input and output schemas and the two discovery tools' output schemas. Python's `parameters_schema` and `record_schema()` keep theirs, so tickets 06, 07 and 10 don't collide with `results.py`.
 - **The size guard** (`DEFINITION_SIZE` in `tests/test_mcp_tools.py`, 84,500) fails above 10% over it, so a new analysis or a longer docstring has to raise it on purpose.
 - Checks: ruff, ty, pytest, both minimum-version runs and the MCP stdio smoke pass. The benchmark was not run: no analysis code changed.
+
+### Box 3 closed (second pass)
+
+Descriptions plus input schemas are now 69,728 characters, at most the 70,111 of the box (30% under the audit's 100,159; 17% under the 83.5K of the first pass, 84,317 with the same sum on the integration tip). `DEFINITION_SIZE` in `tests/test_mcp_tools.py` is 69,730, and a second test holds the 30% bar itself.
+
+| Characters | First pass | Now |
+| --- | --- | --- |
+| Descriptions | 52,113 | 40,156 |
+| Input schemas | 32,204 | 29,572 |
+| Descriptions plus input schemas | 84,317 | 69,728 |
+| Output schemas | 170,118 | 170,118 (unchanged) |
+| Whole `tools/list` | about 248,900 (derived) | 234,318 |
+
+`tools/list` is `ListToolsResult.model_dump_json(by_alias=True, exclude_none=True)` over the 13 tools; the "first pass" column is the integration tip before this pass (73ef54a), and its `tools/list` size is derived from the unchanged output schemas.
+
+What this pass settled:
+- **`See Also:` over MCP gives names only.** The sentences repeated what each neighbour's own description and `list_analyses` say, and the first-look order is in the instructions (ADR 0006 asks only that a tool be built from the registry and the docstring). The Python docstring, `describe_analysis` and the README Reference keep the full entries; `AGENTS.md` and the README line on MCP descriptions say so. About 3.1K characters.
+- **The sentence on labels that aren't strings is dropped over MCP** (`json_words`, so descriptions and schemas alike): a CSV header and a Parquet column name are text, so no MCP caller can use it. About 1K.
+- **`Returns:` and `When to use:` say each thing once.** The per-entry field lists that the output schema's field descriptions already give (which fields an entry holds, what each count is), the `masking` paragraph (the `masking` field description and the instructions have it), the `to_frame` sentences (the `to_frame` docstring of each result has the tables) and a few implementation details of the key search are cut or shortened. Every declared finding-code bullet, the scoring and conversion rules, the limitation codes, the status reasons, the doctests and every phrase a contract test pins are kept. About 6K.
+- **`data_path`, `table_path` and `project_path`** lost their remaining clauses: the working-directory rule sits in the instructions (a test pins it there).
+- The `ColumnSpec` description and a few `Args:` texts lost sentences that another description already holds.
+- Checks: ruff, ty, pytest, both minimum-version runs and the MCP stdio smoke pass. The benchmark was not run: no analysis code changed, only docstrings, wording helpers and MCP descriptions.

@@ -302,7 +302,7 @@ Claude Desktop, Cursor and most MCP clients read an `mcpServers` entry from thei
 
 If the client doesn't start it in the environment with the extra, use the path `which agent-eda-mcp` prints as `command`.
 
-Each analysis is an MCP tool of the same name. Its description and input schema come from its docstring. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order, and hold the rules of the path arguments.
+Each analysis is an MCP tool of the same name. Its description is the docstring's `When to use:`, `Returns:` and `Statuses:` sections and the names under `See Also:`, and its input schema holds the `Args:`. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order, and hold the rules of the path arguments.
 
 ### Pass data by path
 
@@ -389,14 +389,14 @@ What kind of values does each column hold?
 
 **Fields:** `columns` (`column`, `status`, `status_reason`, `dtype`, `inferred_logical_type`, `declared_logical_type`, `matches_declared`, `candidates`, `flags`, `evidence`), `missing_declared_columns`
 
-- `identifier_like_columns` (suspected): every value is distinct, there are at least two, and the top candidate is integer or text without spaces, as for IDs.
+- `identifier_like_columns` (suspected): every value is distinct, there are at least two, and the top candidate is integer or text without spaces.
 - `constant_columns` (suspected): a single distinct value in at least two rows; NaN is missing.
 - `all_missing_columns` (suspected): no value in at least one row.
 - `numbers_as_text` (suspected): the top candidate is integer or float and some of the numbers are stored as text.
 - `dates_as_text` (suspected): the top candidate is datetime and some of the datetimes are text, in ISO 8601 or the declared datetime_format.
-- `non_iso_date_text` (suspected): at least half the values look like dates, and some of them aren't ISO 8601, such as 01/02/2020 or 5 Jan 2020; they are never parsed.
+- `non_iso_date_text` (suspected): at least half the values look like dates, and some of them aren't ISO 8601, such as 01/02/2020; they are never parsed.
 - `boolean_like_columns` (descriptive): the top candidate is boolean and some values are numbers or text that read as booleans, such as 0/1 or yes/no.
-- `mixed_value_types` (suspected): the values have more than one Python type, such as int and str: evidence value_types lists them, as summarize_categorical does.
+- `mixed_value_types` (suspected): the values have more than one Python type, such as int and str, as `evidence.value_types` lists.
 - `declared_type_mismatch` (suspected): a declared column's declared logical type scores below its top candidate, or isn't a candidate.
 - `declared_type_match` (passed): a declared column's top candidate, or a candidate tied with it, is its declared logical type.
 - `declared_type_unchecked` (unknown): a declared column has no candidate to compare, since it has no values or none fits.

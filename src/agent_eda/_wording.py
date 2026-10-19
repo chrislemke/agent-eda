@@ -101,10 +101,21 @@ _CONSTANT = re.compile(r"(?<![\w'\"`])(None|True|False)(?![\w'\"`])")
 _JSON_WORDS = {"None": "null", "True": "true", "False": "false"}
 
 
+# The sentence on labels that aren't strings, which no file an MCP tool reads
+# has: a CSV header, and the column names of a Parquet file, are text.
+_NON_STRING_LABELS = re.compile(
+    r"\s?A label that isn't a string can be given as itself(?:, such as 0,)? "
+    r"or as its string form\."
+)
+
+
 def json_words(text: str) -> str:
-    """The text with Python's None, True and False written as JSON's null, true and
-    false, the words an MCP caller passes."""
-    return _CONSTANT.sub(lambda match: _JSON_WORDS[match[0]], text)
+    """The text as an MCP caller reads it: Python's None, True and False written as
+    JSON's null, true and false, the words an MCP caller passes, and without the
+    sentence on labels that aren't strings."""
+    return _CONSTANT.sub(
+        lambda match: _JSON_WORDS[match[0]], _NON_STRING_LABELS.sub("", text)
+    )
 
 
 def without_titles(schema: Any) -> Any:

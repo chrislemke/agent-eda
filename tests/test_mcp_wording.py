@@ -22,7 +22,7 @@ pytest.importorskip(
 
 import anyio
 from mcp import Client
-from python_syntax import python_in, strings_in
+from python_syntax import json_words, python_in, strings_in
 from test_mcp_argument_messages import MISTAKES, arguments_of
 from test_mcp_argument_messages import call as call_mcp
 
@@ -95,9 +95,13 @@ def test_python_callers_keep_the_text_that_mcp_callers_read_in_json_words(served
     in_python = ae.describe_analysis("summarize_numeric").to_dict()["parameters_schema"]
     python = in_python["properties"]["columns"]["description"]
 
-    # The same sentence, with None for the default in Python and null over MCP.
+    # The same sentence, with None for the default in Python and null over MCP,
+    # and without the sentence on labels that aren't strings, which no file an
+    # MCP tool reads has.
     assert "None, the default, selects every numeric column" in python
-    assert over_mcp == python.replace("None,", "null,")
+    assert "A label that isn't a string" in python
+    assert "A label that isn't a string" not in over_mcp
+    assert over_mcp == json_words(python)
     assert "null, the default, selects every numeric column" in over_mcp
     # The docstring a Python caller reads says nothing a Python caller can't use.
     assert "`columns` maps each selected column name to its entry" in " ".join(

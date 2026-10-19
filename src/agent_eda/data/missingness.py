@@ -83,9 +83,8 @@ def profile_missing_values(
         Nothing counts as a sentinel value unless you declare it: to find the values
         that look like stand-ins, call `detect_missing_sentinels` first. Missing values
         in columns you declare non-nullable are violations in `validate_column_types`.
-        Declared sentinel values are raw values, so when a column holds personal data,
-        such as email addresses, declare it sensitive in a project and switch masking
-        on.
+        Declared sentinel values are raw values: for personal data, declare the column
+        sensitive in a project and switch masking on.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -106,12 +105,12 @@ def profile_missing_values(
             timedelta as its ISO 8601 text, such as '1900-01-01T00:00:00', '1900-01-01'
             or 'PT0S': it is read as one for a column that holds such values and no
             text. List each value once: -999 and -999.0 are one value, while true and 1
-            are two. For a column of decimals, text that writes an exact decimal, such as
-            '12345678901234567.25', declares it. Every column named must be selected. A value that can never match
-            its column is rejected, naming the value you likely meant, such as -999 for
-            the text '-999' in an integer column, and so are NaN, NaT and infinite
-            values. None, the default, declares none: then sentinel_count is null and
-            only native missing values count, which the result records as a limitation.
+            are two. For a column of decimals, text such as '12345678901234567.25'
+            declares an exact decimal. Every column named must be selected. A value that
+            can never match its column is rejected, naming the value you likely meant,
+            such as -999 for the text '-999' in an integer column; so are NaN, NaT and
+            infinite values. None, the default, declares none: then sentinel_count is
+            null and only native missing values count, with a limitation.
         project (Project | None): The project, whose data policy names the
             sensitive columns and says whether to mask them. None, the
             default, declares no sensitive column, so nothing is masked.
@@ -126,36 +125,23 @@ def profile_missing_values(
 
     Returns:
         ProfileMissingValuesResult: `columns` maps each selected column name to
-        its entry, which holds:
+        its entry: `native_missing_count` (None, NaN, NaT and NA, NaN that a
+        pyarrow-backed or nullable float column stores as a value included),
+        `sentinel_count` (null when the column has no declared sentinel value),
+        `missing_count` and `missing_share` of both together, and
+        `sentinel_values`, each declared value with its `value_type` and count,
+        which tell apart values that print the same, such as the date 2020-01-01
+        and the text '2020-01-01'.
 
-        - `native_missing_count`, the values that are missing without a declared
-          sentinel value: None, NaN, NaT and NA, including NaN that a
-          pyarrow-backed or nullable float column stores as a value, which
-          pandas' `isna` doesn't count.
-        - `sentinel_count`, the values equal to a declared sentinel value;
-          null when the column has none declared.
-        - `missing_count`, both together, and `missing_share`, that count over
-          all rows.
-        - `sentinel_values`, each declared value with its `value_type` and
-          count, which tell apart values that print the same, such as the date
-          2020-01-01 and the text '2020-01-01'; with masking
-          on, a sensitive column's values are numbered placeholders.
-
-        For all selected columns together, `missing_count` and `missing_share` count
-        every selected value, `complete_row_count` and `complete_row_share` the rows
-        that miss none, and `row_distribution` how many rows miss each number of values,
-        fewest first. Shares lie between 0 and 1, and a share without rows is null. The
-        printed table shows the columns with the most missing values first. `to_frame`
-        returns the per-column table in the selected order, and its Python-only table
-        `row_distribution` the rows per number of missing values.
-
-        `masking` says whether masking was on and names the sensitive columns
-        whose declared values the result shows.
+        For all selected columns together, `missing_count` and `missing_share`
+        count every selected value, `complete_row_count` and `complete_row_share`
+        the rows that miss none, and `row_distribution` how many rows miss each
+        number of values, fewest first. A share without rows is null.
 
         Limitations: `sentinel_values_not_declared` names the columns whose
         sentinel_count is null; `nan_counted_as_missing` the columns that
-        store NaN as a value, which `isna` doesn't count and this analysis does; `too_few_values` the
-        shares that are null for want of rows or columns.
+        store NaN as a value, which `isna` doesn't count and this analysis does;
+        `too_few_values` the shares that are null for want of rows or columns.
 
         The findings:
 
@@ -483,18 +469,17 @@ def detect_missing_sentinels(
     When to use:
         Call it after `profile_missing_values` to find values that may stand in for
         missing ones, such as -999, 'N/A', empty text or 1900-01-01, before they distort
-        a summary or a model. Fixed rules without thresholds to tune pick the
-        candidates: values from a built-in list, and a number that repeats at a column's
-        minimum or maximum, far from all the others. It only suspects values and never
-        changes the data, so legitimate zeros, negative numbers and rare codes stay
-        valid until you confirm otherwise. Declare the values you confirm in
-        sentinel_values: they come back as declared, apart from the suspected ones, and
-        `profile_missing_values` counts them as missing. Candidate values and row IDs
-        are raw values, so when a column holds personal data, such as email addresses,
-        declare it sensitive in a project and switch masking on. Index labels are never
-        masked: when the index holds sensitive values, pass a non-sensitive id_column.
-        For which values occur in a column and how often, call `summarize_categorical`;
-        for the extremes and spread of numeric columns, `summarize_numeric`.
+        a summary or a model. Fixed rules pick the candidates: values from a built-in
+        list, and a number that repeats at a column's minimum or maximum, far from all
+        the others. It only suspects values and never changes the data. Declare the
+        values you confirm in sentinel_values: they come back as declared, apart from
+        the suspected ones, and `profile_missing_values` counts them as missing.
+        Candidate values and row IDs are raw values, so when a column holds personal
+        data, declare it sensitive in a project and switch masking on. Index labels are
+        never masked: when the index holds sensitive values, pass a non-sensitive
+        id_column. For which values occur in a column and how often, call
+        `summarize_categorical`; for the extremes and spread of numeric columns,
+        `summarize_numeric`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -515,13 +500,13 @@ def detect_missing_sentinels(
             MCP, write a datetime, date or timedelta as its ISO 8601 text, such as
             '1900-01-01T00:00:00', '1900-01-01' or 'PT0S': it is read as one for a
             column that holds such values and no text. List each value once: -999 and
-            -999.0 are one value, while true and 1 are two. For a column of decimals, text
-            that writes an exact decimal, such as '12345678901234567.25', declares it.
-            Every column named must be checked. A value that can never match its column is rejected, naming the
-            value you likely meant, such as -999 for the text '-999' in an integer
-            column, and so are NaN, NaT and infinite values. The declared values a
-            column holds come back with confirmation 'declared', and the rules read the
-            column as if they were missing. None, the default, declares none.
+            -999.0 are one value, while true and 1 are two. For a column of decimals,
+            text such as '12345678901234567.25' declares an exact decimal. Every column
+            named must be checked. A value that can never match its column is rejected,
+            naming the value you likely meant, such as -999 for the text '-999' in an
+            integer column; so are NaN, NaT and infinite values. The declared values a
+            column holds come back with confirmation 'declared'. None, the default,
+            declares none.
         id_column (str | None): Name of a column whose values identify rows,
             such as an order number; row IDs are then its values, and the default
             columns leave it out of the check. Its values must be hashable, such as
@@ -544,20 +529,15 @@ def detect_missing_sentinels(
 
     Returns:
         DetectMissingSentinelsResult: `candidates` lists the values that may
-        stand in for missing ones, column by column in the order checked:
-        first the declared values a column holds, in the order given, then
-        the suspected ones, most frequent first. Each candidate has its
-        `column`; its `value`, with dates and times as ISO 8601 text, a decimal
-        as a number or, when float64 can't hold it as written, as its exact text
-        such as '12345678901234567.25', and `value_type` naming the type; its `count` and its `share` of all rows;
-        its `evidence` codes; its `confirmation`, declared or suspected; and
-        in `row_ids` the IDs of the first 10 rows that hold it. Row IDs are
-        index labels, or id_column values when given. The record keeps the
-        first 100 candidates and adds candidates_total; `to_frame` returns
-        every candidate with the ID of every row that holds its value, and the
-        printed table shows the most frequent first.
-        `columns_without_rules` names the checked columns whose values no
-        rule reads, such as booleans and durations, where only declared values
+        stand in for missing ones, column by column in the order checked: first
+        the declared values a column holds, in the order given, then the
+        suspected ones, most frequent first. Each has its `column`, `value`,
+        `count` and `share` of all rows, its `evidence` codes, its
+        `confirmation` (declared or suspected) and the `row_ids` of its first
+        10 rows. Row IDs are index labels, or id_column values when given. The
+        record keeps the first 100 candidates and adds candidates_total.
+        `columns_without_rules` names the checked columns whose values
+        no rule reads, such as booleans and durations, where only declared values
         were looked for. NaN that a pyarrow-backed or nullable float column
         stores as a value is missing, as in every analysis, and the
         `nan_counted_as_missing` limitation names such columns.
@@ -590,8 +570,7 @@ def detect_missing_sentinels(
         such as a legitimate 0, a negative number or a rare code, is never a
         candidate. When index labels or id_column values repeat, the
         `ambiguous_row_ids` limitation names the candidates whose row IDs
-        repeat. `masking` says whether masking was on and names the sensitive
-        columns whose values the result shows.
+        repeat.
 
         The findings:
 
