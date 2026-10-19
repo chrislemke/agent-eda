@@ -79,41 +79,35 @@ def test_masking_mcp_tools_take_project_path_in_place_of_project():
     assert {tool.name for tool in tools} >= set(MASKING)
 
 
-def test_project_path_and_mask_sensitive_say_masking_is_only_a_guardrail():
-    tools = [tool for tool in anyio.run(list_tools) if tool.name in MASKING]
-
-    for tool in tools:
-        properties = tool.input_schema["properties"]
-        for name in ("project_path", "mask_sensitive"):
-            description = properties[name]["description"]
-            assert (
-                "Masking is a guardrail against accidental exposure, not "
-                "anonymization or access control" in description
-            ), (tool.name, name)
-        # mask_sensitive says where an MCP caller's project comes from.
-        assert "project_path" in properties["mask_sensitive"]["description"]
-        assert "--project" in properties["mask_sensitive"]["description"]
-
-
-def test_the_precedence_and_the_guardrail_read_the_same_wherever_they_appear():
+def test_the_project_rules_sit_once_in_the_instructions_not_in_each_mcp_tool():
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
             return client.instructions, (await client.list_tools()).tools
 
     instructions, tools = anyio.run(scenario)
-    properties = [
-        tool.input_schema["properties"][name]["description"]
-        for tool in tools
-        if tool.name in MASKING
-        for name in ("project_path", "mask_sensitive")
-    ]
+    unwrapped = " ".join(re.sub(r"(?<=\w)-\n\s*", "-", instructions).split())
     finished = run_agent_eda_mcp("--help")
 
-    for text in [*properties, instructions, finished.stdout]:
-        # argparse breaks lines after a hyphen, as in agent-eda-|mcp.
-        unwrapped = " ".join(re.sub(r"(?<=\w)-\n\s*", "-", text).split())
-        assert PRECEDENCE in unwrapped, text
-        assert GUARDRAIL in unwrapped, text
+    # The precedence and the guardrail read the same in the instructions and in
+    # agent-eda-mcp --help.
+    for text in [instructions, finished.stdout]:
+        text = " ".join(re.sub(r"(?<=\w)-\n\s*", "-", text).split())
+        assert PRECEDENCE in text, text
+        assert GUARDRAIL in text, text
+    # The file's format and the default are in the instructions, once.
+    assert 'sensitive_columns = ["email"]' in unwrapped
+    assert "[data_policy]" in unwrapped
+    assert (
+        "null, the default, uses no project unless agent-eda-mcp --project" in unwrapped
+    )
+    for tool in tools:
+        if tool.name not in MASKING:
+            continue
+        properties = tool.input_schema["properties"]
+        # A sentence, with the project_path the MCP caller passes.
+        assert "guardrail" not in properties["project_path"]["description"]
+        assert "guardrail" not in properties["mask_sensitive"]["description"]
+        assert "project_path" in properties["mask_sensitive"]["description"]
 
 
 def test_no_masking_mcp_tool_schema_keeps_the_project_definitions():
