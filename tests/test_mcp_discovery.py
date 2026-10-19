@@ -288,34 +288,43 @@ def test_describe_analysis_and_guide_are_not_mcp_tools():
 
 
 @pytest.mark.parametrize(
-    ("arguments", "python_fix", "mcp_fix"),
+    ("arguments", "fixes"),
     [
         (
             {"query": 3},
-            "such as ae.search_analyses('missing values'),",
-            'such as {"query": "missing values"},',
+            {
+                "such as ae.search_analyses('missing values'),": (
+                    'such as {"query": "missing values"},'
+                ),
+                "a value of type int": "a number",
+            },
         ),
         (
             {"query": "nulls", "limit": 0},
-            "such as ae.search_analyses('missing values', limit=3).",
-            'such as {"query": "missing values", "limit": 3}.',
+            {
+                "such as ae.search_analyses('missing values', limit=3).": (
+                    'such as {"query": "missing values", "limit": 3}.'
+                ),
+                "an int of at least": "an integer of at least",
+            },
         ),
     ],
     ids=["query-not-text", "limit-below-one"],
 )
-def test_a_bad_search_value_is_the_python_error_with_an_mcp_fix(
-    arguments, python_fix, mcp_fix
-):
+def test_a_bad_search_value_is_the_python_error_with_an_mcp_fix(arguments, fixes):
     with pytest.raises(InvalidArgumentError) as raised:
         ae.search_analyses(**arguments)
 
     response = anyio.run(call, "search_analyses", arguments)
 
-    assert python_fix in str(raised.value)
+    expected = str(raised.value)
+    for python_fix, mcp_fix in fixes.items():
+        assert python_fix in expected
+        expected = expected.replace(python_fix, mcp_fix)
     assert response.is_error
     assert response.structured_content == {
         "code": raised.value.code,
-        "message": str(raised.value).replace(python_fix, mcp_fix),
+        "message": expected,
     }
     assert [block.text for block in response.content] == [
         response.structured_content["message"]

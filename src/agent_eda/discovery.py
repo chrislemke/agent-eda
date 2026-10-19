@@ -25,7 +25,7 @@ from agent_eda._text import (
     plural,
 )
 from agent_eda._version import __version__
-from agent_eda._wording import as_written, worded
+from agent_eda._wording import as_written, echoed, type_of, worded
 from agent_eda.errors import InvalidArgumentError, UnknownAnalysisError
 from agent_eda.results import (
     AnalysisDescription,
@@ -348,16 +348,21 @@ def search_analyses(query: str, limit: int = 5) -> SearchListing:
             InvalidArgumentError,
             lambda surface: (
                 "search_analyses takes the query as a string, such as "
-                f"{_search_example(surface)}, but got a value of type "
-                f"{type(query).__name__}."
+                f"{_search_example(surface)}, but got "
+                + (
+                    f"a value of type {type_of(query, surface)}."
+                    if surface == "python"
+                    else f"{type_of(query, surface)}."
+                )
             ),
         )
     if isinstance(limit, bool) or not isinstance(limit, numbers.Integral) or limit < 1:
         raise worded(
             InvalidArgumentError,
             lambda surface: (
-                f"search_analyses got {limit!r} for limit, but limit "
-                f"must be an int of at least 1, such as {_search_example(surface, 3)}."
+                f"search_analyses got {echoed(limit, surface)} for limit, but limit "
+                f"must be {'an int' if surface == 'python' else 'an integer'} of at "
+                f"least 1, such as {_search_example(surface, 3)}."
             ),
         )
     limit = int(limit)

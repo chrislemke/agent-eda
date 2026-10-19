@@ -235,14 +235,12 @@ def compute_association_matrix(
             strings and a single level; describe_dataset reports labels that
             aren't. It is never modified.
         columns (Sequence[str] | None): Names of the columns to pair, in the
-            order to report them: a list, a tuple, a pandas Index such as
-            df.columns[:10], or a single name. A label that isn't a string can
-            be given as itself or as its string form. Numeric, boolean, text,
-            object and categorical columns are accepted; any other column
-            named here, such as a datetime, timedelta, period or list column,
-            raises errors.ColumnTypeError, which shows conversions where they
-            exist. None, the default, selects every numeric,
-            boolean, text, object and categorical column in DataFrame order and
+            order to report them: a list or a single name. A label that isn't a string
+            can be given as itself or as its string form. Numeric, boolean, text, object
+            and categorical columns are accepted; any other column named here, such as a
+            datetime, timedelta, period or list column, is rejected with the code
+            `unsupported_column_type`. None, the default, selects every
+            numeric, boolean, text, object and categorical column in DataFrame order and
             lists the others in skipped_columns.
         categorical_columns (Sequence[str] | None): Numeric columns to treat as
             categorical, so that codes such as 1, 2 and 3 are compared as
@@ -300,16 +298,14 @@ def compute_association_matrix(
         rounding follows their size; no pair differs by more than 1e-12.
 
         `columns` describes each paired column, keyed by name: its `type`,
-        `value_count`, `missing_count`, `infinite_count` and, for a categorical
-        one, `level_count`. `skipped_columns` lists the columns paired with no
-        other, each with its `reason`: datetime, timedelta, unsupported_dtype,
-        all_missing, no_finite_values, unhashable_values or
-        too_many_categories. The record keeps the 100 strongest pairs and adds
-        pairs_total. `to_frame` returns every pair, and with
-        table="matrix" the paired columns as rows and columns: the
-        cell in row x and column y holds the pair's value, and a correlation
-        ratio fills only the cell from its categorical row to its numeric
-        column.
+        `value_count`, `missing_count`, `infinite_count` and, for a categorical one,
+        `level_count`. `skipped_columns` lists the columns paired with no other, each
+        with its `reason`: datetime, timedelta, unsupported_dtype, all_missing,
+        no_finite_values, unhashable_values or too_many_categories. The record keeps the
+        100 strongest pairs and adds pairs_total. `to_frame` returns every pair, and its
+        Python-only table `matrix` the paired columns as rows and columns: the cell in
+        row x and column y holds the pair's value, and a correlation ratio fills only
+        the cell from its categorical row to its numeric column.
 
         A value that doesn't exist is null with its `undefined_reason`:
         too_few_rows, fewer than 3 complete rows; single_level or
@@ -337,8 +333,8 @@ def compute_association_matrix(
         not_applicable: Fewer than two columns can be paired; skipped_columns
             says why the others can't.
         failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. None is known today: a
-            value that can't be computed is null, with its reason, instead.
+            `status_reason` gives its code and message. No such failure is known today:
+            a value that can't be computed is null, with its reason, instead.
 
     Examples:
         >>> import pandas as pd

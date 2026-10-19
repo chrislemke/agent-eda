@@ -30,6 +30,7 @@ in front of the agent.
 import codecs
 import contextlib
 import errno
+import json
 import os
 import re
 import stat
@@ -65,6 +66,8 @@ _HEADER = "# An agent-eda Project. Load it with ae.Project.load(path)."
 # Sensitive columns as a project file declares them, for messages that show how;
 # an MCP caller declares a data policy only in a project file.
 TOML_EXAMPLE = 'sensitive_columns = ["email"]'
+# The keys of the data policy a project file writes.
+_TOML_KEYS = f"{TOML_EXAMPLE} and mask_sensitive = true or false"
 
 
 def _format_source(surface: Surface, *, start: bool = False) -> str:
@@ -73,6 +76,18 @@ def _format_source(surface: Surface, *, start: bool = False) -> str:
         return "help(ae.Project.load)"
     where = "project_path description in the MCP tool's input schema"
     return f"{'The' if start else 'the'} {where}"
+
+
+def _loader(surface: Surface) -> str:
+    """Who reads a project file, as the caller sees it: Project.load, or over MCP
+    the MCP server, which reads the file project_path leads to."""
+    return "Project.load" if surface == "python" else "The MCP server"
+
+
+def _file(given: str, surface: Surface) -> str:
+    """A project file in a message: the path as given, and over MCP also the
+    argument that gave it."""
+    return repr(given) if surface == "python" else f"the project_path file {given!r}"
 
 
 def _rewrite(surface: Surface) -> str:
@@ -153,17 +168,22 @@ def _check_format_version(fields: dict[str, Any], given: str) -> None:
         return
     version = fields.pop("format_version")
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        raise ProjectFileError(
-            f"Project.load found {_kind(version)} for format_version at the top "
-            f"level of {given!r}, but format_version takes a positive integer, "
-            f"such as format_version = {FORMAT_VERSION}, or can be left out."
+        raise worded(
+            ProjectFileError,
+            lambda surface: (
+                f"{_loader(surface)} found {_kind(version)} for format_version at "
+                f"the top level of {_file(given, surface)}, but format_version "
+                f"takes a positive integer, such as format_version = "
+                f"{FORMAT_VERSION}, or can be left out."
+            ),
         )
     if version > FORMAT_VERSION:
         raise worded(
             ProjectFileError,
             lambda surface: (
-                f"Project.load found format_version = {version} in {given!r}, "
-                "written by a newer agent-eda, but this agent-eda reads "
+                f"{_loader(surface)} found format_version = {version} in "
+                f"{_file(given, surface)}, written by a newer agent-eda, but this "
+                "agent-eda reads "
                 f"format_version {FORMAT_VERSION} and below. Upgrade agent-eda "
                 "(pip install --upgrade agent-eda), or "
                 + (
@@ -186,36 +206,58 @@ def _read_bytes(given: str) -> bytes:
     try:
         status = os.stat(os.path.expanduser(given))
     except (FileNotFoundError, NotADirectoryError):
-        raise ProjectFileNotFoundError(
-            f"Project.load found no file at {_where(given)}. Save a project there "
-            f"first with project.save({given!r}), or pass the path of an existing "
-            "project file."
+        raise worded(
+            ProjectFileNotFoundError,
+            lambda surface: (
+                f"Project.load found no file at {_where(given)}. Save a project "
+                f"there first with project.save({given!r}), or pass the path of an "
+                "existing project file."
+                if surface == "python"
+                else f"project_path leads to {_where(given)}, but no file is "
+                "there. Write a project TOML file there, with a [data_policy] "
+                f"table that has {_TOML_KEYS}, or pass the path of an existing "
+                "project file."
+            ),
         ) from None
     except OSError as error:
-        raise ProjectFileError(_unreadable(given, error)) from None
+        raise _unreadable(given, error) from None
     if not stat.S_ISREG(status.st_mode):
-        raise ProjectFileError(
-            f"Project.load found {_where(given)}, but it isn't a regular file, such "
-            "as a named pipe or a device, so it can't be a project file. Pass the "
-            "path of a project TOML file, such as one project.save wrote."
+        raise worded(
+            ProjectFileError,
+            lambda surface: (
+                f"{_loader(surface)} found {_at(given, surface)}, but it isn't a "
+                "regular file, such as a named pipe or a device, so it can't be a "
+                "project file. Pass the path of a project TOML file"
+                + (", such as one project.save wrote." if surface == "python" else ".")
+            ),
         )
     try:
         with open(os.path.expanduser(given), "rb") as file:
             data = file.read(MAX_BYTES + 1)
     except OSError as error:
-        raise ProjectFileError(_unreadable(given, error)) from None
+        raise _unreadable(given, error) from None
     if len(data) > MAX_BYTES:
-        raise ProjectFileError(
-            f"Project.load found more than {MAX_BYTES // 1024 // 1024} MiB in "
-            f"{_where(given)}, but a project file holds only a name and a data "
-            "policy, which take a few KiB at most. Check that the path names a "
-            "project file, not a data file."
+        raise worded(
+            ProjectFileError,
+            lambda surface: (
+                f"{_loader(surface)} found more than {MAX_BYTES // 1024 // 1024} "
+                f"MiB in {_at(given, surface)}, but a project file holds only a "
+                "name and a data policy, which take a few KiB at most. Check that "
+                "the path names a project file, not a data file."
+            ),
         )
     return data
 
 
-def _unreadable(given: str, error: OSError) -> str:
-    """Say why the operating system refused the file, and how to fix it."""
+def _at(given: str, surface: Surface) -> str:
+    """The path as the caller gave it and where it leads, for a message that
+    says what is at it."""
+    where = _where(given)
+    return where if surface == "python" else f"the project_path file {where}"
+
+
+def _unreadable(given: str, error: OSError) -> ProjectFileError:
+    """Why the operating system refused the file, and how to fix it."""
     if error.errno in (errno.EACCES, errno.EPERM):
         reason = error.strerror or type(error).__name__
         fix = (
@@ -228,7 +270,12 @@ def _unreadable(given: str, error: OSError) -> str:
         fix = (
             "Pass the path of a project file the user that runs this process can read."
         )
-    return f"Project.load can't read {_where(given)}: {reason}. {fix}"
+    return worded(
+        ProjectFileError,
+        lambda surface: (
+            f"{_loader(surface)} can't read {_at(given, surface)}: {reason}. {fix}"
+        ),
+    )
 
 
 def invalid(path: str | os.PathLike[str], error: AgentEDAError) -> ProjectFileError:
@@ -240,8 +287,8 @@ def invalid(path: str | os.PathLike[str], error: AgentEDAError) -> ProjectFileEr
     return worded(
         ProjectFileError,
         lambda surface: (
-            f"Project.load can't build a project from "
-            f"{os.fspath(path)!r}: {message(error, surface)} "
+            f"{_loader(surface)} can't build a project from "
+            f"{_file(os.fspath(path), surface)}: {message(error, surface)} "
             f"{_format_source(surface, start=True)} shows how a project file writes "
             "each key."
         ),
@@ -357,8 +404,17 @@ def _create(path: Path, content: bytes, mode: int) -> None:
 def _file_path(owner: str, path: object) -> str:
     """The path a caller gave, as text; raise unless it can name a file.
 
-    A leading ~ means the home directory, as pandas reads it.
+    A leading ~ means the home directory, as pandas reads it. Over MCP the path
+    is the project_path argument, so a message about Project.load's path names
+    that instead.
     """
+
+    def who(surface: Surface) -> tuple[str, str, Callable[[str], str]]:
+        """The subject, the argument and how to write a path in a message."""
+        if surface == "python" or owner != "Project.load":
+            return owner, "path", repr
+        return "project_path", "project_path", json.dumps
+
     given = os.fspath(path) if isinstance(path, str | os.PathLike) else None
     if not isinstance(given, str):
         raise InvalidArgumentError(
@@ -366,27 +422,42 @@ def _file_path(owner: str, path: object) -> str:
             f"pathlib.Path, such as 'project.toml'. See help(ae.{owner}) for every "
             "argument."
         )
-    if not given:
-        raise InvalidArgumentError(
-            f"{owner} got an empty path, but path must name a file, such as "
-            "'project.toml'."
-        )
-    if "\x00" in given:
-        raise InvalidArgumentError(
-            f"{owner} got {given!r} for path, but a path can't hold a null "
-            "character. Pass the path of a file, such as 'project.toml'."
-        )
     separators = tuple(sep for sep in (os.sep, os.altsep) if sep)
     example = os.path.join(given, "project.toml")
+    if not given:
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"{who(surface)[0]} got an empty path, but {who(surface)[1]} must "
+                f"name a file, such as {who(surface)[2]('project.toml')}."
+            ),
+        )
+    if "\x00" in given:
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"{who(surface)[0]} got {given!r} for {who(surface)[1]}, but a path "
+                "can't hold a null character. Pass the path of a file, such as "
+                f"{who(surface)[2]('project.toml')}."
+            ),
+        )
     if given.endswith(separators):
-        raise InvalidArgumentError(
-            f"{owner} got {given!r} for path, whose last {given[-1]!r} makes it name "
-            f"a directory, but path must name a file, such as {example!r}."
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"{who(surface)[0]} got {given!r} for {who(surface)[1]}, whose last "
+                f"{given[-1]!r} makes it name a directory, but {who(surface)[1]} "
+                f"must name a file, such as {who(surface)[2](example)}."
+            ),
         )
     if os.path.isdir(os.path.abspath(os.path.expanduser(given))):
-        raise InvalidArgumentError(
-            f"{owner} got the directory {_where(given)} for path, but path must name "
-            f"a file in it, such as {example!r}."
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"{who(surface)[0]} got the directory {_where(given)} for "
+                f"{who(surface)[1]}, but {who(surface)[1]} must name a file in it, "
+                f"such as {who(surface)[2](example)}."
+            ),
         )
     return given
 
@@ -408,8 +479,9 @@ def _parse(given: str, data: bytes) -> dict[str, Any]:
         raise worded(
             ProjectFileError,
             lambda surface: (
-                f"Project.load found bytes that aren't UTF-8 text in "
-                f"{given!r} at line {line}. A project file is TOML, which is UTF-8 text. "
+                f"{_loader(surface)} found bytes that aren't UTF-8 text in "
+                f"{_file(given, surface)} at line {line}. A project file is TOML, "
+                "which is UTF-8 text. "
                 f"{_rewrite(surface)}"
             ),
         ) from None
@@ -446,7 +518,8 @@ def _syntax_message(given: str, content: str, error: str, surface: Surface) -> s
     else:
         reason, where = error, ""
     return (
-        f"Project.load found invalid TOML in {given!r}{where}: {reason}.{hint} "
+        f"{_loader(surface)} found invalid TOML in {_file(given, surface)}{where}: "
+        f"{reason}.{hint} "
         f"{_rewrite(surface)}"
     )
 
@@ -474,27 +547,35 @@ def _check_keys(
         return
     fields_at = {top: keys, inside: table_keys}
     hints = [_key_hint(key, place, fields_at) for key, place in unknown]
-    if len(unknown) == 1:
-        [(key, place)], [(hint, _)] = unknown, hints
-        where = f"in the [{table}] table" if place == inside else place
-        found = f"an unknown key {key!r} {where} of {given!r}."
-        if hint:
-            found += f" {hint[0].upper()}{hint[1:]}{'' if hint.endswith('?') else '.'}"
-    else:
+
+    def found(surface: Surface) -> str:
+        file = _file(given, surface)
+        if len(unknown) == 1:
+            [(key, place)], [(hint, _)] = unknown, hints
+            where = f"in the [{table}] table" if place == inside else place
+            text = f"an unknown key {key!r} {where} of {file}."
+            if hint:
+                end = "" if hint.endswith("?") else "."
+                text += f" {hint[0].upper()}{hint[1:]}{end}"
+            return text
         described = [
             f"{key!r} {place}" + (f" ({hint})" if hint else "")
             for (key, place), (hint, _) in zip(unknown, hints, strict=True)
         ]
-        found = f"{len(unknown):,} unknown keys in {given!r}: {join_items(described)}."
+        return f"{len(unknown):,} unknown keys in {file}: {join_items(described)}."
+
     rule = (
         f" Keys below a [{table}] line belong to that table, and keys above it to "
         "the top level."
         if any(moves for _, moves in hints)
         else ""
     )
-    raise ProjectFileError(
-        f"Project.load found {found}{rule} Allowed: {join_items(keys)} {top}; "
-        f"{join_items(table_keys)} {inside}.",
+    raise worded(
+        ProjectFileError,
+        lambda surface: (
+            f"{_loader(surface)} found {found(surface)}{rule} Allowed: "
+            f"{join_items(keys)} {top}; {join_items(table_keys)} {inside}."
+        ),
         code="unknown_project_key",
     )
 
@@ -533,7 +614,8 @@ def _check_table(
         raise worded(
             ProjectFileError,
             lambda surface: (
-                f"Project.load found no [{table}] table in {given!r}. "
+                f"{_loader(surface)} found no [{table}] table in "
+                f"{_file(given, surface)}. "
                 f"{_WHOLE_POLICY}: add {form(surface)}."
             ),
         )
@@ -541,8 +623,9 @@ def _check_table(
         raise worded(
             ProjectFileError,
             lambda surface: (
-                f"Project.load found {_kind(fields[table])} for {table} "
-                f"in {given!r}, but {table} is one table: {form(surface)}."
+                f"{_loader(surface)} found {_kind(fields[table])} for {table} "
+                f"in {_file(given, surface)}, but {table} is one table: "
+                f"{form(surface)}."
             ),
         )
     missing = [key for key in table_keys if key not in fields[table]]
@@ -550,8 +633,8 @@ def _check_table(
         raise worded(
             ProjectFileError,
             lambda surface: (
-                f"Project.load found no {join_items(missing)} in the "
-                f"[{table}] table of {given!r}. {_WHOLE_POLICY}: add "
+                f"{_loader(surface)} found no {join_items(missing)} in the "
+                f"[{table}] table of {_file(given, surface)}. {_WHOLE_POLICY}: add "
                 f"{join_items(missing)} below the [{table}] line, as "
                 f"{_format_source(surface)} shows."
             ),
@@ -573,16 +656,25 @@ def _check_forms(fields: Mapping[str, Any], given: str, *, table: str) -> None:
         form, fits = _FORMS[key]
         items = value if key in _ARRAYS and isinstance(value, list) else None
         if items is None and not fits(value):
-            raise ProjectFileError(
-                f"Project.load found {_kind(value)} for {key} {place} of {given!r}, "
-                f"but {key} takes {form}."
-            )
+            raise _wrong_form(given, _kind(value), f"for {key} {place}", key, form)
         for index, item in enumerate(items or []):
             if not fits(item):
-                raise ProjectFileError(
-                    f"Project.load found {_kind(item)} at {key}[{index}] {place} of "
-                    f"{given!r}, but {key} takes {form}."
+                raise _wrong_form(
+                    given, _kind(item), f"at {key}[{index}] {place}", key, form
                 )
+
+
+def _wrong_form(
+    given: str, found: str, where: str, key: str, form: str
+) -> ProjectFileError:
+    """The error for a value that isn't written in the form its key takes."""
+    return worded(
+        ProjectFileError,
+        lambda surface: (
+            f"{_loader(surface)} found {found} {where} of {_file(given, surface)}, "
+            f"but {key} takes {form}."
+        ),
+    )
 
 
 def _kind(value: object) -> str:

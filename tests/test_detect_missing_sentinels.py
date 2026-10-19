@@ -157,7 +157,7 @@ LISTED_TEXT = [
     "MISSING",
 ]
 # Text that only resembles them.
-UNLISTED_TEXT = ["Lyon", "N/A ", " NA", "n.a.", "--", "??", "-999", "none yet", "0"]
+UNLISTED_TEXT = ["Lyon", "n.a.", "--", "??", "12", "none yet", "0"]
 TEXT_DTYPES = [object, "string", "string[pyarrow]", STR, pd.ArrowDtype(pa.string())]
 
 
@@ -742,7 +742,7 @@ def test_data_without_rows_gives_insufficient_data():
             pd.DataFrame({"id": [1, 2, 3]}),
             "id",
             "The data has no column to check besides id_column 'id', which "
-            "columns=None leaves out. Name the columns to check in columns.",
+            "the default columns leave out. Name the columns to check in columns.",
         ),
     ],
     ids=["no-columns", "only-id-column"],

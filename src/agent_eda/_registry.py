@@ -52,7 +52,7 @@ from agent_eda._text import (
     plural,
     short_repr,
 )
-from agent_eda._wording import message, see_every, worded
+from agent_eda._wording import echoed, message, see_every, worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.results import AnalysisResult, Limitation, Status
 
@@ -572,8 +572,9 @@ def invalid_message(
     name = str(location[0]) if location else "?"
     annotation = annotations.get(name)
     none = "None" if surface == "python" else "null"
-    value, path, inner = _locate(options.get(name), annotation, location[1:])
-    if name in single and path == "[0]":
+    value, steps, inner = _locate(options.get(name), annotation, location[1:])
+    path = _path_text(steps, surface)
+    if name in single and steps == [0]:
         path = ""
     own = _own_error(problem)
     if own is not None:
@@ -604,7 +605,7 @@ def invalid_message(
         closest = closest_names(value, choices)[:1] if isinstance(value, str) else []
         detail = f" Did you mean {closest[0]!r}?" if closest else ""
     return (
-        f"{owner} got {_value_text(value)} {where}, but {rule}.{detail} "
+        f"{owner} got {_value_text(value, surface)} {where}, but {rule}.{detail} "
         f"{see_every(owner, noun, surface)}"
     )
 
@@ -617,24 +618,33 @@ def _own_error(problem: Any) -> AgentEDAError | None:
 
 def _locate(
     value: object, annotation: object, steps: tuple[object, ...]
-) -> tuple[object, str, object]:
+) -> tuple[object, list[object], object]:
     """The value at a validation error's location inside an option.
 
     Follows list positions and mapping keys as far as they lead and returns the
-    value found, its path such as "['age'][1]" ("" for the option itself) and
-    its annotation.
+    value found, the steps taken (such as ["age", 1], empty for the option
+    itself) and its annotation.
     """
-    path = ""
+    taken: list[object] = []
     for step in steps:
         if isinstance(value, list) and isinstance(step, int) and step < len(value):
-            value, path = value[step], f"{path}[{step}]"
+            value = value[step]
             annotation = item_annotation(annotation)
         elif isinstance(value, dict) and step in value:
-            value, path = value[step], f"{path}[{step!r}]"
+            value = value[step]
             annotation = _mapping_values(annotation) or annotation
         else:
             break  # such as the name of a union's member
-    return value, path, annotation
+        taken.append(step)
+    return value, taken, annotation
+
+
+def _path_text(steps: Sequence[object], surface: Surface) -> str:
+    """The steps into an option as the caller writes them: ['age'][1] in Python,
+    and over MCP /age/1, a JSON pointer, since JSON has no subscripts."""
+    if surface == "python":
+        return "".join(f"[{step!r}]" for step in steps)
+    return "".join(f"/{step}" for step in steps)
 
 
 def _normalize(
@@ -799,13 +809,16 @@ def _column_name(item: object) -> object:
     return str(item)
 
 
-def _value_text(value: object) -> str:
+def _value_text(value: object, surface: Surface = "python") -> str:
     """Show a scalar argument; describe anything larger by its type and size.
 
     A container passed by mistake, such as a column of a DataFrame, would
-    otherwise put raw data values into the message.
+    otherwise put raw data values into the message. Over MCP null and the
+    booleans show as JSON writes them, and a mapping is an object.
     """
     if value is None or isinstance(value, bool | int | float | str | np.generic):
+        if surface == "mcp" and (value is None or isinstance(value, bool | np.bool_)):
+            return echoed(value, surface)
         return short_repr(value)
     if isinstance(value, pd.DataFrame):
         rows = plural(value.shape[0], "row", "rows")
@@ -815,7 +828,11 @@ def _value_text(value: object) -> str:
     if isinstance(value, np.ndarray):
         return f"a NumPy array of shape {value.shape}"
     if isinstance(value, list | tuple | set | frozenset | dict):
-        kind = a_or_an(type(value).__name__)
+        kind = (
+            "an object"
+            if surface == "mcp" and isinstance(value, dict)
+            else a_or_an(type(value).__name__)
+        )
         return f"{kind} of {plural(len(value), 'item', 'items')}"
     if isinstance(value, type):
         return f"the type {value.__name__}"

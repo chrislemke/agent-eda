@@ -163,21 +163,9 @@ def test_a_relative_project_path_resolves_against_the_working_directory(
 
 # A file that isn't TOML or leaves out a key gets an MCP fix in place of the
 # Python one: tests/test_mcp_fixes.py.
-@pytest.mark.parametrize(
-    "content",
-    [
-        None,  # no file
-        "[data_policy]\nsensitive_columns = []\nmask_sensitve = true\n",  # typo
-    ],
-    ids=["missing", "unknown-key"],
-)
-def test_a_bad_project_file_is_a_tool_error_with_the_python_code_and_message(
-    tmp_path, content
-):
+def test_a_missing_project_file_says_how_to_write_one_and_names_project_path(tmp_path):
     data_path = write(tmp_path / "shop.csv", CSV)
     project_path = tmp_path / "project.toml"
-    if content is not None:
-        write(project_path, content)
     with pytest.raises(AgentEDAError) as raised:
         ae.Project.load(project_path)
 
@@ -188,11 +176,45 @@ def test_a_bad_project_file_is_a_tool_error_with_the_python_code_and_message(
     )
 
     assert response.is_error
-    assert response.structured_content == {
-        "code": raised.value.code,
-        "message": str(raised.value),
-    }
-    assert [block.text for block in response.content] == [str(raised.value)]
+    message = response.structured_content["message"]
+    assert response.structured_content["code"] == raised.value.code
+    assert message.startswith(f"project_path leads to '{project_path}', but no file")
+    assert 'a [data_policy] table that has sensitive_columns = ["email"]' in message
+    assert "mask_sensitive = true or false" in message
+    # The Python message tells to save a project, which no MCP tool can.
+    assert "project.save" in str(raised.value)
+    assert "save" not in message
+    assert "Project.load" not in message
+    assert [block.text for block in response.content] == [message]
+
+
+def test_a_project_file_with_a_misspelled_key_gets_the_python_code_and_names_project_path(
+    tmp_path,
+):
+    data_path = write(tmp_path / "shop.csv", CSV)
+    project_path = write(
+        tmp_path / "project.toml",
+        "[data_policy]\nsensitive_columns = []\nmask_sensitve = true\n",
+    )
+    with pytest.raises(AgentEDAError) as raised:
+        ae.Project.load(project_path)
+
+    response = anyio.run(
+        call,
+        "summarize_categorical",
+        {"data_path": str(data_path), "project_path": str(project_path)},
+    )
+
+    assert response.is_error
+    message = response.structured_content["message"]
+    assert response.structured_content["code"] == raised.value.code
+    assert message == str(raised.value).replace(
+        "Project.load found an unknown key 'mask_sensitve' in the [data_policy] "
+        f"table of '{project_path}'.",
+        "The MCP server found an unknown key 'mask_sensitve' in the [data_policy] "
+        f"table of the project_path file '{project_path}'.",
+    )
+    assert "Did you mean 'mask_sensitive'?" in message
 
 
 @pytest.mark.skipif(
@@ -208,8 +230,6 @@ def test_a_project_file_that_cannot_be_read_is_a_tool_error_not_a_bug(tmp_path, 
     else:
         write(project_path, MASKED).chmod(0)
     try:
-        with pytest.raises(AgentEDAError) as raised:
-            ae.Project.load(project_path)
         response = anyio.run(
             call,
             "summarize_categorical",
@@ -219,10 +239,11 @@ def test_a_project_file_that_cannot_be_read_is_a_tool_error_not_a_bug(tmp_path, 
         project_path.chmod(0o600)
 
     assert response.is_error
-    assert response.structured_content == {
-        "code": "invalid_project_file",
-        "message": str(raised.value),
-    }
+    assert response.structured_content["code"] == "invalid_project_file"
+    message = response.structured_content["message"]
+    assert message.startswith("The MCP server ")
+    assert f"the project_path file '{project_path}'" in message
+    assert "Project.load" not in message
 
 
 def test_a_project_path_that_is_not_a_string_is_a_tool_error(tmp_path):

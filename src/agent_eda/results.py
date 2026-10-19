@@ -1473,8 +1473,9 @@ class SummarizeCategoricalLevel(ResultModel):
 
     label: str | bool | int | float = Field(
         description="The value exactly as stored, so 'Yes' and 'yes ' are two "
-        "levels. A value JSON can't hold, such as a Decimal, a timestamp or a "
-        "non-finite float, appears as its string form; label_type names its type. "
+        "levels. A datetime is ISO 8601 text and a Decimal a number or, when float64 "
+        "can't hold it as written, its exact text; any other value JSON can't "
+        "hold appears as its string form. label_type names its type. "
         "With masking on, a sensitive column's labels are numbered placeholders, "
         "'<masked 1>' for its first level in level order and so on."
     )
@@ -1762,8 +1763,9 @@ class ProfileTargetClass(ResultModel):
 
     label: str | bool | int | float = Field(
         description="The label exactly as stored, so 'Yes' and 'yes ' are two "
-        "classes. A label JSON can't hold, such as a Decimal or a non-finite "
-        "float, appears as its string form; label_type names its type. With "
+        "classes. A datetime is ISO 8601 text and a Decimal a number or, when float64 "
+        "can't hold it as written, its exact text; any other label JSON can't "
+        "hold appears as its string form. label_type names its type. With "
         "masking on and a sensitive target, a numbered placeholder, '<masked 1>' "
         "for the target's first label in level order and so on."
     )
@@ -2156,8 +2158,15 @@ class DeclaredSentinelValue(ResultModel):
 
     value: bool | int | float | str = Field(
         description="The value as declared; dates, datetimes and timedeltas as ISO "
-        "8601 text. With masking on, a sensitive column's values are numbered "
-        "placeholders, '<masked 1>', '<masked 2>' and so on, in the order declared."
+        "8601 text, and a decimal as a number or, when float64 can't hold it as "
+        "written, its exact text. With masking on, a sensitive column's values "
+        "are numbered placeholders, '<masked 1>', '<masked 2>' and so on, in the "
+        "order declared."
+    )
+    value_type: str = Field(
+        description="The Python type of the declared value, such as 'int', 'bool', "
+        "'str', 'date' or 'Timestamp'. It tells apart values that print the same: "
+        "the date 2020-01-01 and the text '2020-01-01', or True and 1."
     )
     count: int = Field(
         description="Values in the column equal to it, among those pandas doesn't "
@@ -2304,8 +2313,9 @@ class ProfileMissingValuesResult(MaskableResult):
         Args:
             table: 'columns', the default, gives one row per selected column in
                 the selected order, with its counts and share; status_reason
-                holds the reason's code, and sentinel_values maps each declared
-                value to its count. 'row_distribution' gives one row per number
+                holds the reason's code, and sentinel_values lists each declared
+                value with its type and count, so values that print the same
+                stay apart. 'row_distribution' gives one row per number
                 of missing values that occurs: missing_count, row_count and
                 row_share.
         """
@@ -2320,7 +2330,13 @@ class ProfileMissingValuesResult(MaskableResult):
                 codes = [reason.code if reason else None for reason in values]
                 columns[name] = pd.Series(codes, dtype=object)
             elif name == "sentinel_values":
-                counts = [{v.value: v.count for v in declared} for declared in values]
+                counts = [
+                    [
+                        {"value": v.value, "value_type": v.value_type, "count": v.count}
+                        for v in declared
+                    ]
+                    for declared in values
+                ]
                 columns[name] = pd.Series(counts, dtype=object)
             else:
                 dtype = _FRAME_DTYPES.get(field.annotation)
@@ -2338,8 +2354,10 @@ class SentinelCandidate(ResultModel):
     column: str = Field(description="The column that holds the value.")
     value: bool | int | float | str = Field(
         description="The value: a declared one as declared, a suspected one as "
-        "stored. Dates, datetimes and durations appear as ISO 8601 text and "
-        "decimals as floats; value_type names the type."
+        "stored. Dates, datetimes and durations appear as ISO 8601 text, and a "
+        "decimal as a number or, when float64 can't hold it as written, its exact "
+        "text; value_type names the type. A text stand-in keeps the surrounding "
+        "whitespace it occurs with."
     )
     value_type: str = Field(
         description="The Python type of the value, such as 'int', 'float', 'str', "
@@ -3194,9 +3212,10 @@ class InvalidValue(ResultModel):
     """A distinct value that neither has nor converts to the declared logical type."""
 
     value: str | bool | int | float = Field(
-        description="The value as stored. A value JSON can't hold, such as a "
-        "timestamp, a list or a non-finite float, appears as its string form; "
-        "value_type names its type. With masking on, a sensitive column's values "
+        description="The value as stored. A datetime is ISO 8601 text and a Decimal a number "
+        "or, when float64 can't hold it as written, its exact text; any other "
+        "value JSON can't hold appears as its string form. value_type names "
+        "its type. With masking on, a sensitive column's values "
         "are numbered placeholders, '<masked 1>' for its first invalid value in "
         "level order and so on."
     )

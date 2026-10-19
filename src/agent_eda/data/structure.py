@@ -87,11 +87,11 @@ def find_candidate_keys(
         share their values. It lists minimal keys, keys with missing values,
         which can't serve as primary keys, and, when no key exists, the column
         sets closest to one, such as an ID broken by a few duplicates. Missing
-        values compare equal, whichever kind they are: None, NaN, NaT and pd.NA
-        are one value, though pandas' duplicated tells None from NaN in an object
-        column. With columns=None, float columns holding a fraction are left out:
-        a measurement such as 0.5 is no identifier, and listing them buries the
-        real keys. For each column's distinct and missing counts, call
+        values compare equal, whichever kind they are: None, NaN, NaT and NA are
+        one value, though pandas' duplicated tells None from NaN in an object
+        column. With the default columns, float columns holding a fraction are
+        left out: a measurement such as 0.5 is no identifier, and listing them
+        buries the real keys. For each column's distinct and missing counts, call
         `describe_dataset`; `list_analyses` lists the other analyses.
 
     Args:
@@ -165,9 +165,9 @@ def find_candidate_keys(
             identifies.
         not_applicable: No column can be searched: the data has no columns,
             every selected column holds values that can't be hashed, or
-            columns=None left out every column for holding fractions.
+            the default columns left out every column for holding fractions.
         failed: An anticipated computation failure stopped the search, and
-            `status_reason` gives its code and message. None is known today.
+            `status_reason` gives its code and message. No such failure is known today.
 
     Examples:
         >>> import pandas as pd
