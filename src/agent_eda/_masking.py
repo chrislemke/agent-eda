@@ -33,12 +33,12 @@ import pandas as pd
 
 from agent_eda._levels import Levels, label_types, ordered
 from agent_eda._project_file import TOML_EXAMPLE
+from agent_eda._result_base import Masking
 from agent_eda._text import placeholder
 from agent_eda._values import value_codes
 from agent_eda._wording import as_written, worded
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.project import Project
-from agent_eda.results import Masking
 
 __all__ = [
     "MaskedLevels",

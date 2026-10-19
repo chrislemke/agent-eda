@@ -9,20 +9,20 @@ from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
 from agent_eda._masking import mask_values, resolve_masking
 from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._registry import analysis
-from agent_eda._row_groups import find_row_groups
-from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS, data_shape, execution
-from agent_eda._text import format_number, plural
-from agent_eda.project import Project
-from agent_eda.results import (
+from agent_eda._result_base import (
     ColumnSupport,
-    FindDuplicateRowsResult,
     Finding,
     Limitation,
     Status,
     StatusReason,
     Support,
 )
+from agent_eda._row_groups import find_row_groups
+from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
+from agent_eda._run import NO_ROWS, data_shape, execution
+from agent_eda._text import format_number, plural
+from agent_eda.data._duplicates_results import FindDuplicateRowsResult
+from agent_eda.project import Project
 
 # Rows can be compared in columns of any dtype.
 _ANY_COLUMN = ColumnRule(

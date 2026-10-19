@@ -15,10 +15,10 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
+from agent_eda._result_base import Limitation
 from agent_eda._values import hashable_values, value_codes
 from agent_eda._wording import worded
 from agent_eda.errors import ColumnTypeError
-from agent_eda.results import Limitation
 
 # id_column may name a column of any dtype.
 _ID_COLUMN = ColumnRule(

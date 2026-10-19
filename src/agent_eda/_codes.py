@@ -1,6 +1,6 @@
 """What each code of the package-wide lists means.
 
-The lists are `Literal`s in `agent_eda.results`, with one comment above each
+The lists are `Literal`s in `agent_eda._result_base`, with one comment above each
 code. The comment is the only copy of the code's meaning, so that the list and
 its meanings can't disagree: describe_analysis and the README's Reference read
 the comments from here.
@@ -12,8 +12,8 @@ import io
 import tokenize
 import typing
 
-from agent_eda import results
-from agent_eda.results import LimitationCode, StatusReasonCode
+from agent_eda import _result_base
+from agent_eda._result_base import LimitationCode, StatusReasonCode
 
 
 def status_reason_meanings() -> dict[StatusReasonCode, str]:
@@ -32,7 +32,7 @@ def limitation_meanings() -> dict[LimitationCode, str]:
 
 @functools.cache
 def _meanings(name: str, literal: object) -> dict[str, str]:
-    """The comment above each code of the `Literal` that `results.<name>` assigns.
+    """The comment above each code of the `Literal` that `_result_base.<name>` assigns.
 
     A code without a comment, or every code when the source isn't available,
     has an empty meaning.
@@ -40,7 +40,7 @@ def _meanings(name: str, literal: object) -> dict[str, str]:
     codes = typing.get_args(literal)
     found: dict[str, str] = {}
     try:
-        source = inspect.getsource(results)
+        source = inspect.getsource(_result_base)
         tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
     except (OSError, TypeError, tokenize.TokenError):
         return dict.fromkeys(codes, "")

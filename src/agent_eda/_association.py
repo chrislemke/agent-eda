@@ -29,7 +29,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from agent_eda.results import UndefinedReason
+from agent_eda.statistics._association_results import UndefinedReason
 
 # The measures of a pair of numeric columns.
 NumericMethod = Literal["pearson", "spearman", "kendall"]

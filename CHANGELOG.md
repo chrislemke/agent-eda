@@ -72,6 +72,7 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 ### Moved
 
 - `describe_dataset` lives in `agent_eda.data.structure`, which `ae.list_analyses()` reports as its module. `agent_eda.data.provenance` no longer exists. `ae.describe_dataset` is unchanged.
+- Result classes are defined in private modules next to their analyses, so a class's `__module__` is no longer `agent_eda.results`. `ae.results.<Name>` and `from agent_eda.results import <Name>` still give every class, and a result pickled with 0.1.0 still loads. Records, printed text and tables are byte-identical.
 
 ### Changed
 

@@ -25,6 +25,15 @@ from agent_eda._keys import (
 )
 from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._registry import analysis
+from agent_eda._result_base import (
+    ColumnSupport,
+    ExclusionReason,
+    Finding,
+    Limitation,
+    Status,
+    StatusReason,
+    Support,
+)
 from agent_eda._row_ids import duplicated_labels
 from agent_eda._run import (
     budget_exceeded_reason,
@@ -34,21 +43,14 @@ from agent_eda._run import (
 )
 from agent_eda._text import MAX_NAMED, join_labels, label_text, plural
 from agent_eda._values import is_constant, nan_as_missing, value_codes
-from agent_eda.results import (
+from agent_eda.data._structure_results import (
     CandidateKey,
-    ColumnSupport,
     DescribeDatasetColumn,
     DescribeDatasetIndex,
     DescribeDatasetResult,
-    ExclusionReason,
     FindCandidateKeysResult,
-    Finding,
     KeySearch,
-    Limitation,
     Provenance,
-    Status,
-    StatusReason,
-    Support,
 )
 
 # A budget message suggests raising max_combinations only up to this: beyond it

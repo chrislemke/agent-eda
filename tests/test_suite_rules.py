@@ -317,7 +317,7 @@ def test_no_name_uses_a_word_the_glossary_avoids():
 def test_no_result_field_description_uses_a_word_the_glossary_avoids():
     found = [
         f"{cls.__name__}.{name}: {field.description}"
-        for cls in vars(ae.results).values()
+        for cls in (getattr(ae.results, public) for public in dir(ae.results))
         if isinstance(cls, type) and issubclass(cls, pydantic.BaseModel)
         for name, field in cls.model_fields.items()
         if AVOIDED_WORDS.search((field.description or "").replace("output schema", ""))

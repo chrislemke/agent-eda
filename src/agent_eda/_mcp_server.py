@@ -22,6 +22,7 @@ from agent_eda._annotations import type_text
 from agent_eda._data_files import (
     DataReader,
 )
+from agent_eda._discovery_results import AnalysisListing, SearchListing
 from agent_eda._local_files import path_argument
 from agent_eda._mcp_instructions import GUARDRAIL, instructions
 from agent_eda._registry import (
@@ -32,6 +33,7 @@ from agent_eda._registry import (
     unknown_name_message,
     validate_json,
 )
+from agent_eda._result_base import AnalysisResult
 from agent_eda._sentinels import read_iso
 from agent_eda._table_files import (
     RECORD_KEY,
@@ -47,7 +49,6 @@ from agent_eda._wording import message as worded_message
 from agent_eda.discovery import list_analyses, search_analyses
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
-from agent_eda.results import AnalysisListing, AnalysisResult, SearchListing
 
 _log = logging.getLogger("agent_eda.mcp")
 

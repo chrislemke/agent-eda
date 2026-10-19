@@ -27,26 +27,28 @@ from agent_eda._numeric import (
     stored_nan_count,
 )
 from agent_eda._registry import analysis
-from agent_eda._run import NO_ROWS, budget_exceeded_reason, data_shape, execution
-from agent_eda._text import join_items, join_labels, plural
-from agent_eda._values import value_codes
-from agent_eda.errors import InvalidArgumentError
-from agent_eda.results import (
-    AssociationColumn,
-    AssociationMethod,
-    AssociationPair,
-    AssociationType,
+from agent_eda._result_base import (
     ColumnSupport,
-    ComputeAssociationMatrixResult,
     ExclusionReason,
     Finding,
-    LeftOutColumn,
-    LeftOutReason,
     Limitation,
     LimitationCode,
     Status,
     StatusReason,
     Support,
+)
+from agent_eda._run import NO_ROWS, budget_exceeded_reason, data_shape, execution
+from agent_eda._text import join_items, join_labels, plural
+from agent_eda._values import value_codes
+from agent_eda.errors import InvalidArgumentError
+from agent_eda.statistics._association_results import (
+    AssociationColumn,
+    AssociationMethod,
+    AssociationPair,
+    AssociationType,
+    ComputeAssociationMatrixResult,
+    LeftOutColumn,
+    LeftOutReason,
     UndefinedReason,
 )
 
