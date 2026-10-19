@@ -216,7 +216,7 @@ def test_file_formats_are_told_apart_in_one_module_only():
 def test_single_analysis_engines_sit_beside_their_analysis():
     root = {path.name for path in PACKAGE.glob("*.py")}
 
-    assert {"_keys.py", "_conversions.py", "_sentinel_rules.py"} <= {
+    assert {"_keys.py", "_value_reading.py", "_sentinel_rules.py"} <= {
         path.name for path in (PACKAGE / "data").glob("*.py")
     }
     assert "_association.py" in {
@@ -226,7 +226,11 @@ def test_single_analysis_engines_sit_beside_their_analysis():
         "_association.py",
         "_keys.py",
         "_conversions.py",
+        "_value_reading.py",
         "_sentinel_rules.py",
+    }
+    assert "_conversions.py" not in {
+        path.name for path in (PACKAGE / "data").glob("*.py")
     }
 
 
@@ -290,3 +294,24 @@ def test_one_closest_name_helper_and_one_type_renderer():
 
     assert difflib_users == [pkg("PKG._text")]
     assert renderers == [pkg("PKG._annotations")]
+
+
+def test_one_engine_reads_the_values_of_a_column_for_both_type_analyses():
+    engine = PACKAGE / "data" / "_value_reading.py"
+    validation = (PACKAGE / "data" / "validation.py").read_text(encoding="utf-8")
+
+    assert {"read_values", "ValueReading"} <= top_level_names(engine)
+    # Neither analysis numbers, counts or parses a column's values itself.
+    walkers = ("value_codes", "count_levels", "read_texts", "value_kind", "factorize")
+    assert [name for name in walkers if name in validation] == []
+
+
+def test_column_spec_sits_with_the_other_declarations():
+    assert "ColumnSpec" in top_level_names(PACKAGE / "_declarations.py")
+    assert "ColumnSpec" not in top_level_names(PACKAGE / "data" / "validation.py")
+
+
+def test_column_spec_is_still_importable_from_its_old_places():
+    from agent_eda.data.validation import ColumnSpec
+
+    assert ae.ColumnSpec is ColumnSpec

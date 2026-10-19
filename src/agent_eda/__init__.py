@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from agent_eda import project as project
     from agent_eda import results as results
     from agent_eda import statistics as statistics
+    from agent_eda._declarations import ColumnSpec
     from agent_eda._version import __version__
     from agent_eda.data.duplicates import find_duplicate_rows
     from agent_eda.data.missingness import (
@@ -33,7 +34,6 @@ if TYPE_CHECKING:
     from agent_eda.data.structure import describe_dataset, find_candidate_keys
     from agent_eda.data.targets import profile_target
     from agent_eda.data.validation import (
-        ColumnSpec,
         infer_column_semantics,
         validate_column_types,
     )
@@ -79,7 +79,7 @@ __all__ = [
 # here; ae.list_analyses() imports these modules to find them.
 _EXPORTS: dict[str, str] = {
     "AnalysisResult": "agent_eda.results",
-    "ColumnSpec": "agent_eda.data.validation",
+    "ColumnSpec": "agent_eda._declarations",
     "DataPolicy": "agent_eda.project",
     "LogicalType": "agent_eda.results",
     "Project": "agent_eda.project",
