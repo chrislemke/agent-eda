@@ -171,8 +171,8 @@ def summarize_numeric(
         Both findings are suspected:
 
         - `constant_columns`: suspected; a column holds a single distinct non-missing
-          value in at least two rows, decided on the stored values, so distinct
-          integers beyond 2^53 aren't constant, with NaN as missing.
+          value in at least two rows, on stored values; NaN is
+          missing.
         - `infinite_values`: suspected; a column holds inf or -inf, which every
           statistic leaves out.
 

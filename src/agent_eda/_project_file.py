@@ -29,6 +29,7 @@ in front of the agent.
 
 import codecs
 import contextlib
+import errno
 import os
 import re
 import stat
@@ -38,6 +39,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from agent_eda._local_files import os_cause
 from agent_eda._registry import _value_text, python_scalar
 from agent_eda._text import Surface, a_or_an, closest_names, join_items
 from agent_eda._wording import message, worded
@@ -214,12 +216,19 @@ def _read_bytes(given: str) -> bytes:
 
 def _unreadable(given: str, error: OSError) -> str:
     """Say why the operating system refused the file, and how to fix it."""
-    reason = error.strerror or type(error).__name__
-    return (
-        f"Project.load can't read {_where(given)}: {reason}. Give the user that "
-        "runs this process read permission on the file, or pass the path of a "
-        "project file it can read."
-    )
+    if error.errno in (errno.EACCES, errno.EPERM):
+        reason = error.strerror or type(error).__name__
+        fix = (
+            "Give the user that runs this process read permission on the file, or "
+            "pass the path of a project file it can read."
+        )
+    else:
+        cause = os_cause(error)
+        reason = f"{error.strerror} ({cause})" if error.strerror else cause
+        fix = (
+            "Pass the path of a project file the user that runs this process can read."
+        )
+    return f"Project.load can't read {_where(given)}: {reason}. {fix}"
 
 
 def invalid(path: str | os.PathLike[str], error: AgentEDAError) -> ProjectFileError:

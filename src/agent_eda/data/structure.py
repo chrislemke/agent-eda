@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from typing import Annotated, get_args
 
+import numpy as np
 import pandas as pd
 from annotated_types import Ge
 
@@ -35,6 +36,10 @@ from agent_eda.results import (
     StatusReason,
     Support,
 )
+
+# A budget message suggests raising max_combinations only up to this: beyond it
+# the search takes too long to be worth suggesting.
+MAX_SUGGESTED_COMBINATIONS = 1_000_000
 
 # Any column can be part of a key; one whose values can't be hashed is left out
 # when the search starts, since only its values tell.
@@ -82,9 +87,12 @@ def find_candidate_keys(
         share their values. It lists minimal keys, keys with missing values,
         which can't serve as primary keys, and, when no key exists, the column
         sets closest to one, such as an ID broken by a few duplicates. Missing
-        values compare equal, as in pandas' DataFrame.duplicated. For each column's
-        distinct and missing counts, call `describe_dataset`; `list_analyses`
-        lists the other analyses.
+        values compare equal, whichever kind they are: None, NaN, NaT and pd.NA
+        are one value, though pandas' duplicated tells None from NaN in an object
+        column. With columns=None, float columns holding a fraction are left out:
+        a measurement such as 0.5 is no identifier, and listing them buries the
+        real keys. For each column's distinct and missing counts, call
+        `describe_dataset`; `list_analyses` lists the other analyses.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -94,9 +102,15 @@ def find_candidate_keys(
             order to report them: a list, a tuple, a pandas Index or a single
             name. Columns of every dtype are accepted; one whose values can't be
             hashed, such as lists, is left out and named in left_out_columns.
-            None, the default, searches every column, in DataFrame order.
+            None, the default, searches every column in DataFrame order, except
+            the non-integral float columns: floats of which some finite value
+            isn't a whole number, such as 0.5. They are named in
+            non_integral_float_columns with a limitation. Name one in columns to
+            search it. A float column holding only whole numbers, with or without
+            missing values, stays a candidate.
         max_key_size (int): The most columns a key may combine, at least 1;
-            defaults to 2. Each column more multiplies the sets to examine.
+            defaults to 2. Each column more multiplies the sets to examine. A value
+            above the number of searched columns acts as that number.
         max_combinations (int): The most column sets the search examines, at
             least 1; defaults to 10,000, which covers every set of up to 2 of
             140 columns. Supersets of keys aren't examined and don't count. A
@@ -124,10 +138,12 @@ def find_candidate_keys(
         rows. The ranking counts sets on all rows, highest upper bound first,
         until the bounds prove that no other set ranks higher. If that would
         hash more rows than 100 passes over the data, or 100,000,000, it stops
-        with a `ranking_not_proven` limitation. `unhashable_values` names the
-        columns left out. `nan_counted_as_missing` names the columns that store
-        NaN as a value, which counts as missing here though pandas' `isna`
-        doesn't count it.
+        with a `ranking_not_proven` limitation. `left_out_columns` names the
+        columns left out for unhashable values, with an `unhashable_values`
+        limitation, and `non_integral_float_columns` the float columns left out
+        for their fractions, with a `non_integral_float_columns` limitation.
+        `nan_counted_as_missing` names the columns that store NaN as a value,
+        which counts as missing here though pandas' `isna` doesn't count it.
 
         Every finding is descriptive:
 
@@ -144,11 +160,12 @@ def find_candidate_keys(
         budget_exceeded: The complete search covers more column sets than
             max_combinations allows. It stopped at the limit and kept what it
             found, and `status_reason` says how many sets the complete search
-            covers.
+            covers and the largest max_key_size that fits max_combinations.
         insufficient_data: The data has fewer than 2 rows, which any column
             identifies.
-        not_applicable: No column can be searched: the data has no columns, or
-            every selected column holds values that can't be hashed.
+        not_applicable: No column can be searched: the data has no columns,
+            every selected column holds values that can't be hashed, or
+            columns=None left out every column for holding fractions.
         failed: An anticipated computation failure stopped the search, and
             `status_reason` gives its code and message. None is known today.
 
@@ -187,11 +204,21 @@ def find_candidate_keys(
     """
     selection = select_columns("find_candidate_keys", data, columns, _ANY_COLUMN)
     selected = selection.columns
+    measurements: list[str] = []
+    if columns is None:
+        measurements = [
+            column.name
+            for column in selected
+            if _holds_fractions(data.iloc[:, column.position])
+        ]
+        selected = [column for column in selected if column.name not in measurements]
     row_count = len(data)
     values = {column.name: data.iloc[:, column.position] for column in selected}
     left_out = [name for name, series in values.items() if not hashable(series)]
     names = [name for name in values if name not in left_out]
-    status, status_reason = _status_before_search(row_count, values, names)
+    status, status_reason = _status_before_search(
+        row_count, values, names, measurements
+    )
     ranking = None
     combination_count = 0
     if status is None:
@@ -203,6 +230,7 @@ def find_candidate_keys(
         status = "completed"
         if tally.stopped:
             status = "budget_exceeded"
+            fitting = searcher.largest_key_size_within(max_combinations, max_key_size)
             status_reason = budget_exceeded_reason(
                 code="too_many_combinations",
                 needs="The complete search covers up to",
@@ -215,6 +243,8 @@ def find_candidate_keys(
                     "what it found"
                 ),
                 narrow="pass fewer columns",
+                lower=("max_key_size", fitting) if fitting else None,
+                raise_up_to=MAX_SUGGESTED_COMBINATIONS,
             )
         if not tally.keys:
             ranking = searcher.rank(tally.non_keys)
@@ -261,10 +291,11 @@ def find_candidate_keys(
         ],
         limitations=[
             *stored_nan_limitations(
-                [name for name in values if stored_nan_count(values[name])],
+                [name for name in names if stored_nan_count(values[name])],
                 ["keys_with_missing_values", "most_unique_column_sets"],
                 "missing_row_count counts it",
             ),
+            *_non_integral_float_columns(measurements),
             *_unhashable_values(left_out),
             *_ranking_not_proven(ranking, tally),
         ],
@@ -282,6 +313,7 @@ def find_candidate_keys(
             subset_row_count=min(row_count, SUBSET_ROWS),
         ),
         left_out_columns=left_out,
+        non_integral_float_columns=measurements,
     )
 
 
@@ -381,6 +413,13 @@ _ONE_ROW = StatusReason(
 _NO_COLUMNS = StatusReason(
     code="no_columns", message="The data has no columns to search."
 )
+_ONLY_MEASUREMENTS = StatusReason(
+    code="no_columns",
+    message=(
+        "Every column holds non-integral floats, which are measurements rather than "
+        "IDs and are left out unless columns names them."
+    ),
+)
 _NO_HASHABLE_COLUMNS = StatusReason(
     code="no_hashable_columns",
     message=(
@@ -391,11 +430,18 @@ _NO_HASHABLE_COLUMNS = StatusReason(
 
 
 def _status_before_search(
-    row_count: int, values: dict[str, pd.Series], names: list[str]
+    row_count: int,
+    values: dict[str, pd.Series],
+    names: list[str],
+    measurements: list[str],
 ) -> tuple[Status | None, StatusReason | None]:
     """The status when the data allows no search; None for both when it does."""
     if row_count == 0 or not values:
-        return overall_status(row_count, [], no_columns=_NO_COLUMNS)
+        return overall_status(
+            row_count,
+            [],
+            no_columns=_ONLY_MEASUREMENTS if measurements else _NO_COLUMNS,
+        )
     if row_count == 1:
         return "insufficient_data", _ONE_ROW
     if not names:
@@ -441,6 +487,32 @@ def _ranking_not_proven(
                 "before the work limit; an uncounted set could rank higher."
             ),
             fields=["most_unique_column_sets"],
+        )
+    ]
+
+
+def _holds_fractions(values: pd.Series) -> bool:
+    """Whether a float column holds a finite value that isn't a whole number."""
+    if not pd.api.types.is_float_dtype(values.dtype):
+        return False
+    numbers = values.to_numpy(dtype=np.float64, na_value=np.nan)
+    return bool(np.any(np.isfinite(numbers) & (numbers != np.floor(numbers))))
+
+
+def _non_integral_float_columns(measurements: list[str]) -> list[Limitation]:
+    if not measurements:
+        return []
+    columns = plural(len(measurements), "column", "columns")
+    them = "it" if len(measurements) == 1 else "them"
+    return [
+        Limitation(
+            code="non_integral_float_columns",
+            reason=(
+                f"The search left out {columns} holding non-integral floats, which "
+                f"are measurements rather than IDs: {join_labels(measurements)}. "
+                f"Name {them} in columns to search {them}."
+            ),
+            fields=["non_integral_float_columns"],
         )
     ]
 

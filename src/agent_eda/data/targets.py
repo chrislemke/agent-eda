@@ -246,9 +246,7 @@ def profile_target(
           target that aren't missing are all distinct, as an identifier's or a
           measurement's are, not class labels'.
         - `constant_target`: violation; at least two values of a regression
-          target aren't missing and all of them are equal, decided on the stored
-          values as every analysis does: distinct integers beyond 2^53 aren't
-          equal, and NaN is missing.
+          target aren't missing and all of them are equal; NaN is missing.
         - `infinite_values`: suspected; a regression target holds inf or -inf,
           which every statistic leaves out.
         - `missing_labels`: descriptive; rows have no target value.

@@ -26,6 +26,7 @@ import jsonschema
 import pandas as pd
 from mcp import Client
 from recipes import recipe_for
+from serving import serving
 
 import agent_eda as ae
 from agent_eda.mcp import create_server
@@ -280,7 +281,7 @@ def test_the_output_schema_names_no_python_method_of_the_result(tools, name):
 
 def test_a_parameter_without_a_json_schema_stops_the_mcp_server_from_starting():
     with pytest.raises(TypeError) as raised:
-        create_server(analyses=[ae.describe_dataset, check_rule])
+        serving(ae.describe_dataset, check_rule)
 
     assert str(raised.value) == (
         "check_rule can't be an MCP tool: its parameter rule has the type "
@@ -291,7 +292,7 @@ def test_a_parameter_without_a_json_schema_stops_the_mcp_server_from_starting():
 
 
 def test_the_mcp_server_serves_the_analyses_it_is_given():
-    tools = anyio.run(list_tools, create_server(analyses=[ae.describe_dataset]))
+    tools = anyio.run(list_tools, serving(ae.describe_dataset))
 
     assert [tool.name for tool in tools] == [*DISCOVERY, "describe_dataset"]
 

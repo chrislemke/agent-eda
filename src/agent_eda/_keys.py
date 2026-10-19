@@ -1,7 +1,7 @@
 """The search for column sets that identify rows: candidate keys.
 
 A column set is a key when no two rows share its combination of values, with
-missing values compared equal, as pandas' DataFrame.duplicated compares them. A
+missing values of every kind (None, NaN, NaT, NA) compared equal. A
 superset of a key is a key too, but not a minimal one, so the search examines
 single columns first, then sets of increasing size built only from smaller
 sets that aren't keys.
@@ -229,9 +229,21 @@ class Searcher:
 
     def combination_count(self, max_key_size: int) -> int:
         """Column sets of 1 to max_key_size columns: the most the search examines."""
-        return sum(
-            math.comb(len(self.columns), size) for size in range(1, max_key_size + 1)
-        )
+        largest = min(max_key_size, len(self.columns))
+        return sum(math.comb(len(self.columns), size) for size in range(1, largest + 1))
+
+    def largest_key_size_within(self, max_combinations: int, max_key_size: int) -> int:
+        """The most columns a key may combine for the sets to fit max_combinations.
+
+        At most max_key_size; 0 when even the single columns don't fit.
+        """
+        count, fitting = 0, 0
+        for size in range(1, min(max_key_size, len(self.columns)) + 1):
+            count += math.comb(len(self.columns), size)
+            if count > max_combinations:
+                break
+            fitting = size
+        return fitting
 
     def search(self, *, max_key_size: int, max_combinations: int) -> KeySearchTally:
         """Examine sets in increasing size until none is left or the limit is hit."""

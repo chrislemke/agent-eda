@@ -120,8 +120,7 @@ def describe_dataset(
           rows.
         - `all_missing_columns`: suspected; a column holds only missing values.
         - `constant_columns`: suspected; a column holds a single distinct non-missing
-          value in at least two rows, decided on the stored values (distinct
-          integers beyond 2^53 are not constant) with NaN as missing.
+          value in at least two rows; NaN is missing.
 
     Statuses:
         completed: The description finished, also for data with no rows, no
