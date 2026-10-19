@@ -9,9 +9,9 @@ from annotated_types import Ge
 from agent_eda._columns import ColumnKind, ColumnRule, select_columns
 from agent_eda._keys import (
     SUBSET_ROWS,
+    KeySearchTally,
     Ranking,
     Searcher,
-    SearchOutcome,
     SetCounts,
     hashable,
 )
@@ -194,11 +194,11 @@ def find_candidate_keys(
     if status is None:
         searcher = Searcher([values[name] for name in names])
         combination_count = searcher.combination_count(max_key_size)
-        outcome = searcher.search(
+        tally = searcher.search(
             max_key_size=max_key_size, max_combinations=max_combinations
         )
         status = "completed"
-        if outcome.stopped:
+        if tally.stopped:
             status = "budget_exceeded"
             status_reason = budget_exceeded_reason(
                 code="too_many_combinations",
@@ -207,25 +207,23 @@ def find_candidate_keys(
                 unit=("column set", "column sets"),
                 parameter="max_combinations",
                 limit=max_combinations,
-                outcome=(
-                    f"it stopped after examining {outcome.examined_count:,} and kept "
+                consequence=(
+                    f"it stopped after examining {tally.examined_count:,} and kept "
                     "what it found"
                 ),
                 narrow="pass fewer columns",
             )
-        if not outcome.keys:
-            ranking = searcher.rank(outcome.non_keys)
+        if not tally.keys:
+            ranking = searcher.rank(tally.non_keys)
     else:
-        outcome = SearchOutcome()
+        tally = KeySearchTally()
     keys = [
         _candidate(key, names, row_count)
-        for key in outcome.keys
+        for key in tally.keys
         if not key.missing_row_count
     ]
     with_missing = [
-        _candidate(key, names, row_count)
-        for key in outcome.keys
-        if key.missing_row_count
+        _candidate(key, names, row_count) for key in tally.keys if key.missing_row_count
     ]
     most_unique = [
         _candidate(counts, names, row_count)
@@ -254,13 +252,13 @@ def find_candidate_keys(
             *_no_key_found(
                 most_unique,
                 largest=min(max_key_size, len(names)),
-                examined=outcome.examined_count,
+                examined=tally.examined_count,
                 exhaustive=exhaustive,
             ),
         ],
         limitations=[
             *_unhashable_values(left_out),
-            *_ranking_not_proven(ranking, outcome),
+            *_ranking_not_proven(ranking, tally),
         ],
         execution=execution(("numpy", "pandas")),
         keys=keys,
@@ -268,11 +266,11 @@ def find_candidate_keys(
         most_unique_column_sets=most_unique,
         exhaustive=exhaustive,
         search=KeySearch(
-            column_count=len(names) if outcome.examined_count else 0,
+            column_count=len(names) if tally.examined_count else 0,
             combination_count=combination_count,
-            examined_count=outcome.examined_count,
-            rejected_on_subset_count=outcome.rejected_on_subset_count,
-            checked_on_all_rows_count=outcome.checked_on_all_rows_count,
+            examined_count=tally.examined_count,
+            rejected_on_subset_count=tally.rejected_on_subset_count,
+            checked_on_all_rows_count=tally.checked_on_all_rows_count,
             subset_row_count=min(row_count, SUBSET_ROWS),
         ),
         left_out_columns=left_out,
@@ -421,12 +419,12 @@ def _support(name: str, row_count: int, left_out: bool) -> ColumnSupport:
 
 
 def _ranking_not_proven(
-    ranking: Ranking | None, outcome: SearchOutcome
+    ranking: Ranking | None, tally: KeySearchTally
 ) -> list[Limitation]:
     if ranking is None or ranking.proven:
         return []
     # Sets of 2 or more columns: single columns cost nothing to count.
-    examined = sum(len(positions) > 1 for positions, _ in outcome.non_keys)
+    examined = sum(len(positions) > 1 for positions, _ in tally.non_keys)
     return [
         Limitation(
             code="ranking_not_proven",

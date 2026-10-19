@@ -67,7 +67,7 @@ def extension_text(path: str) -> str:
 
 
 def path_argument(
-    tool: str, argument: str, value: object, *, what: str, nullable: bool
+    analysis: str, argument: str, value: object, *, what: str, nullable: bool
 ) -> str:
     """The value of a path argument, such as data_path; raise unless it is text.
 
@@ -80,6 +80,6 @@ def path_argument(
         return value
     allowed = "a string or null" if nullable else "a string"
     raise InvalidArgumentError(
-        f"{tool} got {value!r} for {argument}, but {argument} must be {allowed}: "
+        f"{analysis} got {value!r} for {argument}, but {argument} must be {allowed}: "
         f"{what}, {_RELATIVE}."
     )

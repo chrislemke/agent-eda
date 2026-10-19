@@ -89,15 +89,15 @@ def test_an_unknown_name_raises_with_the_closest_analysis_names(name, closest):
 
 @given(name=st.text() | st.sampled_from(ANALYSES))
 def test_any_name_gives_a_description_or_an_unknown_analysis_error(name):
-    outcome = description_or_error(name)
+    described = description_or_error(name)
 
-    if isinstance(outcome, UnknownAnalysisError):
-        assert outcome.code == "unknown_analysis"
-        assert str(outcome).startswith(
+    if isinstance(described, UnknownAnalysisError):
+        assert described.code == "unknown_analysis"
+        assert str(described).startswith(
             f"describe_analysis got an unknown analysis {name!r}."
         )
     else:
-        assert outcome.name in ANALYSES
+        assert described.name in ANALYSES
 
 
 def description_or_error(name):

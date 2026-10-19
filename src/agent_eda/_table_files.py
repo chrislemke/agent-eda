@@ -47,7 +47,7 @@ class TableFile:
         Raises:
             TableFileExistsError: a file appeared at the path after the check.
             InvalidArgumentError: the directory went away after the check, or
-                the server may not write there.
+                the MCP server may not write there.
         """
         content = _encode(_cells(table), self.file_format)
         try:

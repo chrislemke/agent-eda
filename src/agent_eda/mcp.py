@@ -82,7 +82,7 @@ def create_server(
             and an AnalysisResult subclass as the return type) and is called
             as it is, without the registry's checks. The discovery MCP tools
             and the instructions still cover every registered analysis, so
-            they name MCP tools a server built with a subset doesn't have.
+            they name MCP tools an MCP server built with a subset doesn't have.
             Serving a subset or an unregistered function is unsupported
             outside tests.
         project: The MCP server's Project, such as

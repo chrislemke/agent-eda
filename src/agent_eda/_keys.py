@@ -157,7 +157,7 @@ def _smallest_unsigned(size: int) -> type[np.unsignedinteger]:
 
 
 @dataclass
-class SearchOutcome:
+class KeySearchTally:
     """What the search examined and found."""
 
     keys: list[SetCounts] = field(default_factory=list)
@@ -215,41 +215,41 @@ class Searcher:
             math.comb(len(self.columns), size) for size in range(1, max_key_size + 1)
         )
 
-    def search(self, *, max_key_size: int, max_combinations: int) -> SearchOutcome:
+    def search(self, *, max_key_size: int, max_combinations: int) -> KeySearchTally:
         """Examine sets in increasing size until none is left or the limit is hit."""
-        outcome = SearchOutcome()
+        tally = KeySearchTally()
         previous: list[tuple[int, ...]] = []
         for size in range(1, min(max_key_size, len(self.columns)) + 1):
             non_keys: list[tuple[int, ...]] = []
             for prefix, all_partners in self._batches(size, previous):
-                room = max_combinations - outcome.examined_count
+                room = max_combinations - tally.examined_count
                 partners = all_partners[:room]
                 if len(partners) < len(all_partners):
-                    outcome.stopped = True
+                    tally.stopped = True
                 if not partners:
                     break
-                outcome.examined_count += len(partners)
+                tally.examined_count += len(partners)
                 subset_repeats = self._subset_repeats(prefix, partners)
                 for partner, repeats in zip(partners, subset_repeats, strict=True):
                     candidate = (*prefix, partner)
                     if not repeats and self._uses_quarter(candidate):
                         repeats = self.repeats(candidate, step=QUARTER_STEP)
                     if repeats:
-                        outcome.rejected_on_subset_count += 1
+                        tally.rejected_on_subset_count += 1
                     else:
-                        outcome.checked_on_all_rows_count += 1
+                        tally.checked_on_all_rows_count += 1
                         repeats = self.repeats(candidate)
                         if not repeats:
-                            outcome.keys.append(self.count(candidate))
+                            tally.keys.append(self.count(candidate))
                             continue
                     non_keys.append(candidate)
-                    outcome.non_keys.append((candidate, int(repeats)))
-                if outcome.stopped:
+                    tally.non_keys.append((candidate, int(repeats)))
+                if tally.stopped:
                     break
-            if outcome.stopped or not non_keys:
+            if tally.stopped or not non_keys:
                 break
             previous = non_keys
-        return outcome
+        return tally
 
     def _uses_quarter(self, positions: tuple[int, ...]) -> bool:
         """Whether a set is checked on every 4th row before all rows.

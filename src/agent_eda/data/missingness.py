@@ -570,7 +570,7 @@ def detect_missing_sentinels(
             check.
         not_applicable: There is no column to check: the data has no columns,
             or only id_column, which columns=None leaves out.
-        failed: An anticipated failure stopped the check, and `status_reason`
+        failed: An anticipated failure stopped the analysis, and `status_reason`
             gives its code and message. None is known today.
 
     Examples:

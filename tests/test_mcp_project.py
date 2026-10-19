@@ -234,7 +234,7 @@ def test_a_project_path_that_is_not_a_string_is_a_tool_error(tmp_path):
     assert "project_path" in response.structured_content["message"]
 
 
-def test_the_server_project_applies_to_every_call_that_takes_one(tmp_path):
+def test_the_mcp_server_project_applies_to_every_call_that_takes_one(tmp_path):
     data_path = write(tmp_path / "shop.csv", CSV)
     project = ae.Project.load(write(tmp_path / "project.toml", MASKED))
     expected = ae.summarize_categorical(read(data_path), project=project)
@@ -247,7 +247,7 @@ def test_the_server_project_applies_to_every_call_that_takes_one(tmp_path):
     assert response.structured_content["masking"]["decided_by"] == "project"
 
 
-def test_the_server_project_leaves_analyses_without_one_alone(tmp_path):
+def test_the_mcp_server_project_leaves_analyses_without_one_alone(tmp_path):
     data_path = write(tmp_path / "shop.csv", CSV)
     project = ae.Project.load(write(tmp_path / "project.toml", MASKED))
     expected = ae.summarize_numeric(read(data_path))
@@ -260,9 +260,9 @@ def test_the_server_project_leaves_analyses_without_one_alone(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("server", "per_call", "mask_sensitive", "applied", "decided_by"),
+    ("mcp_server_project", "per_call", "mask_sensitive", "applied", "decided_by"),
     [
-        # A per-call project_path replaces the server's project.
+        # A per-call project_path replaces the MCP server's project.
         (MASKED, UNMASKED, None, False, "project"),
         (UNMASKED, MASKED, None, True, "project"),
         # A per-call mask_sensitive wins over either project.
@@ -276,20 +276,22 @@ def test_the_server_project_leaves_analyses_without_one_alone(tmp_path):
     ids=[
         "call-project-unmasks",
         "call-project-masks",
-        "call-false-over-server",
-        "call-true-over-server",
+        "call-false-over-mcp-server-project",
+        "call-true-over-mcp-server-project",
         "call-true-over-both",
         "call-false-over-both",
         "no-project",
     ],
 )
-def test_project_path_wins_over_the_server_project_and_mask_sensitive_over_both(
-    tmp_path, server, per_call, mask_sensitive, applied, decided_by
+def test_project_path_wins_over_the_mcp_server_project_and_mask_sensitive_over_both(
+    tmp_path, mcp_server_project, per_call, mask_sensitive, applied, decided_by
 ):
     data_path = write(tmp_path / "shop.csv", CSV)
     server_project = None
-    if server is not None:
-        server_project = ae.Project.load(write(tmp_path / "server.toml", server))
+    if mcp_server_project is not None:
+        server_project = ae.Project.load(
+            write(tmp_path / "mcp_server.toml", mcp_server_project)
+        )
     arguments = {"data_path": str(data_path), "mask_sensitive": mask_sensitive}
     call_project = server_project
     if per_call is not None:

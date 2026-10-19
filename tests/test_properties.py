@@ -88,10 +88,14 @@ def test_with_masking_on_no_value_of_a_sensitive_column_reaches_the_result(name,
     res = getattr(ae, name)(df, **arguments)
 
     assert res.masking.applied
-    outputs = {"the text": str(res), "to_json()": res.to_json(), **frames_as_text(res)}
+    renderings = {
+        "the text": str(res),
+        "to_json()": res.to_json(),
+        **frames_as_text(res),
+    }
     leaks = [
         f"{marker!r} in {where}"
-        for where, text in outputs.items()
+        for where, text in renderings.items()
         for marker in sorted(set(markers.values()))
         if marker in text.lower()
     ]

@@ -112,13 +112,13 @@ def budget_exceeded_reason(
     unit: tuple[str, str],
     parameter: str,
     limit: int,
-    outcome: str,
+    consequence: str,
     narrow: str,
 ) -> StatusReason:
     """Why a run hit its work limit: the work it needs, the limit and both fixes.
 
     The message reads "<needs> <required> <unit>, more than <parameter>=<limit>
-    allows; <outcome>. Raise <parameter> to <required>, or <narrow>.", such as
+    allows; <consequence>. Raise <parameter> to <required>, or <narrow>.", such as
     "The complete search covers up to 10 column sets, more than
     max_combinations=5 allows; it stopped after examining 5 and kept what it
     found. Raise max_combinations to 10, or pass fewer columns."
@@ -127,7 +127,7 @@ def budget_exceeded_reason(
         code=code,
         message=(
             f"{needs} {plural(required, *unit)}, more than {parameter}={limit:,} "
-            f"allows; {outcome}. Raise {parameter} to {required:,}, or {narrow}."
+            f"allows; {consequence}. Raise {parameter} to {required:,}, or {narrow}."
         ),
     )
 
