@@ -72,6 +72,7 @@ def test_records_every_parameter_with_its_default():
         "categorical_columns": [],
         "numeric_method": "pearson",
         "categorical_method": "cramers_v_bias_corrected",
+        "mixed_method": "correlation_ratio_bias_corrected",
         "max_categories": 50,
         "max_pairs": 5000,
     }
@@ -84,6 +85,7 @@ def test_records_the_parameters_as_given():
         categorical_columns=["zip"],
         numeric_method="kendall",
         categorical_method="cramers_v",
+        mixed_method="correlation_ratio",
         max_categories=10,
         max_pairs=100,
     )
@@ -94,6 +96,7 @@ def test_records_the_parameters_as_given():
         "categorical_columns": ["zip"],
         "numeric_method": "kendall",
         "categorical_method": "cramers_v",
+        "mixed_method": "correlation_ratio",
         "max_categories": 10,
         "max_pairs": 100,
     }
@@ -138,7 +141,7 @@ def test_numeric_codes_listed_as_categorical_count_as_categories():
     res = ae.compute_association_matrix(df, categorical_columns=["zip"])
 
     assert res.columns["zip"].type == "categorical"
-    assert pair(res, "zip", "age").method == "correlation_ratio"
+    assert pair(res, "zip", "age").method == "correlation_ratio_bias_corrected"
     assert pair(res, "zip", "region").method == "cramers_v_bias_corrected"
     without = ae.compute_association_matrix(df)
     assert without.columns["zip"].type == "numeric"
@@ -338,7 +341,7 @@ def test_correlation_ratio_matches_the_published_example():
     f = stats.f_oneway(*scores.values()).statistic
     between, within = len(scores) - 1, len(df) - len(scores)
 
-    res = ae.compute_association_matrix(df)
+    res = ae.compute_association_matrix(df, mixed_method="correlation_ratio")
 
     [found] = res.pairs
     assert found.method == "correlation_ratio"
@@ -598,8 +601,8 @@ def test_prints_the_strongest_pairs_and_names_both_tables():
     assert lines[1:3] == [
         "Pairs, each on its own complete rows: 3 numeric (pearson), 0 categorical "
         "(cramers_v_bias_corrected),",
-        "    3 mixed (correlation_ratio, from the categorical x_column to the numeric "
-        "y_column).",
+        "    3 mixed (correlation_ratio_bias_corrected, from the categorical x_column "
+        "to the numeric y_column).",
     ]
     assert lines[3] == "Skipped 1 column, see res.skipped_columns: 'when' (datetime)."
     assert lines[4] == "Pairs (6 of 6 shown):"
@@ -1001,12 +1004,19 @@ def reference_value(df, pair_entry):
         phi2 = max(0.0, chi2 / n - (k - 1) * (r - 1) / (n - 1))
         smaller = min(r - (r - 1) ** 2 / (n - 1), k - (k - 1) ** 2 / (n - 1))
         return np.sqrt(phi2 / (smaller - 1))
-    assert pair_entry.method == "correlation_ratio", pair_entry.method
+    assert pair_entry.method.startswith("correlation_ratio"), pair_entry.method
     # The correlation ratio, from pandas' group means.
     values = shifted(y)
     means = values.groupby(complete[x], observed=True).transform("mean")
     between = ((means - values.mean()) ** 2).sum()
-    return np.sqrt(between / ((values - values.mean()) ** 2).sum())
+    total = ((values - values.mean()) ** 2).sum()
+    if pair_entry.method == "correlation_ratio":
+        return np.sqrt(between / total)
+    # Kelley's epsilon squared, clipped at 0.
+    levels = complete[x].nunique()
+    within = total - between
+    epsilon_squared = (between - (levels - 1) * within / (len(values) - levels)) / total
+    return np.sqrt(max(epsilon_squared, 0.0))
 
 
 def random_frame(rows, seed):
@@ -1177,3 +1187,211 @@ def test_a_column_constant_in_a_pairs_rows_gives_a_null_pair():
     assert pair(res, "x", "y").undefined_reason == "constant_column"
     assert pair(res, "g", "x").undefined_reason == "constant_column"
     assert pair(res, "g", "y").value is not None
+
+
+def epsilon_squared(groups):
+    """Kelley's epsilon squared of numbers in groups, by hand: the between-group
+    sum of squares less (k - 1) within-group mean squares, over the total."""
+    values = np.concatenate([np.asarray(g, dtype=float) for g in groups])
+    grand = values.mean()
+    k, n = len(groups), len(values)
+    between = sum(len(g) * (np.mean(g) - grand) ** 2 for g in groups)
+    within = sum(((np.asarray(g, dtype=float) - np.mean(g)) ** 2).sum() for g in groups)
+    total = ((values - grand) ** 2).sum()
+    assert total == pytest.approx(between + within, abs=1e-9)
+    return (between - (k - 1) * within / (n - k)) / total
+
+
+def test_the_default_mixed_measure_is_the_bias_adjusted_correlation_ratio():
+    groups = {
+        "a": [4.0, 6.0, 5.5, 7.0],
+        "b": [8.0, 9.5, 7.5],
+        "c": [5.0, 4.5, 6.5, 8.5, 6.0],
+    }
+    df = pd.DataFrame(
+        {
+            "group": [g for g, values in groups.items() for _ in values],
+            "score": [v for values in groups.values() for v in values],
+        }
+    )
+    expected = np.sqrt(epsilon_squared(list(groups.values())))
+
+    res = ae.compute_association_matrix(df)
+
+    [found] = res.pairs
+    assert found.method == "correlation_ratio_bias_corrected"
+    assert found.direction == "x_to_y"
+    assert found.value == pytest.approx(expected, abs=1e-12)
+    assert found.value is not None
+    assert 0 < found.value < 1
+    plain = ae.compute_association_matrix(df, mixed_method="correlation_ratio")
+    assert plain.pairs[0].method == "correlation_ratio"
+    assert plain.pairs[0].value is not None
+    assert plain.pairs[0].value > found.value
+
+
+def test_a_pair_explained_less_than_chance_would_explain_it_scores_zero():
+    # Group means that differ less than the noise inside the groups: epsilon
+    # squared is below 0.
+    groups = [[1.0, 2.0], [1.2, 1.9], [0.8, 2.3]]
+    assert epsilon_squared(groups) < 0
+    df = pd.DataFrame(
+        {
+            "group": ["a", "a", "b", "b", "c", "c"],
+            "score": [v for values in groups for v in values],
+        }
+    )
+
+    res = ae.compute_association_matrix(df)
+
+    assert res.pairs[0].value == 0.0
+    assert res.pairs[0].undefined_reason is None
+
+
+def test_many_levels_of_noise_score_near_zero_by_default_and_high_when_plain():
+    # 40 levels in 60 rows: the plain ratio of two unrelated columns is about
+    # 0.8, the bias-adjusted one 0 half of the time and small otherwise.
+    rng = np.random.default_rng(0)
+    default, plain = [], []
+    for _ in range(20):
+        levels = np.r_[np.arange(40), rng.integers(0, 40, 20)]
+        df = pd.DataFrame({"zip": levels.astype(str), "noise": rng.normal(size=60)})
+        default.append(ae.compute_association_matrix(df).pairs[0].value)
+        plain.append(
+            ae.compute_association_matrix(df, mixed_method="correlation_ratio")
+            .pairs[0]
+            .value
+        )
+
+    assert np.mean(plain) > 0.7
+    assert np.mean(default) < 0.3
+    assert np.median(default) < 0.2
+    assert min(default) == 0.0
+
+
+def test_a_strong_relation_stays_strong_when_bias_adjusted():
+    rng = np.random.default_rng(1)
+    group = rng.choice(list("abcde"), size=500)
+    means = dict(zip("abcde", [0.0, 3.0, 6.0, 9.0, 12.0], strict=True))
+    df = pd.DataFrame(
+        {"g": group, "y": [means[g] for g in group] + rng.normal(size=500) * 0.1}
+    )
+
+    res = ae.compute_association_matrix(df)
+
+    assert res.pairs[0].value is not None
+    assert res.pairs[0].value > 0.99
+
+
+def test_a_level_for_every_row_gets_its_own_limitation_and_wording():
+    df = pd.DataFrame(
+        {
+            "id": ["a", "b", "c", "d", "e"],
+            "group": ["u", "u", "v", "v", "u"],
+            "score": [1.5, 2.0, 0.5, 3.0, 2.5],
+            "other": [5.0, 1.0, 2.0, 0.0, 9.0],
+        }
+    )
+
+    res = ae.compute_association_matrix(df)
+
+    [limitation] = [lim for lim in res.limitations if lim.code == "one_row_per_level"]
+    assert "too few complete rows" not in limitation.reason
+    assert "a level for every complete row" in limitation.reason
+    assert "('id', 'group')" in limitation.reason
+    positions = {(p.x_column, p.y_column): i for i, p in enumerate(res.pairs)}
+    assert sorted(limitation.fields) == sorted(
+        f"pairs[{positions[key]}].value"
+        for key in [("id", "group"), ("id", "score"), ("id", "other")]
+    )
+    assert all(lim.code != "too_few_values" for lim in res.limitations)
+
+
+def test_pairs_with_too_few_rows_keep_the_too_few_values_limitation():
+    res = ae.compute_association_matrix(undefined_frame())
+
+    [limitation] = [lim for lim in res.limitations if lim.code == "too_few_values"]
+    assert "Every measure needs at least 3." in limitation.reason
+    assert "level" not in limitation.reason
+
+
+def rank_frame(rows, columns):
+    """Columns the budget reads and nothing else: every value is 0."""
+    return pd.DataFrame(np.zeros((rows, columns), dtype=np.float32))
+
+
+@pytest.mark.parametrize("method", ["spearman", "kendall"])
+def test_rank_methods_count_each_numeric_pair_once_per_10000_rows(method):
+    df = rank_frame(rows=200_000, columns=12)  # 66 pairs, each counting 20
+
+    res = ae.compute_association_matrix(df, numeric_method=method, max_pairs=1_000)
+
+    assert res.status == "budget_exceeded"
+    assert res.pairs == []
+    assert res.status_reason is not None
+    assert res.status_reason.code == "too_many_pairs"
+    assert res.status_reason.message == (
+        f"The 12 paired columns make 66 pairs, and {method} ranks each of the 66 "
+        "numeric ones on 200,000 rows, which counts as 20 pairs, so the call "
+        "counts 1,320 pairs, more than max_pairs=1,000 allows; no pair was "
+        "computed. Raise max_pairs to 1,320, or name fewer columns in columns, or "
+        "use numeric_method='pearson', which counts each pair once."
+    )
+
+
+def test_pearson_counts_each_pair_once_whatever_the_rows():
+    res = ae.compute_association_matrix(
+        rank_frame(rows=200_000, columns=12), max_pairs=66
+    )
+
+    assert res.status == "insufficient_data"  # constant columns: every pair is null
+    assert len(res.pairs) == 66
+
+
+def test_a_rank_method_within_the_budget_still_runs():
+    df = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0, 5.0], "y": [2.0, 1.0, 4.0, 3.0, 5.0]})
+
+    res = ae.compute_association_matrix(df, numeric_method="kendall", max_pairs=1)
+
+    assert res.status == "completed"
+    assert res.pairs[0].method == "kendall"
+
+
+def test_the_budget_footer_offers_no_matrix_when_no_pair_was_computed():
+    res = ae.compute_association_matrix(mixed_frame(), max_pairs=5)
+
+    assert res.status == "budget_exceeded"
+    assert "table='matrix'" not in str(res)
+    assert "wide" not in str(res)
+
+
+def test_the_footer_still_offers_the_matrix_when_pairs_have_no_value():
+    res = ae.compute_association_matrix(undefined_frame(), columns=["x", "sparse"])
+
+    assert res.pairs
+    assert "res.to_frame(table='matrix')" in str(res)
+
+
+def test_a_pairs_value_follows_the_other_columns_only_in_the_last_digits():
+    # The sums behind every pair run over chunks of rows sized by the number of
+    # columns, so a pair's value can differ in its last digits with the columns
+    # in the call. The docstring says so; the difference stays far below 1e-12.
+    rng = np.random.default_rng(11)
+    rows = 20_000
+    df = pd.DataFrame({f"n{i}": rng.normal(size=rows) * 10**i + i for i in range(6)})
+    df["g"] = rng.choice(list("abcdefgh"), rows)
+    df["h"] = rng.choice(list("xyz"), rows)
+    df.loc[rng.random(rows) < 0.1, "n2"] = np.nan
+    full = {
+        frozenset((p.x_column, p.y_column)): p.value
+        for p in ae.compute_association_matrix(df).pairs
+    }
+
+    for columns in (["n0", "n1"], ["g", "n2", "n0"], ["n1", "n2", "g", "h"]):
+        res = ae.compute_association_matrix(df, columns=columns)
+        for p in res.pairs:
+            expected = full[frozenset((p.x_column, p.y_column))]
+            assert p.value == pytest.approx(expected, abs=1e-12)
+    docstring = ae.compute_association_matrix.__doc__
+    assert docstring is not None
+    assert "last digits" in " ".join(docstring.split())

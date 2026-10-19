@@ -15,11 +15,11 @@ It is written for three kinds of callers:
 - **11 first-look analyses**: structure, column types, missing values, sentinel values such as -999, distributions, duplicates, keys, the target and associations.
 - **Results you can read and parse**: `print(res)` gives at most 40 lines, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
-- **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package from inside Python.
-- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix: a misspelled column or keyword lists the available names and the closest match, and a file path as data points to `pd.read_csv` or `pd.read_parquet`.
-- **Opt-in masking** of sensitive columns, such as e-mail addresses, in everything a result shows.
+- **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package.
+- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix: a misspelled column lists the available names and the closest match, and a file path as data points to `pd.read_csv` or `pd.read_parquet`.
+- **Opt-in masking** of sensitive columns, such as e-mail addresses.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that don't write Python.
-- **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, all preinstalled in AgentCore Code Interpreter.
+- **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, preinstalled in AgentCore Code Interpreter.
 
 ## Installation
 
@@ -47,7 +47,7 @@ import pandas as pd
 
 import agent_eda as ae
 
-names = ["ann", "bo", "cy", "di", "ed", "flo", "gus", "bo"]
+names = ["ann", "bo", "cy", "di", "ed", "flo", "ann", "bo"]
 df = pd.DataFrame(
     {
         "customer_id": [101, 102, 103, 104, 105, 106, 107, 108],
@@ -98,7 +98,7 @@ The analyses are listed in the order `ae.guide()` suggests for a first look. Mos
 | 7 | `profile_target` | What does the target look like for this task? | `target_column`, `task` |
 | 8 | `compute_association_matrix` | How strongly are pairs of columns associated? | none |
 
-Every analysis takes `columns=` to limit it to some columns, except `describe_dataset`, `profile_target` and `validate_column_types`; the default uses every column it can. [Reference](#reference) lists every function with its arguments, result fields, findings and statuses; `help(ae.<name>)` and `ae.describe_analysis("<name>")` show all the options.
+Every analysis takes `columns=` to limit it to some columns, except `describe_dataset`, `profile_target` and `validate_column_types`; the default uses every column it can. [Reference](#reference) lists every function with its arguments, result fields, findings and statuses.
 
 Run all 11 first-look analyses on the sample data and print what they suspect:
 
@@ -128,10 +128,9 @@ infer_column_semantics: 1 column looks like an identifier, every value distinct:
 detect_missing_sentinels: 1 value in 1 column may stand in for missing values: 'age'.
 summarize_categorical: 1 column holds labels that differ only by case or surrounding spaces: 'plan'.
 find_duplicate_rows: 2 rows form 1 duplicate group; 1 is an excess copy (duplicate_share 0.125).
-compute_association_matrix: 3 pairs are perfectly associated, an absolute value of 1, so one column may duplicate or derive from the other: ('email', 'age'), ('email', 'income') and ('email', 'churned').
 ```
 
-Lines 2 to 4 are the three planted problems. The other two are expected: `customer_id` is meant to be an identifier, and `email` is unique for all but the duplicated customer, so it "predicts" every other column perfectly. A finding says what the data suggests; what it means is your call.
+Lines 2 to 4 are the planted problems. The first is expected: `customer_id` is an identifier. A finding says what the data suggests; what it means is your call.
 
 ### Other analyses
 
@@ -177,7 +176,7 @@ age = res.columns["age"]  # typed fields, such as age.median and age.std
 
 The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, with totals.
 
-A mistake in a call, such as a misspelled column or an unknown option, raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and a message with the fix. Data problems never raise; they show in the status, findings and limitations.
+A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and a message with the fix. Data problems never raise; they show in the status, findings and limitations.
 
 Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. NaN stored as a value in a pyarrow-backed or nullable float column is missing, with a limitation. Values pandas can't hash, such as lists, are the exception: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
@@ -216,10 +215,10 @@ Masked (data_policy.mask_sensitive=True): the values of column 'email' show as <
 Shares are of each column's non-missing values. Levels go by count, then label; most_common_levels has the top 10.
 Columns (1 of 1 shown):
 column  non_missing_count  missing_count  cardinality  most_common_levels
-email                   8              0            7  <masked 1>: 2 (25%), <masked 2>: 1 (12.5%), <masked 3>: 1 (12....
+email                   8              0            6  <masked 1>: 2 (25%), <masked 2>: 2 (25%), <masked 3>: 1 (12.5%...
 Findings: none
 Limitations: none
-More: res.to_frame() has all 7 levels; res.findings, res.limitations and res.to_json() have the rest.
+More: res.to_frame() has all 6 levels; res.findings, res.limitations and res.to_json() have the rest.
 ```
 
 How masking is decided:
@@ -560,7 +559,7 @@ What does the target look like for this task?
 | --- | --- | --- | --- |
 | `target_column` | `str` | required | Name of the column a model learns to predict. |
 | `task` | `str` | required | What the model does with the target, never inferred from the dtype. |
-| `expected_labels` | `Sequence[str \| bool \| int \| float] \| None` | `None` | The labels the task allows, such as ['no', 'yes'] or [0, 1]: exactly 2 for binary_classification and at least 2 for multiclass_classification, each listed once; regression takes none. |
+| `expected_labels` | `Sequence[str \| bool \| int \| float \| datetime \| date \| pd.Period] \| None` | `None` | The labels the task allows, such as ['no', 'yes'] or [0, 1]: exactly 2 for binary_classification and at least 2 for multiclass_classification, each listed once; regression takes none. |
 | `rare_share` | `float \| None` | `None` | For classification, the share of the valid labels below which a class counts as rare, such as 0.05; greater than 0 and less than 1. |
 | `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as a customer number; the row IDs of labels outside expected_labels are then its values. |
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
@@ -577,12 +576,15 @@ What does the target look like for this task?
 - `infinite_values` (suspected): a regression target holds inf or -inf, which every statistic leaves out.
 - `missing_labels` (descriptive): rows have no target value.
 - `rare_classes` (descriptive): classes have a share below rare_share.
+- `missing_expected_classes` (violation): declared classes have no rows.
+- `case_or_space_variants` (suspected): labels differ only by case or surrounding spaces.
+- `two_value_target` (suspected): a regression target has two distinct values, so it may be binary labels.
 
 **Statuses:** `completed`, `insufficient_data`, `failed`
 
 #### `compute_association_matrix`
 
-`ae.compute_association_matrix(data, *, columns=None, categorical_columns=None, numeric_method='pearson', categorical_method='cramers_v_bias_corrected', max_categories=50, max_pairs=5000) -> ComputeAssociationMatrixResult`
+`ae.compute_association_matrix(data, *, columns=None, categorical_columns=None, numeric_method='pearson', categorical_method='cramers_v_bias_corrected', mixed_method='correlation_ratio_bias_corrected', max_categories=50, max_pairs=5000) -> ComputeAssociationMatrixResult`
 
 How strongly are pairs of columns associated?
 
@@ -592,6 +594,7 @@ How strongly are pairs of columns associated?
 | `categorical_columns` | `Sequence[str] \| None` | `None` | Numeric columns to treat as categorical, so that codes such as 1, 2 and 3 are compared as categories instead of correlated as numbers. |
 | `numeric_method` | `str` | `'pearson'` | The measure for two numeric columns: 'pearson', the default, Pearson's r for linear association; 'spearman', Pearson's r of the ranks, tied values sharing their mean rank, for monotonic association; or 'kendall', Kendall's tau-b, which adjusts for ties. |
 | `categorical_method` | `str` | `'cramers_v_bias_corrected'` | The measure for two categorical columns: 'cramers_v_bias_corrected', the default, Cramér's V with Bergsma's (2013) correction, which removes most of the upward bias that few rows and many levels give V; or 'cramers_v', the uncorrected V of scipy.stats.contingency.association. |
+| `mixed_method` | `str` | `'correlation_ratio_bias_corrected'` | The measure for a categorical and a numeric column, 'correlation_ratio_bias_corrected' or 'correlation_ratio'. |
 | `max_categories` | `int` | `50` | The most distinct values a categorical column may have; a column with more is skipped with reason too_many_categories. |
 | `max_pairs` | `int` | `5000` | The most pairs the call computes, a work limit. |
 

@@ -80,6 +80,30 @@ def test_an_iso_string_declares_a_datetime_duration_or_date_sentinel(
     assert response.structured_content == expected.to_dict()
 
 
+def test_iso_strings_are_the_expected_labels_of_a_target_of_dates(path):
+    response = anyio.run(
+        call,
+        "profile_target",
+        {
+            "data_path": str(path),
+            "target_column": "day",
+            "task": "multiclass_classification",
+            "expected_labels": ["1900-01-01", "2020-02-02", "2021-03-03"],
+        },
+    )
+
+    assert not response.is_error, response.structured_content
+    expected = ae.profile_target(
+        TIMES,
+        target_column="day",
+        task="multiclass_classification",
+        expected_labels=[DAY, dt.date(2020, 2, 2), dt.date(2021, 3, 3)],
+    )
+    assert response.structured_content == expected.to_dict()
+    counts = [(c.label, c.count) for c in expected.classes or []]
+    assert counts == [("1900-01-01", 2), ("2020-02-02", 1), ("2021-03-03", 0)]
+
+
 def test_each_iso_string_gives_the_sentinel_count_of_the_python_call(path):
     declared = {column: [text] for column, text in JSON_VALUES[::3]}
 
@@ -230,6 +254,15 @@ EXAMPLES = {
     "duration": ("wait", "PT0S"),
 }
 NOTHING = object()
+# A second example of a format, for the list of labels that needs at least two.
+SECOND = {"date-time": "1900-01-02T00:00:00", "date": "1900-01-02"}
+# The arguments a tool requires besides data_path, for the column of an example.
+REQUIRED = {
+    "profile_target": lambda column: {
+        "target_column": column,
+        "task": "multiclass_classification",
+    }
+}
 
 
 def formats(schema, root):
@@ -301,9 +334,13 @@ def test_every_mcp_tool_accepts_an_example_of_each_format_its_input_schema_offer
         schema = tool.input_schema
         for form in sorted(set(formats(schema, schema))):
             arguments = {"data_path": str(path)}
+            if name in REQUIRED:
+                arguments |= REQUIRED[name](EXAMPLES[form][0])
             for argument, prop in schema["properties"].items():
                 value = example_of(form, prop, schema)
                 if value is not NOTHING:
+                    if argument == "expected_labels" and form in SECOND:
+                        value = [*value, SECOND[form]]
                     arguments[argument] = value
 
             response = anyio.run(call, name, arguments)

@@ -199,6 +199,29 @@ def test_every_analysis_finishes_in_under_5_seconds(name, frame, benchmark_repor
     assert seconds < LIMIT_SECONDS
 
 
+@pytest.mark.parametrize("method", ["spearman", "kendall"])
+def test_a_rank_method_on_100_numeric_columns_stops_at_the_budget(
+    method, benchmark_report
+):
+    # Ranking or sorting each of the 4,950 pairs' 1,000,000 rows would take
+    # about 0.3 seconds a pair: the pair budget counts them by their cost.
+    rng = np.random.default_rng(0)
+    numeric = pd.DataFrame(rng.random((ROWS, 100), dtype=np.float32))
+
+    start = time.perf_counter()
+    res = ae.compute_association_matrix(numeric, numeric_method=method)
+    seconds = time.perf_counter() - start
+
+    benchmark_report.append(
+        f"compute_association_matrix {method}, 100 numeric columns: {seconds:.2f} s, "
+        f"{res.status}"
+    )
+    assert res.status == "budget_exceeded"
+    assert res.status_reason is not None
+    assert "counts as 100 pairs" in res.status_reason.message
+    assert seconds < LIMIT_SECONDS
+
+
 def _usable_cpus() -> int | None:
     """The CPUs this process may run on, which CI limits to 2 with taskset."""
     if sys.platform == "linux":
