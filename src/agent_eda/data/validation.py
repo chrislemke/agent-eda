@@ -58,7 +58,7 @@ from agent_eda._result_base import (
 )
 from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS, overall_status
+from agent_eda._status import NO_ROWS, overall_status
 from agent_eda._text import (
     closest_names,
     join_alternatives,

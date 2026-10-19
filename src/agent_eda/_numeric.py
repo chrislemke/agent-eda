@@ -21,9 +21,9 @@ from agent_eda._result_base import (
     Limitation,
     StatusReason,
 )
-from agent_eda._run import watch_warnings
 from agent_eda._text import join_labels, plural
 from agent_eda._values import is_constant, stored_nan_mask
+from agent_eda._warnings import watch_warnings
 from agent_eda.statistics._descriptive_results import SummarizeNumericColumn
 
 # The statistics of the finite values, in the order results list them.

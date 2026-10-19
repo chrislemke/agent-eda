@@ -11,6 +11,7 @@ import pandas as pd
 from annotated_types import Gt, Lt
 from pydantic.json_schema import SkipJsonSchema
 
+from agent_eda._arguments import check_distinct
 from agent_eda._columns import (
     TO_LABELS,
     TO_NUMBERS,
@@ -68,7 +69,7 @@ from agent_eda._result_base import (
     Support,
 )
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS, check_distinct
+from agent_eda._status import NO_ROWS
 from agent_eda._text import format_number, join_items, placeholder, plural
 from agent_eda._wording import Listed, Pass, PythonOnly, Say, Wording, Words, mistake
 from agent_eda._written_form import row_id_list

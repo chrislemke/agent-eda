@@ -27,10 +27,7 @@ from agent_eda._result_base import (
     Support,
 )
 from agent_eda._row_ids import duplicated_labels
-from agent_eda._run import (
-    budget_exceeded_reason,
-    overall_status,
-)
+from agent_eda._status import budget_exceeded_reason, overall_status
 from agent_eda._text import MAX_NAMED, join_labels, label_text, plural
 from agent_eda._values import is_constant, nan_as_missing, value_codes
 from agent_eda.data._keys import (

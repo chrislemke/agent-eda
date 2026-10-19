@@ -6,6 +6,7 @@ from typing import Annotated
 import pandas as pd
 from annotated_types import Ge, Le, Lt
 
+from agent_eda._arguments import check_distinct
 from agent_eda._columns import (
     TO_LABELS,
     TO_NUMBERS,
@@ -52,7 +53,7 @@ from agent_eda._result_base import (
     StatusReason,
     Support,
 )
-from agent_eda._run import check_distinct, overall_status
+from agent_eda._status import overall_status
 from agent_eda._text import join_items, join_labels, label_text, plural
 from agent_eda.project import Project
 from agent_eda.statistics._descriptive_results import (

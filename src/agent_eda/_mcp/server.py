@@ -19,28 +19,28 @@ from mcp.server.stdio import stdio_server
 
 import agent_eda
 from agent_eda._annotations import type_text
+from agent_eda._arguments import missing_message, unknown_name_message
 from agent_eda._declared_values import read_iso
 from agent_eda._discovery_results import AnalysisListing, SearchListing
 from agent_eda._mcp.data_files import (
     DataReader,
 )
 from agent_eda._mcp.instructions import GUARDRAIL, instructions
-from agent_eda._mcp.local_files import path_argument
+from agent_eda._mcp.local_files import (
+    READABLE,
+    WRITABLE,
+    extensions,
+    format_names,
+    path_argument,
+)
 from agent_eda._mcp.table_files import (
     RECORD_KEY,
-    RECORD_SCHEMA,
     TableFile,
     WrittenTable,
+    record_schema,
     table_file,
 )
-from agent_eda._registry import (
-    AnalysisSpec,
-    missing_message,
-    registered,
-    spec_of,
-    unknown_name_message,
-    validate_json,
-)
+from agent_eda._registry import AnalysisSpec, registered, spec_of, validate_json
 from agent_eda._result_base import AnalysisResult
 from agent_eda._text import closest_names, join_alternatives, join_items
 from agent_eda._version import __version__
@@ -57,26 +57,36 @@ from agent_eda.project import Project
 
 _log = logging.getLogger("agent_eda.mcp")
 
-# One sentence each: the rules for reading a file, writing a table and loading a
-# project sit once, in the MCP server's instructions.
-_DATA_PATH = {
-    "type": "string",
-    "description": "Path to the CSV, TSV or Parquet file that holds the data.",
-}
 
-_PROJECT_PATH = {
-    "anyOf": [{"type": "string"}, {"type": "null"}],
-    "default": None,
-    "description": "Path to a project TOML file that names the sensitive "
-    "columns; null uses the --project file, or none.",
-}
+# The schema of each path argument every MCP tool adds to the analysis's own
+# options, in one sentence: the rules for reading a file, writing a table and
+# loading a project sit once, in the MCP server's instructions. Each function
+# builds a new schema, so no tool's input schema shares an object with another's
+# and nothing a tool does to its own can reach the rest.
+def _data_path() -> dict[str, Any]:
+    return {
+        "type": "string",
+        "description": f"Path to the {format_names(READABLE)} file that holds the data.",
+    }
 
-_TABLE_PATH = {
-    "anyOf": [{"type": "string"}, {"type": "null"}],
-    "default": None,
-    "description": "Path of a new .csv, .parquet or .pq file for the "
-    "result's full main table; null writes none.",
-}
+
+def _project_path() -> dict[str, Any]:
+    return {
+        "anyOf": [{"type": "string"}, {"type": "null"}],
+        "default": None,
+        "description": "Path to a project TOML file that names the sensitive "
+        "columns; null uses the --project file, or none.",
+    }
+
+
+def _table_path() -> dict[str, Any]:
+    return {
+        "anyOf": [{"type": "string"}, {"type": "null"}],
+        "default": None,
+        "description": f"Path of a new {extensions(WRITABLE, either=True)} file for "
+        "the result's full main table; null writes none.",
+    }
+
 
 # Follows the docstring's mask_sensitive text, which speaks of the project
 # argument a Python caller passes.
@@ -338,7 +348,7 @@ def _call(
     _check_arguments(served, arguments)
     table_path = arguments.pop("table_path", None)
     table = None if table_path is None else table_file(served.spec.name, table_path)
-    takes_project = "project_path" in served.tool.input_schema["properties"]
+    takes_project = "project" in served.spec.parameters
     if takes_project:
         # project_path stays in `arguments` until the project is loaded, and the
         # project replaces it at once, so _masking_on sees the call's masking
@@ -412,13 +422,14 @@ def _check_arguments(served: _AnalysisTool, arguments: dict[str, Any]) -> None:
     def missing(names: list[str]) -> str:
         example = ", ".join(f'"{key}": ...' for key in names)
         return missing_message(
-            served.spec,
+            served.spec.name,
+            served.spec.annotations,
             names,
             fix=f"in the MCP tool's arguments, such as {{{example}}}",
             see=SeeArguments(served.spec.name).render("mcp"),
         )
 
-    _check_names(served.tool, arguments, missing=missing)
+    _check_names(served.tool, arguments, missing=missing, of_analysis=True)
     path_argument(
         served.spec.name,
         "data_path",
@@ -433,6 +444,7 @@ def _check_names(
     arguments: dict[str, Any],
     *,
     missing: Callable[[list[str]], str],
+    of_analysis: bool = False,
 ) -> None:
     """Raise invalid_call for an argument the MCP tool doesn't take, naming the
     closest property, or for required ones left out, with the message
@@ -445,7 +457,9 @@ def _check_names(
     unknown = [key for key in arguments if key not in properties]
     if unknown:
         raise InvalidArgumentError(
-            unknown_name_message(tool.name, "argument", unknown[0], properties)
+            unknown_name_message(
+                tool.name, "argument", unknown[0], properties, of_analysis=of_analysis
+            )
             if properties
             else f"{tool.name} takes no arguments, but got {unknown[0]!r}. Call it "
             "with {}.",
@@ -484,7 +498,7 @@ def _output_schema(spec: AnalysisSpec) -> dict[str, Any]:
     """The JSON Schema of the record, with the optional table_file that a call
     with table_path adds."""
     schema = spec.result_class.record_schema()
-    schema["properties"][RECORD_KEY] = RECORD_SCHEMA
+    schema["properties"][RECORD_KEY] = record_schema()
     return without_titles(schema)
 
 
@@ -498,10 +512,10 @@ def _input_schema(spec: AnalysisSpec) -> dict[str, Any]:
         schema = spec.parameters_schema()
     except pydantic.errors.PydanticInvalidForJsonSchema:
         raise TypeError(_no_json_schema(spec)) from None
-    properties = {"data_path": _DATA_PATH}
+    properties = {"data_path": _data_path()}
     for name, value in schema.get("properties", {}).items():
         if name == "project":
-            properties["project_path"] = dict(_PROJECT_PATH)
+            properties["project_path"] = _project_path()
         elif name == "mask_sensitive":
             # The guardrail sentence sits once, in the instructions.
             text = value["description"].replace(GUARDRAIL, "").strip()
@@ -509,7 +523,7 @@ def _input_schema(spec: AnalysisSpec) -> dict[str, Any]:
             properties[name] = {**value, "description": description}
         else:
             properties[name] = value
-    properties["table_path"] = dict(_TABLE_PATH)
+    properties["table_path"] = _table_path()
     schema["properties"] = properties
     schema["required"] = ["data_path", *schema.get("required", [])]
     definitions = schema.get("$defs", {})

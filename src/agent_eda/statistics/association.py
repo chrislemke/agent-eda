@@ -36,7 +36,7 @@ from agent_eda._result_base import (
     StatusReason,
     Support,
 )
-from agent_eda._run import NO_ROWS, budget_exceeded_reason
+from agent_eda._status import NO_ROWS, budget_exceeded_reason
 from agent_eda._text import join_items, join_labels, plural
 from agent_eda._values import value_codes
 from agent_eda._wording import PythonOnly

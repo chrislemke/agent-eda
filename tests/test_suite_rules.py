@@ -29,7 +29,7 @@ ALLOWED_PRIVATE = {
     "registering.py": {"_registry", "_REGISTRY"},
     # The renderer that words every mistake for both surfaces, and the two fixes
     # that other modules define, are tested as the private parts they are.
-    "test_wording.py": {"_wording", "_registry", "_declared_values"},
+    "test_wording.py": {"_wording", "_arguments", "_declared_values"},
 }
 
 

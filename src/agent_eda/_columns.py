@@ -13,7 +13,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from agent_eda._run import check_distinct
+from agent_eda._arguments import check_distinct
 from agent_eda._text import (
     MAX_UNKNOWN_NAMED,
     closest_names,

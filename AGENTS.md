@@ -54,6 +54,7 @@ The ticket is the acceptance bar. Where it settles a point the spec left open, t
 ## Layout
 
 - `src/agent_eda/`: the package, in a src layout built by the uv build backend. An analysis lives in the submodule that `docs/planned-analyses.md` gives it, such as `agent_eda.data.missingness` or `agent_eda.statistics.descriptive`. Exceptions live in the public `agent_eda.errors` module. Result classes are given by the public `agent_eda.results`, a lazy facade with an export table, and defined in a private `_<module>_results.py` next to their analysis (`data/_structure_results.py`); the shared base is `_result_base.py` and the discovery records `_discovery_results.py`.
+- A module's location says its scope. Shared helpers sit at the package root (`_arguments` reads and words the arguments of a call, `_registry` holds only the registry, `_status` and `_warnings` serve a run). The MCP adapter sits in the private `_mcp/` package, and `agent_eda.mcp` stays its public entry point. An engine that serves one analysis sits beside it as a private sibling (`data/_keys.py`, `statistics/_association.py`). A module imports no other module's underscore names, except those of `_result_base` into the `_*_results` modules and the export table of the package root into `_registry`; `tests/test_layout.py` checks it.
 - `tests/`: pytest tests. They import only `agent_eda`.
 
 ## Rules for every analysis
@@ -89,7 +90,7 @@ Google style. Every public analysis has these sections, in this order, under the
 
 ## Implementation
 
-- Deterministic: no LLM calls, no network access, no global state, no threads or processes of our own. Concurrent calls from several threads are safe: warning capture, the one process-wide state an analysis touches, runs under a module-level lock (`_run.capture_warnings`), so captures run one at a time and a call never changes the caller's warning filters or another call's limitations. Randomness comes only from the `seed` argument. Results hold no timestamps or durations, and output order never follows hash or set iteration, so identical calls give byte-identical JSON across processes.
+- Deterministic: no LLM calls, no network access, no global state, no threads or processes of our own. Concurrent calls from several threads are safe: warning capture, the one process-wide state an analysis touches, runs under a module-level lock (`_warnings.capture_warnings`), so captures run one at a time and a call never changes the caller's warning filters or another call's limitations. Randomness comes only from the `seed` argument. Results hold no timestamps or durations, and output order never follows hash or set iteration, so identical calls give byte-identical JSON across processes.
 - pandas at the boundary, NumPy inside. Convert to NumPy arrays wherever the computation allows; keep pandas for grouping, nullable types, categoricals and time zones (ADR 0002).
 - When two analyses compute the same thing (numeric summaries, parse rules, declared sentinel values, row IDs, masking), they call one shared implementation, so they can't disagree.
 - Support Python 3.12 to 3.14, numpy 1.26 through 2.x and pandas 2.2 through 3.x, the minimums in `pyproject.toml`. The default environment only has the latest versions, so the minimum-versions run is what catches these:

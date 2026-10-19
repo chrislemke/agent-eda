@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from agent_eda._text import ELLIPSIS, join_items
+from agent_eda._text import ELLIPSIS, join_alternatives, join_items
 from agent_eda.errors import InvalidArgumentError
 
 
@@ -24,6 +24,25 @@ class FileFormat:
     gzip: bool = False
     # Whether table_path writes this format too.
     writable: bool = False
+
+    @property
+    def is_parquet(self) -> bool:
+        return self.kind == "Parquet"
+
+    @property
+    def separator(self) -> str:
+        """The character that separates the fields of a CSV or TSV file."""
+        return "\t" if self.kind == "TSV" else ","
+
+    @property
+    def separator_word(self) -> str:
+        """The separator as a message says it."""
+        return "tabs" if self.kind == "TSV" else "commas"
+
+    @property
+    def label(self) -> str:
+        """The format as a message names it: "CSV", "gzipped TSV", "Parquet"."""
+        return f"{'gzipped ' if self.gzip else ''}{self.kind}"
 
 
 # Every format the MCP server reads, matched by extension in any case.
@@ -71,9 +90,17 @@ def shown(path: str) -> str:
     return f"{text[:half]}{ELLIPSIS}{text[-half:]}"
 
 
-def extensions(formats: Sequence[FileFormat]) -> str:
-    """The extensions of formats, as text for a message: ".csv, .tsv and .pq"."""
-    return join_items([f.extension for f in formats], limit=len(formats))
+def extensions(formats: Sequence[FileFormat], *, either: bool = False) -> str:
+    """The extensions of formats, as text for a message: ".csv, .tsv and .pq", or
+    with `either` ".csv, .tsv or .pq"."""
+    names = [f.extension for f in formats]
+    return join_alternatives(names) if either else join_items(names, limit=len(names))
+
+
+def format_names(formats: Sequence[FileFormat]) -> str:
+    """The kinds of formats, each once, as text for a message: "CSV, TSV or
+    Parquet"."""
+    return join_alternatives(list(dict.fromkeys(f.kind for f in formats)))
 
 
 def format_of(path: str, formats: Sequence[FileFormat]) -> FileFormat | None:

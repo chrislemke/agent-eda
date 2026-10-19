@@ -30,7 +30,7 @@ from agent_eda._result_base import (
     Support,
 )
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS, overall_status
+from agent_eda._status import NO_ROWS, overall_status
 from agent_eda._text import join_labels, plural
 from agent_eda._values import stored_nan_mask
 from agent_eda._written_form import record_scalar, row_id_list

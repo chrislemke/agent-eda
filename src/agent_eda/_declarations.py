@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 import pydantic
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from agent_eda._registry import invalid_message, python_scalar, unknown_name_message
+from agent_eda._arguments import invalid_message, python_scalar, unknown_name_message
 from agent_eda._text import a_or_an
 from agent_eda._wording import mistake
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
