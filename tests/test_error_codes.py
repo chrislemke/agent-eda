@@ -108,7 +108,7 @@ def codes_in_use():
 
     A class carries its own `code`; a raise site can also pass code= to a
     class, as InvalidArgumentError(..., code="invalid_call") does, directly or
-    through _wording.worded.
+    through _wording.mistake.
     """
     classes = error_classes()
     found = {cls.code: name for name, cls in classes.items() if name != "AgentEDAError"}
@@ -133,7 +133,7 @@ def codes_in_use():
 
 
 def raised_class(call, classes):
-    """The error class a call constructs, directly or as worded's first argument."""
+    """The error class a call constructs, directly or as mistake's first argument."""
     for candidate in [call.func, *call.args[:1]]:
         name = getattr(candidate, "id", None) or getattr(candidate, "attr", None)
         if name in classes:

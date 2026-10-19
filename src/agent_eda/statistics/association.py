@@ -40,6 +40,7 @@ from agent_eda._result_base import (
 from agent_eda._run import NO_ROWS, budget_exceeded_reason, data_shape, execution
 from agent_eda._text import join_items, join_labels, plural
 from agent_eda._values import value_codes
+from agent_eda._wording import PythonOnly
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.statistics._association_results import (
     AssociationColumn,
@@ -69,7 +70,9 @@ _ASSOCIATION = ColumnRule(
         "pyarrow-backed ones of those kinds included"
     ),
     fixes={
-        "datetime": f"{TO_NUMBERS['datetime']}; {TO_LABELS['datetime']}",
+        "datetime": PythonOnly(
+            f"{TO_NUMBERS['datetime'].code}; {TO_LABELS['datetime'].code}"
+        ),
         "timedelta": TO_NUMBERS["timedelta"],
     },
 )

@@ -32,11 +32,10 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._levels import Levels, label_types, ordered
-from agent_eda._project_file import TOML_EXAMPLE
 from agent_eda._result_base import Masking
 from agent_eda._text import placeholder
 from agent_eda._values import value_codes
-from agent_eda._wording import as_written, worded
+from agent_eda._wording import DeclareSensitive, Pass, Words, mistake
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.project import Project
 
@@ -50,7 +49,7 @@ __all__ = [
 ]
 
 # A call that declares sensitive columns, for messages that show how.
-_EXAMPLE = "project=ae.Project(data_policy=ae.DataPolicy(sensitive_columns=['email']))"
+_EXAMPLE = DeclareSensitive(["email"])
 
 
 @dataclass(frozen=True)
@@ -139,34 +138,34 @@ def resolve_masking(
         decision = MaskingDecision(False, "default", sensitive)
     if decision.applied and not sensitive:
         if project is None:
-            fixes = {
-                "python": "Pass a project that names the sensitive columns, such as "
-                f"{_EXAMPLE}.",
-                "mcp": "Pass a project_path whose [data_policy] table names the "
-                f"sensitive columns, such as {TOML_EXAMPLE}.",
-            }
-            raise worded(
+            raise mistake(
                 InvalidArgumentError,
-                lambda surface: (
-                    f"{analysis} got "
-                    f"{as_written(surface, mask_sensitive=True)} without a project, so "
-                    "no column is declared sensitive and there would be nothing to "
-                    f"mask. {fixes[surface]}"
+                f"{analysis} got ",
+                Pass(mask_sensitive=True),
+                " without a project, so no column is declared sensitive and there "
+                "would be nothing to mask. ",
+                Words(
+                    "Pass a project that names the sensitive columns",
+                    "Pass a project_path whose [data_policy] table names the "
+                    "sensitive columns",
                 ),
+                ", such as ",
+                _EXAMPLE,
+                ".",
             )
-        fixes = {
-            "python": f"Name them in its data policy, such as {_EXAMPLE}.",
-            "mcp": "Name them in the [data_policy] table of its project file, such "
-            f"as {TOML_EXAMPLE}.",
-        }
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"{analysis} got "
-                f"{as_written(surface, mask_sensitive=True)}, but the project declares "
-                "no sensitive columns, so there would be nothing to mask. "
-                f"{fixes[surface]}"
+            f"{analysis} got ",
+            Pass(mask_sensitive=True),
+            ", but the project declares no sensitive columns, so there would be "
+            "nothing to mask. ",
+            Words(
+                "Name them in its data policy",
+                "Name them in the [data_policy] table of its project file",
             ),
+            ", such as ",
+            _EXAMPLE,
+            ".",
         )
     return decision
 

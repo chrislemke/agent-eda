@@ -42,8 +42,8 @@ from typing import Any
 
 from agent_eda._local_files import os_cause
 from agent_eda._registry import _value_text, python_scalar
-from agent_eda._text import Surface, a_or_an, closest_names, join_items
-from agent_eda._wording import message, worded
+from agent_eda._text import a_or_an, closest_names, join_items
+from agent_eda._wording import Of, Wording, Words, mistake
 from agent_eda.errors import (
     AgentEDAError,
     InvalidArgumentError,
@@ -70,34 +70,33 @@ TOML_EXAMPLE = 'sensitive_columns = ["email"]'
 _TOML_KEYS = f"{TOML_EXAMPLE} and mask_sensitive = true or false"
 
 
-def _format_source(surface: Surface, *, start: bool = False) -> str:
+def _format_source(*, start: bool = False) -> Words:
     """Where the caller reads how a project file writes each key."""
-    if surface == "python":
-        return "help(ae.Project.load)"
-    where = "project_path description in the MCP tool's input schema"
-    return f"{'The' if start else 'the'} {where}"
+    return Words(
+        "help(ae.Project.load)",
+        f"{'The' if start else 'the'} project_path description in the MCP tool's "
+        "input schema",
+    )
 
 
-def _loader(surface: Surface) -> str:
-    """Who reads a project file, as the caller sees it: Project.load, or over MCP
-    the MCP server, which reads the file project_path leads to."""
-    return "Project.load" if surface == "python" else "The MCP server"
+# Who reads a project file, as the caller sees it: Project.load, or over MCP
+# the MCP server, which reads the file project_path leads to.
+_LOADER = Words("Project.load", "The MCP server")
 
 
-def _file(given: str, surface: Surface) -> str:
+def _file(given: str) -> Words:
     """A project file in a message: the path as given, and over MCP also the
     argument that gave it."""
-    return repr(given) if surface == "python" else f"the project_path file {given!r}"
+    return Words(repr(given), f"the project_path file {given!r}")
 
 
-def _rewrite(surface: Surface) -> str:
+def _rewrite() -> Words:
     """How to recover from a file that doesn't parse."""
-    if surface == "python":
-        return (
-            "Fix the file, or write it again with project.save(path, overwrite=True) "
-            "from a project built in code; help(ae.Project.load) shows the format."
-        )
-    return f"Fix the file; {_format_source(surface)} shows the format."
+    return Words(
+        "Fix the file, or write it again with project.save(path, overwrite=True) "
+        "from a project built in code; help(ae.Project.load) shows the format.",
+        ("Fix the file; ", _format_source(), " shows the format."),
+    )
 
 
 # Why read() requires the whole data policy.
@@ -168,31 +167,27 @@ def _check_format_version(fields: dict[str, Any], given: str) -> None:
         return
     version = fields.pop("format_version")
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        raise worded(
+        raise mistake(
             ProjectFileError,
-            lambda surface: (
-                f"{_loader(surface)} found {toml_type(version)} for format_version at "
-                f"the top level of {_file(given, surface)}, but format_version "
-                f"takes a positive integer, such as format_version = "
-                f"{FORMAT_VERSION}, or can be left out."
-            ),
+            _LOADER,
+            f" found {toml_type(version)} for format_version at the top level of ",
+            _file(given),
+            ", but format_version takes a positive integer, such as "
+            f"format_version = {FORMAT_VERSION}, or can be left out.",
         )
     if version > FORMAT_VERSION:
-        raise worded(
+        raise mistake(
             ProjectFileError,
-            lambda surface: (
-                f"{_loader(surface)} found format_version = {version} in "
-                f"{_file(given, surface)}, written by a newer agent-eda, but this "
-                "agent-eda reads "
-                f"format_version {FORMAT_VERSION} and below. Upgrade agent-eda "
-                "(pip install --upgrade agent-eda), or "
-                + (
-                    "save the project again with this version, "
-                    "project.save(path, overwrite=True), from a project built in "
-                    "code."
-                    if surface == "python"
-                    else "write the file again with this version's layout."
-                )
+            _LOADER,
+            f" found format_version = {version} in ",
+            _file(given),
+            ", written by a newer agent-eda, but this agent-eda reads "
+            f"format_version {FORMAT_VERSION} and below. Upgrade agent-eda "
+            "(pip install --upgrade agent-eda), or ",
+            Words(
+                "save the project again with this version, "
+                "project.save(path, overwrite=True), from a project built in code.",
+                "write the file again with this version's layout.",
             ),
         )
 
@@ -206,30 +201,29 @@ def _read_bytes(given: str) -> bytes:
     try:
         status = os.stat(os.path.expanduser(given))
     except (FileNotFoundError, NotADirectoryError):
-        raise worded(
+        raise mistake(
             ProjectFileNotFoundError,
-            lambda surface: (
+            Words(
                 f"Project.load found no file at {_where(given)}. Save a project "
                 f"there first with project.save({given!r}), or pass the path of an "
-                "existing project file."
-                if surface == "python"
-                else f"project_path leads to {_where(given)}, but no file is "
+                "existing project file.",
+                f"project_path leads to {_where(given)}, but no file is "
                 "there. Write a project TOML file there, with a [data_policy] "
                 f"table that has {_TOML_KEYS}, or pass the path of an existing "
-                "project file."
+                "project file.",
             ),
         ) from None
     except OSError as error:
         raise _unreadable(given, error) from None
     if not stat.S_ISREG(status.st_mode):
-        raise worded(
+        raise mistake(
             ProjectFileError,
-            lambda surface: (
-                f"{_loader(surface)} found {_at(given, surface)}, but it isn't a "
-                "regular file, such as a named pipe or a device, so it can't be a "
-                "project file. Pass the path of a project TOML file"
-                + (", such as one project.save wrote." if surface == "python" else ".")
-            ),
+            _LOADER,
+            " found ",
+            _at(given),
+            ", but it isn't a regular file, such as a named pipe or a device, so "
+            "it can't be a project file. Pass the path of a project TOML file",
+            Words(", such as one project.save wrote.", "."),
         )
     try:
         with open(os.path.expanduser(given), "rb") as file:
@@ -237,23 +231,23 @@ def _read_bytes(given: str) -> bytes:
     except OSError as error:
         raise _unreadable(given, error) from None
     if len(data) > MAX_BYTES:
-        raise worded(
+        raise mistake(
             ProjectFileError,
-            lambda surface: (
-                f"{_loader(surface)} found more than {MAX_BYTES // 1024 // 1024} "
-                f"MiB in {_at(given, surface)}, but a project file holds only a "
-                "name and a data policy, which take a few KiB at most. Check that "
-                "the path names a project file, not a data file."
-            ),
+            _LOADER,
+            f" found more than {MAX_BYTES // 1024 // 1024} MiB in ",
+            _at(given),
+            ", but a project file holds only a name and a data policy, which take "
+            "a few KiB at most. Check that the path names a project file, not a "
+            "data file.",
         )
     return data
 
 
-def _at(given: str, surface: Surface) -> str:
+def _at(given: str) -> Words:
     """The path as the caller gave it and where it leads, for a message that
     says what is at it."""
     where = _where(given)
-    return where if surface == "python" else f"the project_path file {where}"
+    return Words(where, f"the project_path file {where}")
 
 
 def _unreadable(given: str, error: OSError) -> ProjectFileError:
@@ -270,11 +264,12 @@ def _unreadable(given: str, error: OSError) -> ProjectFileError:
         fix = (
             "Pass the path of a project file the user that runs this process can read."
         )
-    return worded(
+    return mistake(
         ProjectFileError,
-        lambda surface: (
-            f"{_loader(surface)} can't read {_at(given, surface)}: {reason}. {fix}"
-        ),
+        _LOADER,
+        " can't read ",
+        _at(given),
+        f": {reason}. {fix}",
     )
 
 
@@ -286,14 +281,16 @@ def invalid_project_error(
     `error` is the one building the Project raised, which names the field, the
     value and what the field allows.
     """
-    return worded(
+    return mistake(
         ProjectFileError,
-        lambda surface: (
-            f"{_loader(surface)} can't build a project from "
-            f"{_file(os.fspath(path), surface)}: {message(error, surface)} "
-            f"{_format_source(surface, start=True)} shows how a project file writes "
-            "each key."
-        ),
+        _LOADER,
+        " can't build a project from ",
+        _file(os.fspath(path)),
+        ": ",
+        Of(error),
+        " ",
+        _format_source(start=True),
+        " shows how a project file writes each key.",
     )
 
 
@@ -411,11 +408,13 @@ def _file_path(owner: str, path: object) -> str:
     that instead.
     """
 
-    def who(surface: Surface) -> tuple[str, str, Callable[[str], str]]:
-        """The subject, the argument and how to write a path in a message."""
-        if surface == "python" or owner != "Project.load":
-            return owner, "path", repr
-        return "project_path", "project_path", json.dumps
+    over_mcp = owner == "Project.load"
+    # The subject, the argument and how to write a path in a message.
+    subject = Words(owner, "project_path" if over_mcp else owner)
+    argument = Words("path", "project_path" if over_mcp else "path")
+
+    def written(path: str) -> Words:
+        return Words(repr(path), json.dumps(path) if over_mcp else repr(path))
 
     given = os.fspath(path) if isinstance(path, str | os.PathLike) else None
     if not isinstance(given, str):
@@ -427,39 +426,49 @@ def _file_path(owner: str, path: object) -> str:
     separators = tuple(sep for sep in (os.sep, os.altsep) if sep)
     example = os.path.join(given, "project.toml")
     if not given:
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"{who(surface)[0]} got an empty path, but {who(surface)[1]} must "
-                f"name a file, such as {who(surface)[2]('project.toml')}."
-            ),
+            subject,
+            " got an empty path, but ",
+            argument,
+            " must name a file, such as ",
+            written("project.toml"),
+            ".",
         )
     if "\x00" in given:
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"{who(surface)[0]} got {given!r} for {who(surface)[1]}, but a path "
-                "can't hold a null character. Pass the path of a file, such as "
-                f"{who(surface)[2]('project.toml')}."
-            ),
+            subject,
+            f" got {given!r} for ",
+            argument,
+            ", but a path can't hold a null character. Pass the path of a file, "
+            "such as ",
+            written("project.toml"),
+            ".",
         )
     if given.endswith(separators):
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"{who(surface)[0]} got {given!r} for {who(surface)[1]}, whose last "
-                f"{given[-1]!r} makes it name a directory, but {who(surface)[1]} "
-                f"must name a file, such as {who(surface)[2](example)}."
-            ),
+            subject,
+            f" got {given!r} for ",
+            argument,
+            f", whose last {given[-1]!r} makes it name a directory, but ",
+            argument,
+            " must name a file, such as ",
+            written(example),
+            ".",
         )
     if os.path.isdir(os.path.abspath(os.path.expanduser(given))):
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"{who(surface)[0]} got the directory {_where(given)} for "
-                f"{who(surface)[1]}, but {who(surface)[1]} must name a file in it, "
-                f"such as {who(surface)[2](example)}."
-            ),
+            subject,
+            f" got the directory {_where(given)} for ",
+            argument,
+            ", but ",
+            argument,
+            " must name a file in it, such as ",
+            written(example),
+            ".",
         )
     return given
 
@@ -478,26 +487,24 @@ def _parse(given: str, data: bytes) -> dict[str, Any]:
         content = data.decode("utf-8")
     except UnicodeDecodeError as error:
         line = data[: error.start].count(b"\n") + 1
-        raise worded(
+        raise mistake(
             ProjectFileError,
-            lambda surface: (
-                f"{_loader(surface)} found bytes that aren't UTF-8 text in "
-                f"{_file(given, surface)} at line {line}. A project file is TOML, "
-                "which is UTF-8 text. "
-                f"{_rewrite(surface)}"
-            ),
+            _LOADER,
+            " found bytes that aren't UTF-8 text in ",
+            _file(given),
+            f" at line {line}. A project file is TOML, which is UTF-8 text. ",
+            _rewrite(),
         ) from None
     try:
         return tomllib.loads(content)
     except tomllib.TOMLDecodeError as error:
         reason = str(error)
-        raise worded(
-            ProjectFileError,
-            lambda surface: _syntax_message(given, content, reason, surface),
+        raise mistake(
+            ProjectFileError, _syntax_message(given, content, reason)
         ) from None
 
 
-def _syntax_message(given: str, content: str, error: str, surface: Surface) -> str:
+def _syntax_message(given: str, content: str, error: str) -> Wording:
     """Say where a file isn't TOML and how to fix it, without quoting the file."""
     hint = ""
     if match := _AT_LINE.fullmatch(error):
@@ -520,9 +527,11 @@ def _syntax_message(given: str, content: str, error: str, surface: Surface) -> s
     else:
         reason, where = error, ""
     return (
-        f"{_loader(surface)} found invalid TOML in {_file(given, surface)}{where}: "
-        f"{reason}.{hint} "
-        f"{_rewrite(surface)}"
+        _LOADER,
+        " found invalid TOML in ",
+        _file(given),
+        f"{where}: {reason}.{hint} ",
+        _rewrite(),
     )
 
 
@@ -550,21 +559,24 @@ def _check_keys(
     fields_at = {top: keys, inside: table_keys}
     hints = [_key_hint(key, place, fields_at) for key, place in unknown]
 
-    def found(surface: Surface) -> str:
-        file = _file(given, surface)
-        if len(unknown) == 1:
-            [(key, place)], [(hint, _)] = unknown, hints
-            where = f"in the [{table}] table" if place == inside else place
-            text = f"an unknown key {key!r} {where} of {file}."
-            if hint:
-                end = "" if hint.endswith("?") else "."
-                text += f" {hint[0].upper()}{hint[1:]}{end}"
-            return text
+    found: Wording
+    if len(unknown) == 1:
+        [(key, place)], [(hint, _)] = unknown, hints
+        where = f"in the [{table}] table" if place == inside else place
+        found = f"an unknown key {key!r} {where} of ", _file(given), "."
+        if hint:
+            end = "" if hint.endswith("?") else "."
+            found += (f" {hint[0].upper()}{hint[1:]}{end}",)
+    else:
         described = [
             f"{key!r} {place}" + (f" ({hint})" if hint else "")
             for (key, place), (hint, _) in zip(unknown, hints, strict=True)
         ]
-        return f"{len(unknown):,} unknown keys in {file}: {join_items(described)}."
+        found = (
+            f"{len(unknown):,} unknown keys in ",
+            _file(given),
+            f": {join_items(described)}.",
+        )
 
     rule = (
         f" Keys below a [{table}] line belong to that table, and keys above it to "
@@ -572,12 +584,12 @@ def _check_keys(
         if any(moves for _, moves in hints)
         else ""
     )
-    raise worded(
+    raise mistake(
         ProjectFileError,
-        lambda surface: (
-            f"{_loader(surface)} found {found(surface)}{rule} Allowed: "
-            f"{join_items(keys)} {top}; {join_items(table_keys)} {inside}."
-        ),
+        _LOADER,
+        " found ",
+        found,
+        f"{rule} Allowed: {join_items(keys)} {top}; {join_items(table_keys)} {inside}.",
         code="unknown_project_key",
     )
 
@@ -606,40 +618,43 @@ def _check_table(
 ) -> None:
     """Raise unless the file has the table, as a table, with each of its keys."""
 
-    def form(surface: Surface) -> str:
-        return (
-            f"a [{table}] line, with single brackets, followed by "
-            f"{join_items(table_keys)}, as {_format_source(surface)} shows"
-        )
-
+    form = (
+        f"a [{table}] line, with single brackets, followed by "
+        f"{join_items(table_keys)}, as ",
+        _format_source(),
+        " shows",
+    )
     if table not in fields:
-        raise worded(
+        raise mistake(
             ProjectFileError,
-            lambda surface: (
-                f"{_loader(surface)} found no [{table}] table in "
-                f"{_file(given, surface)}. "
-                f"{_WHOLE_POLICY}: add {form(surface)}."
-            ),
+            _LOADER,
+            f" found no [{table}] table in ",
+            _file(given),
+            f". {_WHOLE_POLICY}: add ",
+            form,
+            ".",
         )
     if not isinstance(fields[table], Mapping):
-        raise worded(
+        raise mistake(
             ProjectFileError,
-            lambda surface: (
-                f"{_loader(surface)} found {toml_type(fields[table])} for {table} "
-                f"in {_file(given, surface)}, but {table} is one table: "
-                f"{form(surface)}."
-            ),
+            _LOADER,
+            f" found {toml_type(fields[table])} for {table} in ",
+            _file(given),
+            f", but {table} is one table: ",
+            form,
+            ".",
         )
     missing = [key for key in table_keys if key not in fields[table]]
     if missing:
-        raise worded(
+        raise mistake(
             ProjectFileError,
-            lambda surface: (
-                f"{_loader(surface)} found no {join_items(missing)} in the "
-                f"[{table}] table of {_file(given, surface)}. {_WHOLE_POLICY}: add "
-                f"{join_items(missing)} below the [{table}] line, as "
-                f"{_format_source(surface)} shows."
-            ),
+            _LOADER,
+            f" found no {join_items(missing)} in the [{table}] table of ",
+            _file(given),
+            f". {_WHOLE_POLICY}: add {join_items(missing)} below the [{table}] "
+            "line, as ",
+            _format_source(),
+            " shows.",
         )
 
 
@@ -670,12 +685,12 @@ def _wrong_form(
     given: str, found: str, where: str, key: str, form: str
 ) -> ProjectFileError:
     """The error for a value that isn't written in the form its key takes."""
-    return worded(
+    return mistake(
         ProjectFileError,
-        lambda surface: (
-            f"{_loader(surface)} found {found} {where} of {_file(given, surface)}, "
-            f"but {key} takes {form}."
-        ),
+        _LOADER,
+        f" found {found} {where} of ",
+        _file(given),
+        f", but {key} takes {form}.",
     )
 
 

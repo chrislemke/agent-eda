@@ -2,64 +2,311 @@
 
 A message says what is wrong, what is allowed and how to fix the call. What is
 wrong and allowed read the same for a Python caller and an MCP caller; the fix
-doesn't, since an MCP caller passes JSON arguments and files, not Python. A
-raise site an MCP tool can reach builds its message for both surfaces with one
-function of the surface, so the two can't drift apart, and the MCP server sends
-the MCP one.
+doesn't, since an MCP caller passes JSON arguments and files, not Python.
+
+A raise site states a message as data: texts and fixes, such as
+Pass(task='regression'), LeaveOut('columns'), SeeArguments('summarize_numeric'),
+PythonOnly("df.reset_index()") and DeclareSensitive(['email']). It never asks
+which surface it is on. One renderer writes the same wording for each surface,
+so a fix can't be left in Python for an MCP caller: str(error) is the Python
+message, and message(error, "mcp") the MCP one, which the MCP server sends.
 """
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import numpy as np
 
-from agent_eda._text import Surface
+from agent_eda._text import MAX_NAMED, Surface, join_items
 from agent_eda.errors import AgentEDAError
 
 
-def worded[E: AgentEDAError](
-    error_class: Callable[..., E], text: Callable[[Surface], str], **kwargs: Any
+class Fix:
+    """A piece of a message that reads differently for each surface."""
+
+    def render(self, surface: Surface) -> str:
+        """The piece as a caller on the surface reads it."""
+        raise NotImplementedError
+
+    def bind(self, **names: str) -> "Part":
+        """The piece with `{name}` in its code replaced; most pieces have none."""
+        return self
+
+
+type Part = str | Fix
+# What a message is made of, in order: texts and fixes, nested as needed.
+type Wording = Part | Iterable[Wording]
+
+
+def parts_of(wording: Wording) -> tuple[Part, ...]:
+    """The wording as a flat tuple of texts and fixes."""
+    if isinstance(wording, str | Fix):
+        return (wording,)
+    return tuple(part for item in wording for part in parts_of(item))
+
+
+def render(wording: Wording, surface: Surface) -> str:
+    """The wording as a caller on the surface reads it."""
+    return "".join(
+        part if isinstance(part, str) else part.render(surface)
+        for part in parts_of(wording)
+    )
+
+
+def _bound(wording: Wording, names: Mapping[str, str]) -> tuple[Part, ...]:
+    return tuple(
+        part if isinstance(part, str) else part.bind(**names)
+        for part in parts_of(wording)
+    )
+
+
+class Words(Fix):
+    """Words that name something differently on each surface, such as who reads
+    a project file: Project.load in Python, and the MCP server over MCP."""
+
+    def __init__(self, python: Wording, mcp: Wording) -> None:
+        self.python = python
+        self.mcp = mcp
+
+    def render(self, surface: Surface) -> str:
+        return render(self.python if surface == "python" else self.mcp, surface)
+
+    def bind(self, **names: str) -> Part:
+        return Words(_bound(self.python, names), _bound(self.mcp, names))
+
+
+# How a caller writes None: Python's, and JSON's null over MCP.
+NONE = Words("None", "null")
+
+
+class Say(Fix):
+    """Parts that read as one, such as a step of a fix."""
+
+    def __init__(self, *parts: Wording) -> None:
+        self.parts = parts
+
+    def render(self, surface: Surface) -> str:
+        return render(self.parts, surface)
+
+    def bind(self, **names: str) -> Part:
+        return Say(*_bound(self.parts, names))
+
+
+class Pass(Fix):
+    """Arguments as the caller writes them: task='regression' in Python, and
+    {"task": "regression"}, a JSON object, over MCP."""
+
+    def __init__(self, **arguments: object) -> None:
+        self.arguments = arguments
+
+    def render(self, surface: Surface) -> str:
+        if surface == "python":
+            return ", ".join(
+                f"{name}={value!r}" for name, value in self.arguments.items()
+            )
+        return json.dumps(self.arguments)
+
+
+class LeaveOut(Fix):
+    """How a caller passes None for an option: pass columns=None in Python, and
+    leave columns out over MCP, where null is the default."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def render(self, surface: Surface) -> str:
+        if surface == "python":
+            return f"pass {self.name}=None"
+        return f"leave {self.name} out"
+
+
+class SeeArguments(Fix):
+    """Where to read about every argument of an analysis, or field of a model."""
+
+    def __init__(self, owner: str, noun: str = "argument") -> None:
+        self.owner = owner
+        self.noun = noun
+
+    def render(self, surface: Surface) -> str:
+        if surface == "python":
+            return f"See help(ae.{self.owner}) for every {self.noun}."
+        if self.noun == "argument":
+            return "The MCP tool's input schema describes every argument."
+        return (
+            f"The {self.owner} definition in the MCP tool's input schema describes "
+            f"every {self.noun}."
+        )
+
+
+class PythonOnly(Fix):
+    """Code only a Python caller can run, such as a pandas conversion. An MCP
+    caller reads `otherwise` in its place, which is nothing by default. `{column}`
+    in the code becomes the code for a column when the fix is bound to one."""
+
+    def __init__(self, code: str, otherwise: str = "") -> None:
+        self.code = code
+        self.otherwise = otherwise
+
+    def render(self, surface: Surface) -> str:
+        return self.code if surface == "python" else self.otherwise
+
+    def bind(self, **names: str) -> Part:
+        return PythonOnly(self.code.format(**names), self.otherwise)
+
+
+class DeclareSensitive(Fix):
+    """An example of declaring sensitive columns: in code for a Python caller,
+    as a project or as a data policy, and over MCP the TOML a project file holds,
+    since an MCP caller declares a data policy only in a project file."""
+
+    def __init__(self, columns: Iterable[str], *, of: str = "project") -> None:
+        if of not in ("project", "policy"):
+            raise ValueError(f"of must be 'project' or 'policy', not {of!r}")
+        self.columns = list(columns)
+        self.of = of
+
+    def render(self, surface: Surface) -> str:
+        if surface == "mcp":
+            return f"sensitive_columns = {json.dumps(self.columns)}"
+        if self.of == "project":
+            return (
+                "project=ae.Project(data_policy=ae.DataPolicy("
+                f"sensitive_columns={self.columns!r}))"
+            )
+        return f"ae.DataPolicy(sensitive_columns={self.columns!r}, mask_sensitive=True)"
+
+
+class Echo(Fix):
+    """A value a message quotes, as the caller wrote it: Python's repr, and over
+    MCP the JSON words for null and the booleans, such as null and true.
+    Everything else shows as its repr."""
+
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def render(self, surface: Surface) -> str:
+        return echoed(self.value, surface)
+
+
+class TypeOf(Fix):
+    """What a message calls the type of a value: Python's type name, and over MCP
+    the JSON type, with its article."""
+
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def render(self, surface: Surface) -> str:
+        return type_of(self.value, surface)
+
+
+class PathInto(Fix):
+    """The steps into an option as the caller writes them: ['age'][1] in Python,
+    and over MCP /age/1, a JSON pointer, since JSON has no subscripts."""
+
+    def __init__(self, steps: Iterable[object]) -> None:
+        self.steps = list(steps)
+
+    def render(self, surface: Surface) -> str:
+        if surface == "python":
+            return "".join(f"[{step!r}]" for step in self.steps)
+        return "".join(f"/{step}" for step in self.steps)
+
+
+class Listed(Fix):
+    """Items written as "a, b and c", each as the caller on the surface reads it,
+    naming at most `limit` of them and counting the rest."""
+
+    def __init__(
+        self,
+        items: Iterable[Wording],
+        *,
+        limit: int = MAX_NAMED,
+        total: int | None = None,
+    ) -> None:
+        self.items = list(items)
+        self.limit = limit
+        self.total = total
+
+    def render(self, surface: Surface) -> str:
+        return join_items(
+            [render(item, surface) for item in self.items],
+            limit=self.limit,
+            total=self.total,
+        )
+
+
+class Of(Fix):
+    """The message of another error, as the caller on the surface reads it."""
+
+    def __init__(self, error: AgentEDAError) -> None:
+        self.error = error
+
+    def render(self, surface: Surface) -> str:
+        return message(self.error, surface)
+
+
+class OneOf(Fix):
+    """Steps that fix a call, any one of which does, written as a list.
+
+    A step an MCP caller can't take, such as a PythonOnly one, renders as nothing
+    and drops out. One step reads as it is; a step and a last resort read
+    "a, or b"; more read "a; b; or c", since steps hold commas of their own.
+    `last` is the step that is always there, such as leaving a column out. With
+    `capital`, the list starts with a capital.
+    """
+
+    def __init__(
+        self,
+        steps: Iterable[Wording],
+        last: Wording | None = None,
+        *,
+        capital: bool = False,
+    ) -> None:
+        self.steps = list(steps)
+        self.last = last
+        self.capital = capital
+
+    def render(self, surface: Surface) -> str:
+        steps = [text for step in self.steps if (text := render(step, surface))]
+        last = None if self.last is None else render(self.last, surface)
+        text = self._list(steps, last)
+        return f"{text[:1].upper()}{text[1:]}" if self.capital else text
+
+    @staticmethod
+    def _list(steps: list[str], last: str | None) -> str:
+        if last:
+            if not steps:
+                return last
+            if len(steps) == 1:
+                return f"{steps[0]}, or {last}"
+            steps.append(last)
+        if len(steps) <= 1:
+            return "".join(steps)
+        return "; ".join([*steps[:-1], f"or {steps[-1]}"])
+
+
+def mistake[E: AgentEDAError](
+    error_class: type[E], *wording: Wording, code: str | None = None
 ) -> E:
-    """The error with the Python message, carrying the MCP one where it differs."""
-    error = error_class(text("python"), **kwargs)
-    mcp = text("mcp")
-    if mcp != str(error):
-        error._mcp_message = mcp
+    """The error for a caller's mistake, with its message written for each surface.
+
+    The wording holds what is wrong, what is allowed and the fixes, as texts and
+    Fix objects. str(error) is the message a Python caller reads, and
+    message(error, "mcp") the one an MCP caller reads.
+    """
+    parts = parts_of(wording)
+    error = error_class(render(parts, "python"), code=code)
+    error._wording = parts
     return error
 
 
 def message(error: AgentEDAError, surface: Surface) -> str:
     """The error's message as a caller on the surface reads it."""
-    if surface == "mcp" and error._mcp_message is not None:
-        return error._mcp_message
-    return str(error)
-
-
-def see_every(owner: str, noun: str, surface: Surface) -> str:
-    """Where to read about every argument of an analysis, or field of a model."""
-    if surface == "python":
-        return f"See help(ae.{owner}) for every {noun}."
-    if noun == "argument":
-        return "The MCP tool's input schema describes every argument."
-    return (
-        f"The {owner} definition in the MCP tool's input schema describes every {noun}."
-    )
-
-
-def as_written(surface: Surface, **arguments: object) -> str:
-    """Arguments as the caller writes them: task='regression' in Python, and
-    {"task": "regression"}, a JSON object, over MCP."""
-    if surface == "python":
-        return ", ".join(f"{name}={value!r}" for name, value in arguments.items())
-    return json.dumps(arguments)
-
-
-def left_out(name: str, surface: Surface) -> str:
-    """How a caller passes None for an option: pass columns=None in Python, and
-    leave columns out over MCP, where null is the default."""
-    return f"pass {name}=None" if surface == "python" else f"leave {name} out"
+    if error._wording is None:
+        return str(error)
+    return render(error._wording, surface)
 
 
 def echoed(value: object, surface: Surface) -> str:

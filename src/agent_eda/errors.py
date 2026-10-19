@@ -75,6 +75,8 @@ Codes, with the class that raises each:
         analysis runs.
 """
 
+from typing import Any
+
 
 class AgentEDAError(Exception):
     """Base class of every exception agent-eda raises.
@@ -85,9 +87,9 @@ class AgentEDAError(Exception):
     """
 
     code: str = "agent_eda_error"
-    # The message an MCP caller reads when its fix differs from the Python
-    # one; agent_eda._wording sets it, and the MCP server sends it.
-    _mcp_message: str | None = None
+    # The message as texts and fixes, which agent_eda._wording writes for each
+    # surface: the MCP server sends the MCP one.
+    _wording: tuple[Any, ...] | None = None
 
     def __init__(self, message: str, *, code: str | None = None) -> None:
         super().__init__(message)
