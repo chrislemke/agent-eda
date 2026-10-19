@@ -597,9 +597,10 @@ class AnalysisResult(ResultModel):
     def __str__(self) -> str:
         return self._render("python")
 
-    def _render(self, surface: _text.Surface) -> str:
+    def _render(self, surface: _text.Surface, reserve: int = 0) -> str:
         """The printed result, worded for the surface the caller reads it on;
-        print(res) shows the Python one, an MCP tool's response the MCP one."""
+        print(res) shows the Python one, an MCP tool's response the MCP one.
+        `reserve` lines of the 40 are left free for the caller to add."""
         reason = self.status_reason
         # Wrapped, not cut: a reason ends with how to fix the call.
         facts = (
@@ -623,6 +624,7 @@ class AnalysisResult(ResultModel):
             limitations=[_text.Item(lim.code, lim.reason) for lim in self.limitations],
             other_tables=self._text_other_tables(),
             surface=surface,
+            reserve=reserve,
         )
 
     def __repr__(self) -> str:

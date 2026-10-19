@@ -77,8 +77,11 @@ def render(
     limitations: Sequence[Item],
     other_tables: Sequence[str] = (),
     surface: Surface = "python",
+    reserve: int = 0,
 ) -> str:
     """Render a result with the fixed template, within the line and width caps.
+
+    `reserve` lines are kept free below the cap, for lines the caller adds.
 
     `other_tables` names the tables besides the key table that to_frame()
     returns, each as a clause for the footer, such as "res.to_frame(table='x')
@@ -91,10 +94,11 @@ def render(
     lines.extend(_item_lines("Limitations", limitations, MAX_LIMITATIONS))
     lines.extend(_footer(table, other_tables if surface == "python" else (), surface))
     lines = [_fit(_printable(line)) for line in lines]
-    if len(lines) > MAX_LINES:
-        hidden = len(lines) - MAX_LINES + 1
+    limit = MAX_LINES - reserve
+    if len(lines) > limit:
+        hidden = len(lines) - limit + 1
         lines = [
-            *lines[: MAX_LINES - 1],
+            *lines[: limit - 1],
             f"... {hidden:,} more lines; see {_RECORD[surface]}.",
         ]
     return "\n".join(lines)

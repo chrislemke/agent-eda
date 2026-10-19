@@ -149,7 +149,11 @@ class UnsupportedDataFormatError(InvalidArgumentError):
 
 
 class DataFileError(InvalidArgumentError):
-    """An MCP tool can't read the file its data path names."""
+    """An MCP tool can't read the file its data path names.
+
+    The file's content can't be parsed, or the path isn't a regular file or the
+    operating system refuses it, such as for lack of permission.
+    """
 
     code = "unreadable_data_file"
 
@@ -164,10 +168,10 @@ class DataFileNotFoundError(DataFileError, FileNotFoundError):
 
 
 class TableFileExistsError(AgentEDAError, FileExistsError):
-    """An MCP tool's table_path leads to a file that already exists.
+    """An MCP tool's table_path leads to a file or a symbolic link that exists.
 
-    The MCP server never overwrites a file. It is also a FileExistsError, so
-    handlers for an existing file catch it.
+    The MCP server never overwrites a file and never writes through a symbolic
+    link. It is also a FileExistsError, so handlers for an existing file catch it.
     """
 
     code = "table_file_exists"

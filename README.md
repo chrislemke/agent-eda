@@ -285,10 +285,13 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
   - A column is read as numbers or booleans (`true` or `false`, in any case) only when every non-empty field parses as one. Otherwise it stays text. `inf` and `-inf` read as numbers.
   - A whole number written with a leading zero, such as the postal code `01234` or the ID `007`, is a code, so its column stays text and `find_candidate_keys` tells `"007"` and `"7"` apart. `-5`, `0`, `0.5` and `10` stay numbers.
   - Blank lines are skipped, except in a file with one column, where each is a row with a missing value.
+  - A quoted empty field (`""`) is an empty string, not a missing value, and its column stays text. This is how a CSV that `table_path` writes keeps the two apart.
+  - A file with one column whose name holds a `;` gives `unreadable_data_file`, with a hint that the file looks semicolon-separated. The MCP server reads commas (tabs for a TSV). Rename the column in the file if the name is real.
   - A row may end in an empty field, as in `A1,Oslo,10,`. A row with any other field past the header's gives `unreadable_data_file` and names the line.
   - A repeated header name stays repeated. `describe_dataset` reports it, and every other analysis asks you to rename the repeated columns in the file.
 - Parquet files keep the dtypes and the index that pandas stored in them. A file written without pandas metadata, such as by Spark or DuckDB, gets pandas' default dtypes for its Parquet types (an integer column with nulls becomes float) and a 0-based index.
-- A relative path resolves against the MCP server's working directory, the directory the MCP client starts it in. Pass absolute paths if you don't know which directory that is.
+- A relative path resolves against the MCP server's working directory, the directory the MCP client starts it in. Pass absolute paths if you don't know which directory that is. A leading `~` is the home directory, in `data_path`, `table_path` and `project_path` alike.
+- A path the operating system refuses comes back as an MCP tool error that names the cause, never as an internal error: a name over 255 characters, a directory the MCP server may not search, a symbolic link loop, a NUL character, a file without read permission, or a path that isn't a regular file (a named pipe or a device). A Parquet file with two columns of one name, or with pandas metadata that doesn't match its columns, gives `unreadable_data_file`.
 - The MCP server reads only local files. It reads a URL such as `s3://bucket/data.csv` as a relative file path, so the call fails with `data_file_not_found`.
 - A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names in its directory.
 - Row IDs in a result are 0-based data-row numbers for a CSV or TSV file, and follow the stored index for a Parquet file. `id_column` names rows by a column's values instead.
@@ -300,7 +303,10 @@ A call returns the printed result as text and the whole `to_dict()` record as st
 
 To get past the caps, pass `table_path`. The MCP server writes the result's main table, the one `res.to_frame()` gives in Python without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
-- `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. The directory must exist already.
+- `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. A symbolic link at the path, dangling or not, gives the same error, and nothing is written through it. The directory must exist already.
+- The directory must also be one the MCP server may write in. A read-only volume, a missing permission and a path the operating system refuses give `invalid_argument` before the analysis runs, where the MCP server can tell. A write that fails partway, such as on a full disk, removes its partial file, so the same call can run again.
+- In a CSV, a missing value is an empty field and an empty string is the quoted field `""`, which the MCP server reads back as an empty string. Parquet keeps the two apart as it keeps every dtype.
+- The line at the end of the text keeps to 120 characters: when the path doesn't fit, it takes a line of its own, and a path too long even for that is left to `table_file.path`. The result's own text gives up a line when it has 40, so the whole text keeps to 40.
 - A cell that holds a list or a mapping, such as the columns of a candidate key from `find_candidate_keys`, is written as JSON text. In Parquet, a column whose values mix types, such as numbers and text, is written as text, as in the CSV.
 - An analysis with several tables writes only its main one. `compute_association_matrix` writes its pairs, for example, and its wide matrix stays a Python-only table.
 

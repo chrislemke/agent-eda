@@ -23,6 +23,7 @@ import anyio
 import pandas as pd
 from mcp import Client
 from recipes import recipe_for
+from serving import serving
 
 import agent_eda as ae
 from agent_eda.errors import AgentEDAError, TableFileExistsError
@@ -93,8 +94,8 @@ def test_the_text_gains_one_line_with_the_absolute_path_and_nothing_else_changes
 
     assert not response.is_error
     assert [block.text for block in response.content] == [
-        f"{without.content[0].text}\nFull table written to "
-        f"{tmp_path.resolve() / 'levels.csv'} (3 rows)."
+        f"{without.content[0].text}\n"
+        + written_lines(tmp_path.resolve() / "levels.csv", "3 rows")
     ]
 
 
@@ -142,7 +143,7 @@ def test_a_table_of_one_row_says_1_row(tmp_path):
     )
 
     assert response.content[0].text.endswith(
-        f"\nFull table written to {table_path.resolve()} (1 row)."
+        "\n" + written_lines(table_path.resolve(), "1 row")
     )
 
 
@@ -219,7 +220,7 @@ def test_an_index_that_holds_more_than_row_numbers_is_written_first(
 ):
     data_path = write(tmp_path / "shop.csv", CSV)
     table_path = tmp_path / f"by-column{extension}"
-    server = create_server(analyses=[summarize_by_column])
+    server = serving(summarize_by_column)
 
     anyio.run(
         call,
@@ -328,7 +329,7 @@ def test_a_table_path_that_is_not_a_string_is_an_invalid_argument(tmp_path, tabl
 async def table_error(data_path, table_path):
     """The tool error a table_path gets from a stand-in analysis that fails if
     it runs, so a tool error shows the check came first."""
-    server = create_server(analyses=[break_on_run])
+    server = serving(break_on_run)
     response = await call(
         "break_on_run",
         {"data_path": str(data_path), "table_path": table_path},
@@ -435,6 +436,21 @@ def read_parquet(path):
             category=DeprecationWarning,
         )
         return pd.read_parquet(path)
+
+
+def written_lines(path, rows):
+    """The lines the text gains: one when it fits in 120 characters, otherwise
+    the path on a line of its own, otherwise a pointer to the record (a
+    temporary directory's path can be long)."""
+    line = f"Full table written to {path} ({rows})."
+    if len(line) <= 120:
+        return line
+    if len(str(path)) <= 120:
+        return f"Full table written ({rows}) to:\n{path}"
+    return (
+        f"Full table written ({rows}); its path is table_file.path in the "
+        "structured content."
+    )
 
 
 async def list_tools():

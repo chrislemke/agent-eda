@@ -23,6 +23,7 @@ import jsonschema
 import pandas as pd
 from mcp import Client, MCPError
 from mcp.types import INTERNAL_ERROR
+from serving import serving
 
 import agent_eda as ae
 from agent_eda.errors import AgentEDAError
@@ -190,7 +191,7 @@ def test_a_bug_in_an_analysis_is_a_json_rpc_internal_error(tmp_path, caplog):
     path = shop_csv(tmp_path)
 
     async def scenario():
-        async with Client(create_server(analyses=[count_rows]), mode="legacy") as c:
+        async with Client(serving(count_rows), mode="legacy") as c:
             # Caught here, since leaving the client wraps it in an
             # ExceptionGroup.
             with pytest.raises(MCPError) as raised:
