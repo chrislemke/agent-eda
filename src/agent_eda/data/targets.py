@@ -313,7 +313,7 @@ def profile_target(
     """
     masking = resolve_masking("profile_target", project, mask_sensitive)
     labels = None if expected_labels is None else list(expected_labels)
-    _check_options(task, labels, rare_share)
+    _check_options(task, labels, rare_share, hide=masking.masks(target_column))
     [target] = select_columns(
         "profile_target", data, [target_column], _ANY_COLUMN, parameter="target_column"
     ).columns
@@ -373,9 +373,17 @@ _TASK_FIELDS = (
 
 
 def _check_options(
-    task: Task, labels: Sequence[Label] | None, rare_share: float | None
+    task: Task,
+    labels: Sequence[Label] | None,
+    rare_share: float | None,
+    *,
+    hide: bool,
 ) -> None:
-    """Raise when expected_labels or rare_share can't serve the task."""
+    """Raise when expected_labels or rare_share can't serve the task.
+
+    With `hide`, the target is a masked sensitive column and no message quotes
+    its labels.
+    """
     if task == "regression":
         given = [
             name
@@ -409,7 +417,6 @@ def _check_options(
                 )
             ),
         )
-    check_distinct("profile_target", "expected_labels", labels, "label")
     not_finite = [
         repr(label)
         for label in labels
@@ -421,6 +428,7 @@ def _check_options(
             "NaN and infinity can't be class labels; missing labels are counted "
             "apart, in missing_count. Leave them out of expected_labels."
         )
+    check_distinct("profile_target", "expected_labels", labels, "label", hide=hide)
     given = plural(len(labels), "label", "labels")
     if task == "binary_classification" and len(labels) != 2:
         raise InvalidArgumentError(
@@ -437,9 +445,12 @@ def _check_options(
 
 
 def _check_label_types(
-    target: Column, series: pd.Series, labels: Sequence[Label]
+    target: Column, series: pd.Series, labels: Sequence[Label], *, hide: bool
 ) -> None:
     """Raise when an expected label can never equal a value of the target.
+
+    With `hide`, the target is a masked sensitive column: the message counts the
+    labels without quoting them or the labels they likely meant.
 
     Labels compare as Python's == does, so numbers and booleans can equal each
     other, while text only equals text. An object column without values can
@@ -458,19 +469,20 @@ def _check_label_types(
     likely = [likely_value(cast("SentinelValue", label), column) for label in unusable]
     hint = (
         f" Did you mean {join_items([literal(value) for value in likely])}?"
-        if all(value is not None for value in likely)
+        if all(value is not None for value in likely) and not hide
         else ""
     )
     holding = f"{target.name!r} holds {column.what} (dtype {column.dtype})"
     if len(unusable) == 1:
+        shown = "a label" if hide else literal(unusable[0])
         problem = (
-            f"got {literal(unusable[0])} in expected_labels, but {holding}, so it "
-            "can never equal a label."
+            f"got {shown} in expected_labels, but {holding}, so it can never equal "
+            "a label."
         )
     else:
-        listed = join_items([literal(label) for label in unusable])
+        listed = "" if hide else f": {join_items([literal(x) for x in unusable])}"
         problem = (
-            f"can't use {len(unusable):,} labels in expected_labels: {listed}, since "
+            f"can't use {len(unusable):,} labels in expected_labels{listed}, since "
             f"{holding}, so they can never equal a label."
         )
     raise InvalidArgumentError(
@@ -635,7 +647,7 @@ def _classification(
     row_count = len(data)
     levels, row_levels = _count_labels(target, series)
     if labels is not None:
-        _check_label_types(target, series, labels)
+        _check_label_types(target, series, labels, hide=masking.masks(target.name))
     valid = _valid_levels(levels, labels)
     view = _Labels(levels, mask_levels(levels) if masking.masks(target.name) else None)
     counts = levels.counts[valid]

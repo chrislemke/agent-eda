@@ -1,3 +1,6 @@
+from typing import Any
+
+import numpy as np
 import pandas as pd
 import pytest
 from recipes import recipe_for
@@ -263,6 +266,8 @@ def test_masking_covers_the_levels_in_the_text_the_record_and_to_frame():
         "index_columns_total": 0,
         "absent_columns": [],
         "absent_columns_total": 0,
+        "near_miss_columns": {},
+        "near_miss_columns_total": 0,
     }
 
 
@@ -491,3 +496,296 @@ def test_masked_row_ids_become_numbered_placeholders_that_equal_ids_share():
     ]
     assert [group.size for group in res.duplicate_groups] == [3, 2]
     assert res.excess_copy_count == 3
+
+
+NFC = "caf\u00e9_owner"
+NFD = "cafe\u0301_owner"
+
+
+@pytest.mark.parametrize(
+    ("declared", "stored"),
+    [(NFC, NFD), ("Café_Owner", NFC), ("Email", "email"), ("EMAIL", "eMail")],
+    ids=["unicode-form", "case-and-accent", "case", "case-mixed"],
+)
+@pytest.mark.parametrize("name", MASKING)
+def test_a_sensitive_name_that_misses_a_column_only_by_case_or_unicode_form_is_named(
+    name, declared, stored
+):
+    df = pd.DataFrame({"visit": [1, 2, 2, 3], stored: ["Ann", "Bob", "Bob", "Cy"]})
+
+    res = call(name, df, project=masking_project(declared))
+
+    assert res.masking.applied is True
+    assert res.masking.absent_columns == [declared]
+    assert res.masking.near_miss_columns == {declared: stored}
+    text = flowing(str(res))
+    assert f"did you mean {stored!r}?" in text
+    assert "no value of a sensitive column" not in text
+
+
+def test_the_near_miss_text_tells_the_values_are_not_masked_as_declared():
+    df = pd.DataFrame({"visit": [1, 2, 2, 3], NFD: ["Ann", "Bob", "Bob", "Cy"]})
+
+    res = ae.summarize_categorical(df, project=masking_project(NFC))
+
+    # The values show as stored, which is what the near miss lets through.
+    assert [level.label for level in res.columns[NFD].levels] == ["Bob", "Ann", "Cy"]
+    assert (
+        f"Masking on (data_policy.mask_sensitive=True), but sensitive column "
+        f"{NFC!r} isn't a column of the data, and masking matches names exactly: "
+        f"did you mean {NFD!r}? The values of {NFD!r} are not masked."
+    ) in flowing(str(res))
+
+
+def test_a_near_miss_is_listed_in_the_record():
+    df = pd.DataFrame({"visit": [1, 2, 2, 3], NFD: ["Ann", "Bob", "Bob", "Cy"]})
+
+    record = ae.summarize_categorical(df, project=masking_project(NFC)).to_dict()
+
+    assert record["masking"]["near_miss_columns"] == {NFC: NFD}
+    assert record["masking"]["near_miss_columns_total"] == 1
+
+
+def test_a_name_without_a_near_miss_keeps_the_typo_text():
+    res = ae.summarize_categorical(
+        tickets(), project=masking_project("customer", "emial")
+    )
+
+    assert res.masking.near_miss_columns == {}
+    assert "did you mean" not in str(res)
+
+
+def test_matching_stays_exact_so_a_near_miss_masks_nothing():
+    df = pd.DataFrame({"Customer": ["Ann Lee", "Bob Ray", "Ann Lee"]})
+
+    res = ae.summarize_categorical(df, project=masking_project("customer"))
+
+    assert res.masking.columns == []
+    assert [level.label for level in res.columns["Customer"].levels] == [
+        "Ann Lee",
+        "Bob Ray",
+    ]
+
+
+EMAILS = ["ann.lee@corp.example", "bob.ray@corp.example", "cy.fox@corp.example"]
+
+
+def people():
+    """Three people; the email column holds addresses, the other two numbers."""
+    return pd.DataFrame(
+        {"email": EMAILS, "age": [34, 51, 29], "income": [52.5, 61.0, 48.25]}
+    )
+
+
+# An option that takes a column's name or names, with the analysis that has it.
+NAME_OPTIONS = [
+    ("summarize_numeric", "columns", {}),
+    ("summarize_categorical", "columns", {}),
+    ("find_duplicate_rows", "columns", {}),
+    ("find_duplicate_rows", "id_column", {}),
+    ("profile_missing_values", "columns", {}),
+    ("detect_missing_sentinels", "id_column", {}),
+    ("validate_column_types", "id_column", {"schema": {"age": "integer"}}),
+    (
+        "profile_target",
+        "target_column",
+        {"task": "multiclass_classification"},
+    ),
+    (
+        "profile_target",
+        "id_column",
+        {"target_column": "age", "task": "multiclass_classification"},
+    ),
+    ("compute_association_matrix", "columns", {}),
+    ("compute_association_matrix", "categorical_columns", {}),
+    ("find_candidate_keys", "columns", {}),
+    ("infer_column_semantics", "columns", {}),
+]
+
+# What a caller passes by mistake: a column's values in each container.
+VALUES_AS = {
+    "a Series": lambda: people()["email"],
+    "an Index": lambda: pd.Index(people()["email"]),
+    "an ndarray": lambda: people()["email"].to_numpy(),
+}
+
+
+@pytest.mark.parametrize("masking", [False, True], ids=["masking-off", "masking-on"])
+@pytest.mark.parametrize("held", VALUES_AS)
+@pytest.mark.parametrize(
+    ("name", "option", "extra"),
+    NAME_OPTIONS,
+    ids=[f"{name}-{option}" for name, option, _ in NAME_OPTIONS],
+)
+def test_a_columns_values_passed_where_its_name_belongs_are_refused_unshown(
+    name, option, extra, held, masking
+):
+    values = VALUES_AS[held]()
+    project = masking_project("email") if masking else None
+    masked = {"project": project} if project and name in MASKING else {}
+
+    with pytest.raises(InvalidArgumentError) as caught:
+        getattr(ae, name)(people(), **{option: values}, **extra, **masked)
+
+    message = str(caught.value)
+    assert caught.value.code == "invalid_argument"
+    assert "looks like a column's values" in message
+    assert option in message
+    # The fix names a column and shows the call.
+    assert f"{option}=" in message.split("looks like")[1]
+    assert [email for email in EMAILS if email in message] == []
+    assert "corp.example" not in message
+
+
+def test_the_fix_for_values_passed_as_names_shows_one_name_or_a_list():
+    with pytest.raises(InvalidArgumentError) as many:
+        ae.summarize_numeric(people(), columns=people()["email"])
+    with pytest.raises(InvalidArgumentError) as one:
+        ae.find_duplicate_rows(people(), id_column=people()["email"])
+
+    assert "Pass the names of columns, such as columns=['email']." in str(many.value)
+    assert "Pass the name of a column, such as id_column='email'." in str(one.value)
+
+
+def test_a_series_index_or_array_of_the_data_s_own_column_names_is_still_accepted():
+    df = people()
+    given: list[Any] = [
+        pd.Series(["age", "income"]),
+        pd.Index(["age", "income"]),
+        np.array(["age", "income"]),
+        df.columns[1:],
+    ]
+    for names in given:
+        res = ae.summarize_numeric(df, columns=names)
+
+        assert list(res.columns) == ["age", "income"]
+
+
+def test_a_misspelled_name_in_a_list_still_gets_the_did_you_mean_message():
+    with pytest.raises(ae.errors.ColumnNotFoundError, match="Did you mean 'email'"):
+        ae.summarize_categorical(people(), columns=["emial"])
+
+
+SECRET = "ann.lee@corp.example"
+
+
+def accounts():
+    """Four accounts; email is sensitive text, balance a sensitive integer."""
+    return pd.DataFrame(
+        {
+            "email": [SECRET, "bob.ray@corp.example", SECRET, "cy.fox@corp.example"],
+            "balance": [40, 70, 40, 90],
+        }
+    )
+
+
+@pytest.mark.parametrize("name", ["profile_missing_values", "detect_missing_sentinels"])
+@pytest.mark.parametrize(
+    "declared",
+    [
+        {"email": [SECRET, SECRET]},
+        {"email": [SECRET, "x@corp.example", SECRET, "x@corp.example"]},
+        {"balance": [40, 40]},
+        {"email": [1234]},
+        {"balance": ["40"]},
+        {"balance": [float("nan")]},
+        {"email": [1234, 5678, 9012], "balance": ["40", "70"]},
+    ],
+    ids=[
+        "duplicate",
+        "duplicates",
+        "duplicate-number",
+        "number-for-text",
+        "text-for-number",
+        "nan",
+        "several-problems",
+    ],
+)
+def test_with_masking_on_no_message_about_sentinel_values_quotes_a_sensitive_value(
+    name, declared
+):
+    project = masking_project("email", "balance")
+
+    with pytest.raises(InvalidArgumentError) as masked:
+        getattr(ae, name)(accounts(), sentinel_values=declared, project=project)
+    with pytest.raises(InvalidArgumentError) as shown:
+        getattr(ae, name)(
+            accounts(), sentinel_values=declared, project=project, mask_sensitive=False
+        )
+
+    message = str(masked.value)
+    for values in declared.values():
+        for value in values:
+            assert repr(value) not in message
+    assert "corp.example" not in message
+    assert "sentinel_values" in message
+    # With masking off, the message quotes the declared values.
+    assert message != str(shown.value)
+
+
+def test_a_message_about_a_column_that_is_not_sensitive_still_quotes_its_values():
+    project = masking_project("email")
+
+    with pytest.raises(InvalidArgumentError, match="'40'") as caught:
+        ae.profile_missing_values(
+            accounts(), sentinel_values={"balance": ["40"]}, project=project
+        )
+
+    assert "Did you mean 40?" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [[SECRET, SECRET, "z"], [SECRET, 3333], [1111, 2222, 3333]],
+    ids=["duplicate", "wrong-type", "all-wrong-type"],
+)
+def test_with_masking_on_no_message_about_expected_labels_quotes_a_sensitive_label(
+    labels,
+):
+    project = masking_project("email")
+
+    with pytest.raises(InvalidArgumentError) as caught:
+        ae.profile_target(
+            accounts(),
+            target_column="email",
+            task="multiclass_classification",
+            expected_labels=labels,
+            project=project,
+        )
+
+    message = str(caught.value)
+    assert "expected_labels" in message
+    for label in labels:
+        assert repr(label) not in message
+    assert SECRET not in message
+
+
+def test_with_masking_off_the_message_about_expected_labels_quotes_the_labels():
+    with pytest.raises(InvalidArgumentError, match=SECRET):
+        ae.profile_target(
+            accounts(),
+            target_column="email",
+            task="multiclass_classification",
+            expected_labels=[SECRET, SECRET],
+        )
+
+
+@pytest.mark.parametrize("groups", [1, 2, 3, 4, 10])
+def test_masking_covers_the_row_ids_however_many_duplicate_groups_there_are(groups):
+    # Each of `groups` items is ordered by two customers, whose ids are secret.
+    df = pd.DataFrame(
+        {
+            "customer": [f"secret-{n}" for n in range(2 * groups)],
+            "item": [f"item {n // 2}" for n in range(2 * groups)],
+        }
+    )
+
+    res = ae.find_duplicate_rows(
+        df, columns=["item"], id_column="customer", project=masking_project("customer")
+    )
+
+    assert res.duplicate_group_count == groups
+    assert "secret" not in str(res) + res.to_json() + res.to_frame().to_csv()
+    assert [id_ for g in res.duplicate_groups for id_ in g.row_ids] == [
+        f"<masked {n + 1}>" for n in range(2 * groups)
+    ]

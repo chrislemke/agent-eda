@@ -18,6 +18,7 @@ import pydantic
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from agent_eda._registry import invalid_message, python_scalar, unknown_name_message
+from agent_eda._text import a_or_an
 from agent_eda._wording import worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 
@@ -60,7 +61,7 @@ class Declaration(BaseModel):
         if not isinstance(obj, (Mapping, cls)):
             raise InvalidArgumentError(
                 f"{cls.__name__}.model_validate takes a dict of the fields, but got "
-                f"a {type(obj).__name__}. {cls._example} builds one in code."
+                f"{a_or_an(type(obj).__name__)}. {cls._example} builds one in code."
             )
         try:
             return super().model_validate(obj, *args, **kwargs)
@@ -145,9 +146,11 @@ class Declaration(BaseModel):
             error = problem.get("ctx", {}).get("error")
             if isinstance(error, AgentEDAError):
                 return error
-        first = problems[0]
-        if first["type"] == "extra_forbidden":
-            name = str(first["loc"][0])
+        # A field that doesn't exist comes first: pydantic lists a missing field
+        # before it, but the missing one is often the misspelled one.
+        extra = next((p for p in problems if p["type"] == "extra_forbidden"), None)
+        if extra is not None:
+            name = str(extra["loc"][0])
             return InvalidArgumentError(cls._unknown_field(name), code="invalid_call")
         # As lists, which the message follows to the value at fault.
         given = {

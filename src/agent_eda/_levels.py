@@ -4,7 +4,8 @@ summarize_categorical reports the levels of each column, and profile_target can
 count a target's classes with the same implementation, so the two can't
 disagree. Values count as the same level exactly when pandas' factorize and
 value_counts treat them as equal, so 1, 1.0 and True are one level, while 'Yes'
-and 'yes ' are two. Missing values, None, NaN, NaT and pd.NA, are no level.
+and 'yes ' are two. Text that holds a NUL character stays apart from text equal
+up to it, as _values.value_codes keeps it. Missing values, None, NaN, NaT and pd.NA, are no level.
 
 Levels are ordered by count, descending, then by label, as LEVEL_ORDER states.
 The order never follows hash or set iteration order.
@@ -22,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._text import placeholder
+from agent_eda._values import value_codes
 
 if TYPE_CHECKING:
     # Result classes build their tables here, so this module imports nothing
@@ -131,12 +133,10 @@ def _count(
     """
     if kind == "categorical":
         return _count_categories(series)
-    try:
-        codes, uniques = pd.factorize(series)
-    # Lists and dicts raise TypeError; nested pyarrow types raise
-    # ArrowNotImplementedError, a NotImplementedError.
-    except (TypeError, NotImplementedError):
+    found = value_codes(series, unhashable="unsupported")
+    if found is None:
         return None
+    codes, uniques = found.codes, found.uniques
     # A Series gives an Index; an array would be wrapped without inferring a
     # dtype, which on pandas 3 would turn object text into str.
     values = (
@@ -345,7 +345,7 @@ def variant_groups(levels: Levels) -> list[list[int]]:
     # needs no further work.
     if not (keys != texts).any():
         return []
-    codes, _ = pd.factorize(keys)
+    codes = value_codes(keys, unhashable="by_content").codes
     shared = np.bincount(codes)[codes] >= 2
     groups: dict[int, list[int]] = {}
     for code, position in zip(

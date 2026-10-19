@@ -19,7 +19,6 @@ from mcp.server.stdio import stdio_server
 
 import agent_eda
 from agent_eda._annotations import type_text
-from agent_eda._columns import closest_names
 from agent_eda._data_files import (
     CSV_RULES,
     PARQUET_RULES,
@@ -34,7 +33,9 @@ from agent_eda._registry import (
     registered,
     spec_of,
     unknown_name_message,
+    validate_json,
 )
+from agent_eda._sentinels import read_iso
 from agent_eda._table_files import (
     RECORD_KEY,
     RECORD_SCHEMA,
@@ -42,7 +43,7 @@ from agent_eda._table_files import (
     WrittenTable,
     table_file,
 )
-from agent_eda._text import join_alternatives
+from agent_eda._text import closest_names, join_alternatives
 from agent_eda._version import __version__
 from agent_eda._wording import message as worded_message
 from agent_eda._wording import see_every
@@ -279,11 +280,16 @@ def create_server(
             # A bug. Without this, the SDK answers a client that did the
             # initialize handshake with error code 0, not an internal error.
             _log.exception("%s failed with an unexpected error", params.name)
+            # The message of a bug can quote a value of the data, so with
+            # masking on only the exception's type reaches the caller.
+            reason = type(error).__name__
+            if not _masking_on(served, project, arguments):
+                reason = f"{reason}: {error}"
             raise MCPError(
                 code=types.INTERNAL_ERROR,
                 message=f"{params.name} failed with an unexpected error, which is "
-                f"a bug in agent-eda, not in the call: {type(error).__name__}: "
-                f"{error}. The MCP server's log on stderr has the traceback.",
+                f"a bug in agent-eda, not in the call: {reason}. The MCP server's "
+                "log on stderr has the traceback.",
             ) from error
 
     return Server(
@@ -315,6 +321,27 @@ def _unknown_tool(name: str, names: list[str]) -> str:
     return " ".join(parts)
 
 
+def _masking_on(
+    served: _AnalysisTool | _DiscoveryTool,
+    project: Project | None,
+    arguments: dict[str, Any],
+) -> bool:
+    """Whether the call that failed was masking, or may have been.
+
+    `arguments` are what the call left of them: it pops project_path and puts
+    the project it used under "project". A project that was never loaded counts
+    as masking, so a bug before that point can't show a value either.
+    """
+    if not isinstance(served, _AnalysisTool) or not served.spec.supports_masking:
+        return False
+    if (call := arguments.get("mask_sensitive")) is not None:
+        return call is not False
+    if "project_path" in arguments:
+        return True
+    used = arguments.get("project", project)
+    return used is not None and used.data_policy.mask_sensitive
+
+
 def _call(
     served: _AnalysisTool,
     reader: DataReader,
@@ -326,8 +353,12 @@ def _call(
     The SDK passes the arguments on without checking them against the input
     schema. The MCP server checks what the MCP tool adds to the analysis's own
     arguments (unknown and missing names among the MCP tool's properties, and
-    data_path); the analysis checks its options, with the message a Python
-    caller gets, its fix worded for an MCP caller. A table_path is checked before the data is read, so an
+    data_path) and validates the analysis's options in JSON mode, so each
+    reads as its schema says: an ISO 8601 string is a datetime, date or
+    duration wherever the schema offers one, and a string in sentinel_values
+    that names such a value for its column is read as one. The message of a
+    bad option is the one a Python caller gets, its fix worded for an MCP
+    caller. A table_path is checked before the data is read, so an
     existing file or a missing directory stops the call before the analysis
     runs. A project_path replaces the MCP server's project for the call; a
     mask_sensitive goes to the analysis, where it wins over either.
@@ -335,13 +366,24 @@ def _call(
     _check_arguments(served, arguments)
     table_path = arguments.pop("table_path", None)
     table = None if table_path is None else table_file(served.spec.name, table_path)
-    if "project_path" in served.tool.input_schema["properties"]:
-        project_path = arguments.pop("project_path", None)
+    takes_project = "project_path" in served.tool.input_schema["properties"]
+    if takes_project:
+        # project_path stays in `arguments` until the project is loaded, and the
+        # project replaces it at once, so _masking_on sees the call's masking
+        # whichever step fails.
+        project_path = arguments.get("project_path")
         if project_path is not None:
             project = _load_project(served.spec.name, project_path)
+        arguments.pop("project_path", None)
         arguments["project"] = project
     data = reader.read(arguments.pop("data_path"))
-    return _response(served.function(data, **arguments), table)
+    given = {name: value for name, value in arguments.items() if name != "project"}
+    options = validate_json(served.spec, data, given)
+    if options.get("sentinel_values") is not None:
+        options["sentinel_values"] = read_iso(data, options["sentinel_values"])
+    if takes_project:
+        options["project"] = project
+    return _response(served.function(data, **options), table)
 
 
 def _discover(

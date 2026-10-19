@@ -17,7 +17,6 @@ from pydantic_core import CoreSchema
 from agent_eda._columns import (
     ColumnKind,
     ColumnRule,
-    closest_names,
     column_kind,
     select_columns,
 )
@@ -49,12 +48,14 @@ from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import data_shape, execution, overall_status
 from agent_eda._text import (
     Surface,
+    closest_names,
     join_alternatives,
     join_items,
     join_labels,
     placeholder,
     plural,
 )
+from agent_eda._values import value_codes
 from agent_eda._wording import as_written, worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
@@ -182,9 +183,13 @@ class ColumnSpec(Declaration):
     def _rejected(cls, fields: Mapping[str, Any], problems: list[Any]) -> AgentEDAError:
         """A spec without a logical_type says how to write one for the surface."""
         first = problems[0]
-        if first["type"] == "missing" and not any(
-            isinstance(problem.get("ctx", {}).get("error"), AgentEDAError)
-            for problem in problems
+        if (
+            first["type"] == "missing"
+            and not any(
+                isinstance(problem.get("ctx", {}).get("error"), AgentEDAError)
+                for problem in problems
+            )
+            and not any(problem["type"] == "extra_forbidden" for problem in problems)
         ):
             allowed = join_alternatives([repr(t) for t in _LOGICAL_TYPES])
             return worded(
@@ -698,7 +703,8 @@ def _read_unhashable(objects: np.ndarray) -> _Reading:
     present = objects[~pd.isna(objects)]
     texts = _objects([value for value in present if isinstance(value, str)])
     others = _objects([value for value in present if not isinstance(value, str)])
-    codes, uniques = pd.factorize(texts)
+    found = value_codes(texts, unhashable="by_content")
+    codes, uniques = found.codes, found.uniques
     counts = np.bincount(codes, minlength=len(uniques))
     reading = _read_texts(np.asarray(uniques, dtype=object), counts)
     rest = _read_distinct(others, np.ones(len(others), dtype=np.int64))

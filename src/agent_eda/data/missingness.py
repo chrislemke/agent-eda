@@ -55,12 +55,15 @@ _EVERY_COLUMN = ColumnRule(
     statuses=("completed", "insufficient_data", "not_applicable", "failed"),
     finding_codes=("all_missing_columns", "sentinel_values_present"),
     tags=("missing values", "completeness", "per column", "per row", "gaps"),
+    masking=True,
 )
 def profile_missing_values(
     data: pd.DataFrame,
     *,
     columns: Sequence[str] | None = None,
     sentinel_values: Mapping[str, Sequence[SentinelValue]] | None = None,
+    project: Project | None = None,
+    mask_sensitive: bool | None = None,
 ) -> ProfileMissingValuesResult:
     """How much data is missing, and where?
 
@@ -77,7 +80,9 @@ def profile_missing_values(
         Missing values in columns you declare non-nullable are violations in
         `validate_column_types`. For how the values of each numeric column are
         distributed, call `summarize_numeric`; `list_analyses` lists the other
-        analyses.
+        analyses. Declared sentinel values are raw values, so when a column
+        holds personal data, such as email addresses, declare it sensitive in a
+        project and switch masking on.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -96,13 +101,27 @@ def profile_missing_values(
             too), date or timedelta (pd.Timedelta too). A value matches exactly:
             text with its case and surrounding spaces, numbers by value (-999
             matches -999.0 but never True), datetimes by the instant they name.
-            List each value once: -999 and -999.0 are one value, while True and
-            1 are two. Every column named must be selected. A value that can never match
+            Over MCP, write a datetime, date or timedelta as its ISO 8601 text,
+            such as '1900-01-01T00:00:00', '1900-01-01' or 'PT0S': it is read as
+            one for a column that holds such values and no text. List each value
+            once: -999 and -999.0 are one value, while True and 1 are two. Every
+            column named must be selected. A value that can never match
             its column raises errors.InvalidArgumentError naming the value you
             likely meant, such as -999 for the text '-999' in an integer
             column, and so do NaN, NaT and infinite values. None, the default,
             declares none: then sentinel_count is null and only native missing
             values count, which the result records as a limitation.
+        project (Project | None): The project, whose data policy names the
+            sensitive columns and says whether to mask them. None, the
+            default, declares no sensitive column, so nothing is masked.
+        mask_sensitive (bool | None): True replaces each declared sentinel value
+            of a sensitive column, in parameters and in the columns table, with
+            a numbered placeholder, '<masked 1>' for the first value declared
+            and so on, and needs a project that declares sensitive columns;
+            False shows the values as declared. None, the default, follows the
+            project's data_policy.mask_sensitive, and masks nothing without a
+            project. Counts and shares are never masked. Masking is a guardrail
+            against accidental exposure, not anonymization or access control.
 
     Returns:
         ProfileMissingValuesResult: `columns` maps each selected column name to
@@ -114,7 +133,8 @@ def profile_missing_values(
           null when the column has none declared.
         - `missing_count`, both together, and `missing_share`, that count over
           all rows.
-        - `sentinel_values`, each declared value with its count.
+        - `sentinel_values`, each declared value with its count; with masking
+          on, a sensitive column's values are numbered placeholders.
 
         For all selected columns together, `missing_count` and `missing_share`
         count every selected value, `complete_row_count` and
@@ -124,6 +144,9 @@ def profile_missing_values(
         shows the columns with the most missing values first. `to_frame`
         returns the per-column table in the selected order, and with
         table='row_distribution' the rows per number of missing values.
+
+        `masking` says whether masking was on and names the sensitive columns
+        whose declared values the result shows.
 
         Limitations: `sentinel_values_not_declared` names the columns whose
         sentinel_count is null; `nan_not_counted_as_missing` the columns that
@@ -191,11 +214,24 @@ def profile_missing_values(
             non-nullable as violations.
         list_analyses: Every analysis, with the question each one answers.
     """
+    masking = resolve_masking("profile_missing_values", project, mask_sensitive)
     selection = select_columns("profile_missing_values", data, columns, _EVERY_COLUMN)
     declared = declared_values(
-        "profile_missing_values", data, selection.columns, sentinel_values
+        "profile_missing_values",
+        data,
+        selection.columns,
+        sentinel_values,
+        hidden=masking.hidden(sentinel_values),
     )
     row_count = len(data)
+    # The declared values as the result shows them: a sensitive column's as
+    # placeholders when masking is on, numbered in the order declared.
+    shown = {
+        name: mask_values(values)
+        if masking.masks(name)
+        else [json_value(v) for v in values]
+        for name, values in declared.items()
+    }
     entries = {}
     # Columns that store NaN as a value, which isna() doesn't count.
     stored_nan: list[Column] = []
@@ -212,12 +248,12 @@ def profile_missing_values(
         values = declared.get(column.name)
         if values is not None:
             found = np.zeros(row_count, dtype=bool)
-            for value in values:
+            for value, shown_value in zip(values, shown[column.name], strict=True):
                 match = matches(series, value, native)
                 found |= match
                 counted.append(
                     DeclaredSentinelValue(
-                        value=json_value(value), count=int(match.sum())
+                        value=cast("JsonSentinel", shown_value), count=int(match.sum())
                     )
                 )
             sentinel = int(found.sum())
@@ -260,10 +296,9 @@ def profile_missing_values(
             "columns": [column.name for column in selection.columns],
             "sentinel_values": None
             if sentinel_values is None
-            else {
-                name: [json_value(value) for value in values]
-                for name, values in sentinel_values.items()
-            },
+            else {name: shown.get(name, []) for name in sentinel_values},
+            "project": project.model_dump(mode="json") if project else None,
+            "mask_sensitive": mask_sensitive,
         },
         support=Support(
             row_count=row_count,
@@ -289,6 +324,7 @@ def profile_missing_values(
             *_null_shares(entries, row_count),
         ],
         execution=execution(("numpy", "pandas")),
+        masking=masking.record(declared, data),
         columns=entries,
         missing_count=missing_total,
         missing_share=missing_total / value_count if value_count else None,
@@ -491,9 +527,13 @@ def detect_missing_sentinels(
             int, float, str, datetime (pd.Timestamp too), date or timedelta
             (pd.Timedelta too). A value matches exactly: text with its case and
             surrounding spaces, numbers by value (-999 matches -999.0 but never
-            True), datetimes by the instant they name. List each value once:
+            True), datetimes by the instant they name. Over MCP, write a
+            datetime, date or timedelta as its ISO 8601 text, such as
+            '1900-01-01T00:00:00', '1900-01-01' or 'PT0S': it is read as one for
+            a column that holds such values and no text. List each value once:
             -999 and -999.0 are one value, while True and 1 are two. Every
-            column named must be checked. A value that can never match its column raises
+            column named must be checked. A value that can never match its
+            column raises
             errors.InvalidArgumentError naming the value you likely meant, such
             as -999 for the text '-999' in an integer column, and so do NaN,
             NaT and infinite values. The declared values a column holds come
@@ -627,7 +667,13 @@ def detect_missing_sentinels(
         id_column=row_ids.id_column,
     )
     declared = declared_values(
-        "detect_missing_sentinels", data, selection.columns, sentinel_values
+        "detect_missing_sentinels",
+        data,
+        selection.columns,
+        sentinel_values,
+        hidden=masking.hidden(sentinel_values),
+        # Only a call without columns leaves the id_column out by itself.
+        id_column=row_ids.id_column if columns is None else None,
     )
     row_count = len(data)
     checked = {

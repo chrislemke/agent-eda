@@ -9,16 +9,17 @@ import numpy as np
 import pandas as pd
 from annotated_types import Ge
 
-from agent_eda._association import Codes, Measure, measure_pairs
+from agent_eda._association import Codes, Measure, NumericMethod, measure_pairs
 from agent_eda._columns import (
     Column,
     ColumnKind,
     ColumnRule,
+    Selection,
     column_kind,
     select_columns,
 )
 from agent_eda._numeric import (
-    NumericColumn,
+    ReadEffects,
     read_limitations,
     read_numeric,
     stored_nan_count,
@@ -26,6 +27,7 @@ from agent_eda._numeric import (
 from agent_eda._registry import analysis
 from agent_eda._run import NO_ROWS, budget_exceeded_reason, data_shape, execution
 from agent_eda._text import join_items, join_labels, plural
+from agent_eda._values import value_codes
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.results import (
     AssociationColumn,
@@ -45,7 +47,6 @@ from agent_eda.results import (
     UndefinedReason,
 )
 
-NumericMethod = Literal["pearson", "spearman", "kendall"]
 CategoricalMethod = Literal["cramers_v", "cramers_v_bias_corrected"]
 
 _ANALYSIS = "compute_association_matrix"
@@ -135,7 +136,7 @@ class _Paired:
     entry: AssociationColumn
     # A numeric column as read_numeric reads it, and its float64 values with
     # NaN where missing; both None for a categorical column.
-    numbers: NumericColumn | None
+    numbers: ReadEffects | None
     floats: np.ndarray | None
     # Codes from 0, -1 where missing, for a categorical column.
     codes: np.ndarray | None
@@ -456,7 +457,7 @@ def _categorical_names(
     data: pd.DataFrame,
     columns: Sequence[str] | None,
     categorical_columns: Sequence[str] | None,
-    selection,
+    selection: Selection,
 ) -> list[str]:
     """The checked names in categorical_columns, in the given order."""
     if categorical_columns is None:
@@ -534,8 +535,7 @@ def _read(
         ),
         # Only the NaN stored as a value matters to the limitations here:
         # the values are compared as categories, not read as float64.
-        numbers=NumericColumn(
-            values=np.empty(0),
+        numbers=ReadEffects(
             boolean=False,
             beyond_exact_integers=False,
             stored_nan_count=stored_nan_count(series),
@@ -565,13 +565,11 @@ def _codes(series: pd.Series, *, numbers: bool) -> _Levels | None:
     hashed. In a numeric column NaN is missing even where the dtype stores it
     as a value, as summarize_numeric counts it.
     """
-    try:
-        codes, uniques = pd.factorize(series)
-    # Lists and dicts raise TypeError; nested pyarrow types raise
-    # ArrowNotImplementedError, a NotImplementedError.
-    except (TypeError, NotImplementedError):
+    found = value_codes(series, unhashable="unsupported")
+    if found is None:
         return None
-    codes = np.asarray(codes, dtype=np.int64)
+    uniques = found.uniques
+    codes = np.asarray(found.codes, dtype=np.int64)
     if numbers and len(uniques):
         levels = pd.Index(uniques).to_numpy(dtype="float64", na_value=np.nan)
         is_nan = np.isnan(levels)
