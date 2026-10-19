@@ -12,12 +12,15 @@ writes and the structured content. Only those phrases differ; the rest of the
 text is the same on both surfaces.
 """
 
+import difflib
 import reprlib
 import textwrap
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
+
+from agent_eda._written_form import canonical_text
 
 MAX_LINES = 40
 MAX_WIDTH = 120
@@ -26,6 +29,10 @@ MAX_FINDINGS = 5
 MAX_LIMITATIONS = 5
 # Claims name at most this many columns or labels and count the rest.
 MAX_NAMED = 5
+# Suggestions for a misspelled name, and the shortest start of a name that
+# suggests it.
+MAX_SUGGESTIONS = 3
+MIN_PREFIX = 3
 
 # A message names at most this many names it didn't find, each cut to
 # MAX_NAME_LENGTH characters, so that a column's values passed for names can't
@@ -84,8 +91,11 @@ def render(
     limitations: Sequence[Item],
     other_tables: Sequence[str] = (),
     surface: Surface = "python",
+    reserve: int = 0,
 ) -> str:
     """Render a result with the fixed template, within the line and width caps.
+
+    `reserve` lines are kept free below the cap, for lines the caller adds.
 
     `other_tables` names the tables besides the key table that to_frame()
     returns, each as a clause for the footer, such as "res.to_frame(table='x')
@@ -98,10 +108,11 @@ def render(
     lines.extend(_item_lines("Limitations", limitations, MAX_LIMITATIONS))
     lines.extend(_footer(table, other_tables if surface == "python" else (), surface))
     lines = [_fit(_printable(line)) for line in lines]
-    if len(lines) > MAX_LINES:
-        hidden = len(lines) - MAX_LINES + 1
+    limit = MAX_LINES - reserve
+    if len(lines) > limit:
+        hidden = len(lines) - limit + 1
         lines = [
-            *lines[: MAX_LINES - 1],
+            *lines[: limit - 1],
             f"... {hidden:,} more lines; see {_RECORD[surface]}.",
         ]
     return "\n".join(lines)
@@ -203,6 +214,40 @@ def plural(count: int, singular: str, plural_form: str) -> str:
     return f"{count:,} {singular if count == 1 else plural_form}"
 
 
+def closest_names(name: str, names: Sequence[str]) -> list[str]:
+    """The names closest to `name`, at most MAX_SUGGESTIONS of them.
+
+    Names equal to it apart from case and surrounding spaces come first, then
+    names that start with it, such as 'binary_classification' for 'binary',
+    then close spellings, ranked by difflib's similarity.
+    """
+    by_key: dict[str, list[str]] = {}
+    for candidate in names:
+        by_key.setdefault(_fold(candidate), []).append(candidate)
+    key = _fold(name)
+    starting = (
+        [k for k in by_key if k != key and k.startswith(key)]
+        if len(key) >= MIN_PREFIX
+        else []
+    )
+    similar = difflib.get_close_matches(key, list(by_key), n=MAX_SUGGESTIONS)
+    found = [
+        *by_key.get(key, []),
+        *(c for k in starting for c in by_key[k]),
+        *(c for k in similar for c in by_key[k]),
+    ]
+    return list(dict.fromkeys(found))[:MAX_SUGGESTIONS]
+
+
+def _fold(name: str) -> str:
+    return name.strip().casefold()
+
+
+def a_or_an(noun: str) -> str:
+    """The noun with its article: "an object", "an Interval", "a str"."""
+    return f"{'an' if noun[:1] in 'AEIOUaeiou' else 'a'} {noun}"
+
+
 def placeholder(number: int) -> str:
     """What masking shows in place of the value numbered `number`, from 1.
 
@@ -223,8 +268,12 @@ def short_repr(value: object) -> str:
 
 
 def label_text(label: object) -> str:
-    """Show a column or index label: strings quoted, everything else as str()."""
-    return repr(label) if isinstance(label, str) else str(label)
+    """Show a column or index label: strings quoted, everything else as str().
+
+    Sets list their items in a fixed order and objects show no memory address,
+    so the text is the same in every process.
+    """
+    return repr(label) if isinstance(label, str) else canonical_text(label)
 
 
 def join_labels(labels: Sequence[object], *, quote: bool = True) -> str:

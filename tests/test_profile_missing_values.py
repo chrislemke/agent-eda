@@ -1168,8 +1168,9 @@ def test_a_value_of_another_python_type_raises_with_the_types_allowed(declared, 
 
     assert str(caught.value) == (
         f"profile_missing_values got {shown} at sentinel_values['age'][1], but each "
-        "value in sentinel_values must be bool | int | float | str | datetime | date "
-        "| timedelta. See help(ae.profile_missing_values) for every argument."
+        "value in sentinel_values must be a boolean, an integer, a number, a "
+        "string, a datetime, a date or a timedelta. See "
+        "help(ae.profile_missing_values) for every argument."
     )
 
 
@@ -1181,9 +1182,9 @@ def test_sentinel_values_that_are_no_mapping_raise_with_the_type_allowed():
 
     assert str(caught.value) == (
         "profile_missing_values got a list of 1 item for sentinel_values, but "
-        "sentinel_values must be Mapping[str, Sequence[bool | int | float | str | "
-        "datetime | date | timedelta]] | None. Input should be a valid dictionary. "
-        "See help(ae.profile_missing_values) for every argument."
+        "sentinel_values must be a mapping from column names to a list of "
+        "booleans, integers, numbers, strings, datetimes, dates or timedeltas, or "
+        "None. See help(ae.profile_missing_values) for every argument."
     )
 
 

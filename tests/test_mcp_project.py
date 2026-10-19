@@ -30,6 +30,7 @@ import anyio
 import pandas as pd
 from mcp import Client, MCPError, StdioServerParameters
 from mcp.types import INTERNAL_ERROR
+from serving import serving
 from stdio import stdio_environment
 
 import agent_eda as ae
@@ -581,7 +582,7 @@ def failing_summarize_categorical():
 
 
 async def call_failing(arguments, project=None):
-    served = create_server(analyses=[failing_summarize_categorical()], project=project)
+    served = serving(failing_summarize_categorical(), project=project)
     async with Client(served, mode="legacy") as client:
         with pytest.raises(MCPError) as raised:
             await client.call_tool("summarize_categorical", arguments)
@@ -640,7 +641,7 @@ def test_an_internal_error_of_an_analysis_without_masking_keeps_its_message(tmp_
     data_path = write(tmp_path / "data.csv", CSV)
 
     async def scenario():
-        served = create_server(analyses=[failing])
+        served = serving(failing)
         async with Client(served, mode="legacy") as client:
             with pytest.raises(MCPError) as raised:
                 await client.call_tool(

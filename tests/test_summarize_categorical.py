@@ -77,7 +77,7 @@ def test_a_top_n_outside_1_to_100_raises_with_the_range(top_n):
 
     assert caught.value.code == "invalid_argument"
     assert str(caught.value) == (
-        f"summarize_categorical got {top_n} for top_n, but top_n must be int with "
+        f"summarize_categorical got {top_n} for top_n, but top_n must be an integer with "
         "1 <= top_n <= 100. See help(ae.summarize_categorical) for every argument."
     )
 

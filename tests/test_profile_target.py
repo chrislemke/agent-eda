@@ -1103,7 +1103,7 @@ def test_rare_share_lies_between_0_and_1(rare_share):
 
     assert str(caught.value) == (
         f"profile_target got {rare_share!r} for rare_share, but rare_share must be "
-        "float with 0 < rare_share < 1, or None. See help(ae.profile_target) for "
+        "a number with 0 < rare_share < 1, or None. See help(ae.profile_target) for "
         "every argument."
     )
 

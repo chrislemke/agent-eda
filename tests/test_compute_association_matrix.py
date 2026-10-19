@@ -868,12 +868,12 @@ def test_a_text_column_listed_as_categorical_stays_categorical():
         (
             {"max_pairs": 0},
             "compute_association_matrix got 0 for max_pairs, but max_pairs must be "
-            "int with 1 <= max_pairs.",
+            "an integer with 1 <= max_pairs.",
         ),
         (
             {"max_categories": 1},
             "compute_association_matrix got 1 for max_categories, but "
-            "max_categories must be int with 2 <= max_categories.",
+            "max_categories must be an integer with 2 <= max_categories.",
         ),
         (
             {"numeric_method": "Spearman"},

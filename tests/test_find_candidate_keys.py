@@ -1,4 +1,6 @@
 import re
+import sys
+import time
 from typing import Any
 
 import numpy as np
@@ -50,7 +52,7 @@ def test_a_limit_below_1_raises_with_the_valid_range(argument):
         ae.find_candidate_keys(orders(), **options)
 
     assert str(caught.value) == (
-        f"find_candidate_keys got 0 for {argument}, but {argument} must be int with "
+        f"find_candidate_keys got 0 for {argument}, but {argument} must be an integer with "
         f"1 <= {argument}. See help(ae.find_candidate_keys) for every argument."
     )
 
@@ -111,7 +113,8 @@ def test_hitting_max_combinations_stops_the_search_but_keeps_what_it_found():
     assert res.status_reason.message == (
         "The complete search covers up to 10 column sets, more than "
         "max_combinations=5 allows; it stopped after examining 5 and kept what it "
-        "found. Raise max_combinations to 10, or pass fewer columns."
+        "found. Lower max_key_size to 1, raise max_combinations to 10, or pass fewer "
+        "columns."
     )
 
 
@@ -290,11 +293,12 @@ def test_a_search_stopped_early_says_so_and_how_to_finish_it():
 
     lines = str(res).splitlines()
 
-    assert lines[1:5] == [
+    assert lines[1:6] == [
         "Reason: too_many_combinations: The complete search covers up to 10 column "
         "sets, more than max_combinations=5 allows; it",
-        "    stopped after examining 5 and kept what it found. Raise "
-        "max_combinations to 10, or pass fewer columns.",
+        "    stopped after examining 5 and kept what it found. Lower max_key_size to 1, "
+        "raise max_combinations to 10, or pass",
+        "    fewer columns.",
         "Not exhaustive: max_combinations stopped the search for keys of up to 2 "
         "columns after 5 of up to 10 sets.",
         "Missing values compare equal; a key with missing values can't serve as a "
@@ -578,3 +582,149 @@ def test_leaves_out_columns_whose_values_cannot_be_hashed():
         "The search left out 2 columns whose values can't be hashed, such as "
         "lists: 'tags' and 'nested'."
     )
+
+
+def test_a_key_size_beyond_the_column_count_finishes_at_once():
+    data = pd.DataFrame({"a": [1, 2, 3, 4], "b": [1, 1, 2, 2]})
+
+    started = time.perf_counter()
+    res = ae.find_candidate_keys(data, max_key_size=sys.maxsize)
+
+    assert time.perf_counter() - started < 1
+    assert res.status == "completed"
+    assert res.exhaustive is True
+    assert [key.columns for key in res.keys] == [["a"]]
+    # 2 single columns and 1 pair, whatever max_key_size says.
+    assert res.search.combination_count == 3
+
+
+def test_a_budget_stop_on_many_columns_suggests_the_key_size_that_fits():
+    data = pd.DataFrame(np.arange(40 * 3).reshape(3, 40) % 2).add_prefix("c")
+
+    res = ae.find_candidate_keys(data, max_key_size=40)
+
+    assert res.status == "budget_exceeded"
+    assert res.status_reason is not None
+    # 40 + 780 sets of up to 2 columns fit the 10,000; 9,880 more of 3 don't.
+    assert res.status_reason.message == (
+        "The complete search covers up to 1,099,511,627,775 column sets, more than "
+        "max_combinations=10,000 allows; it stopped after examining 10,000 and kept "
+        "what it found. Lower max_key_size to 2, or pass fewer columns."
+    )
+
+
+def test_a_budget_stop_suggests_raising_max_combinations_when_that_is_feasible():
+    res = ae.find_candidate_keys(keyed(), max_combinations=5)
+
+    assert res.status_reason is not None
+    assert res.status_reason.message.endswith(
+        "Lower max_key_size to 1, raise max_combinations to 10, or pass fewer columns."
+    )
+
+
+def test_a_budget_stop_among_single_columns_never_suggests_a_key_size():
+    data = pd.DataFrame(np.arange(6).reshape(2, 3) % 2).add_prefix("c")
+
+    res = ae.find_candidate_keys(data, max_key_size=1, max_combinations=2)
+
+    assert res.status_reason is not None
+    assert "max_key_size" not in res.status_reason.message
+    assert res.status_reason.message.endswith(
+        "Raise max_combinations to 3, or pass fewer columns."
+    )
+
+
+def floats():
+    return pd.DataFrame(
+        {
+            "reading": [0.5, 1.25, 2.75, 3.5],
+            "count": [1.0, 2.0, 3.0, 4.0],
+            "group": [1, 1, 2, 2],
+        }
+    )
+
+
+def test_leaves_out_non_integral_float_columns_by_default_and_names_them():
+    res = ae.find_candidate_keys(floats())
+
+    assert [key.columns for key in res.keys] == [["count"]]
+    assert res.parameters["columns"] == ["count", "group"]
+    assert res.non_integral_float_columns == ["reading"]
+    (limitation,) = res.limitations
+    assert limitation.code == "non_integral_float_columns"
+    assert limitation.fields == ["non_integral_float_columns"]
+    assert limitation.reason == (
+        "The search left out 1 column holding non-integral floats, which are "
+        "measurements rather than IDs: 'reading'. Name it in columns to search it."
+    )
+    assert "reading" in str(res)
+
+
+def test_naming_a_float_column_in_columns_searches_it():
+    res = ae.find_candidate_keys(floats(), columns=["reading", "group"])
+
+    assert [key.columns for key in res.keys] == [["reading"]]
+    assert res.non_integral_float_columns == []
+    assert res.limitations == []
+
+
+def test_float_columns_of_whole_numbers_stay_candidates():
+    data = pd.DataFrame(
+        {
+            "plain": [1.0, 2.0, 3.0],
+            "gaps": [1.0, np.nan, 3.0],
+            "wide": pd.array([1.0, 2.0, None], dtype="Float64"),
+            "arrow": pd.array([1.0, 2.0, 3.0], dtype=pd.ArrowDtype(pa.float32())),
+            "all_missing": [np.nan, np.nan, np.nan],
+        }
+    )
+
+    res = ae.find_candidate_keys(data)
+
+    assert res.non_integral_float_columns == []
+    assert res.parameters["columns"] == list(data.columns)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pd.Series([0.5, 1.5, 2.5], dtype="float32"),
+        pd.Series([0.5, 1.5, None], dtype="Float64"),
+        pd.Series([0.5, 1.5, 2.5], dtype=pd.ArrowDtype(pa.float64())),
+        pd.Series([1.0, np.inf, 2.5]),
+    ],
+    ids=["float32", "nullable", "arrow", "with_infinity"],
+)
+def test_every_float_dtype_with_a_fraction_is_left_out(values):
+    data = pd.DataFrame({"x": values, "n": [1, 2, 3]})
+
+    res = ae.find_candidate_keys(data)
+
+    assert res.non_integral_float_columns == ["x"]
+
+
+def test_data_of_only_fraction_floats_is_not_applicable_and_says_why():
+    data = pd.DataFrame({"x": [0.5, 1.5, 2.5], "y": [0.25, 0.5, 0.75]})
+
+    res = ae.find_candidate_keys(data)
+
+    assert res.status == "not_applicable"
+    assert res.status_reason is not None
+    assert "non-integral floats" in res.status_reason.message
+    assert res.non_integral_float_columns == ["x", "y"]
+    named = ae.find_candidate_keys(data, columns=["x"])
+    assert [key.columns for key in named.keys] == [["x"]]
+
+
+def test_the_support_lists_only_the_columns_searched():
+    res = ae.find_candidate_keys(floats())
+
+    assert [c.column for c in res.support.columns] == ["count", "group"]
+    assert res.support.column_count == 2
+
+
+def test_the_docstring_describes_the_float_rule_but_not_a_pandas_equivalence():
+    doc = str(ae.find_candidate_keys.__doc__)
+
+    assert "non-integral float" in doc
+    assert "DataFrame.duplicated" not in doc

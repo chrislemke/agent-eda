@@ -521,3 +521,57 @@ def frames_with_secrets(draw: st.DrawFn) -> tuple[pd.DataFrame, dict[str, str]]:
         df.insert(position, name, values.array)
         markers[name] = secret.marker
     return df, markers
+
+
+class Plain:
+    """An object whose repr shows its memory address, as '<Plain object at 0x...>'."""
+
+
+_WORDS = ["red", "blue", "green", "café", "日本", "x1", "y2"]
+_FROZENSETS = st.frozensets(st.sampled_from(_WORDS), min_size=2, max_size=4)
+_NP_TEXTS = st.sampled_from(["é0", "é1", "日本", "a"]).map(np.str_)
+# Values that Python writes in an order that depends on the process: sets of
+# text, alone or inside tuples, and objects whose repr holds a memory address.
+# Text and NumPy text are here for the UTF-8 copies Python caches inside them.
+SET_ELEMENTS: list[st.SearchStrategy] = [
+    _FROZENSETS,
+    st.tuples(_FROZENSETS, st.integers(0, 2)),
+    _NP_TEXTS,
+    st.builds(Plain),
+    _FROZENSETS | _NP_TEXTS | st.integers(0, 2) | TEXT,
+    # A set can't be hashed, so a column holding one can't be counted.
+    st.frozensets(st.sampled_from(_WORDS), min_size=2, max_size=3).map(set) | TEXT,
+]
+
+
+@st.composite
+def frames_with_sets(draw: st.DrawFn) -> pd.DataFrame:
+    """A DataFrame whose object columns hold set, frozenset and np.str_ values.
+
+    Some values repeat, so levels and duplicate rows tie, and the row index can
+    hold frozensets. Python orders a set by hash, and the hash of text differs
+    from one process to the next, so only a run in other processes shows
+    whether a result depends on that order.
+    """
+    row_count = draw(st.integers(1, 6))
+    columns = {}
+    for position in range(draw(st.integers(1, 3))):
+        elements = draw(st.sampled_from(SET_ELEMENTS))
+        pool = draw(st.lists(elements, min_size=1, max_size=3))
+        values = draw(
+            st.lists(st.sampled_from(pool), min_size=row_count, max_size=row_count)
+        )
+        columns[f"s{position}"] = pd.Series(values, dtype=object)
+    columns["x"] = pd.Series(
+        draw(st.lists(FLOATS, min_size=row_count, max_size=row_count))
+    )
+    df = pd.DataFrame(columns)
+    if draw(st.booleans()):
+        names = draw(st.lists(_FROZENSETS, min_size=1, max_size=3))
+        df.index = pd.Index(
+            draw(
+                st.lists(st.sampled_from(names), min_size=row_count, max_size=row_count)
+            ),
+            dtype=object,
+        )
+    return df

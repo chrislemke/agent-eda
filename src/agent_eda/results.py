@@ -1,10 +1,7 @@
 """Result classes returned by agent-eda analyses."""
 
-import datetime as dt
-import difflib
 import itertools
 import json
-import math
 import re
 import typing
 from collections.abc import Sequence
@@ -28,6 +25,7 @@ from pydantic import (
 from agent_eda import _text
 from agent_eda._annotations import TypeName, python_literal
 from agent_eda._levels import Levels, level_rows, levels_frame
+from agent_eda._written_form import row_id_json
 from agent_eda.errors import InvalidArgumentError, ResultTableUnavailableError
 
 Status = Literal[
@@ -74,6 +72,9 @@ LimitationCode = Literal[
     # Values such as lists or dicts can't be hashed, so distinct values weren't
     # counted and the affected counts are null.
     "unhashable_values",
+    # A key search left out float columns that hold fractions, which are
+    # measurements rather than IDs, because columns=None doesn't select them.
+    "non_integral_float_columns",
     # A statistic needs more values than a column has, such as a standard
     # deviation of one value, so it is null.
     "too_few_values",
@@ -152,47 +153,6 @@ _ENTRIES = _Cap(100)
 _LISTS_INSIDE = _Cap(100, each_list=True, whole=("data",))
 
 _RECORD = "agent_eda_record"
-
-
-def row_id_json(value: object) -> JsonValue:
-    """A row ID as JSON, the same in every process and with every library version.
-
-    Timestamps, dates and times become ISO 8601 strings, durations ISO 8601
-    durations, MultiIndex tuples lists, and NumPy scalars Python numbers.
-    Missing values become null, and infinite floats the strings 'inf' and
-    '-inf'. A set becomes a list ordered by its items' JSON, not by Python's
-    hash order, and a dict a JSON object. Anything else becomes its str(), such
-    as a Period, a Decimal, or a duration in years or months, which has no ISO
-    form pandas can write.
-    """
-    if isinstance(value, tuple | list):
-        return [row_id_json(item) for item in value]
-    if isinstance(value, set | frozenset):
-        items = [row_id_json(item) for item in value]
-        return sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
-    if isinstance(value, dict):
-        return {str(key): row_id_json(item) for key, item in value.items()}
-    if pd.api.types.is_scalar(value) and pd.isna(value):
-        return None
-    if isinstance(value, bool | np.bool_):
-        return bool(value)
-    if isinstance(value, dt.datetime | dt.date | dt.time):
-        return value.isoformat()
-    if isinstance(value, np.datetime64):
-        return pd.Timestamp(value).isoformat()
-    # Before the integers: NumPy's timedelta64 is one of its integer types.
-    if isinstance(value, dt.timedelta | np.timedelta64):
-        try:
-            return pd.Timedelta(value).isoformat()
-        except (ValueError, OverflowError):
-            # A duration in years or months, or beyond what pandas holds.
-            return str(value)
-    if isinstance(value, int | np.integer):
-        return int(value)
-    if isinstance(value, float | np.floating):
-        number = float(value)
-        return number if math.isfinite(number) else repr(number)
-    return str(value)
 
 
 # Lone surrogates, which no UTF-8 output can hold.
@@ -300,10 +260,10 @@ def _check_table(table: object, tables: Sequence[str]) -> None:
     """
     if isinstance(table, str) and table in tables:
         return
-    shown = repr(table) if isinstance(table, str) else f"a {type(table).__name__}"
-    closest = (
-        difflib.get_close_matches(table, tables, n=1) if isinstance(table, str) else []
+    shown = (
+        repr(table) if isinstance(table, str) else _text.a_or_an(type(table).__name__)
     )
+    closest = _text.closest_names(table, tables)[:1] if isinstance(table, str) else []
     hint = f" Did you mean {closest[0]!r}?" if closest else ""
     allowed = _text.join_alternatives([repr(name) for name in tables])
     raise InvalidArgumentError(
@@ -672,9 +632,10 @@ class AnalysisResult(ResultModel):
     def __str__(self) -> str:
         return self._render("python")
 
-    def _render(self, surface: _text.Surface) -> str:
+    def _render(self, surface: _text.Surface, reserve: int = 0) -> str:
         """The printed result, worded for the surface the caller reads it on;
-        print(res) shows the Python one, an MCP tool's response the MCP one."""
+        print(res) shows the Python one, an MCP tool's response the MCP one.
+        `reserve` lines of the 40 are left free for the caller to add."""
         reason = self.status_reason
         # Wrapped, not cut: a reason ends with how to fix the call.
         facts = (
@@ -698,6 +659,7 @@ class AnalysisResult(ResultModel):
             limitations=[_text.Item(lim.code, lim.reason) for lim in self.limitations],
             other_tables=self._text_other_tables(),
             surface=surface,
+            reserve=reserve,
         )
 
     def __repr__(self) -> str:
@@ -2547,11 +2509,12 @@ class CandidateKey(ResultModel):
     )
     distinct_count: int = Field(
         description="Distinct combinations of values in these columns, with missing "
-        "values compared equal: the rows df.drop_duplicates(subset=columns) keeps."
+        "values of every kind (None, NaN, NaT, NA) compared equal: the rows of the "
+        "set that no earlier row repeats."
     )
     duplicate_row_count: int = Field(
-        description="Rows whose combination another row shares, the rows "
-        "df.duplicated(subset=columns, keep=False) marks; 0 for a key."
+        description="Rows whose combination another row shares, counting every row "
+        "of a repeated combination, the first one too; 0 for a key."
     )
     missing_row_count: int = Field(
         description="Rows with a missing value in at least one of these columns."
@@ -2626,6 +2589,12 @@ class FindCandidateKeysResult(AnalysisResult):
         "can't be hashed, such as lists or dicts, in the selected order; empty "
         "when it searched every selected column."
     )
+    non_integral_float_columns: Annotated[list[str], _ENTRIES] = Field(
+        description="Columns of floats with at least one fractional value, such "
+        "as 0.5, which columns=None leaves out because they are measurements, not "
+        "IDs, in DataFrame order. Empty when columns named the columns searched, "
+        "or when none holds a fraction."
+    )
 
     def _candidates(self) -> list[tuple[str, CandidateKey]]:
         """Every reported column set with its kind, in the order of the lists."""
@@ -2666,6 +2635,9 @@ class FindCandidateKeysResult(AnalysisResult):
         if self.left_out_columns:
             names = _text.join_labels(self.left_out_columns)
             facts.append(f"Left out, values can't be hashed: {names}.")
+        if self.non_integral_float_columns:
+            names = _text.join_labels(self.non_integral_float_columns)
+            facts.append(f"Left out, floats with fractions: {names}.")
         return facts
 
     def _text_table(self) -> _text.Table | None:
@@ -2991,11 +2963,13 @@ class ColumnEvidence(ResultModel):
     )
     boolean_share: float | None = Field(
         description="Values that are booleans or read as one: numbers equal to 0 "
-        "or 1, and the words true, false, t, f, yes, no, y and n in any case."
+        "or 1, and the words true, false, t, f, yes, no, y and n in any case. "
+        "The boolean candidate needs a share of 1."
     )
     number_share: float | None = Field(
         description="Values that are numbers or text that parses as a decimal "
-        "number, such as '42', '-3.5' or '1e-3'."
+        "number that float64 can hold, such as '42', '-3.5' or '1e-3'; '1e400' "
+        "doesn't count."
     )
     integer_share: float | None = Field(
         description="Values that are or parse as whole numbers, such as 42, 42.0 "
@@ -3003,12 +2977,14 @@ class ColumnEvidence(ResultModel):
     )
     datetime_share: float | None = Field(
         description="Values that are datetimes or dates, or text that parses as "
-        "an ISO 8601 date, with or without a time."
+        "an ISO 8601 date, with or without a time, or as a ColumnSpec's "
+        "datetime_format for that column."
     )
     timedelta_share: float | None = Field(description="Values that are durations.")
     leading_zero_share: float | None = Field(
-        description="Text values that are whole numbers written with a leading "
-        "zero, such as '007': codes, which don't parse as numbers."
+        description="Text values that are whole numbers written as digits alone "
+        "with a leading zero, such as '007': codes, which don't parse as "
+        "numbers. A decimal such as '05.50' is a number."
     )
     non_iso_date_share: float | None = Field(
         description="Text values that look like dates without being ISO 8601, "
@@ -3046,14 +3022,14 @@ class InferColumnSemanticsColumn(ColumnResult):
         "it declares none. Inference never overwrites it."
     )
     matches_declared: bool | None = Field(
-        description="Whether inferred_logical_type equals declared_logical_type; "
-        "null when either is null."
+        description="Whether declared_logical_type is the top candidate or ties "
+        "with it in score; null when it is null or no type was inferred."
     )
     candidates: list[LogicalTypeCandidate] = Field(
         description="The logical types with a score above 0, best first, ties in "
         "the order boolean, integer, float, datetime, timedelta, categorical, "
         "text. Integer and float also appear, scored 0, when leading zeros rule "
-        "them out."
+        "them out. A column where every candidate scores 0 has no inferred type."
     )
     flags: list[ColumnFlag] = Field(
         description="What needs attention, in a fixed order: identifier_like, "
@@ -3099,8 +3075,8 @@ class InferColumnSemanticsResult(AnalysisResult):
             missing = len(self.missing_declared_columns)
             facts.append(
                 f"declared_schema: {_text.plural(declared, 'column', 'columns')} "
-                f"declared in the data, {matching:,} with that top candidate, "
-                f"{differing:,} with another; {missing:,} not in the data."
+                f"declared in the data, {matching:,} matching (a tie with the top "
+                f"counts), {differing:,} not; {missing:,} not in the data."
             )
         return facts
 
@@ -3115,8 +3091,11 @@ class InferColumnSemanticsResult(AnalysisResult):
         headers.append("flags")
         rows = []
         for entry in self.columns.values():
-            top = entry.candidates[0] if entry.candidates else None
-            runner_up = entry.candidates[1] if len(entry.candidates) > 1 else None
+            # Candidates scored 0 rank no type: a column with none has no top.
+            top = entry.candidates[0] if entry.inferred_logical_type else None
+            runner_up = (
+                entry.candidates[1] if top and len(entry.candidates) > 1 else None
+            )
             row: list[_text.Cell] = [
                 entry.column,
                 top.logical_type if top else None,
@@ -3162,7 +3141,10 @@ class InferColumnSemanticsResult(AnalysisResult):
                 [e.inferred_logical_type for e in entries], dtype=object
             ),
             "score": pd.Series(
-                [e.candidates[0].score if e.candidates else None for e in entries],
+                [
+                    e.candidates[0].score if e.inferred_logical_type else None
+                    for e in entries
+                ],
                 dtype="float64",
             ),
             "declared_logical_type": pd.Series(
