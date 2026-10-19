@@ -179,6 +179,8 @@ The printed text stays within 40 lines of 120 characters however large the data,
 
 A mistake in a call, such as a misspelled column or an unknown option, raises a subclass of `ae.errors.AgentEDAError` before any work starts. Each error has a stable `code`, and its message says what is wrong and how to fix it. Problems in the data never raise; they show up in the status, the findings and the limitations.
 
+Every analysis decides which values are equal the same way, as pandas does, so `1`, `1.0` and `True` are one value. Text that holds a NUL character (`"\x00"`) stays apart from text that is equal up to it, as Python's `==` has it. Values pandas can't hash, such as lists, are the one place analyses differ, each as its docstring says: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
+
 ## Projects and masking
 
 Five analyses can show raw values, such as the labels `summarize_categorical` counts or the row IDs `find_duplicate_rows` lists: `validate_column_types`, `detect_missing_sentinels`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
