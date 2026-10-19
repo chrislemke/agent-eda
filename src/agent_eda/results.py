@@ -1,10 +1,11 @@
 """Result classes returned by agent-eda analyses."""
 
+import ast
 import itertools
 import json
 import re
 import typing
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Literal, Self
 
 import numpy as np
@@ -18,14 +19,15 @@ from pydantic import (
     PrivateAttr,
     SerializationInfo,
     SerializerFunctionWrapHandler,
+    field_validator,
     model_serializer,
     model_validator,
 )
 
 from agent_eda import _text
 from agent_eda._annotations import TypeName, python_literal
-from agent_eda._levels import Levels, level_rows, levels_frame
-from agent_eda._written_form import row_id_json
+from agent_eda._levels import LEVEL_ORDER, Levels, level_rows, levels_frame
+from agent_eda._written_form import row_id_json, row_id_list
 from agent_eda.errors import InvalidArgumentError, ResultTableUnavailableError
 
 Status = Literal[
@@ -125,7 +127,10 @@ class _Cap:
     is capped instead, with `<key>_total` next to it, except the keys named in
     `whole`. With `total`, the field holds only the first entries even on the
     result object, and `<field>_total` takes the full count from the field that
-    `total` names.
+    `total` names. A list whose entries have a natural key, such as a pair's two
+    columns, takes `key`, which gives an entry's key as a tuple of strings:
+    field paths then name its entries by key, as `pairs['a', 'b']`, and a
+    capped record keeps the entries that findings and limitations point at.
     """
 
     def __init__(
@@ -135,21 +140,27 @@ class _Cap:
         each_list: bool = False,
         total: str | None = None,
         whole: tuple[str, ...] = (),
+        key: Callable[[Any], tuple[str, ...]] | None = None,
     ) -> None:
         self.limit = limit
         self.each_list = each_list
         self.total = total
         self.whole = whole
+        self.key = key
 
 
 # The caps the spec sets for every list in the record that grows with the data.
 _ROW_IDS = _Cap(10)
 _EXAMPLE_VALUES = _Cap(5)
 _ENTRIES = _Cap(100)
-# For parameters: list and mapping arguments, but not data's shape.
-_LISTS_INSIDE = _Cap(100, each_list=True, whole=("data",))
+# For parameters: list and mapping arguments, but not data's shape or the
+# project, which is recorded whole.
+_LISTS_INSIDE = _Cap(100, each_list=True, whole=("data", "project"))
 
 _RECORD = "agent_eda_record"
+# In the serialization context: which entries of the result's capped fields the
+# findings and limitations point at, by field name.
+_POINTED = "agent_eda_pointed"
 
 
 # Lone surrogates, which no UTF-8 output can hold.
@@ -198,20 +209,106 @@ def _head(values: list[Any] | dict[Any, Any], limit: int) -> list[Any] | dict[An
     return values[:limit]
 
 
-def _capped(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
-    """Keep the first entries of each named list or dict and add its total."""
+def _capped(
+    values: dict[str, Any], limit: int, whole: tuple[str, ...], *, top: bool = False
+) -> dict[str, Any]:
+    """Keep the first `limit` entries of each list or dict among `values`, except
+    the keys named in `whole`, and add its total as `<key>_total` beside it.
+
+    The lists and dicts inside the kept entries are capped the same way, down
+    to any depth, but get their total only when entries were dropped. A
+    `<key>_total` that another key already holds gets underscores added until
+    it is free, so no entry is overwritten.
+    """
     capped: dict[str, Any] = {}
     for name, value in values.items():
-        limit = limits.get(name)
-        if limit is None:
+        if name in whole or not isinstance(value, list | dict):
             capped[name] = value
             continue
         if isinstance(value, dict):
-            capped[name] = dict(itertools.islice(value.items(), limit))
+            capped[name] = _capped(
+                dict(itertools.islice(value.items(), limit)), limit, ()
+            )
         else:
             capped[name] = value[:limit]
-        capped[f"{name}_total"] = len(value)
+        if top or len(value) > limit:
+            total = f"{name}_total"
+            while total in values:
+                total += "_"
+            capped[total] = len(value)
     return capped
+
+
+def _entry_names(values: list[Any] | dict[Any, Any], cap: _Cap) -> list[Any]:
+    """What a field path calls each entry: its key in a mapping, its key fields
+    as a tuple in a keyed list, and its position in any other list."""
+    if isinstance(values, dict):
+        return list(values)
+    if cap.key is not None:
+        return [cap.key(entry) for entry in values]
+    return list(range(len(values)))
+
+
+def _kept_indexes(
+    values: list[Any] | dict[Any, Any], cap: _Cap, pointed: set[Any]
+) -> list[int] | None:
+    """The positions of the entries a capped record keeps; None for all of them.
+
+    The record keeps every entry that a finding or limitation points at, then
+    the first of the others, `cap.limit` entries in all, in their own order.
+    """
+    if len(values) <= cap.limit:
+        return None
+    names = _entry_names(values, cap)
+    marked = [i for i, name in enumerate(names) if name in pointed]
+    if not marked:
+        return list(range(cap.limit))
+    keep = set(marked)
+    others = (i for i in range(len(names)) if i not in keep)
+    keep.update(itertools.islice(others, max(cap.limit - len(marked), 0)))
+    return sorted(keep)
+
+
+def _pick(
+    values: list[Any] | dict[Any, Any], indexes: list[int]
+) -> list[Any] | dict[Any, Any]:
+    """The entries of a list or dict at these positions."""
+    if isinstance(values, dict):
+        items = list(values.items())
+        return {items[i][0]: items[i][1] for i in indexes}
+    return [values[i] for i in indexes]
+
+
+def _subscript(path: str) -> tuple[str, Any] | None:
+    """The field and the entry a field path starts with, such as ('columns',
+    'age') for "columns['age'].min"; None when it names no entry."""
+    try:
+        node = ast.parse(path, mode="eval").body
+        while True:
+            if isinstance(node, ast.Attribute):
+                node = node.value
+            elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+                if isinstance(node.slice, ast.Slice):
+                    return None
+                return node.value.id, ast.literal_eval(node.slice)
+            elif isinstance(node, ast.Subscript):
+                node = node.value
+            else:
+                return None
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+
+
+def _renumbered(path: str, moves: dict[str, dict[int, int]]) -> str:
+    """A field path with its list position changed to the entry's position in
+    the record; `moves` maps each list field's object positions to those."""
+    found = _subscript(path)
+    if found is None or found[0] not in moves or not isinstance(found[1], int):
+        return path
+    name, position = found
+    if position not in moves[name]:
+        return path
+    return f"{name}[{moves[name][position]}]{path[path.index(']') + 1 :]}"
 
 
 def _models_in(
@@ -316,11 +413,22 @@ class ResultModel(BaseModel):
         }
         # Serialize only the entries the record keeps, which saves converting
         # what it would drop, such as the row IDs of 500,000 duplicate groups.
-        heads = {
-            name: _head(getattr(self, name), limit)
-            for name, limit in limits.items()
-            if (length := lengths[name]) is not None and length > limit
-        }
+        # Findings and limitations name entries of the result's own fields; the
+        # record keeps those.
+        pointed = (
+            info.context.get(_POINTED, {}) if isinstance(self, AnalysisResult) else {}
+        )
+        heads: dict[str, Any] = {}
+        for name, limit in limits.items():
+            length = lengths[name]
+            if length is None or length <= limit:
+                continue
+            values = getattr(self, name)
+            if name in pointed and caps[name].total is None:
+                kept = _kept_indexes(values, caps[name], pointed[name])
+                heads[name] = values if kept is None else _pick(values, kept)
+            else:
+                heads[name] = _head(values, limit)
         data = handler(self.model_copy(update=heads) if heads else self)
         record: dict[str, Any] = {}
         for name, value in data.items():
@@ -330,12 +438,7 @@ class ResultModel(BaseModel):
         for name, cap in caps.items():
             inner = record.get(name)
             if cap.each_list and isinstance(inner, dict):
-                lists = {
-                    key: cap.limit
-                    for key, v in inner.items()
-                    if isinstance(v, list | dict) and key not in cap.whole
-                }
-                record[name] = _capped(inner, lists)
+                record[name] = _capped(inner, cap.limit, cap.whole, top=True)
         return record
 
 
@@ -356,7 +459,9 @@ class Finding(ResultModel):
     )
     fields: Annotated[list[str], _ENTRIES] = Field(
         description="Paths of the result fields behind the claim, such as "
-        "'columns[2].missing_count'."
+        "'columns[2].missing_count'. A mapping entry is named by its key, as "
+        "in columns['age'], and a pair by its two columns, as in "
+        "pairs['age', 'income']. In the record, every path resolves."
     )
 
 
@@ -399,8 +504,18 @@ class Support(ResultModel):
     row_count: int = Field(description="Rows in the data given to the analysis.")
     column_count: int = Field(description="Columns the analysis selected.")
     columns: Annotated[list[ColumnSupport], _ENTRIES] = Field(
-        description="One entry per selected column, in the selected order."
+        description="The selected columns where something was excluded, in the "
+        "selected order. A column not listed had every row eligible and "
+        "evaluated: eligible_count and evaluated_count equal row_count, and "
+        "excluded_count is 0."
     )
+
+    @field_validator("columns", mode="after")
+    @classmethod
+    def _only_where_something_was_excluded(
+        cls, columns: list[ColumnSupport]
+    ) -> list[ColumnSupport]:
+        return [column for column in columns if column.excluded_count]
 
 
 class Execution(ResultModel):
@@ -595,8 +710,10 @@ class AnalysisResult(ResultModel):
     )
     parameters: Annotated[dict[str, JsonValue], _LISTS_INSIDE] = Field(
         description="The resolved arguments by name, defaults included. data "
-        "appears only as its row_count and column_count. In the record, a list "
-        "or mapping argument keeps its first 100 entries and gains <name>_total."
+        "appears only as its row_count and column_count, and project whole. In "
+        "the record, a list or mapping argument keeps its first 100 entries and "
+        "gains <name>_total; a list inside a mapping argument keeps its first "
+        "100 entries too, and gains <key>_total beside it when it lost some."
     )
     support: Support = Field(description="The counts behind the result.")
     findings: Annotated[list[Finding], _ENTRIES] = Field(
@@ -700,16 +817,76 @@ class AnalysisResult(ResultModel):
     def to_dict(self) -> dict[str, Any]:
         """The result record as JSON-compatible Python objects.
 
-        Every list that grows with the data keeps its first entries (10 row IDs,
-        5 example values, 100 entries of anything else) and gains a
-        `<field>_total` key with the full count. The result object and
-        to_frame() keep every entry.
+        Every list that grows with the data keeps its first entries (10 row
+        IDs, 5 example values, 100 entries of anything else, and top_n levels
+        per column in summarize_categorical) and gains a `<field>_total` key
+        with the full count. A capped list of entries that findings or
+        limitations point at keeps those too, so every field path in a finding
+        or limitation resolves in the record; a path that names an entry by
+        position then gives its position in the record. The result object keeps
+        every entry, except in the eight fields that hold only their first
+        entries on the object too: levels, row IDs, invalid values, classes and
+        unexpected or rare labels. to_frame() has every one of them, row IDs
+        included.
         """
-        return self.model_dump(mode="json", context={_RECORD: True})
+        pointed = self._pointed_entries()
+        record = self.model_dump(
+            mode="json", context={_RECORD: True, _POINTED: pointed}
+        )
+        self._renumber_paths(record, pointed)
+        return record
 
     def to_json(self) -> str:
         """The result record from to_dict() as strict JSON, without NaN or Infinity."""
         return _record_json(self.to_dict())
+
+    def _capped_entry_fields(self) -> dict[str, _Cap]:
+        """The result's own lists and mappings that the record caps at their
+        first entries, where findings and limitations can point at later ones."""
+        return {
+            name: marker
+            for name, field in type(self).model_fields.items()
+            for marker in field.metadata
+            if isinstance(marker, _Cap) and not marker.each_list and not marker.total
+        }
+
+    def _pointed_entries(self) -> dict[str, set[Any]]:
+        """The entries of the capped fields that the record's findings and
+        limitations name, by field: positions, keys or key tuples."""
+        capped = self._capped_entry_fields()
+        pointed: dict[str, set[Any]] = {}
+        for item in [
+            *self.findings[: _ENTRIES.limit],
+            *self.limitations[: _ENTRIES.limit],
+        ]:
+            for path in item.fields[: _ENTRIES.limit]:
+                if (found := _subscript(path)) is None or found[0] not in capped:
+                    continue
+                name, entry = found
+                if capped[name].key is not None and not isinstance(entry, tuple):
+                    entry = (entry,)
+                pointed.setdefault(name, set()).add(entry)
+        return pointed
+
+    def _renumber_paths(
+        self, record: dict[str, Any], pointed: dict[str, set[Any]]
+    ) -> None:
+        """Rewrite the paths into lists that name entries by position, when the
+        record dropped entries before them, so each still resolves."""
+        capped = self._capped_entry_fields()
+        moves: dict[str, dict[int, int]] = {}
+        for name in pointed:
+            cap, values = capped[name], getattr(self, name)
+            if cap.key is not None or isinstance(values, dict):
+                continue
+            kept = _kept_indexes(values, cap, pointed[name])
+            if kept is not None:
+                moves[name] = {old: new for new, old in enumerate(kept)}
+        if not moves:
+            return
+        for kind in ("findings", "limitations"):
+            for item in record[kind]:
+                item["fields"] = [_renumbered(path, moves) for path in item["fields"]]
 
     @classmethod
     def record_schema(cls) -> dict[str, Any]:
@@ -1384,17 +1561,14 @@ class SummarizeNumericResult(AnalysisResult):
 
     columns: Annotated[dict[str, SummarizeNumericColumn], _ENTRIES] = Field(
         description="One entry per selected column, keyed by column name, in the "
-        "selected order. The record keeps the first 100 and adds columns_total; "
-        "the complete table has every column."
+        "selected order. Every statistic uses the finite values only, and the "
+        "description of each entry field defines it. The record keeps the first "
+        "100 and adds columns_total; the complete table has every column."
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns that the default column selection left out because "
         "they aren't numeric or are boolean, in DataFrame order; empty when the "
         "call names the columns."
-    )
-    definitions: dict[str, str] = Field(
-        description="How each count and statistic in a column entry is defined, by "
-        "field name."
     )
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
@@ -1541,17 +1715,14 @@ class SummarizeCategoricalColumn(ColumnResult):
     levels: Annotated[
         list[SummarizeCategoricalLevel], _Cap(100, total="distinct_count")
     ] = Field(
-        description="The first 100 levels, ordered by count, descending, then by "
-        "label, as level_order states. distinct_count counts every level, the "
-        "record adds it as levels_total, and the complete table has every "
-        "level."
-    )
-    most_common_levels: list[SummarizeCategoricalLevel] = Field(
-        description="The first top_n levels: the ones the printed text shows."
+        description="The first top_n levels, each with its label, label_type, "
+        "count and share. Level order: " + LEVEL_ORDER + " distinct_count counts "
+        "every level, and the record adds it as levels_total; the complete "
+        "table has every level."
     )
     left_out_level_count: int | None = Field(
-        description="Levels beyond the first top_n, which most_common_levels and "
-        "the printed text leave out. Null when the values can't be hashed."
+        description="Levels beyond the first top_n, which levels and the printed "
+        "text leave out. Null when the values can't be hashed."
     )
     seen_once_count: int | None = Field(
         description="Levels that occur exactly once. Null when the values can't "
@@ -1587,22 +1758,14 @@ class SummarizeCategoricalResult(MaskableResult):
 
     columns: Annotated[dict[str, SummarizeCategoricalColumn], _ENTRIES] = Field(
         description="One entry per selected column, keyed by column name, in the "
-        "selected order. The record keeps the first 100 and adds columns_total."
+        "selected order. Every share divides by the entry's non_missing_count, so "
+        "missing values never dilute it and get no share of their own. The record "
+        "keeps the first 100 and adds columns_total."
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns that the default column selection left out because "
         "they aren't text, object, categorical or boolean columns, in DataFrame "
         "order; empty when the call names the columns."
-    )
-    share_denominator: Literal["non_missing_count"] = Field(
-        description="The entry field every share divides by: non_missing_count, "
-        "the column's values that aren't missing. Missing values get no share; "
-        "missing_count counts them."
-    )
-    level_order: str = Field(
-        description="How levels are ordered. They go by count, descending, then by "
-        "label, and labels of different types follow a fixed order that never "
-        "depends on hashing."
     )
     # Every level of every counted column, outside the record; to_frame() sorts
     # them when asked, since sorting a million labels is slow.
@@ -1612,7 +1775,7 @@ class SummarizeCategoricalResult(MaskableResult):
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
             "Shares are of each column's non-missing values. Levels go by count, "
-            f"then label; most_common_levels has the top {self.parameters.get('top_n')}."
+            f"then label; levels has the top {self.parameters.get('top_n')}."
         ]
         if self.left_out_columns:
             names = _text.join_labels(self.left_out_columns)
@@ -1630,7 +1793,7 @@ class SummarizeCategoricalResult(MaskableResult):
                 "non_missing_count",
                 "missing_count",
                 "distinct_count",
-                "most_common_levels",
+                "levels",
             ),
             rows=[
                 (
@@ -1640,7 +1803,7 @@ class SummarizeCategoricalResult(MaskableResult):
                     e.distinct_count,
                     ", ".join(
                         _level_text(level, masked=self._masked(e.column))
-                        for level in e.most_common_levels
+                        for level in e.levels
                     ),
                 )
                 for e in self.columns.values()
@@ -1683,14 +1846,10 @@ class FindDuplicateRowsResult(MaskableResult):
 
     compared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="The columns in which rows must be equal to count as duplicates, "
-        "in the order compared. The record keeps the first 100 and adds "
+        "in the order compared. Missing values of every kind equal each other, as "
+        "in pandas' duplicate check over two or more columns, and lists, dicts "
+        "and sets compare by content. The record keeps the first 100 and adds "
         "compared_columns_total."
-    )
-    missing_values_compare_equal: bool = Field(
-        description="Whether missing values count as equal when rows are compared: "
-        "always true. Native missing values of every kind equal each other, as in "
-        "pandas' duplicate check over two or more columns. Lists, dicts and sets "
-        "compare by content."
     )
     duplicate_groups: Annotated[list[DuplicateGroup], _ENTRIES] = Field(
         description="Each group of rows equal in every compared column, ordered "
@@ -1857,9 +2016,9 @@ class ProfileTargetResult(MaskableResult):
     classes: Annotated[
         list[ProfileTargetClass] | None, _Cap(100, total="class_count")
     ] = Field(
-        description="Classification: the first 100 classes, by count, descending, "
-        "then by label, as level_order states, each with its count and share; a "
-        "declared class without rows comes last, at count 0. "
+        description="Classification: the first 100 classes, each with its count "
+        "and share. Level order: " + LEVEL_ORDER + " A declared class without "
+        "rows comes last, at count 0. "
         "class_count counts every class, the record adds it as classes_total, and "
         "the complete table has every label. Null "
         "for regression."
@@ -1920,17 +2079,15 @@ class ProfileTargetResult(MaskableResult):
         "statistics.missing_count + statistics.infinite_count. Null for "
         "classification."
     )
-    level_order: str = Field(
-        description="How classes and labels are ordered. They go by count, "
-        "descending, then by label, and labels of different types follow a fixed "
-        "order that never depends on hashing."
-    )
     # Every label of a classification target, outside the record, for
     # to_frame(); with masking on, the placeholders' numbers instead.
     _labels: Levels | None = PrivateAttr(default=None)
     # Per label of _labels, whether expected_labels holds it; None without
     # expected_labels.
     _expected: np.ndarray | None = PrivateAttr(default=None)
+    # The ID of every row that holds a label outside expected_labels, by the
+    # label's position in _labels: pandas labels, or lists when masked.
+    _row_ids: dict[int, Any] | None = PrivateAttr(default=None)
 
     def _target_text(self) -> str:
         return _text.label_text(self.parameters.get("target_column"))
@@ -2109,9 +2266,11 @@ class ProfileTargetResult(MaskableResult):
         Classification: every label, classes and labels outside expected_labels
         alike, in level order, with label, label_type, count, share (null for a
         label outside expected_labels), expected (null when expected_labels is
-        None) and rare (null when rare_share is None, and for labels outside
-        expected_labels). label holds each value exactly as stored, or with
-        masking on, a sensitive target's placeholder. Regression: one row of
+        None), rare (null when rare_share is None, and for labels outside
+        expected_labels) and row_ids (the ID of every row that holds a label
+        outside expected_labels; null for the others). label holds each value
+        exactly as stored, or with masking on, a sensitive target's
+        placeholder. Regression: one row of
         statistics, as summarize_numeric's to_frame() gives it, with
         non_finite_count.
         """
@@ -2132,6 +2291,11 @@ class ProfileTargetResult(MaskableResult):
         else:
             order, labels, types = level_rows(levels)
             counts = levels.counts[order].astype(np.int64)
+        found = self._row_ids or {}
+        row_ids = [
+            row_id_list(found[position]) if position in found else None
+            for position in order.tolist()
+        ]
         expected = None if self._expected is None else self._expected[order]
         valid = np.ones(len(order), dtype=bool) if expected is None else expected
         shares = counts / max(self.valid_label_count or 0, 1)
@@ -2157,6 +2321,7 @@ class ProfileTargetResult(MaskableResult):
                     else [pd.NA] * len(order),
                     dtype="boolean",
                 ),
+                "row_ids": pd.Series(row_ids, dtype=object),
             }
         )
 
@@ -2413,6 +2578,11 @@ class DetectMissingSentinelsResult(MaskableResult):
         "were looked for there. A column without values isn't listed."
     )
 
+    # Every row ID of each candidate, in the order of candidates, outside the
+    # record: pandas labels, or lists of placeholders when masked. None for a
+    # result rebuilt from its record, which holds the first 10 of each.
+    _row_ids: list[Any] | None = PrivateAttr(default=None)
+
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         declared = sum(c.confirmation == "declared" for c in self.candidates)
         counts = [
@@ -2501,10 +2671,18 @@ class DetectMissingSentinelsResult(MaskableResult):
         """Every candidate, one row each, in the order of candidates.
 
         The columns are the candidate's fields. value holds each value as the
-        result does, and evidence and row_ids hold lists.
+        result does, and evidence and row_ids hold lists; row_ids has the ID of
+        every row that holds the value, where the record keeps the first 10.
         """
         frame = _entries_frame(self.candidates, SentinelCandidate)
         frame["value"] = pd.Series([c.value for c in self.candidates], dtype=object)
+        if self._row_ids is None:
+            if any(c.count > len(c.row_ids) for c in self.candidates):
+                raise _tables_unavailable(self)
+            every: list[list[object]] = [c.row_ids for c in self.candidates]
+        else:
+            every = [row_id_list(ids) for ids in self._row_ids]
+        frame["row_ids"] = pd.Series(every, dtype=object)
         return frame
 
 
@@ -2826,10 +3004,15 @@ class AssociationPair(ResultModel):
     )
 
 
+def _pair_key(pair: "AssociationPair") -> tuple[str, str]:
+    """What a field path calls a pair: its two columns."""
+    return pair.x_column, pair.y_column
+
+
 class ComputeAssociationMatrixResult(AnalysisResult):
     """The result of compute_association_matrix."""
 
-    pairs: Annotated[list[AssociationPair], _ENTRIES] = Field(
+    pairs: Annotated[list[AssociationPair], _Cap(100, key=_pair_key)] = Field(
         description="One entry per pair of paired columns, strongest first: by "
         "absolute value, descending, then in the selected column order, with null "
         "values last. The record keeps the 100 strongest and adds pairs_total; "
@@ -3324,6 +3507,10 @@ class ValidateColumnTypesResult(MaskableResult):
     # outside the record; masked columns hold placeholders' numbers instead.
     # None for a result rebuilt from its record, which holds no values.
     _tables: dict[str, Levels] | None = PrivateAttr(default=None)
+    # The ID of every row that holds an invalid value, by declared column, outside
+    # the record: pandas labels, or lists of placeholders when masked. None for a
+    # result rebuilt from its record, which holds the first 10 of each.
+    _row_ids: dict[str, Any] | None = PrivateAttr(default=None)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
@@ -3414,7 +3601,7 @@ class ValidateColumnTypesResult(MaskableResult):
             table: 'columns', the default, gives one row per declared column in
                 declared order: its declaration, whether it is present, its
                 dtype, the four counts, the distinct invalid values, the IDs of
-                the first 10 rows with an invalid value, and the assessment.
+                every row with an invalid value, and the assessment.
                 'invalid_values' gives one row per distinct invalid value of
                 each column, by column in declared order, then by count,
                 descending, then by value: column, value as stored (or its
@@ -3433,8 +3620,27 @@ class ValidateColumnTypesResult(MaskableResult):
         for name, field in ValidateColumnTypesColumn.model_fields.items():
             if name == "invalid_values":
                 continue  # table='invalid_values' has every one
+            if name == "invalid_row_ids":
+                columns[name] = pd.Series(self._every_row_id(entries), dtype=object)
+                continue
             columns[name] = pd.Series(
                 [getattr(entry, name) for entry in entries],
                 dtype=_FRAME_DTYPES.get(field.annotation, object),
             )
         return pd.DataFrame(columns, columns=list(columns))
+
+    def _every_row_id(
+        self, entries: Sequence[ValidateColumnTypesColumn]
+    ) -> list[list[object]]:
+        """The IDs of every row with an invalid value, per entry."""
+        if self._row_ids is None:
+            if any(
+                (entry.invalid_count or 0) > len(entry.invalid_row_ids)
+                for entry in entries
+            ):
+                raise _tables_unavailable(self)
+            return [entry.invalid_row_ids for entry in entries]
+        return [
+            row_id_list(self._row_ids[entry.column]) if entry.present else []
+            for entry in entries
+        ]

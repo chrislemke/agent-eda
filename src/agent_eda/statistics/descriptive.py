@@ -8,7 +8,6 @@ from annotated_types import Ge, Le, Lt
 
 from agent_eda._columns import ColumnKind, ColumnRule, select_columns
 from agent_eda._levels import (
-    LEVEL_ORDER,
     Levels,
     count_levels,
     ordered,
@@ -38,7 +37,6 @@ from agent_eda._run import check_distinct, data_shape, execution, overall_status
 from agent_eda._text import join_items, join_labels, label_text, plural
 from agent_eda.project import Project
 from agent_eda.results import (
-    ColumnResult,
     ColumnSupport,
     Finding,
     Limitation,
@@ -150,7 +148,8 @@ def summarize_numeric(
           kurtosis are with bias correction on, and both 0 for normal data.
         - `status` and `status_reason`, the column's own.
 
-        Every statistic uses the finite values only, and `definitions` states each one.
+        Every statistic uses the finite values only, and the description of each
+        entry field, in `describe_analysis`, defines it.
         `left_out_columns` names the columns that the default columns skipped.
         `to_frame` returns every statistic, one row per column and one column per
         quantile level, such as q0.25.
@@ -287,16 +286,9 @@ def summarize_numeric(
         execution=execution(("numpy", "pandas")),
         columns=entries,
         left_out_columns=selection.left_out,
-        definitions=_DEFINITIONS,
     )
 
 
-# Each count and statistic's definition: the description of its field.
-_DEFINITIONS = {
-    name: field.description or ""
-    for name, field in SummarizeNumericColumn.model_fields.items()
-    if name not in ColumnResult.model_fields
-}
 _NO_NUMERIC_COLUMNS = StatusReason(
     code="no_numeric_columns",
     message=(
@@ -424,10 +416,9 @@ def summarize_categorical(
             named here are summarized by their values; datetime and duration columns
             raise. None, the default, selects every text, object, categorical and
             boolean column, in DataFrame order.
-        top_n (int): How many of each column's most common levels
-            most_common_levels holds and the printed text shows, from 1 to 100;
-            defaults to 10. It limits only the display: levels keeps the first
-            100 levels and `to_frame` every level.
+        top_n (int): How many of each column's most common levels `levels`
+            holds and the printed text shows, from 1 to 100; defaults to 10.
+            It limits the record and the text: `to_frame` has every level.
         project (Project | None): The project, whose data policy names the
             sensitive columns and says whether to mask them. None, the
             default, declares no sensitive column, so nothing is masked.
@@ -447,10 +438,10 @@ def summarize_categorical(
         - `non_missing_count`, `missing_count` and `distinct_count`, the number of
           levels: the distinct non-missing values, as pandas value_counts tells
           them apart, so 1, 1.0 and true are one level.
-        - `levels`, the first 100 levels, and `most_common_levels`, the first
-          top_n, each with its `label`, `label_type`, `count` and `share`.
-          `left_out_level_count` counts the levels beyond top_n, and
-          `seen_once_count` the levels that occur once.
+        - `levels`, the first top_n levels, each with its `label`, `label_type`,
+          `count` and `share`; the record adds `levels_total`, which equals
+          `distinct_count`. `left_out_level_count` counts the levels beyond top_n,
+          and `seen_once_count` the levels that occur once.
         - `unused_categories`, the categories of a categorical dtype that no
           value takes.
         - `value_types`, the Python types of the values, and
@@ -459,11 +450,10 @@ def summarize_categorical(
           or surrounding spaces, tabs included.
         - `status` and `status_reason`, the column's own.
 
-        Shares divide by the column's `non_missing_count`, as
-        `share_denominator` states, so missing values never dilute them.
-        Levels go by count, descending, then by label, as `level_order`
-        states: booleans and numbers by value, then text by Unicode code
-        point, then other types by type name. Labels are kept as stored, so
+        Shares divide by the column's `non_missing_count`, so missing values
+        never dilute them. Levels go by count, descending, then by label:
+        booleans and numbers by value, then text by Unicode code point, then
+        other types by type name. Labels are kept as stored, so
         'Yes' and 'yes ' are two levels; a label JSON can't hold, such as a
         Decimal or a timestamp, appears as its string form, with its type in
         `label_type`. `to_frame` returns every level of every column, with
@@ -518,10 +508,10 @@ def summarize_categorical(
         >>> res = ae.summarize_categorical(df, top_n=3)
         >>> print(res)
         summarize_categorical: completed on 6 rows x 4 columns
-        Shares are of each column's non-missing values. Levels go by count, then label; most_common_levels has the top 3.
+        Shares are of each column's non-missing values. Levels go by count, then label; levels has the top 3.
         Left out, not text, object, categorical or boolean: 'age'.
         Columns (3 of 3 shown):
-        column  non_missing_count  missing_count  distinct_count  most_common_levels
+        column  non_missing_count  missing_count  distinct_count  levels
         plan                    5              1               3  'basic': 3 (60%), 'pro': 1 (20%), 'team': 1 (20%)
         answer                  6              0               4  'Yes': 2 (33.33%), 'no': 2 (33.33%), 'YES': 1 (16.67%)
         grade                   5              1               2  'a': 3 (60%), 'b': 2 (40%)
@@ -615,8 +605,6 @@ def summarize_categorical(
         masking=masking.record([column.name for column in selected], data),
         columns=entries,
         left_out_columns=selection.left_out,
-        share_denominator="non_missing_count",
-        level_order=LEVEL_ORDER,
     )
     result._tables = tables
     return result
@@ -630,8 +618,6 @@ _NO_CATEGORICAL_COLUMNS = StatusReason(
     ),
 )
 
-# The levels each column entry and the record keep; to_frame() has every level.
-_KEPT_LEVELS = 100
 _NO_VALUES = StatusReason(
     code="no_values", message="There are no non-missing values to count."
 )
@@ -666,7 +652,6 @@ def _categorical_entry(
             missing_count=missing,
             distinct_count=None,
             levels=[],
-            most_common_levels=[],
             left_out_level_count=None,
             seen_once_count=None,
             unused_categories=[],
@@ -675,12 +660,11 @@ def _categorical_entry(
             case_or_space_variants=[],
         )
     non_missing = len(series) - levels.missing_count
-    kept = [
+    shown = [
         _level(levels, position, non_missing, masked)
-        for position in ordered(levels, _KEPT_LEVELS)
+        for position in ordered(levels, top_n)
     ]
     distinct_count = len(levels.counts)
-    shown = kept[:top_n]
     unused = (
         [record_label(c) for c in levels.unused_categories]
         if masked is None
@@ -693,8 +677,7 @@ def _categorical_entry(
         non_missing_count=non_missing,
         missing_count=levels.missing_count,
         distinct_count=distinct_count,
-        levels=kept,
-        most_common_levels=shown,
+        levels=shown,
         left_out_level_count=distinct_count - len(shown),
         seen_once_count=int((levels.counts == 1).sum()),
         unused_categories=unused,

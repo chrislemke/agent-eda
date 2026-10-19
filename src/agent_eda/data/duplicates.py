@@ -110,9 +110,9 @@ def find_duplicate_rows(
         the rows in them. `excess_copy_count` counts the rows beyond the first of each
         group, the ones that removing duplicates would drop, and `duplicate_share` is
         the excess copies over all rows; it is null, with a `too_few_values` limitation,
-        when the data has no rows. `compared_columns` names the columns compared, and
-        `missing_values_compare_equal` records that missing values of every kind (None,
-        NaN, NaT and NA) equal each other. Lists, dicts and sets compare by content.
+        when the data has no rows. `compared_columns` names the columns compared.
+        Missing values of every kind (None, NaN, NaT and NA) equal each other, and
+        lists, dicts and sets compare by content.
         `to_frame` returns every row in a duplicate group with its group number. The
         record keeps the first 100 groups and the first 10 row IDs of each, with their
         totals.
@@ -258,7 +258,6 @@ def find_duplicate_rows(
         # The row IDs are the only values the result shows, if it has groups.
         masking=masking.record([row_ids.id_column] if sizes else [], data),
         compared_columns=compared,
-        missing_values_compare_equal=True,
         duplicate_groups=[
             {"size": size, "row_ids": ids[end - size : end]}
             for size, end in zip(sizes, ends, strict=True)

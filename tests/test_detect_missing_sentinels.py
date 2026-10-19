@@ -1074,7 +1074,7 @@ def test_support_counts_the_values_checked_in_each_column():
             s.excluded_by_reason,
         )
         for s in res.support.columns
-    ] == [("age", 3, 2, 1, {"missing": 1}), ("flag", 3, 3, 0, {})]
+    ] == [("age", 3, 2, 1, {"missing": 1})]
 
 
 @pytest.mark.parametrize(

@@ -60,6 +60,7 @@ from agent_eda._text import (
 )
 from agent_eda._values import is_constant, value_codes
 from agent_eda._wording import as_written, worded
+from agent_eda._written_form import row_id_list
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
 from agent_eda.results import (
@@ -1442,7 +1443,8 @@ def validate_column_types(
           convert to it, with `invalid_row_ids`, the first 10 rows that hold
           one, and `invalid_values`, the first 5 distinct ones with their
           counts, most frequent first, then by value as summarize_categorical
-          orders levels; `invalid_distinct_count` counts them.
+          orders levels; `invalid_distinct_count` counts them. `to_frame` has
+          the ID of every row that holds an invalid value.
         - `missing_count`: None, NaN, NaT and NA, and NaN that a float
           column stores as a value.
 
@@ -1576,7 +1578,6 @@ def validate_column_types(
             column_kind(data.dtypes.iloc[positions[name]]),
             spec.logical_type,
             spec.datetime_format,
-            row_limit=_ROW_ID_LIMIT,
         )
         for name, spec in declared.items()
         if name in positions
@@ -1586,7 +1587,7 @@ def validate_column_types(
         for name, check in checks.items()
         if masking.masks(name) and len(check.invalid_values.values)
     }
-    ids = _shown_row_ids(
+    ids, every_id = _row_ids_of(
         checks, row_ids, masked, masked=masking.masks(row_ids.id_column)
     )
     entries = {
@@ -1653,37 +1654,51 @@ def validate_column_types(
         name: masked[name].levels if name in masked else check.invalid_values
         for name, check in checks.items()
     }
+    result._row_ids = every_id
     return result
 
 
-def _shown_row_ids(
+def _row_ids_of(
     checks: dict[str, Check],
     row_ids: RowIds,
     masked_levels: dict[str, MaskedLevels],
     *,
     masked: bool,
-) -> dict[str, list[object]]:
-    """The row IDs each entry shows, as placeholders when id_column is masked.
+) -> tuple[dict[str, list[object]], dict[str, Any]]:
+    """The row IDs each entry shows and the row IDs of every invalid row.
 
-    A row ID equal to an invalid value of id_column that the result shows
-    takes that value's placeholder. The other IDs are numbered on from there,
-    in result order, and equal IDs share a placeholder.
+    An entry shows the IDs of its first rows, and the second mapping has every
+    one: pandas labels, or lists once id_column is masked.
+
+    Masked IDs are placeholders. A row ID equal to an invalid value of id_column
+    that the result shows takes that value's placeholder. The other IDs are
+    numbered on from there, the shown ones first, in result order, and equal
+    IDs share a placeholder.
     """
-    shown = {name: row_ids.at(check.invalid_rows) for name, check in checks.items()}
+    everyone = {
+        name: row_ids.labels.take(check.invalid_rows) for name, check in checks.items()
+    }
+    shown = {
+        name: row_ids.at(check.invalid_rows[:_ROW_ID_LIMIT])
+        for name, check in checks.items()
+    }
     if not masked:
-        return shown
+        return shown, everyone
     id_column = typing.cast("str", row_ids.id_column)
+    listed = {name: row_id_list(ids) for name, ids in everyone.items()}
     known: dict[object, str] = {}
     start = 1
     if id_column in masked_levels:
         levels = checks[id_column].invalid_values
-        flat = pd.Series([i for ids in shown.values() for i in ids], dtype=object)
+        flat = pd.Series([i for ids in listed.values() for i in ids], dtype=object)
         for position in levels.positions_of(flat).tolist():
             known[levels.label(position)] = masked_levels[id_column].label(position)
         start += len(levels.values)
     numbers: dict[object, str] = {}
-    for ids in shown.values():
-        for index, value in enumerate(ids):
+
+    def number(ids: list[object], begin: int, end: int) -> None:
+        for index in range(begin, end):
+            value = ids[index]
             if pd.api.types.is_scalar(value) and pd.isna(value):
                 ids[index] = None
             elif value in known:
@@ -1692,7 +1707,12 @@ def _shown_row_ids(
                 ids[index] = numbers.setdefault(
                     value, placeholder(start + len(numbers))
                 )
-    return shown
+
+    for ids in listed.values():
+        number(ids, 0, min(len(ids), _ROW_ID_LIMIT))
+    for ids in listed.values():
+        number(ids, _ROW_ID_LIMIT, len(ids))
+    return {name: ids[:_ROW_ID_LIMIT] for name, ids in listed.items()}, listed
 
 
 def _shown_columns(

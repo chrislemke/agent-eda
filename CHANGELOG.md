@@ -22,6 +22,22 @@ One name per concept:
 
 The printed text follows: the `count` column of `summarize_numeric` and of `profile_target`'s statistics is `non_missing_count`, and `compute_association_matrix` prints "Left out 1 column" where it printed "Skipped 1 column".
 
+### Removed from records
+
+- `summarize_categorical`: `most_common_levels`, `share_denominator` and `level_order`. `levels` now holds the first `top_n` levels (it held 100), on the result and in the record, which adds `levels_total` (the `distinct_count`). The printed text calls its column `levels`. `to_frame()` and `table_path` still have every level.
+- `profile_target`: `level_order`. `summarize_numeric`: `definitions`. `find_duplicate_rows`: `missing_values_compare_equal`. Their meaning moved into field descriptions, which `describe_analysis` and the MCP output schema carry.
+- `support.columns` lists only columns with `excluded_count > 0`. A column not listed had every row eligible and evaluated.
+
+### Changed in records
+
+- A capped record keeps the entries that findings and limitations point at, then the first of the others, up to 100. Field paths name a mapping entry by its key (`columns['c115'].min`) and an association pair by its two columns (`pairs['a', 'b'].value`); every path resolves in `to_dict()`.
+- Lists and mappings inside a mapping argument of `parameters` are capped at 100 at any depth. A `<key>_total` appears beside them only when entries were dropped. `project` is recorded whole.
+- `to_frame()` gives every row ID: the `row_ids` column of `detect_missing_sentinels`, the `invalid_row_ids` column of `validate_column_types`, and a new `row_ids` column in `profile_target`, with the rows that hold a label outside `expected_labels`. A result rebuilt from its record raises `result_table_unavailable` when it would lack them.
+
+### Fixed
+
+- `summarize_categorical` with a `top_n` below the level count could drop text labels that hold a NUL character.
+
 ### Moved
 
 - `describe_dataset` lives in `agent_eda.data.structure`, which `ae.list_analyses()` reports as its module. `agent_eda.data.provenance` no longer exists. `ae.describe_dataset` is unchanged.
