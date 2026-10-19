@@ -166,10 +166,10 @@ def summarize_numeric(
 
         Both findings are suspected:
 
-        - `constant_columns`: a column holds a single distinct non-missing
+        - `constant_columns`: suspected; a column holds a single distinct non-missing
           value in at least two rows, as describe_dataset decides it.
-        - `infinite_values`: a column holds inf or -inf, which every statistic
-          leaves out.
+        - `infinite_values`: suspected; a column holds inf or -inf, which every
+          statistic leaves out.
 
     Statuses:
         completed: Every selected column has a finite value.

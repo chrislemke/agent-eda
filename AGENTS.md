@@ -78,12 +78,12 @@ Google style. Every public analysis has these sections, in this order, under the
 1. A summary line phrased as the question the analysis answers, ending in "?".
 2. `When to use:` when to use it, and which other analysis to use instead.
 3. `Args:` every parameter, with type, unit, allowed values and what `None` means.
-4. `Returns:` the fields to read, how to interpret them, and every declared finding code.
+4. `Returns:` the fields to read, how to interpret them, and every declared finding code, one bullet each that starts with its assessment and a semicolon, as in ``- `constant_columns`: suspected; a column holds one value``.
 5. `Statuses:` exactly the declared statuses, and why each occurs.
 6. `Examples:` a runnable doctest that prints a result.
 7. `See Also:` related analyses.
 
-`When to use:` and `See Also:` name only analyses that exist; when a new analysis is the better choice for a neighbour's question, update the neighbour's sections too. A contract test enforces all of this. `guide()`, `search_analyses()` and `describe_analysis()` read the docstring at runtime, so it is the only copy. Generated agent docs (`llms.txt`, `SKILL.md`, API docs) come in a later slice, from the same source.
+`When to use:` and `See Also:` name only analyses that exist; when a new analysis is the better choice for a neighbour's question, update the neighbour's sections too. A contract test enforces all of this. `guide()`, `search_analyses()` and `describe_analysis()` read the docstring at runtime, so it is the only hand-written copy. The README's Reference is generated from the docstrings, the signatures and `ae.errors`: after you change one, run `uv run python scripts/generate_reference.py` and commit the README. A test fails when the Reference is stale.
 
 ## Implementation
 

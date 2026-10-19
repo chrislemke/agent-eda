@@ -214,12 +214,12 @@ def test_lists_the_finding_codes_with_their_meanings():
     assert [(f.code, f.description) for f in description.finding_codes] == [
         (
             "constant_columns",
-            "a column holds a single distinct non-missing value in at least two "
-            "rows, as describe_dataset decides it.",
+            "suspected; a column holds a single distinct non-missing value in at "
+            "least two rows, as describe_dataset decides it.",
         ),
         (
             "infinite_values",
-            "a column holds inf or -inf, which every statistic leaves out.",
+            "suspected; a column holds inf or -inf, which every statistic leaves out.",
         ),
     ]
 
@@ -378,8 +378,8 @@ def test_prints_each_part_compactly_in_plain_text():
     )
     assert "  completed: Every selected column has a finite value." in lines
     assert (
-        "  infinite_values: a column holds inf or -inf, which every statistic "
-        "leaves out."
+        "  infinite_values: suspected; a column holds inf or -inf, which every "
+        "statistic leaves out."
     ) in lines
     assert "  left_out_columns: list[str]" in lines
     example = lines.index("Example:")

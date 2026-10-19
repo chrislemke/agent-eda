@@ -6,8 +6,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = (ROOT / "AGENTS.md").read_text()
 CHECKLIST_PATH = ROOT / "docs" / "agents" / "new-analysis.md"
-# Files that a later ticket of the agent-workflow spec creates (ticket 05).
-CREATED_LATER = {"scripts/generate_reference.py"}
 
 
 def bullet(text, name):
@@ -28,7 +26,7 @@ def test_the_checklist_names_files_that_exist_and_a_check_for_each_step():
     paths = re.findall(r"`((?:tests|src|docs|scripts)/[\w/.-]+\.(?:py|md))`", text)
     rows = [line for line in text.splitlines() if re.match(r"\| \d+ \|", line)]
 
-    missing = [p for p in set(paths) if p not in CREATED_LATER and not exists(p)]
+    missing = [p for p in set(paths) if not exists(p)]
 
     assert missing == []
     assert len(rows) >= 12
@@ -72,3 +70,15 @@ def test_the_tests_section_names_the_helpers_and_the_stale_mcp_server():
     assert "data_frames()" in tests
     assert "EDGE_FRAMES" in tests
     assert "when the Claude Code session started" in tests
+
+
+def test_the_checklist_and_agents_md_name_the_generator_of_the_reference():
+    checklist = CHECKLIST_PATH.read_text()
+    docstrings = AGENTS.split("\n## Docstrings\n")[1].split("\n## ")[0]
+
+    assert "uv run python scripts/generate_reference.py" in checklist
+    assert "uv run python scripts/generate_reference.py" in docstrings
+    assert "only hand-written copy" in docstrings
+    assert "README's Reference is generated from the docstrings" in docstrings
+    assert "later slice" not in AGENTS
+    assert "llms.txt" not in AGENTS

@@ -303,46 +303,34 @@ Masking over MCP is the same guardrail as in Python: it guards against accidenta
 
 ## Reference
 
-Every public name in `agent_eda`, with its signature and what it does. The docstrings hold the full detail: `help(ae.<name>)` shows one, and `ae.describe_analysis("<name>")` gives an analysis's parameters, result fields and finding codes as data.
+<!-- reference:start -->
 
-- [Analysis functions](#analysis-functions): `describe_dataset`, `infer_column_semantics`, `validate_column_types`, `profile_missing_values`, `detect_missing_sentinels`, `summarize_numeric`, `summarize_categorical`, `find_duplicate_rows`, `find_candidate_keys`, `profile_target`, `compute_association_matrix`
-- [Discovery functions](#discovery-functions): `guide`, `search_analyses`, `describe_analysis`, `list_analyses`
-- [Projects and schemas](#projects-and-schemas): `Project`, `DataPolicy`, `ColumnSpec`, `LogicalType`
-- [Results](#results): `AnalysisResult` and the methods every result has
-- [Errors](#errors): every error code and the exception that carries it
-- [MCP server command](#mcp-server-command): `agent-eda-mcp`
+Generated from the docstrings by `scripts/generate_reference.py`: edit a docstring and rerun it, not this section. Every public name in `agent_eda`, with the first sentence of each argument and field. `help(ae.<name>)` shows the whole docstring and `ae.describe_analysis("<name>")` gives an analysis as data.
 
 ### Analysis functions
 
-Every analysis takes the DataFrame first, as `data`, and never changes it. All other arguments are keyword-only. These mean the same in every analysis that takes them:
-
-- `columns`: the columns to analyse, as a list, a tuple, a pandas Index or a single name, in the order to report them. `None` selects every column the analysis can use, and the result names the ones it left out.
-- `id_column`: a column whose values name rows in the result, such as an order number. `None` uses the index labels.
-- `project`: a `Project` whose data policy names the sensitive columns. `None` declares none.
-- `mask_sensitive`: `True` replaces the values of sensitive columns that the result shows with placeholders such as `<masked 1>`, and `False` shows them. `None` follows the project, and masks nothing without one. See [Projects and masking](#projects-and-masking).
-
-Each analysis returns its own result class, which has the shared fields and methods under [Results](#results) next to the fields listed here. A finding's assessment is in brackets: `descriptive` states a fact, `suspected` a possible problem, `violation` a broken declaration, `passed` a declared check that held and `unknown` one that couldn't run.
+Every analysis takes the DataFrame first, as `data`, and never changes it. All other arguments are keyword-only. Each returns its own result class, which has the fields under [Results](#results) next to the ones listed here. A finding's assessment is in brackets: descriptive: a neutral fact. suspected: a possible problem to judge. violation: the data breaks something declared. passed: a declared check held. unknown: a declared check couldn't be evaluated.
 
 #### `describe_dataset`
 
 `ae.describe_dataset(data, *, source=None, source_version=None) -> DescribeDatasetResult`
 
-What does this dataset contain? Gives the shape, each column's dtype, missing and distinct counts and memory, the index, and the provenance you supply, and flags structural problems. It never shows a raw value. Call it first: the other analyses raise on the bad column labels it reports.
+What does this dataset contain?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `source` | `None` | Where the data came from, such as a file path or table name, recorded as given. `None` records it as not supplied; it is never inferred. |
-| `source_version` | `None` | The version of the source, such as a snapshot date or a commit, recorded as given. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `source` | `str \| None` | `None` | Where the data came from, such as a file path, URL or table name, recorded exactly as given. |
+| `source_version` | `str \| None` | `None` | The version of the source, such as a snapshot date or a commit, recorded exactly as given. |
 
-Read `row_count`, `column_count`, `memory_bytes`, `columns` (one entry per column), `index` and `provenance`. `to_frame()` gives one row per column.
+**Fields:** `row_count`, `column_count`, `column_level_count`, `memory_bytes`, `columns` (`position`, `column`, `label_type`, `dtype`, `non_missing_count`, `missing_count`, `distinct_count`, `memory_bytes`), `index` (`dtype`, `level_count`, `is_unique`, `duplicated_count`, `missing_count`, `memory_bytes`), `provenance` (`source`, `source_version`, `not_supplied`)
 
 - `empty_data` (suspected): the data has no rows, no columns or neither.
 - `duplicated_column_labels` (suspected): a column label occurs more than once.
-- `colliding_column_labels` (suspected): different labels share a string form, such as `1` and `'1'`.
+- `colliding_column_labels` (suspected): different labels share a string form, such as 1 and '1'.
 - `multiindex_columns` (suspected): the column labels form a MultiIndex.
 - `non_unique_index` (suspected): index labels repeat, so they don't identify rows.
 - `all_missing_columns` (suspected): a column holds only missing values.
-- `constant_columns` (suspected): a column holds one distinct value in at least two rows.
+- `constant_columns` (suspected): a column holds a single distinct non-missing value in at least two rows.
 
 **Statuses:** `completed`, `failed`
 
@@ -350,27 +338,27 @@ Read `row_count`, `column_count`, `memory_bytes`, `columns` (one entry per colum
 
 `ae.infer_column_semantics(data, *, columns=None, declared_schema=None) -> InferColumnSemanticsResult`
 
-What kind of values does each column hold? Ranks the logical types `boolean`, `integer`, `float`, `categorical`, `text`, `datetime` and `timedelta` for each column by its values, not its dtype, with the evidence. It flags identifiers, numbers and ISO 8601 dates stored as text and booleans such as yes/no; whole numbers written with a leading zero, such as postal codes, count as text, not as numbers. Scores come from fixed rules and aren't probabilities.
+What kind of values does each column hold?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `columns` | `None` | The columns to read. `None` reads every column. |
-| `declared_schema` | `None` | The logical types you expect, by column: a type name or a `ColumnSpec`. Each is compared with the top candidate and never overwritten. `None` compares nothing. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to read, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
+| `declared_schema` | `Mapping[str, str \| ColumnSpec] \| None` | `None` | The logical types you declare, by column name: 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec (a dict of its fields works too), whose logical_type is the one compared. |
 
-Read `columns["<name>"]`: `inferred_logical_type`, `candidates` (each with `score` and `reasons`), `flags` and `evidence`. `to_frame()` gives the evidence per column, and `to_frame(table="candidates")` every candidate.
+**Fields:** `columns` (`column`, `status`, `status_reason`, `dtype`, `inferred_logical_type`, `declared_logical_type`, `matches_declared`, `candidates`, `flags`, `evidence`), `missing_declared_columns`
 
-- `identifier_like_columns` (suspected): every value is distinct and looks like an ID, so don't use the column as a number or a feature.
-- `constant_columns` (suspected): a column holds one distinct value in at least two rows.
-- `all_missing_columns` (suspected): a column holds no value.
-- `numbers_as_text` (suspected): a column stores numbers as text.
-- `dates_as_text` (suspected): a column stores ISO 8601 dates as text.
-- `non_iso_date_text` (suspected): a column holds dates in another format, such as `01/02/2020`, which are never parsed.
-- `boolean_like_columns` (descriptive): a column holds booleans stored as numbers or text, such as 0/1 or yes/no.
-- `mixed_value_types` (suspected): a column holds values of more than one Python type, such as `1` and `'1'`.
-- `declared_type_mismatch` (suspected): a declared column's top candidate differs from its declared type.
-- `declared_type_match` (passed): a declared column's top candidate is its declared type.
-- `declared_type_unchecked` (unknown): a declared column has no candidate to compare.
-- `declared_columns_missing` (violation): `declared_schema` names columns the data lacks.
+- `identifier_like_columns` (suspected): every value is distinct, there are at least two, and the top candidate is integer or text without spaces, as for IDs.
+- `constant_columns` (suspected): a single distinct value in at least two rows.
+- `all_missing_columns` (suspected): no value in at least one row.
+- `numbers_as_text` (suspected): the top candidate is integer or float and some of the numbers are stored as text.
+- `dates_as_text` (suspected): the top candidate is datetime and some of the datetimes are ISO 8601 text.
+- `non_iso_date_text` (suspected): at least half the values look like dates, and some of them aren't ISO 8601, such as 01/02/2020 or 5 Jan 2020; they are never parsed.
+- `boolean_like_columns` (descriptive): the top candidate is boolean and some values are numbers or text that read as booleans, such as 0/1 or yes/no.
+- `mixed_value_types` (suspected): the values have more than one Python type, such as int and str: evidence value_types lists them, as summarize_categorical does.
+- `declared_type_mismatch` (suspected): a declared column's top candidate differs from its declared logical type.
+- `declared_type_match` (passed): a declared column's top candidate is its declared logical type.
+- `declared_type_unchecked` (unknown): a declared column has no candidate to compare, since it has no values or none fits.
+- `declared_columns_missing` (violation): declared_schema names columns the data doesn't have, listed in `missing_declared_columns`.
 
 **Statuses:** `completed`, `partial`, `insufficient_data`, `not_applicable`, `failed`
 
@@ -378,23 +366,23 @@ Read `columns["<name>"]`: `inferred_logical_type`, `candidates` (each with `scor
 
 `ae.validate_column_types(data, *, schema, id_column=None, project=None, mask_sensitive=None) -> ValidateColumnTypesResult`
 
-Do the columns hold the logical types I declared? Checks every value of each declared column and counts the values already stored as the type, the ones that convert to it exactly, such as `'42'` for `integer`, the invalid ones and the missing ones. It lists example invalid values with their row IDs, converts nothing, and supports masking.
+Do the columns hold the logical types I declared?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `schema` | required | The logical type of each column: `'boolean'`, `'integer'`, `'float'`, `'categorical'`, `'text'`, `'datetime'` or `'timedelta'`, or a `ColumnSpec` that also sets `nullable` and `datetime_format`. A declared column the data lacks is reported, not raised. |
-| `id_column` | `None` | A column whose values name the rows that hold invalid values. |
-| `project` | `None` | The project that names the sensitive columns. |
-| `mask_sensitive` | `None` | Whether to mask the invalid values of sensitive columns and row IDs from a sensitive `id_column`. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `schema` | `Mapping[str, str \| ColumnSpec]` | required | The logical type each column should hold, by column name, in the order to report them: 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec (a dict of its fields works too). |
+| `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as an order number; row IDs are then its values. |
+| `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
+| `mask_sensitive` | `bool \| None` | `None` | True replaces the invalid values of sensitive columns, and row IDs taken from a sensitive id_column, with numbered placeholders, '<masked 1>' and so on, equal values alike, and needs a project that declares sensitive columns; False shows them as stored. |
 
-Read `columns["<name>"]`: `compatible_count`, `convertible_count`, `invalid_count` and `missing_count`, which add up to the rows, then `invalid_values`, `invalid_row_ids` and `assessment`. `to_frame()` gives one row per declared column, and `to_frame(table="invalid_values")` every distinct invalid value.
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `columns` (`column`, `declared_logical_type`, `nullable`, `datetime_format`, `present`, `dtype`, `compatible_count`, `convertible_count`, `invalid_count`, `missing_count`, `invalid_row_ids`, `invalid_distinct_count`, `invalid_values`, `assessment`), `undeclared_columns`
 
-- `invalid_values` (violation): columns hold values that neither are of the declared type nor convert to it.
-- `declared_columns_missing` (violation): declared columns the data lacks, each with the closest names.
-- `non_nullable_missing_values` (violation): columns declared with `nullable=False` have missing values.
-- `unchecked_columns` (unknown): columns have no value to check, such as when every value is missing.
-- `convertible_values` (descriptive): columns hold values stored as another type that convert exactly; convert them before use.
-- `valid_columns` (passed): columns pass every check.
+- `invalid_values` (violation): columns that hold invalid values.
+- `declared_columns_missing` (violation): declared columns the data doesn't have, each with the closest names.
+- `non_nullable_missing_values` (violation): columns declared with nullable=False that have missing values.
+- `unchecked_columns` (unknown): columns without a value to check, as when every value is missing.
+- `convertible_values` (descriptive): columns with values stored as another type; convert them before you use them as the declared type.
+- `valid_columns` (passed): columns that pass every check: only compatible and convertible values, and none missing when declared non-nullable.
 
 **Statuses:** `completed`, `failed`
 
@@ -402,14 +390,14 @@ Read `columns["<name>"]`: `compatible_count`, `convertible_count`, `invalid_coun
 
 `ae.profile_missing_values(data, *, columns=None, sentinel_values=None) -> ProfileMissingValuesResult`
 
-How much data is missing, and where? Counts missing values per column and per row: what pandas counts as missing (None, NaN, NaT and pd.NA) plus the sentinel values you declare, such as -999, never counting a value twice. It also gives the complete rows and how many rows miss each number of values. Nothing counts as a sentinel value unless you declare it; `detect_missing_sentinels` finds candidates.
+How much data is missing, and where?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `columns` | `None` | The columns to profile. `None` selects every column. |
-| `sentinel_values` | `None` | Values that stand for missing ones, by column, such as `{"age": [-999], "city": ["N/A", ""]}`. They match exactly. `None` counts only the values pandas treats as missing. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to profile, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
+| `sentinel_values` | `Mapping[str, Sequence[bool \| int \| float \| str \| datetime \| date \| timedelta]] \| None` | `None` | The sentinel values to count as missing, by column name, such as {'age': [-999], 'city': ['N/A', '']}: one value or a list of values per column, each a bool, int, float, str, datetime (pd.Timestamp too), date or timedelta (pd.Timedelta too). |
 
-Read `missing_count`, `missing_share`, `complete_row_count`, `complete_row_share` and `row_distribution`, and per column `columns["<name>"]` with `native_missing_count`, `sentinel_count`, `missing_count` and `missing_share`. `to_frame()` gives one row per column, and `to_frame(table="row_distribution")` the rows per number of missing values.
+**Fields:** `columns` (`column`, `status`, `status_reason`, `native_missing_count`, `sentinel_count`, `missing_count`, `missing_share`, `sentinel_values`), `missing_count`, `missing_share`, `complete_row_count`, `complete_row_share`, `row_distribution` (`missing_count`, `row_count`, `row_share`)
 
 - `all_missing_columns` (suspected): every value of a column is missing or a declared sentinel value.
 - `sentinel_values_present` (descriptive): declared sentinel values occur in a column, where they count as missing.
@@ -420,20 +408,20 @@ Read `missing_count`, `missing_share`, `complete_row_count`, `complete_row_share
 
 `ae.detect_missing_sentinels(data, *, columns=None, sentinel_values=None, id_column=None, project=None, mask_sensitive=None) -> DetectMissingSentinelsResult`
 
-Which values look like stand-ins for missing data? Fixed rules suspect values such as -999, `'N/A'`, empty text or 1900-01-01: values on a built-in list, and a number that repeats at a column's minimum or maximum far from all the others. It only suspects. Declare the values you confirm in `sentinel_values`, and `profile_missing_values` counts them as missing. It supports masking.
+Which values look like stand-ins for missing data?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `columns` | `None` | The columns to check. `None` checks every column except `id_column`. |
-| `sentinel_values` | `None` | The sentinel values you have confirmed, by column, as `profile_missing_values` takes them. They come back as declared, apart from the suspected ones. |
-| `id_column` | `None` | A column whose values name the rows that hold each candidate. |
-| `project` | `None` | The project that names the sensitive columns. |
-| `mask_sensitive` | `None` | Whether to mask the values of sensitive columns: the candidate values, the declared values in `parameters` and, for a sensitive `id_column`, the row IDs. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to check, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
+| `sentinel_values` | `Mapping[str, Sequence[bool \| int \| float \| str \| datetime \| date \| timedelta]] \| None` | `None` | The sentinel values you declare, by column name, such as {'age': [-999], 'city': ['N/A', '']}, as profile_missing_values takes them: one value or a list of values per column, each a bool, int, float, str, datetime (pd.Timestamp too), date or timedelta (pd.Timedelta too). |
+| `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as an order number; row IDs are then its values, and columns=None leaves it out of the check. |
+| `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
+| `mask_sensitive` | `bool \| None` | `None` | True replaces each value of a sensitive column that the result shows, its candidate values, its declared values in parameters and its values as row IDs when it is id_column, with a numbered placeholder, '<masked 1>' for the first value in result order and so on, equal values alike, and needs a project that declares sensitive columns; False shows the values as stored. |
 
-Read `candidates`, each with `column`, `value`, `count`, `share`, `evidence`, `confirmation` (declared or suspected) and `row_ids`. `columns_without_rules` names the checked columns no rule reads, such as booleans. `to_frame()` gives every candidate.
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `candidates` (`column`, `value`, `value_type`, `count`, `share`, `evidence`, `confirmation`, `row_ids`), `columns_without_rules`
 
 - `sentinel_values_present` (descriptive): declared sentinel values occur in a column.
-- `suspected_sentinel_values` (suspected): the rules found values that may stand in for missing ones; they stay valid until you declare them.
+- `suspected_sentinel_values` (suspected): the built-in rules found values that may stand in for missing ones, which stay valid values until you declare them.
 
 **Statuses:** `completed`, `insufficient_data`, `not_applicable`, `failed`
 
@@ -441,18 +429,18 @@ Read `candidates`, each with `column`, `value`, `count`, `share`, `evidence`, `c
 
 `ae.summarize_numeric(data, *, columns=None, quantiles=(0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99), quantile_method='linear', trim_fraction=0.1) -> SummarizeNumericResult`
 
-How are the values in each numeric column distributed? Gives the count and the missing, infinite, zero and negative counts, then the mean, standard deviation, minimum, maximum, quantiles, median, trimmed mean, median absolute deviation, skewness and excess kurtosis, all over the finite values. Booleans are left out unless named in `columns`.
+How are the values in each numeric column distributed?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `columns` | `None` | The columns to summarize. `None` selects every numeric column except booleans. A text, categorical or datetime column named here raises `ColumnTypeError`. |
-| `quantiles` | `(0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99)` | Quantile levels from 0 to 1, each listed once. An empty list computes none. |
-| `quantile_method` | `'linear'` | How `numpy.quantile` picks or interpolates: Hyndman and Fan's definitions 1 to 9 (`'inverted_cdf'`, `'averaged_inverted_cdf'`, `'closest_observation'`, `'interpolated_inverted_cdf'`, `'hazen'`, `'weibull'`, `'linear'`, `'median_unbiased'`, `'normal_unbiased'`), or `'lower'`, `'higher'`, `'midpoint'` and `'nearest'`. |
-| `trim_fraction` | `0.1` | The share of values cut from each end for the trimmed mean, from 0 up to but excluding 0.5. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to summarize, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
+| `quantiles` | `Sequence[float]` | `(0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99)` | Quantile levels, each from 0 to 1 and listed once, in the order to report them; an empty list computes none. |
+| `quantile_method` | `str` | `'linear'` | How numpy.quantile picks or interpolates between values: Hyndman and Fan's definitions 1 to 9 as 'inverted_cdf', 'averaged_inverted_cdf', 'closest_observation', 'interpolated_inverted_cdf', 'hazen', 'weibull', 'linear', 'median_unbiased' and 'normal_unbiased', or 'lower', 'higher', 'midpoint' and 'nearest'. |
+| `trim_fraction` | `float` | `0.1` | The share of the finite values cut from each end for the trimmed mean: int(trim_fraction * n) values each, as scipy.stats.trim_mean cuts. |
 
-Read `columns["<name>"]`: `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness` and `excess_kurtosis`. `definitions` states how each statistic is defined. `to_frame()` gives one row per column, with one column per quantile level, such as `q0.25`.
+**Fields:** `columns` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `left_out_columns`, `definitions`
 
-- `constant_columns` (suspected): a column holds one distinct value in at least two rows.
+- `constant_columns` (suspected): a column holds a single distinct non-missing value in at least two rows, as describe_dataset decides it.
 - `infinite_values` (suspected): a column holds inf or -inf, which every statistic leaves out.
 
 **Statuses:** `completed`, `partial`, `insufficient_data`, `not_applicable`, `failed`
@@ -461,19 +449,19 @@ Read `columns["<name>"]`: `count`, `missing_count`, `infinite_count`, `zero_coun
 
 `ae.summarize_categorical(data, *, columns=None, top_n=10, project=None, mask_sensitive=None) -> SummarizeCategoricalResult`
 
-Which values occur in each categorical column, and how often? For each text, object, categorical and boolean column it gives every level's count and share of the non-missing values, the cardinality and the most common levels. It flags labels that differ only by case or surrounding spaces, mixed value types and unused categories. Name a numeric column in `columns` to count its values, such as codes 1, 2 and 3. It supports masking.
+Which values occur in each categorical column, and how often?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `columns` | `None` | The columns to summarize. `None` selects every text, object, categorical and boolean column. A datetime or duration column named here raises. |
-| `top_n` | `10` | How many of each column's most common levels `most_common_levels` holds and the text prints, from 1 to 100. |
-| `project` | `None` | The project that names the sensitive columns. |
-| `mask_sensitive` | `None` | Whether to mask the levels of sensitive columns. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to summarize, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
+| `top_n` | `int` | `10` | How many of each column's most common levels most_common_levels holds and the printed text shows, from 1 to 100; defaults to 10. |
+| `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
+| `mask_sensitive` | `bool \| None` | `None` | True replaces each level of a sensitive column with a numbered placeholder, '<masked 1>' for the most common and so on in level order, and needs a project that declares sensitive columns; False shows the levels as stored. |
 
-Read `columns["<name>"]`: `non_missing_count`, `missing_count`, `cardinality`, `levels`, `most_common_levels`, `case_or_space_variants`, `unused_categories` and `value_types`. `to_frame()` gives every level of every column.
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `cardinality`, `levels`, `most_common_levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`, `share_denominator`, `level_order`
 
-- `case_or_space_variants` (suspected): a column holds labels that differ only by case or surrounding spaces, such as `'Yes'` and `'yes '`.
-- `mixed_value_types` (suspected): a column holds values of more than one Python type, such as `1` and `'1'`.
+- `case_or_space_variants` (suspected): a column holds labels that differ only by case or surrounding spaces, such as 'Yes' and 'yes '.
+- `mixed_value_types` (suspected): a column holds values of more than one Python type, such as 1 and '1'.
 - `unused_categories` (descriptive): a categorical column has categories that no value takes.
 
 **Statuses:** `completed`, `partial`, `insufficient_data`, `not_applicable`, `failed`
@@ -482,16 +470,16 @@ Read `columns["<name>"]`: `non_missing_count`, `missing_count`, `cardinality`, `
 
 `ae.find_duplicate_rows(data, *, columns=None, id_column=None, project=None, mask_sensitive=None) -> FindDuplicateRowsResult`
 
-Are there exact duplicate rows? Groups the rows that are equal in every compared column and gives each group's row IDs, the excess copies and the duplicate share. Missing values compare equal, as in pandas. It removes no rows, and it supports masking of row IDs taken from a sensitive `id_column`.
+Are there exact duplicate rows?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `columns` | `None` | The columns in which two rows must be equal. `None` compares every column except `id_column`. |
-| `id_column` | `None` | A column whose values name rows, such as an order number. `columns=None` leaves it out of the comparison, so unique IDs don't hide repeated records. |
-| `project` | `None` | The project that names the sensitive columns. |
-| `mask_sensitive` | `None` | Whether to mask row IDs taken from a sensitive `id_column`. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns in which two rows must be equal to count as duplicates, in the order to compare them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
+| `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as an order number; row IDs are then its values, and columns=None leaves it out of the comparison. |
+| `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
+| `mask_sensitive` | `bool \| None` | `None` | True replaces each row ID taken from a sensitive id_column with a numbered placeholder, '<masked 1>' for the first ID the result shows and so on, equal IDs alike, and needs a project that declares sensitive columns; False shows the IDs as stored. |
 
-Read `duplicate_groups` (each with `size` and `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count` and `duplicate_share`. `to_frame()` gives every row in a group with its group number.
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `compared_columns`, `missing_values_compare_equal`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
 
 - `duplicate_rows` (suspected): two or more rows are equal in every compared column.
 - `no_duplicate_rows` (descriptive): no two rows are equal in every compared column.
@@ -502,19 +490,19 @@ Read `duplicate_groups` (each with `size` and `row_ids`), `duplicate_group_count
 
 `ae.find_candidate_keys(data, *, columns=None, max_key_size=2, max_combinations=10000) -> FindCandidateKeysResult`
 
-Which columns, alone or combined, uniquely identify rows? Searches single columns and combinations of up to `max_key_size` columns for minimal keys. It lists keys with missing values apart, since they can't serve as primary keys, and when no key exists, the column sets that come closest. Missing values compare equal.
+Which columns, alone or combined, uniquely identify rows?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `columns` | `None` | The columns to search. `None` searches every column. A column of values that can't be hashed, such as lists, is left out. |
-| `max_key_size` | `2` | The most columns a key may combine, at least 1. |
-| `max_combinations` | `10000` | The most column sets the search examines, at least 1. A search that needs more stops with `budget_exceeded` and keeps what it found. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to search, in the order to report them: a list, a tuple, a pandas Index or a single name. |
+| `max_key_size` | `int` | `2` | The most columns a key may combine, at least 1; defaults to 2. |
+| `max_combinations` | `int` | `10000` | The most column sets the search examines, at least 1; defaults to 10,000, which covers every set of up to 2 of 140 columns. |
 
-Read `keys`, `keys_with_missing_values` and `most_unique_column_sets`, each entry with `columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count` and `uniqueness_share`, and `exhaustive`. `to_frame()` gives every entry with its kind.
+**Fields:** `keys` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `keys_with_missing_values` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `most_unique_column_sets` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `exhaustive`, `search` (`column_count`, `combination_count`, `examined_count`, `rejected_on_subset_count`, `checked_on_all_rows_count`, `subset_row_count`), `left_out_columns`
 
 - `keys_found` (descriptive): column sets identify every row and have no missing values.
-- `keys_with_missing_values` (descriptive): column sets identify every row but have missing values.
-- `no_key_found` (descriptive): no examined set identifies every row; the claim names the most unique set.
+- `keys_with_missing_values` (descriptive): column sets identify every row but have missing values, so they can't serve as primary keys.
+- `no_key_found` (descriptive): no examined set identifies every row; the claim names the most unique set and its duplicate rows.
 
 **Statuses:** `completed`, `budget_exceeded`, `insufficient_data`, `not_applicable`, `failed`
 
@@ -522,29 +510,29 @@ Read `keys`, `keys_with_missing_values` and `most_unique_column_sets`, each entr
 
 `ae.profile_target(data, *, target_column, task, expected_labels=None, rare_share=None, id_column=None, project=None, mask_sensitive=None) -> ProfileTargetResult`
 
-What does the target look like for this task? For classification it counts each class, gives the majority and minority shares and the imbalance ratio, and checks the labels against the ones you expect. For regression it gives the statistics of `summarize_numeric`. It flags a target that doesn't fit the task, such as a single class or a constant value, and supports masking.
+What does the target look like for this task?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `target_column` | required | The column a model learns to predict. |
-| `task` | required | `'binary_classification'`, `'multiclass_classification'` or `'regression'`. It is never inferred from the dtype, and a regression target must hold numbers. |
-| `expected_labels` | `None` | The labels the task allows, such as `['no', 'yes']`: exactly 2 for binary and at least 2 for multiclass classification, none for regression. `None` skips the check. |
-| `rare_share` | `None` | For classification, the share below which a class counts as rare, such as 0.05, between 0 and 1. `None` skips the check. |
-| `id_column` | `None` | A column whose values name the rows with labels outside `expected_labels`. |
-| `project` | `None` | The project that names the sensitive columns. |
-| `mask_sensitive` | `None` | Whether to mask the labels of a sensitive target and row IDs from a sensitive `id_column`. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `target_column` | `str` | required | Name of the column a model learns to predict. |
+| `task` | `str` | required | What the model does with the target, never inferred from the dtype. |
+| `expected_labels` | `Sequence[str \| bool \| int \| float] \| None` | `None` | The labels the task allows, such as ['no', 'yes'] or [0, 1]: exactly 2 for binary_classification and at least 2 for multiclass_classification, each listed once; regression takes none. |
+| `rare_share` | `float \| None` | `None` | For classification, the share of the valid labels below which a class counts as rare, such as 0.05; greater than 0 and less than 1. |
+| `id_column` | `str \| None` | `None` | Name of a column whose values identify rows, such as a customer number; the row IDs of labels outside expected_labels are then its values. |
+| `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
+| `mask_sensitive` | `bool \| None` | `None` | True replaces the labels of a sensitive target, the classes, the labels outside expected_labels and expected_labels as parameters records it, with numbered placeholders, '<masked 1>' for its first label in level order and so on, and the row IDs taken from a sensitive id_column too; it needs a project that declares sensitive columns. |
 
-For classification, read `classes` (each with `label`, `count` and `share`), `class_count`, `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_labels` and `rare_classes`. For regression, read `statistics`, which holds the fields of `summarize_numeric`, and `non_finite_count`. Both have `missing_count` and `missing_share`. `to_frame()` gives every label, or for regression the statistics in one row.
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`, `level_order`
 
-- `single_class` (violation): every valid label is the same class.
-- `more_than_two_classes` (violation): a `binary_classification` target has more than two classes.
-- `unexpected_labels` (violation): labels lie outside `expected_labels`.
-- `no_unexpected_labels` (passed): every label is in `expected_labels`.
-- `all_labels_distinct` (suspected): every label of a classification target is distinct, as an identifier's are.
-- `constant_target` (violation): every value of a regression target is equal.
-- `infinite_values` (suspected): a regression target holds inf or -inf.
+- `single_class` (violation): every valid label is the same class, so a classifier has nothing to tell apart.
+- `more_than_two_classes` (violation): a binary_classification target has more than two classes.
+- `unexpected_labels` (violation): labels lie outside expected_labels.
+- `no_unexpected_labels` (passed): every label that isn't missing is in expected_labels.
+- `all_labels_distinct` (suspected): the values of a classification target that aren't missing are all distinct, as an identifier's or a measurement's are, not class labels'.
+- `constant_target` (violation): at least two values of a regression target aren't missing and all of them are equal, as describe_dataset decides it.
+- `infinite_values` (suspected): a regression target holds inf or -inf, which every statistic leaves out.
 - `missing_labels` (descriptive): rows have no target value.
-- `rare_classes` (descriptive): classes have a share below `rare_share`.
+- `rare_classes` (descriptive): classes have a share below rare_share.
 
 **Statuses:** `completed`, `insufficient_data`, `failed`
 
@@ -552,20 +540,20 @@ For classification, read `classes` (each with `label`, `count` and `share`), `cl
 
 `ae.compute_association_matrix(data, *, columns=None, categorical_columns=None, numeric_method='pearson', categorical_method='cramers_v_bias_corrected', max_categories=50, max_pairs=5000) -> ComputeAssociationMatrixResult`
 
-How strongly are pairs of columns associated? Measures every pair of numeric and categorical columns, each on its own complete rows, and lists the strongest first: a correlation between two numeric columns, Cramér's V between two categorical ones and the correlation ratio from a categorical to a numeric column. It measures association, not causation, and gives no p-values.
+How strongly are pairs of columns associated?
 
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `columns` | `None` | The columns to pair. `None` selects every numeric, boolean, text, object and categorical column, and lists the others in `skipped_columns`. A datetime column named here raises. |
-| `categorical_columns` | `None` | Numeric columns to treat as categories, such as codes 1, 2 and 3. |
-| `numeric_method` | `'pearson'` | The measure for two numeric columns: `'pearson'`, `'spearman'` or `'kendall'` (tau-b). |
-| `categorical_method` | `'cramers_v_bias_corrected'` | The measure for two categorical columns: `'cramers_v_bias_corrected'` or `'cramers_v'`. |
-| `max_categories` | `50` | The most distinct values a categorical column may have, at least 2. A column with more is skipped. |
-| `max_pairs` | `5000` | The most pairs to compute, at least 1. With more, the call returns `budget_exceeded` without computing any. |
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `columns` | `Sequence[str] \| None` | `None` | Names of the columns to pair, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:10], or a single name. |
+| `categorical_columns` | `Sequence[str] \| None` | `None` | Numeric columns to treat as categorical, so that codes such as 1, 2 and 3 are compared as categories instead of correlated as numbers. |
+| `numeric_method` | `str` | `'pearson'` | The measure for two numeric columns: 'pearson', the default, Pearson's r for linear association; 'spearman', Pearson's r of the ranks, tied values sharing their mean rank, for monotonic association; or 'kendall', Kendall's tau-b, which adjusts for ties. |
+| `categorical_method` | `str` | `'cramers_v_bias_corrected'` | The measure for two categorical columns: 'cramers_v_bias_corrected', the default, Cramér's V with Bergsma's (2013) correction, which removes most of the upward bias that few rows and many levels give V; or 'cramers_v', the uncorrected V of scipy.stats.contingency.association. |
+| `max_categories` | `int` | `50` | The most distinct values a categorical column may have; a column with more is skipped with reason too_many_categories. |
+| `max_pairs` | `int` | `5000` | The most pairs the call computes, a work limit. |
 
-Read `pairs`, each with `x_column`, `y_column`, `method`, `value`, `pair_count`, `direction` and, when the value is null, `undefined_reason`. `columns` describes each paired column and `skipped_columns` says why the others were left out. `to_frame()` gives every pair, and `to_frame(table="matrix")` the wide matrix.
+**Fields:** `pairs` (`x_column`, `y_column`, `x_type`, `y_type`, `method`, `value`, `pair_count`, `direction`, `undefined_reason`), `columns` (`column`, `dtype`, `type`, `value_count`, `missing_count`, `infinite_count`, `level_count`), `skipped_columns` (`column`, `dtype`, `reason`, `message`)
 
-- `perfect_associations` (suspected): a pair has an absolute value of 1, so one column may duplicate or derive from the other.
+- `perfect_associations` (suspected): a pair has an absolute value of 1, within 1e-9, so one column may duplicate or derive from the other.
 
 **Statuses:** `completed`, `budget_exceeded`, `insufficient_data`, `not_applicable`, `failed`
 
@@ -575,25 +563,42 @@ Read `pairs`, each with `x_column`, `y_column`, `method`, `value`, `pair_count`,
 
 `ae.guide() -> None`
 
-Prints one page on the package: how to call an analysis and read its result, every analysis by module with its question, how to mask sensitive values, and the order for a first look at a new dataset. Start here.
+Print one page on agent-eda: what it does, how to call and read analyses.
+
+**Returns:** The page is printed, since Code Interpreter returns only what is printed.
 
 #### `search_analyses`
 
 `ae.search_analyses(query, limit=5) -> SearchListing`
 
-Finds the analyses that best match a question in your own words, such as `"nulls per column"`. It matches keywords against names, tags, summaries and the When to use text, with a few synonyms, without embeddings or network. `limit` caps the matches, at least 1. Read `matches`, best first, each with `name`, `summary`, `score` and `matched_terms`, and `match_count`.
+Find the analyses that best match a question in your own words.
+
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `query` | `str` | required | What you want to know, such as 'nulls per column'. |
+| `limit` | `int` | `5` | The most matches to return, at least 1; defaults to 5. |
+
+**Returns:** `matches` holds the best matches, best first, each with its `name`, `summary`, `score` and `matched_terms`.
 
 #### `describe_analysis`
 
 `ae.describe_analysis(name) -> AnalysisDescription`
 
-Gives everything needed for a correct first call of one analysis: its question, signature and when to use it; each parameter with its type, default, allowed values and valid range; its statuses, finding codes and result fields; whether it supports masking; and an example. `name` is a name such as `'summarize_numeric'` or a qualified one. An unknown name raises `UnknownAnalysisError` with the closest names. `to_json()` adds `parameters_schema`, a JSON Schema of the parameters.
+Describe one analysis: everything needed for a correct first call.
+
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | `str` | required | The analysis name, such as 'summarize_numeric', or its fully qualified name, such as 'agent_eda.statistics.descriptive.summarize_numeric'. |
+
+**Returns:** `parameters` lists each parameter with `type`, `required`, `default`, `allowed_values`, `valid_range` and `description`.
 
 #### `list_analyses`
 
 `ae.list_analyses() -> AnalysisListing`
 
-Lists every analysis by module, with the question it answers and whether it supports masking. `analyses` holds each one's parameters, statuses, finding codes and result class, and `to_frame()` gives the same as a table.
+List every analysis with its module, one-line summary and masking support.
+
+**Returns:** The analyses, ordered by module, then name.
 
 ### Projects and schemas
 
@@ -601,83 +606,98 @@ Lists every analysis by module, with the question it answers and whether it supp
 
 `ae.Project(*, name=None, data_policy=None)`
 
-Holds the settings that stay the same across calls: a name and the data policy. Pass it as `project=` to the analyses that support masking.
+A data science project's declarations, given to the analyses that use them.
 
-- `project.save(path, *, overwrite=False) -> Path` writes it to a TOML file and returns the absolute path. An existing file raises `ProjectFileExistsError` unless `overwrite=True`.
-- `ae.Project.load(path) -> Project` reads a file that `save` wrote or you wrote by hand. A missing or misspelled key raises, so a broken file can't leave masking off.
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | `str \| None` | `None` | The project's name; null, the default, leaves it unnamed. |
+| `data_policy` | `DataPolicy \| None` | `None` | Which columns are sensitive and whether to mask them. |
 
 #### `DataPolicy`
 
 `ae.DataPolicy(*, sensitive_columns=(), mask_sensitive=False)`
 
-Names the sensitive columns and says whether to mask their values. `mask_sensitive=True` needs at least one sensitive column, and a call's own `mask_sensitive` wins. Masking is a guardrail against accidental exposure, not anonymization or access control.
+Which columns hold sensitive values, and whether results mask them.
+
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `sensitive_columns` | `Sequence[str] \| None` | `()` | Names of the columns that hold sensitive values; empty, the default, declares none. |
+| `mask_sensitive` | `bool` | `False` | Whether analyses mask the values of the sensitive columns when the call's mask_sensitive is None. |
 
 #### `ColumnSpec`
 
 `ae.ColumnSpec(logical_type, *, nullable=None, datetime_format=None)`
 
-Declares one column for `schema` in `validate_column_types` and `declared_schema` in `infer_column_semantics`. `logical_type` is a `LogicalType`. `nullable=False` makes missing values a violation, and `datetime_format`, a `strptime` format such as `'%d/%m/%Y'`, lets datetime text in that format convert. A dict of its fields works too, and a type name alone is short for a `ColumnSpec` with only `logical_type`.
+What a column is declared to hold: its logical type and more.
+
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `logical_type` | `LogicalType` | required | What the values mean: 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta'. |
+| `nullable` | `bool \| None` | `None` | Whether the column may hold missing values; None, the default, declares nothing. |
+| `datetime_format` | `str \| None` | `None` | For logical_type 'datetime' only: the datetime.strptime format of datetimes stored as text, such as '%d/%m/%Y'. |
+
+- `project.save(path, *, overwrite=False) -> Path`: Save the project to a TOML file that Project.load() reads.
+- `ae.Project.load(path) -> Project`: Load a project from a TOML file, such as one that project.save() wrote.
 
 #### `LogicalType`
 
-The logical type names as a `Literal`: `'boolean'`, `'integer'`, `'float'`, `'categorical'`, `'text'`, `'datetime'` and `'timedelta'`.
+The logical type names as a `Literal`: `'boolean'`, `'integer'`, `'float'`, `'categorical'`, `'text'`, `'datetime'`, `'timedelta'`.
 
 ### Results
 
 #### `AnalysisResult`
 
-The base class of every result. Each analysis returns its own subclass, such as `SummarizeNumericResult`, from `ae.results`. The shared fields:
+The record an analysis returns. Every analysis returns its own subclass, named after it, with its typed fields next to these shared ones. `print(res)` gives plain text from a fixed template. The shared fields:
 
 | Field | What it holds |
 | --- | --- |
-| `analysis` | The analysis name. |
-| `status` | How the run ended: `completed`, `partial`, `insufficient_data`, `not_applicable`, `missing_prerequisites`, `budget_exceeded`, `blocked_by_policy` or `failed`. |
-| `status_reason` | Why the run didn't complete, with a `code` and a `message`; null when it completed. |
-| `method` | The method used, or null when the analysis has none. |
-| `parameters` | Every argument the analysis used, defaults included. |
-| `support` | The rows and columns the result rests on. |
-| `findings` | Claims about the data, each with a `code`, a `claim`, an `assessment`, its `columns` and the result `fields` behind it. |
-| `limitations` | What limits how far the result can be read, each with a `code`, a `reason` and the `fields` it affects. |
-| `execution` | The versions of agent-eda, Python and the libraries used. |
+| `analysis` | Name of the analysis, such as 'describe_dataset'. |
+| `method` | The method used, or null when the analysis has no methods. |
+| `status` | How the run ended: completed, partial, insufficient_data, not_applicable, missing_prerequisites, budget_exceeded, blocked_by_policy or failed. |
+| `status_reason` | Why the run didn't complete; null when status is completed. |
+| `parameters` | The resolved arguments by name, defaults included. data appears only as its row_count and column_count. |
+| `support` | The counts behind the result. |
+| `findings` | Claims about the data. |
+| `limitations` | What limits how far the result can be read. |
+| `execution` | Library versions used for the run. |
 
 The shared methods:
 
-| Method | What it gives |
-| --- | --- |
-| `print(res)` | Plain text from a fixed template, at most 40 lines of 120 characters, that says what it leaves out. |
-| `res.to_frame()` | The complete main table as a DataFrame. Some results take `table=` for another, as their entries above say. |
-| `res.to_dict()` | The whole record as JSON-compatible objects. Lists that grow with the data keep their first entries (10 row IDs, 5 example values, 100 of anything else) and gain a `<field>_total` with the full count. |
-| `res.to_json()` | The record from `to_dict()` as strict JSON, without NaN or Infinity. |
-| `ResultClass.record_schema()` | The JSON Schema of that record. |
+- `res.to_frame()`: The complete main table of the result as a DataFrame.
+- `res.to_dict()`: The result record as JSON-compatible Python objects.
+- `res.to_json()`: The result record from to_dict() as strict JSON, without NaN or Infinity.
+- `ResultClass.record_schema()`: The JSON Schema of the record that to_dict() and to_json() give.
 
 ### Errors
 
-A mistake in a call raises before any work starts. Every exception subclasses `ae.errors.AgentEDAError` and the closest built-in exception, and carries a stable `code` to branch on. Its message says what is wrong, what is allowed and how to fix it. Problems in the data never raise; they come back in the status, the findings and the limitations.
+Exceptions that agent-eda raises when a call is wrong.
 
 | Code | Exception | Raised when |
 | --- | --- | --- |
-| `invalid_argument` | `InvalidArgumentError` | An argument has the wrong type or value, such as a number out of range, an unknown choice or a sentinel value that can never match its column. |
-| `invalid_call` | `InvalidArgumentError` | The call itself is malformed, such as an option passed by position, an unknown keyword or no DataFrame. |
-| `unsupported_data_type` | `InvalidArgumentError` | `data` isn't a pandas DataFrame; the message shows the conversion. |
-| `ambiguous_column_labels` | `InvalidArgumentError` | The column labels repeat, share a string form or form a MultiIndex; `describe_dataset` reports them. |
-| `column_not_found` | `ColumnNotFoundError` | A column name isn't in the data; the message lists the closest and the available names. |
-| `unsupported_column_type` | `ColumnTypeError` | A named column has a dtype the analysis can't use, or an `id_column` holds values that can't be hashed. |
-| `unknown_analysis` | `UnknownAnalysisError` | `describe_analysis` got a name that isn't an analysis. |
-| `invalid_project_file` | `ProjectFileError` | `Project.load` got a file that isn't valid TOML or lacks a key, or `save` got text TOML can't hold. |
-| `unknown_project_key` | `ProjectFileError` | `Project.load` got a file with an unknown key, such as a misspelling. |
-| `project_file_not_found` | `ProjectFileNotFoundError` | `Project.load` found no file at the path. |
-| `project_file_exists` | `ProjectFileExistsError` | `project.save` found a file at the path and `overwrite` was `False`. |
-| `missing_dependency` | `MissingDependencyError` | A feature needs an optional extra that isn't installed; the message gives the install command. |
-| `unsupported_data_format` | `UnsupportedDataFormatError` | An MCP tool got a data path with an extension it can't read. |
+| `invalid_argument` | `InvalidArgumentError` | An argument has the wrong type or value, such as a number outside its range, an unknown choice, a list that repeats a value, or a declared sentinel value that can never match its column. |
+| `invalid_call` | `InvalidArgumentError` | The call itself is malformed, such as an option passed by position, an unknown keyword or a missing DataFrame. |
+| `unsupported_data_type` | `InvalidArgumentError` | Data isn't a pandas DataFrame. |
+| `ambiguous_column_labels` | `InvalidArgumentError` | The data's column labels repeat, share a string form or form a MultiIndex, so a name can't pick out one column. |
+| `column_not_found` | `ColumnNotFoundError` | A column name isn't in the data. |
+| `unsupported_column_type` | `ColumnTypeError` | A named column has a dtype the analysis can't use, or an id_column holds values that can't be hashed, such as lists. |
+| `unknown_analysis` | `UnknownAnalysisError` | describe_analysis got a name that isn't an analysis. |
+| `invalid_project_file` | `ProjectFileError` | Project.load got a file that isn't UTF-8 TOML, and the message gives the line at fault, that lacks the [data_policy] table or one of its keys, or that holds a value a Project can't take. |
+| `unknown_project_key` | `ProjectFileError` | Project.load got a file with a key that is neither a field of the Project nor one of its data policy, such as a misspelling. |
+| `project_file_not_found` | `ProjectFileNotFoundError` | Project.load found no file at the path. |
+| `project_file_exists` | `ProjectFileExistsError` | project.save found a file at the path and overwrite was False. |
+| `missing_dependency` | `MissingDependencyError` | A feature needs an optional extra that isn't installed, such as the MCP server without the mcp extra. |
+| `unsupported_data_format` | `UnsupportedDataFormatError` | An MCP tool got a data path whose extension it can't read. |
 | `data_file_not_found` | `DataFileNotFoundError` | An MCP tool found no file at its data path. |
-| `unreadable_data_file` | `DataFileError` | An MCP tool can't parse the file at its data path, such as a CSV that isn't UTF-8. |
-| `table_file_exists` | `TableFileExistsError` | An MCP tool's `table_path` leads to a file that exists already. |
+| `unreadable_data_file` | `DataFileError` | An MCP tool's data path names a file the parser can't read, such as a CSV that isn't UTF-8. |
+| `table_file_exists` | `TableFileExistsError` | An MCP tool's table_path leads to a file that already exists, which the MCP server never overwrites. |
 
 ### MCP server command
 
 `agent-eda-mcp [--project PATH]`
 
-Serves every analysis as an MCP tool of the same name over stdio, plus `search_analyses` and `list_analyses`. The MCP tools take `data_path` in place of `data`, `table_path` to write the full main table, and `project_path` in place of `project`. `--project` loads a project file for every call. [Use over MCP](#use-over-mcp) has the details.
+Serve the agent-eda analyses as MCP tools over stdio. `--project PATH`: A project TOML file, as ae.Project.save writes it, whose data policy names the sensitive columns and says whether to mask them. [Use over MCP](#use-over-mcp) has the details.
+
+<!-- reference:end -->
 
 ## Documentation
 

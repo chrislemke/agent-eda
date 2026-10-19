@@ -107,15 +107,16 @@ def describe_dataset(
 
         Every finding is suspected:
 
-        - `empty_data`: the data has no rows, no columns or neither.
-        - `duplicated_column_labels`: a column label occurs more than once.
-        - `colliding_column_labels`: different labels share a string form,
+        - `empty_data`: suspected; the data has no rows, no columns or neither.
+        - `duplicated_column_labels`: suspected; a column label occurs more than once.
+        - `colliding_column_labels`: suspected; different labels share a string form,
           such as 1 and '1'.
-        - `multiindex_columns`: the column labels form a MultiIndex.
-        - `non_unique_index`: index labels repeat, so they don't identify rows.
-        - `all_missing_columns`: a column holds only missing values.
-        - `constant_columns`: a column holds a single distinct non-missing value
-          in at least two rows.
+        - `multiindex_columns`: suspected; the column labels form a MultiIndex.
+        - `non_unique_index`: suspected; index labels repeat, so they don't identify
+          rows.
+        - `all_missing_columns`: suspected; a column holds only missing values.
+        - `constant_columns`: suspected; a column holds a single distinct non-missing
+          value in at least two rows.
 
     Statuses:
         completed: The description finished, also for data with no rows, no

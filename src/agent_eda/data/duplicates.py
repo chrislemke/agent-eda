@@ -129,11 +129,10 @@ def find_duplicate_rows(
         the order the groups show them, in the printed text, `to_dict`,
         `to_json` and `to_frame` alike; the groups and counts stay.
 
-        - `duplicate_rows`: two or more rows are equal in every compared
-          column. Suspected, since repeated records can be real, such as two
-          identical purchases.
-        - `no_duplicate_rows`: no two rows are equal in every compared column.
-          Descriptive.
+        - `duplicate_rows`: suspected; two or more rows are equal in every compared
+          column. Repeated records can be real, such as two identical purchases.
+        - `no_duplicate_rows`: descriptive; no two rows are equal in every compared
+          column.
 
     Statuses:
         completed: The rows were compared, whether or not any repeat.

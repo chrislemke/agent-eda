@@ -128,12 +128,12 @@ def find_candidate_keys(
 
         Every finding is descriptive:
 
-        - `keys_found`: column sets identify every row and have no missing
+        - `keys_found`: descriptive; column sets identify every row and have no missing
           values.
-        - `keys_with_missing_values`: column sets identify every row but have
-          missing values, so they can't serve as primary keys.
-        - `no_key_found`: no examined set identifies every row; the claim names
-          the most unique set and its duplicate rows.
+        - `keys_with_missing_values`: descriptive; column sets identify every row but
+          have missing values, so they can't serve as primary keys.
+        - `no_key_found`: descriptive; no examined set identifies every row; the claim
+          names the most unique set and its duplicate rows.
 
     Statuses:
         completed: The search examined every set of up to max_key_size columns,

@@ -86,6 +86,20 @@ def test_returns_names_every_declared_finding_code(name):
     assert missing == []
 
 
+def test_returns_gives_each_finding_code_its_assessment_before_a_semicolon(name):
+    # The README's Reference copies the assessment from the bullet, as in
+    # "- `constant_columns`: suspected; a column holds one distinct value".
+    assessments = {"descriptive", "suspected", "violation", "passed", "unknown"}
+
+    for code in ae.describe_analysis(name).finding_codes:
+        assessment, _, claim = (code.description or "").partition("; ")
+        assert assessment in assessments, (
+            f"{name}: start the Returns: bullet of `{code.code}` with its assessment, "
+            f"one of {sorted(assessments)}, then a semicolon and the claim."
+        )
+        assert claim, f"{name}: `{code.code}` has an assessment but no claim."
+
+
 def test_statuses_list_exactly_the_declared_statuses(name):
     assert entries(sections(name)["Statuses:"]) == INFO[name].statuses
 

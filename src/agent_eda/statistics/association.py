@@ -289,7 +289,7 @@ def compute_association_matrix(
 
         The finding is suspected:
 
-        - `perfect_associations`: a pair has an absolute value of 1, within
+        - `perfect_associations`: suspected; a pair has an absolute value of 1, within
           1e-9, so one column may duplicate or derive from the other.
 
     Statuses:

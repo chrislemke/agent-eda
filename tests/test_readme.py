@@ -1,10 +1,12 @@
 """The README shows what agent-eda does, in examples that run as written."""
 
 import contextlib
+import importlib.util
 import inspect
 import io
 import json
 import re
+import typing
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 PLANNED = ROOT / "docs" / "planned-analyses.md"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"
+GENERATOR = ROOT / "scripts" / "generate_reference.py"
+COMMAND = "uv run python scripts/generate_reference.py"
+START = "<!-- reference:start -->"
+END = "<!-- reference:end -->"
 BLOB = "https://github.com/chrislemke/agent-eda/blob/main/"
 # The audit measured the old README, 97,999 characters, at 35.9K tokens, so 2.7
 # characters per token, and an agent's Read showed only its first 631 lines. Read's
@@ -191,13 +197,6 @@ def test_contributing_names_the_architectures_the_workflow_runs():
     assert "ARM64" not in text.replace("Python 3.12 on Linux ARM64", "")
 
 
-def test_the_readme_describes_the_project_classes_as_python_has_them():
-    entries = reference_entries()
-
-    for name in ("Project", "DataPolicy", "ColumnSpec"):
-        assert f"`{signature_line(name)}`" in entries[name], name
-
-
 def test_the_readme_describes_leading_zeros_and_columns_as_the_analyses_treat_them():
     text = README.read_text()
     codes = pd.DataFrame({"zip": ["01234", "00123", "02345", "01111", "01010"]})
@@ -215,7 +214,6 @@ def test_the_readme_describes_leading_zeros_and_columns_as_the_analyses_treat_th
     assert res.columns["zip"].inferred_logical_type == "text"
     assert "leading_zeros" not in str(res.columns["zip"].flags) + str(res.findings)
     assert not re.search(r"flags[^.]*leading zeros", text)
-    assert "count as text" in text
     assert except_for
     assert sorted(re.findall(r"`(\w+)`", except_for[1])) == lacking
 
@@ -233,65 +231,171 @@ def test_the_readme_gives_a_list_cell_example_that_a_table_has():
 def test_the_readme_words_sentinels_tools_and_determinism_as_the_glossary_and_code_do():
     text = README.read_text()
     prose = re.sub(r"^```.*?^```$", "", text, flags=re.MULTILINE | re.DOTALL)
-    reference = reference_entries()["detect_missing_sentinels"]
-    row = re.search(
-        r"^\| `mask_sensitive` \| `None` \| (.+) \|$", reference, flags=re.M
-    )
 
     assert "placeholder codes" not in text
     assert "down to the byte" not in text
     assert "in the same environment, BLAS thread count included" in text
     assert re.findall(r"(?<!MCP )\btools?\b", prose) == []
-    assert row
-    assert all(word in row[1] for word in ("candidate", "declared", "row IDs"))
 
 
-def test_the_reference_has_an_entry_for_every_public_name():
-    public = [name for name in ae.__all__ if name != "__version__"]
+def test_the_reference_is_the_one_the_generator_writes_from_the_docstrings():
+    text = README.read_text()
 
-    assert sorted(reference_entries()) == sorted(public)
-
-
-def test_the_reference_shows_each_function_signature_as_python_has_it():
-    entries = reference_entries()
-    functions = [name for name in ae.__all__ if inspect.isfunction(getattr(ae, name))]
-
-    assert functions
-    for name in functions:
-        assert f"`{signature_line(name)}`" in entries[name], name
+    assert START in text
+    assert END in text
+    assert generator().update(text) == text, (
+        f"The README's Reference is stale. Run `{COMMAND}` and commit the result."
+    )
 
 
-def test_the_reference_lists_each_analysis_arguments_findings_and_statuses():
+def test_running_the_generator_twice_in_a_row_changes_nothing(tmp_path):
+    copy = tmp_path / "README.md"
+    stale = re.sub(
+        f"{START}.*{END}", f"{START}\nold\n{END}", README.read_text(), flags=re.S
+    )
+    copy.write_text(stale)
+
+    generator().main(["--readme", str(copy)])
+    first = copy.read_text()
+    generator().main(["--readme", str(copy)])
+
+    assert first != stale
+    assert first == README.read_text()
+    assert copy.read_text() == first
+
+
+def test_the_generator_check_names_the_command_to_run_when_the_reference_is_stale(
+    tmp_path, capsys
+):
+    copy = tmp_path / "README.md"
+    copy.write_text(README.read_text().replace("**Statuses:**", "**Status:**", 1))
+
+    assert generator().main(["--check", "--readme", str(copy)]) == 1
+    assert COMMAND in capsys.readouterr().err
+    assert generator().main(["--check", "--readme", str(README)]) == 0
+
+
+def test_the_reference_gives_each_analysis_signature_summary_and_statuses():
     entries = reference_entries()
 
     for info in ae.list_analyses().analyses:
         entry = entries[info.name]
-        # Rows such as: | `columns` | `None` | Columns to profile; ... |
-        arguments = re.findall(r"^\| `(\w+)` \| ", entry, flags=re.MULTILINE)
-        # Lines such as: - `infinite_values` (suspected): a column holds inf.
-        assessments = "descriptive|suspected|violation|passed|unknown"
-        findings = re.findall(
-            rf"^- `(\w+)` \((?:{assessments})\): ", entry, flags=re.MULTILINE
-        )
+        description = ae.describe_analysis(info.name)
+        signature = inspect.signature(getattr(ae, info.name))
+        # The signature, as `ae.name(data, *, columns=None, top_n=10) -> Result`.
+        parts = ["data", "*"]
+        for parameter in list(signature.parameters.values())[1:]:
+            if parameter.default is parameter.empty:
+                parts.append(parameter.name)
+            else:
+                parts.append(f"{parameter.name}={parameter.default!r}")
+        call = f"ae.{info.name}({', '.join(parts)}) -> {description.result_class}"
         statuses = re.search(r"^\*\*Statuses:\*\* (.+)$", entry, flags=re.MULTILINE)
 
-        assert arguments == info.parameters[1:], info.name
-        assert findings == info.finding_codes, info.name
+        assert f"\n`{call}`\n" in entry, info.name
+        assert f"\n{description.summary}\n" in entry, info.name
         assert statuses, info.name
         assert re.findall(r"`(\w+)`", statuses[1]) == info.statuses, info.name
 
 
+def test_the_reference_gives_each_argument_type_default_and_meaning():
+    entries = reference_entries()
+
+    for info in ae.list_analyses().analyses:
+        description = ae.describe_analysis(info.name)
+        signature = inspect.signature(getattr(ae, info.name))
+        # Rows such as: | `top_n` | `int` | `10` | How many ... |
+        rows = re.findall(
+            r"^\| `(\w+)` \| `(.+?)` \| (.+?) \| (.+) \|$",
+            entries[info.name],
+            flags=re.MULTILINE,
+        )
+
+        assert [row[0] for row in rows] == info.parameters[1:], info.name
+        for (name, kind, default, meaning), parameter in zip(
+            rows, description.parameters[1:], strict=True
+        ):
+            declared = signature.parameters[name].default
+            required = declared is inspect.Parameter.empty
+            assert kind.replace("\\|", "|") == parameter.type, (info.name, name)
+            assert default == ("required" if required else f"`{declared!r}`")
+            assert parameter.description.startswith(meaning.rstrip("…")), name
+
+
+def test_the_reference_gives_each_finding_code_with_its_assessment():
+    entries = reference_entries()
+
+    for info in ae.list_analyses().analyses:
+        description = ae.describe_analysis(info.name)
+        # Lines such as: - `infinite_values` (suspected): a column holds inf.
+        listed = re.findall(
+            r"^- `(\w+)` \((\w+)\): (.+)$", entries[info.name], flags=re.MULTILINE
+        )
+        # A description starts with its assessment: "suspected; a column holds ...".
+        expected = [
+            (code.code, *(code.description or "").split("; ", 1))
+            for code in description.finding_codes
+        ]
+
+        assert [row[:2] for row in listed] == [row[:2] for row in expected], info.name
+        for (_, _, claim), (_, _, meaning) in zip(listed, expected, strict=True):
+            assert meaning.startswith(claim.rstrip("…")), info.name
+
+
+def test_the_reference_gives_the_fields_to_read_of_each_analysis_result():
+    entries = reference_entries()
+
+    for info in ae.list_analyses().analyses:
+        description = ae.describe_analysis(info.name)
+        line = re.search(
+            r"^\*\*Fields:\*\* (.+)$", entries[info.name], flags=re.MULTILINE
+        )
+
+        assert line, info.name
+        for field in description.result_fields:
+            assert f"`{field.name}`" in line[1], (info.name, field.name)
+
+
+def test_the_reference_covers_the_discovery_functions_the_classes_and_the_result_base():
+    entries = reference_entries()
+    discovery = ["guide", "search_analyses", "describe_analysis", "list_analyses"]
+
+    for name in [*discovery, "Project", "DataPolicy", "ColumnSpec", "LogicalType"]:
+        assert name in entries, name
+    assert "`ae.guide() -> None`" in entries["guide"]
+    assert "`ae.search_analyses(query, limit=5)" in entries["search_analyses"]
+    assert "`ae.Project(*, name=None, data_policy=None)`" in entries["Project"]
+    assert (
+        "`ae.DataPolicy(*, sensitive_columns=(), mask_sensitive=False)`"
+        in (entries["DataPolicy"])
+    )
+    for kind in typing.get_args(ae.LogicalType):
+        assert f"`'{kind}'`" in entries["LogicalType"]
+    for field in ae.AnalysisResult.model_fields:
+        assert f"| `{field}` |" in entries["AnalysisResult"], field
+    for method in ("to_frame", "to_dict", "to_json", "record_schema"):
+        assert method in entries["AnalysisResult"], method
+
+
 def test_the_reference_lists_every_error_code_with_the_class_that_raises_it():
-    # Lines such as: "    column_not_found (ColumnNotFoundError): a column ..."
-    codes = ae.errors.__doc__ or ""
-    documented = re.findall(r"^    (\w+) \((\w+)", codes, flags=re.MULTILINE)
     text = README.read_text()
     errors = text[text.index("### Errors") : text.index("### MCP server command")]
     # Rows such as: | `column_not_found` | `ColumnNotFoundError` | ... |
     rows = re.findall(r"^\| `(\w+)` \| `(\w+)` \|", errors, flags=re.MULTILINE)
+    docstring = ae.errors.__doc__ or ""
+    documented = re.findall(r"^    (\w+) \((\w+)", docstring, flags=re.MULTILINE)
 
     assert documented
     assert rows == documented
+
+
+def test_the_reference_gives_the_mcp_server_command_and_its_option():
+    text = README.read_text()
+    command = text[text.index("### MCP server command") : text.index(END)]
+
+    assert "`agent-eda-mcp [--project PATH]`" in command
+    assert "`--project PATH`" in command
+    assert "(#use-over-mcp)" in command
 
 
 def test_calls_masking_a_guardrail_not_anonymization_or_access_control():
@@ -313,30 +417,22 @@ def test_the_mcp_client_configuration_is_valid_json_that_starts_agent_eda_mcp():
     ]
 
 
+def generator():
+    """The generator script as a module, loaded from its path since it isn't shipped."""
+    spec = importlib.util.spec_from_file_location("generate_reference", GENERATOR)
+    assert spec, f"{GENERATOR} is missing."
+    assert spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def reference_entries():
     """The Reference section's entries by public name, from its #### headings."""
     text = README.read_text()
-    reference = text[text.index("## Reference") : text.index("## Documentation")]
+    reference = text[text.index(START) : text.index(END)]
     parts = re.split(r"^#### `(\w+)`\n", reference, flags=re.MULTILINE)
     return dict(zip(parts[1::2], parts[2::2], strict=True))
-
-
-def signature_line(name):
-    """A function's signature as the reference shows it, from inspect."""
-    signature = inspect.signature(getattr(ae, name))
-    parts = []
-    for parameter in signature.parameters.values():
-        if parameter.kind is parameter.KEYWORD_ONLY and "*" not in parts:
-            parts.append("*")
-        if parameter.default is parameter.empty:
-            parts.append(parameter.name)
-        else:
-            parts.append(f"{parameter.name}={parameter.default!r}")
-    returns = signature.return_annotation
-    if inspect.isclass(getattr(ae, name)):
-        return f"ae.{name}({', '.join(parts)})"
-    returns = "None" if returns is None else returns.__name__
-    return f"ae.{name}({', '.join(parts)}) -> {returns}"
 
 
 def fenced_blocks():

@@ -419,37 +419,36 @@ def infer_column_semantics(
 
         Findings name the columns with each flag, and compare declarations:
 
-        - `identifier_like_columns`: suspected, flag identifier_like. Every
-          value is distinct, there are at least two, and the top candidate is
-          integer or text without spaces, as for IDs. Numbers stored as
-          numbers must also run like a sequence: at least half the whole
-          numbers from the smallest to the largest occur. Don't use these
-          columns as numbers or features.
-        - `constant_columns`: suspected, flag constant. A single distinct
-          value in at least two rows.
-        - `all_missing_columns`: suspected, flag all_missing. No value in at
-          least one row.
-        - `numbers_as_text`: suspected, flag numbers_as_text. The top candidate
-          is integer or float and some of the numbers are stored as text.
-        - `dates_as_text`: suspected, flag dates_as_text. The top candidate is
-          datetime and some of the datetimes are ISO 8601 text.
-        - `non_iso_date_text`: suspected, flag non_iso_date_text. At least half
-          the values look like dates, and some of them aren't ISO 8601, such as
-          01/02/2020 or 5 Jan 2020; they are never parsed.
-        - `boolean_like_columns`: descriptive, flag boolean_like. The top
-          candidate is boolean and some values are numbers or text that read
-          as booleans, such as 0/1 or yes/no.
-        - `mixed_value_types`: suspected, flag mixed_value_types. The values
-          have more than one Python type, such as int and str: evidence
-          value_types lists them, as summarize_categorical does.
-        - `declared_type_mismatch`: suspected. A declared column's top
-          candidate differs from its declared logical type.
-        - `declared_type_match`: passed. A declared column's top candidate is
-          its declared logical type.
-        - `declared_type_unchecked`: unknown. A declared column has no
-          candidate to compare, since it has no values or none fits.
-        - `declared_columns_missing`: violation. declared_schema names columns
-          the data doesn't have, listed in `missing_declared_columns`.
+        - `identifier_like_columns`: suspected; every value is distinct, there are at
+          least two, and the top candidate is integer or text without spaces, as for
+          IDs. Numbers stored as numbers must also run like a sequence: at least half
+          the whole numbers from the smallest to the largest occur. Don't use these
+          columns as numbers or features. Flag identifier_like.
+        - `constant_columns`: suspected; a single distinct value in at least two rows.
+          Flag constant.
+        - `all_missing_columns`: suspected; no value in at least one row. Flag
+          all_missing.
+        - `numbers_as_text`: suspected; the top candidate is integer or float and some
+          of the numbers are stored as text. Flag numbers_as_text.
+        - `dates_as_text`: suspected; the top candidate is datetime and some of the
+          datetimes are ISO 8601 text. Flag dates_as_text.
+        - `non_iso_date_text`: suspected; at least half the values look like dates, and
+          some of them aren't ISO 8601, such as 01/02/2020 or 5 Jan 2020; they are never
+          parsed. Flag non_iso_date_text.
+        - `boolean_like_columns`: descriptive; the top candidate is boolean and some
+          values are numbers or text that read as booleans, such as 0/1 or yes/no. Flag
+          boolean_like.
+        - `mixed_value_types`: suspected; the values have more than one Python type,
+          such as int and str: evidence value_types lists them, as summarize_categorical
+          does. Flag mixed_value_types.
+        - `declared_type_mismatch`: suspected; a declared column's top candidate differs
+          from its declared logical type.
+        - `declared_type_match`: passed; a declared column's top candidate is its
+          declared logical type.
+        - `declared_type_unchecked`: unknown; a declared column has no candidate to
+          compare, since it has no values or none fits.
+        - `declared_columns_missing`: violation; declared_schema names columns the data
+          doesn't have, listed in `missing_declared_columns`.
 
     Statuses:
         completed: Every selected column has values and a candidate scoring
@@ -1392,18 +1391,17 @@ def validate_column_types(
         and row IDs from a sensitive id_column are numbered placeholders in
         the printed text, `to_dict`, `to_json` and `to_frame` alike.
 
-        - `invalid_values`: violation. Columns that hold invalid values.
-        - `declared_columns_missing`: violation. Declared columns the data
-          doesn't have, each with the closest names.
-        - `non_nullable_missing_values`: violation. Columns declared with
-          nullable=False that have missing values.
-        - `unchecked_columns`: unknown. Columns without a value to check, as
-          when every value is missing.
-        - `convertible_values`: descriptive. Columns with values stored as
-          another type; convert them before you use them as the declared type.
-        - `valid_columns`: passed. Columns that pass every check: only
-          compatible and convertible values, and none missing when declared
-          non-nullable.
+        - `invalid_values`: violation; columns that hold invalid values.
+        - `declared_columns_missing`: violation; declared columns the data doesn't have,
+          each with the closest names.
+        - `non_nullable_missing_values`: violation; columns declared with nullable=False
+          that have missing values.
+        - `unchecked_columns`: unknown; columns without a value to check, as when every
+          value is missing.
+        - `convertible_values`: descriptive; columns with values stored as another type;
+          convert them before you use them as the declared type.
+        - `valid_columns`: passed; columns that pass every check: only compatible and
+          convertible values, and none missing when declared non-nullable.
 
     Statuses:
         completed: Every declared column was checked, also when the data lacks
