@@ -16,7 +16,7 @@ It is written for three kinds of callers:
 - **Results you can read and parse**: `print(res)` gives at most 40 lines, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values: 'age'".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package.
-- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix: a misspelled column lists the available names and the closest match, and a file path as data points to `pd.read_csv` or `pd.read_parquet`.
+- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix, such as the closest column name, or `pd.read_csv` for a file path given as data.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that don't write Python.
 - **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, preinstalled in AgentCore Code Interpreter.
@@ -36,7 +36,7 @@ Once released, `pip install agent-eda` is enough. The MCP server needs the `mcp`
 
 **AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode, with no PyPI access, upload the wheel and run `pip install --no-deps <wheel>`, or, if pip is blocked, put the wheel on `sys.path` and import from it. Installs don't carry over to a new session. Code Interpreter returns only printed output, so `print()` results.
 
-**AgentCore Runtime.** Add `agent-eda` to the container image or code zip. AWS's example zip command uses the `manylinux2014` platform tag, which installs old numpy and pandas; use `--python-platform aarch64-manylinux_2_28` for current ones.
+**AgentCore Runtime.** Add `agent-eda` to the container image or code zip. AWS's example zip command uses the `manylinux2014` tag, which installs old numpy and pandas; use `--python-platform aarch64-manylinux_2_28` for current ones.
 
 ## Quick start
 
@@ -82,7 +82,7 @@ The mean age of -86.12 is the first sign of trouble. The sample data hides three
 
 ## Analyses
 
-The analyses are listed in the order `ae.guide()` suggests for a first look. Most need nothing but the DataFrame. The ones that need project knowledge, such as your schema or your target, ask for it; they never guess it.
+The analyses are listed in the order `ae.guide()` suggests for a first look. Most need only the DataFrame; the ones that need project knowledge, such as your schema or target, ask for it and never guess it.
 
 | Step | Analysis | What it answers | Required arguments |
 | --- | --- | --- | --- |
@@ -176,13 +176,17 @@ age = res.columns["age"]  # typed fields, such as age.median and age.std
 
 The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, with totals.
 
+Every result takes `to_frame(table=...)`. A mistyped column key, as in `res.columns["Age"]`, raises a `KeyError` that suggests `'age'`; `describe_dataset`'s `columns` is a list, since labels can repeat, and takes a name too. pydantic's deprecated `json()`, `dict()`, `schema()`, `parse_obj()` and `copy()` raise an error naming `to_json()`, `to_dict()`, `record_schema()`, `model_validate()` or `model_copy()`. `help(type(res))` lists each field with its description, and Rich prints the text `print(res)` gives.
+
+Two results feed the next call: `infer_column_semantics(...).inferred_schema()` is a `schema` for `validate_column_types`, and `detect_missing_sentinels(...).sentinel_values()` the `sentinel_values` for `profile_missing_values`, leaving masked candidates out with a `.note`. `ae.data`, `ae.statistics`, `ae.discovery`, `ae.project`, `ae.errors`, `ae.results` and `ae.mcp` always resolve.
+
 A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and a message with the fix. Data problems never raise; they show in the status, findings and limitations.
 
-Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. NaN stored as a value in a pyarrow-backed or nullable float column is missing, with a limitation. Values pandas can't hash, such as lists, are the exception: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
+Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value, and text with a NUL character stays apart from text equal up to it. NaN stored as a value in a pyarrow-backed or nullable float column is missing, with a limitation. Values pandas can't hash, such as lists, are the exception: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` limitation.
 
-`find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as that count.
+`find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates.
 
-A pyarrow dictionary column, such as Parquet gives a categorical, is a categorical like pandas' own. Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, are "other": the defaults leave them out, `compute_association_matrix` lists them in `left_out_columns` as `unsupported_dtype`, and naming one raises `ColumnTypeError`.
+A pyarrow dictionary column is a categorical like pandas' own. Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, are "other": the defaults leave them out, `compute_association_matrix` lists them in `left_out_columns` as `unsupported_dtype`, and naming one raises `ColumnTypeError`.
 
 `infer_column_semantics` and `validate_column_types` read text by the same rules:
 
@@ -192,9 +196,9 @@ A pyarrow dictionary column, such as Parquet gives a categorical, is a categoric
 - `identifier_like` is judged without rows that exactly repeat another row, for columns distinct in at least 90% of rows.
 - A declared type tied with the top candidate matches.
 
-Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record); an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is.
+Labels and row IDs are written the same way in every process: a set or frozenset lists its items sorted by their JSON text, also inside tuples, and an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is.
 
-A record writes a datetime as ISO 8601 text (`2020-01-01T05:30:00`), and a decimal as a number when float64 holds it as written, else as exact text (`"12345678901234567.25"`). `detect_missing_sentinels` gives number text such as `"-999"` the numeric-code rule, lists pandas' default NA strings (`#N/A`, `<NA>`, `1.#QNAN` and more), and matches text stand-ins after stripping whitespace, showing the raw form that occurred (`" N/A"`).
+A record writes a datetime as ISO 8601 text, and a decimal as a number when float64 holds it as written, else as exact text. `detect_missing_sentinels` gives number text such as `"-999"` the numeric-code rule, lists pandas' default NA strings (`#N/A`, `<NA>`, `1.#QNAN` and more), and matches text stand-ins after stripping whitespace, showing the raw form that occurred (`" N/A"`).
 
 Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, one at a time, so each result gets only its own `numerical_warning` limitation and the caller's warning filters and `warnings.showwarning` stay unchanged.
 
@@ -230,8 +234,8 @@ How masking is decided:
 - `mask_sensitive=True` or `False` in a call overrides the project.
 - It covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
 - It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` if the index holds sensitive values. The other analyses, such as `summarize_numeric`, don't read a project.
-- A sensitive column matches by exact name. When a name misses a column only by case or Unicode form, such as `'Email'` for `'email'`, nothing is masked for it, and the printed masking text and `masking.near_miss_columns` say "did you mean 'email'?" instead of claiming no sensitive value is shown.
-- With masking on, no error message quotes a value of a sensitive column. A message listing unknown column names lists at most 3, each cut to 40 characters, and an option ending in `column` or `columns` refuses a Series, an Index or an array of values without showing them.
+- A sensitive column matches by exact name. When a name misses a column only by case or Unicode form, such as `'Email'` for `'email'`, nothing is masked for it, and the masking text and `masking.near_miss_columns` say "did you mean 'email'?".
+- With masking on, no error message quotes a value of a sensitive column. A message listing unknown column names lists at most 3, each cut to 40 characters, and a `column` or `columns` option refuses a Series, Index or array without showing it.
 
 Save the project once and load it in every later script, which helps an agent that runs each script in a new process:
 
@@ -254,7 +258,7 @@ sensitive_columns = [
 mask_sensitive = true
 ```
 
-`format_version` is the file's layout. A file without it loads as version 1; one from a newer agent-eda raises `invalid_project_file`, naming its version. `project.save` writes through a temporary file and a rename. A new file is owner-readable only, and a replaced file keeps its permissions. It refuses a target that isn't a regular file, such as a named pipe, and a project over 1 MiB. `Project.load` raises `invalid_project_file` for such a file, an unreadable one, a newer `format_version`, invalid TOML, and missing or wrong keys.
+`format_version` is the file's layout: a file without it loads as version 1. `project.save` writes owner-readable only for a new file, and refuses a target that isn't a regular file, such as a named pipe, and a project over 1 MiB. `Project.load` raises `invalid_project_file` for such a file, an unreadable one, a newer `format_version`, invalid TOML, and missing or wrong keys.
 
 Masking is a guardrail against accidental exposure, not anonymization or access control. The package runs in the agent's own process, so an agent that can call it can read the data directly. [ADR 0001](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0001-data-policy-is-a-guardrail.md) records why.
 
@@ -292,7 +296,7 @@ Claude Desktop, Cursor and most MCP clients read an `mcpServers` entry from thei
 }
 ```
 
-If the client doesn't start it in the environment with the extra, give the path that `which agent-eda-mcp` prints as `command`.
+If the client doesn't start it in the environment with the extra, use the path `which agent-eda-mcp` prints as `command`.
 
 Each analysis is an MCP tool of the same name. Its description and input schema come from the docstring that `help()` shows. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order.
 
@@ -310,9 +314,9 @@ An MCP tool takes `data_path`, the path to a file, where a Python caller passes 
   - A file with one column whose name holds a `;` gives `unreadable_data_file`, hinting at a semicolon separator. The server reads commas, or tabs for a TSV.
   - A row may end in an empty field, as in `A1,Oslo,10,`. A row with any other extra field gives `unreadable_data_file` and names the line.
   - A repeated header name stays repeated: `describe_dataset` reports it, and every other analysis asks you to rename the columns in the file.
-- Parquet files keep the dtypes and index pandas stored. A file without pandas metadata, such as from Spark or DuckDB, gets pandas' default dtypes for its Parquet types (an integer column with nulls becomes float) and a 0-based index.
+- Parquet files keep the dtypes and index pandas stored. A file without pandas metadata, such as from Spark or DuckDB, gets pandas' default dtypes (an integer column with nulls becomes float) and a 0-based index.
 - A relative path resolves against the server's working directory, where the MCP client starts it; pass absolute paths if unsure. A leading `~` is the home directory, in every path argument.
-- A path the operating system refuses gives an MCP tool error that names the cause: a name over 255 characters, a directory the server may not search, a symbolic link loop, a NUL character, no read permission, or a path that isn't a regular file. A Parquet file with two columns of one name or bad pandas metadata gives `unreadable_data_file`.
+- A path the operating system refuses gives an MCP tool error that names the cause, such as a name over 255 characters, a symbolic link loop or no read permission. A Parquet file with two columns of one name or bad pandas metadata gives `unreadable_data_file`.
 - The server reads only local files: it reads a URL such as `s3://bucket/data.csv` as a relative path. A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names there.
 - Row IDs in a result are 0-based data-row numbers for a CSV or TSV file and the stored index for a Parquet file; `id_column` names rows by a column's values instead.
 - The MCP server keeps the last two files it read in memory, so analyses of one large file read it once, and rereads a file when its modification time or size changes.
@@ -334,15 +338,13 @@ To get past the caps, pass `table_path`. The server writes the result's main tab
 - `table_path` never overwrites. An existing file gives the error `table_file_exists` before the analysis runs, and its message suggests a free name such as `table-2.csv`. A symbolic link at the path gives the same error. The directory must exist already.
 - If the server can tell it may not write in the directory, the call gives `invalid_argument` before the analysis runs. A failed write removes its partial file.
 - In a CSV, a missing value is an empty field and an empty string is the quoted field `""`. Parquet keeps them apart.
-- The line at the end of the text keeps to 120 characters: a path that doesn't fit takes its own line, and one too long for that is left to `table_file.path`.
+- The last line of the text keeps to 120 characters: a path that doesn't fit takes its own line, or is left to `table_file.path`.
 - A cell that holds a list or a mapping, such as the columns of a candidate key from `find_candidate_keys`, is written as JSON text. In Parquet, a column of mixed types, such as numbers and text, is written as text, as in the CSV.
 - An analysis with several tables writes only its main one. `compute_association_matrix` writes its pairs, for example, and its wide matrix stays a Python-only table.
 
 ### Masking over MCP
 
-The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`, and keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as a sensitive column's minimum, or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error (a bug in agent-eda) names only the exception's type, as its message could quote a value; the stderr log keeps the traceback.
-
-Masking over MCP is the same guardrail as in Python, not anonymization or access control: whoever can call the server can usually read the data file.
+The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`, and keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as a sensitive column's minimum, or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error (a bug) names only the exception's type, as its message could quote a value; the stderr log keeps the traceback.
 
 ## Reference
 

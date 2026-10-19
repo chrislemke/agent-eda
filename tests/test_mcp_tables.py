@@ -20,6 +20,7 @@ import json
 import math
 import numbers
 import warnings
+from typing import Literal
 
 import anyio
 import numpy as np
@@ -358,8 +359,8 @@ def break_on_run(data: pd.DataFrame) -> SummarizeNumericResult:
 class IndexedSummary(SummarizeNumericResult):
     """A summary whose table has the column names as its index."""
 
-    def to_frame(self) -> pd.DataFrame:
-        return super().to_frame().set_index("column")
+    def to_frame(self, table: Literal["columns"] = "columns") -> pd.DataFrame:
+        return super().to_frame(table).set_index("column")
 
 
 def summarize_by_column(data: pd.DataFrame) -> IndexedSummary:

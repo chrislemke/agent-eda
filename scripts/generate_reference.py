@@ -220,7 +220,7 @@ def _results() -> str:
         [
             "### Results",
             "#### `AnalysisResult`",
-            " ".join((inspect.getdoc(ae.AnalysisResult) or "").split())
+            " ".join(inspect.cleandoc(ae.AnalysisResult.__plain_doc__).split())
             + " `print(res)` gives plain text from a fixed template. The shared fields:",
             "| Field | What it holds |\n| --- | --- |\n"
             + "\n".join(f"| {name} | {text} |" for name, text in rows),
