@@ -138,11 +138,12 @@ def budget_exceeded_reason(
 ) -> StatusReason:
     """Why a run ended at its work limit: the work it needs, the limit and the fixes.
 
-    The message reads "<needs> <required> <unit>, more than <parameter>=<limit>
-    allows; <consequence>. Raise <parameter> to <required>, or <narrow>.", such as
-    "The complete search covers up to 10 column sets, more than
-    max_combinations=5 allows; it stopped after examining 5 and kept what it
-    found. Raise max_combinations to 10, or pass fewer columns."
+    The message reads "<needs> <required> <unit>, more than the <parameter> limit
+    of <limit> allows; <consequence>. Raise <parameter> to <required>, or
+    <narrow>.", such as "The complete search covers up to 10 column sets, more
+    than the max_combinations limit of 5 allows; it stopped after examining 5
+    and kept what it found. Raise max_combinations to 10, or name fewer
+    columns."
 
     `lower` is another argument that shrinks the work, with the value that fits
     the limit, and comes first: "Lower max_key_size to 2, raise ...". Raising the
@@ -159,7 +160,7 @@ def budget_exceeded_reason(
     return StatusReason(
         code=code,
         message=(
-            f"{needs} {plural(required, *unit)}, more than {parameter}={limit:,} "
+            f"{needs} {plural(required, *unit)}, more than the {parameter} limit of {limit:,} "
             f"allows; {consequence}. {fix[0].upper()}{fix[1:]}."
         ),
     )

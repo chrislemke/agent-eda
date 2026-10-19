@@ -4,12 +4,16 @@ detect_missing_sentinels suspects a value when one of these fixed rules holds
 for it, and never otherwise. No rule has a threshold to tune:
 
 - builtin_list: a value from the built-in lists below. Numbers count at the
-  column's minimum or maximum, text in any mix of upper and lower case, and
-  dates at midnight.
+  column's minimum or maximum, text in any mix of upper and lower case and
+  after stripping surrounding whitespace, and dates at midnight.
 - isolated_extreme: a number that occurs more than once at the column's
   minimum or maximum, and lies farther from the nearest other value than the
   other values span. It needs at least two other distinct values, so neither
   value of a column holding two, such as 0 and 1, is suspected.
+
+The two number rules also read the texts of a text column that parse as
+numbers, such as '-999' in a column that 'N/A' made text: by value, among those
+texts only, and each text, as the column holds it, is its own candidate.
 
 The rules read the finite values that are neither missing nor declared, and a
 column of Python objects value by value: its numbers as numbers, its text as
@@ -33,14 +37,12 @@ import pandas as pd
 
 from agent_eda._columns import Column, column_kind
 from agent_eda._levels import stored_label
+from agent_eda._parse import number_texts, read_as
 from agent_eda._sentinels import (
     Family,
     Holds,
-    JsonSentinel,
-    SentinelValue,
     can_match,
     holds,
-    json_value,
     matches,
     numpy_dtype,
     type_family,
@@ -50,9 +52,14 @@ from agent_eda._values import categorical_array, value_codes
 # Numbers often used for missing values; they count at the column's minimum
 # or maximum.
 LISTED_NUMBERS = (-9, -99, -999, -9999, 99, 999, 9999, 99999, 999999)
-# Text often used for missing values, in any mix of upper and lower case;
-# empty and whitespace-only text count too.
-LISTED_TEXT = ("NA", "N/A", "NULL", "None", "nan", "-", "?", "unknown", "missing")
+# Text often used for missing values, in any mix of upper and lower case and
+# with whitespace around it; empty and whitespace-only text count too.
+LISTED_TEXT = (
+    *("NA", "N/A", "NULL", "None", "nan", "-", "?", "unknown", "missing"),
+    # The strings pandas reads as missing by default, beyond those above.
+    *("#N/A", "#N/A N/A", "#NA", "<NA>", "-nan"),
+    *("1.#IND", "1.#QNAN", "-1.#IND", "-1.#QNAN"),
+)
 # Dates often used for missing values. A datetime counts at midnight on one of
 # them, in its own time zone or, when it has one, in UTC.
 LISTED_DATES = (
@@ -69,8 +76,8 @@ def _cases(word: str) -> list[str]:
     return ["".join(spelling) for spelling in itertools.product(*letters)]
 
 
-# The listed text in every mix of case, and empty text: 306 strings, which a
-# hash lookup finds among any number of values in one pass.
+# The listed text in every mix of case, and empty text, which a hash lookup
+# finds among any number of values in one pass.
 _TEXT_SPELLINGS = frozenset(
     {"", *(text for word in LISTED_TEXT for text in _cases(word))}
 )
@@ -365,7 +372,12 @@ def _hits(
         ]
     if family == "text":
         listed = _listed_texts(values, np.arange(len(values)))
-    elif family == "date":
+        texts = np.asarray(values, dtype=object)
+        return [
+            *((int(i), ("builtin_list",)) for i in listed),
+            *_number_text_hits(texts, counts),
+        ]
+    if family == "date":
         listed = [i for i, day in enumerate(values) if day in LISTED_DATES]
     else:
         listed = [i for i, stamp in enumerate(values) if _listed_datetime(stamp)]
@@ -386,47 +398,87 @@ def _text_rows_suspects(series: pd.Series, rows: np.ndarray) -> list[Suspect]:
     which pandas' factorize would take for the end of the text.
     """
     hits = _listed_texts(series, rows)
-    if not hits.size:
+    suspects = []
+    if hits.size:
+        found = value_codes(
+            np.asarray(series.iloc[hits], dtype=object), unhashable="by_content"
+        )
+        codes, uniques = found.codes, found.uniques
+        suspects = [
+            Suspect(stored_label(text), hits[codes == code], ("builtin_list",))
+            for code, text in enumerate(uniques)
+        ]
+    return [*suspects, *_number_text_suspects(series, rows)]
+
+
+def _number_text_suspects(series: pd.Series, rows: np.ndarray) -> list[Suspect]:
+    """The suspected numbers among the texts of the given rows that parse as
+    numbers, such as '-999' in a column read from a CSV that also holds 'N/A'.
+
+    The numeric-code rules read them by value, so '-999' and '-999.0' are one
+    number; each text stays its own candidate, as the column holds it.
+    """
+    if _is_arrow_text(series.dtype):
+        # Only texts that start with a digit, a sign or a point, once stripped,
+        # become Python strings.
+        starts = pd.Series(series.iloc[rows]).str.strip().str.match(r"[-+.0-9]")
+        rows = rows[_as_bools(starts)]
+    objects = np.asarray(series.iloc[rows], dtype=object)
+    numeric = np.flatnonzero(number_texts(objects))
+    if not numeric.size:
         return []
-    found = value_codes(
-        np.asarray(series.iloc[hits], dtype=object), unhashable="by_content"
-    )
-    codes, uniques = found.codes, found.uniques
+    found = value_codes(objects[numeric], unhashable="by_content")
+    codes, uniques = found.codes, np.asarray(found.uniques, dtype=object)
+    counts = np.bincount(codes, minlength=len(uniques))
     return [
-        Suspect(stored_label(text), hits[codes == code], ("builtin_list",))
-        for code, text in enumerate(uniques)
+        Suspect(stored_label(uniques[i]), rows[numeric[codes == i]], why)
+        for i, why in _number_text_hits(uniques, counts)
+    ]
+
+
+def _is_arrow_text(dtype: object) -> bool:
+    """Whether a text dtype stores its strings in pyarrow."""
+    return (
+        isinstance(dtype, pd.ArrowDtype) or getattr(dtype, "storage", "") == "pyarrow"
+    )
+
+
+def _number_text_hits(
+    texts: np.ndarray, counts: np.ndarray
+) -> list[tuple[int, tuple[Evidence, ...]]]:
+    """The positions among distinct texts of those that write a suspected number,
+    each with its evidence; `counts` says how often each text occurs."""
+    where = np.flatnonzero(number_texts(texts))
+    if not where.size:
+        return []
+    numbers = np.empty(len(where), dtype=object)
+    numbers[:] = [_exact(read_as(texts[i], "number")) for i in where]
+    return [
+        (int(where[at]), why)
+        for value, why in _number_hits(numbers, counts[where]).items()
+        for at in np.flatnonzero(numbers == value)
     ]
 
 
 def _listed_texts(texts: pd.Series | pd.Index, rows: np.ndarray) -> np.ndarray:
-    """The rows whose text is on the built-in list, in any mix of case, or is
-    empty or whitespace only, as Python's str.isspace() decides.
+    """The rows whose text is on the built-in list once str.strip() has taken
+    the whitespace off its ends, in any mix of case. Empty and whitespace-only
+    text is on the list.
 
     `rows` picks the texts to check, which must not be missing.
     """
-    dtype = texts.dtype
-    if isinstance(dtype, pd.ArrowDtype) or getattr(dtype, "storage", "") == "pyarrow":
-        listed = _as_bools(texts.isin(_SORTED_SPELLINGS))[rows]
-        # pyarrow agrees with Python's str.isspace() on every character.
-        spaces = _as_bools(pd.Series(texts).str.isspace())[rows]
-        return rows[listed | spaces]
+    if _is_arrow_text(texts.dtype):
+        # pyarrow's whitespace is Python's, on every character.
+        stripped = pd.Series(texts).str.strip()
+        return rows[_as_bools(stripped.isin(_SORTED_SPELLINGS))[rows]]
     # Python strings, which C-level maps read faster than pandas' own loops.
     objects = np.asarray(texts, dtype=object)[rows]
-    # One pass finds a superset: text that is listed once stripped of
-    # surrounding whitespace, as whitespace-only text is, as ''.
-    maybe = np.fromiter(
+    listed = np.fromiter(
         map(_TEXT_SPELLINGS.__contains__, map(str.strip, objects)),
         dtype=bool,
         count=len(rows),
     )
-    return np.asarray(
-        [
-            row
-            for row, text in zip(rows[maybe], objects[maybe], strict=True)
-            if text in _TEXT_SPELLINGS or text.isspace()
-        ],
-        dtype=np.intp,
-    )
+    return rows[listed]
 
 
 def _as_bools(values: pd.Series | pd.Index | np.ndarray) -> np.ndarray:
@@ -488,17 +540,3 @@ def _listed_datetime(value: object) -> bool:
         return False
     utc = stamp.tz_convert("UTC")
     return utc == utc.normalize() and utc.date() in LISTED_DATES
-
-
-def record_value(value: object) -> JsonSentinel:
-    """A stored value as the record shows it, as declared values are shown.
-
-    NumPy scalars become Python's, decimals floats, and dates and times ISO
-    8601 text.
-    """
-    value = stored_label(value)
-    if isinstance(value, np.datetime64):
-        value = pd.Timestamp(value)
-    if isinstance(value, Decimal):
-        return float(value)
-    return json_value(cast("SentinelValue", value))

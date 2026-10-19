@@ -232,8 +232,8 @@ def test_lists_the_result_fields_with_their_meanings():
     assert list(fields) == ["columns", "left_out_columns"]
     assert fields["left_out_columns"].type == "list[str]"
     assert fields["left_out_columns"].description.startswith(
-        "Columns that columns=None left out because they aren't numeric or are "
-        "boolean, in DataFrame order;"
+        "Columns that the default column selection left out because they aren't "
+        "numeric or are boolean, in DataFrame order;"
     )
     assert fields["columns"].type == "dict[str, SummarizeNumericColumn]"
     entry = {f.name: f for f in fields["columns"].fields}

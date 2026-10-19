@@ -453,8 +453,7 @@ def test_repeated_index_labels_make_row_ids_ambiguous():
     ]
     assert limitation.reason == (
         "4 rows share an index label, so a row ID can match several rows: use a "
-        "unique id_column. Or make the index unique, such as with "
-        "df.reset_index(drop=True)."
+        "unique id_column. Or make the index unique."
     )
     # The printed line keeps the fix, though it cuts what follows.
     assert (
@@ -485,7 +484,7 @@ def test_repeated_row_ids_are_ambiguous_even_when_no_group_holds_one():
     [limitation] = res.limitations
     assert limitation.code == "ambiguous_row_ids"
     assert limitation.fields == []
-    assert limitation.reason.endswith(" None of the row IDs in this result repeats.")
+    assert limitation.reason.endswith(" No row ID in this result repeats.")
 
 
 @pytest.mark.parametrize(

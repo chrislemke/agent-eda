@@ -543,8 +543,8 @@ class Masking(ResultModel):
     )
     decided_by: Literal["mask_sensitive", "project", "default"] = Field(
         description="What switched masking on or off: the call's mask_sensitive "
-        "argument; the project's data_policy.mask_sensitive, when mask_sensitive "
-        "is None; or default, without either, which leaves masking off."
+        "argument; the project's data_policy.mask_sensitive, when the call leaves "
+        "mask_sensitive out; or default, without either, which leaves masking off."
     )
     columns: Annotated[list[str], _ENTRIES] = Field(
         description="The sensitive columns whose values the result shows, in "
@@ -1380,9 +1380,10 @@ class DescribeDatasetColumn(ResultModel):
     dtype: str = Field(description="The dtype as pandas reports it, such as 'int64'.")
     non_missing_count: int = Field(description="Values that are not missing.")
     missing_count: int = Field(
-        description="Missing values: None, NaN, NaT and pd.NA, including NaN that "
-        "a pyarrow-backed or nullable float column stores as a value, which "
-        "pandas isna() doesn't count."
+        description="Native missing values: NaN, NaT and the missing markers of "
+        "object, nullable and pyarrow-backed columns, including NaN that a "
+        "pyarrow-backed or nullable float column stores as a value, which pandas' "
+        "missing-value check doesn't count."
     )
     distinct_count: int | None = Field(
         description="Distinct non-missing values; null when the values can't be "
@@ -1439,7 +1440,7 @@ class DescribeDatasetResult(AnalysisResult):
     )
     columns: Annotated[list[DescribeDatasetColumn], _ENTRIES] = Field(
         description="One entry per column, in DataFrame order. The record keeps "
-        "the first 100 and adds columns_total; the full table (to_frame, or table_path over MCP) has every column."
+        "the first 100 and adds columns_total; the complete table has every column."
     )
     index: DescribeDatasetIndex = Field(description="Facts about the row index.")
     provenance: Provenance = Field(description="The provenance as supplied.")
@@ -1502,9 +1503,10 @@ class SummarizeNumericColumn(ColumnResult):
         description="Values that aren't missing, infinite ones included."
     )
     missing_count: int = Field(
-        description="Missing values: None, NaN and pd.NA, including NaN that a "
-        "pyarrow-backed or nullable float column stores as a value, which pandas "
-        "isna() doesn't count."
+        description="Native missing values: NaN and the missing markers of "
+        "object, nullable and pyarrow-backed columns, including NaN that a "
+        "pyarrow-backed or nullable float column stores as a value, which pandas' "
+        "missing-value check doesn't count."
     )
     infinite_count: int = Field(description="Values equal to inf or -inf.")
     zero_count: int = Field(description="Values equal to 0.")
@@ -1512,8 +1514,8 @@ class SummarizeNumericColumn(ColumnResult):
     mean: float | None = Field(description="Arithmetic mean of the finite values.")
     std: float | None = Field(
         description="Sample standard deviation of the finite values with ddof 1: "
-        "sqrt(sum((x - mean)^2) / (n - 1)), where n counts finite values. Needs "
-        "n >= 2."
+        "the square root of the sum of squared deviations from the mean divided by "
+        "n - 1, where n counts finite values. Needs n >= 2."
     )
     min: float | None = Field(description="Smallest finite value.")
     max: float | None = Field(description="Largest finite value.")
@@ -1528,27 +1530,29 @@ class SummarizeNumericColumn(ColumnResult):
     )
     trimmed_mean: float | None = Field(
         description="Mean of the finite values left after cutting "
-        "int(trim_fraction * n) of them from each end, as scipy.stats.trim_mean "
-        "does."
+        "trim_fraction * n, rounded down, of them from each end, as SciPy's "
+        "trimmed mean does."
     )
     mad: float | None = Field(
-        description="Median absolute deviation of the finite values, unscaled: "
-        "median(|x - median(x)|)."
+        description="Median absolute deviation of the finite values, unscaled: the median "
+        "of the absolute differences from their median."
     )
     mad_scaled: float | None = Field(
         description="mad * 1.4826, which estimates the standard deviation when the "
         "values are normally distributed."
     )
     skewness: float | None = Field(
-        description="Bias-corrected sample skewness G1 = sqrt(n(n - 1)) / (n - 2) "
-        "* m3 / m2^1.5 of the finite values, where m_k = mean((x - mean)^k): "
-        "scipy.stats.skew with bias=False. Needs n >= 3 and two distinct values."
+        description="Bias-corrected sample skewness G1 = (n * (n - 1))^0.5 / (n - 2) "
+        "* m3 / m2^1.5 of the finite values, where m_k is the mean of the k-th "
+        "powers of the deviations from the mean: SciPy's skewness with bias "
+        "correction. Needs n >= 3 and two distinct values."
     )
     excess_kurtosis: float | None = Field(
-        description="Bias-corrected sample excess kurtosis G2 = (n - 1) / ((n - 2)"
-        "(n - 3)) * ((n + 1) * m4 / m2^2 - 3(n - 1)) of the finite values; 0 for "
-        "a normal distribution: scipy.stats.kurtosis with bias=False. Needs n >= 4 "
-        "and two distinct values."
+        description="Bias-corrected sample excess kurtosis G2 = (n - 1) / ((n - 2) * "
+        "(n - 3)) * ((n + 1) * m4 / m2^2 - 3 * (n - 1)) of the finite "
+        "values, with m_k as for skewness; 0 for a normal distribution: SciPy's "
+        "excess kurtosis with bias correction. Needs n >= 4 and two distinct "
+        "values."
     )
 
 
@@ -1559,13 +1563,12 @@ class SummarizeNumericResult(AnalysisResult):
         description="One entry per selected column, keyed by column name, in the "
         "selected order. Every statistic uses the finite values only, and the "
         "description of each entry field defines it. The record keeps the first "
-        "100 and adds columns_total; the full table (to_frame, or table_path over "
-        "MCP) has every column."
+        "100 and adds columns_total; the complete table has every column."
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
-        description="Columns that columns=None left out because they aren't "
-        "numeric or are boolean, in DataFrame order; empty when columns names the "
-        "columns."
+        description="Columns that the default column selection left out because "
+        "they aren't numeric or are boolean, in DataFrame order; empty when the "
+        "call names the columns."
     )
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
@@ -1648,8 +1651,9 @@ class SummarizeCategoricalLevel(ResultModel):
 
     label: str | bool | int | float = Field(
         description="The value exactly as stored, so 'Yes' and 'yes ' are two "
-        "levels. A value JSON can't hold, such as a Decimal, a timestamp or a "
-        "non-finite float, appears as its string form; label_type names its type. "
+        "levels. A datetime is ISO 8601 text and a Decimal a number or, when float64 "
+        "can't hold it as written, its exact text; any other value JSON can't "
+        "hold appears as its string form. label_type names its type. "
         "With masking on, a sensitive column's labels are numbered placeholders, "
         "'<masked 1>' for its first level in level order and so on."
     )
@@ -1690,13 +1694,14 @@ class SummarizeCategoricalColumn(ColumnResult):
 
     non_missing_count: int = Field(description="Values that aren't missing.")
     missing_count: int = Field(
-        description="Missing values: None, NaN, NaT and pd.NA, the ones pandas "
-        "value_counts leaves out. NaN that a pyarrow-backed float column stores "
-        "as a value is a level, as in value_counts."
+        description="Native missing values: NaN, NaT and the missing markers of "
+        "object, nullable and pyarrow-backed columns, the ones pandas' value "
+        "counts leave out. NaN that a pyarrow-backed float column stores as a "
+        "value is a level, as in those counts."
     )
     cardinality: int | None = Field(
         description="Levels: the distinct non-missing values, as pandas "
-        "value_counts tells them apart, so 1, 1.0 and True are one level. Null "
+        "value_counts tells them apart, so 1, 1.0 and the boolean true are one level. Null "
         "when the values can't be hashed."
     )
     levels: Annotated[
@@ -1704,8 +1709,8 @@ class SummarizeCategoricalColumn(ColumnResult):
     ] = Field(
         description="The first top_n levels, each with its label, label_type, "
         "count and share. Level order: " + LEVEL_ORDER + " cardinality counts "
-        "every level, and the record adds it as levels_total; the full table "
-        "(to_frame, or table_path over MCP) has every level."
+        "every level, and the record adds it as levels_total; the complete "
+        "table has every level."
     )
     left_out_level_count: int | None = Field(
         description="Levels beyond the first top_n, which levels and the printed "
@@ -1728,7 +1733,7 @@ class SummarizeCategoricalColumn(ColumnResult):
     mixed_value_types: bool = Field(
         description="Whether the non-missing values have more than one Python "
         "type, such as 1 and '1'. Values pandas counts as one level, such as 1 "
-        "and True, can still differ in type."
+        "and the boolean true, can still differ in type."
     )
     case_or_space_variants: Annotated[list[SummarizeCategoricalVariants], _ENTRIES] = (
         Field(
@@ -1750,9 +1755,9 @@ class SummarizeCategoricalResult(MaskableResult):
         "keeps the first 100 and adds columns_total."
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
-        description="Columns that columns=None left out because they aren't text, "
-        "object, categorical or boolean columns, in DataFrame order; empty when "
-        "columns names the columns."
+        description="Columns that the default column selection left out because "
+        "they aren't text, object, categorical or boolean columns, in DataFrame "
+        "order; empty when the call names the columns."
     )
     # Every level of every counted column, outside the record; to_frame() sorts
     # them when asked, since sorting a million labels is slow.
@@ -1833,16 +1838,16 @@ class FindDuplicateRowsResult(MaskableResult):
 
     compared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="The columns in which rows must be equal to count as duplicates, "
-        "in the order compared. Missing values of every kind equal each other: "
-        "None, NaN, NaT and pd.NA, as in pandas' duplicated() over two or more "
-        "columns; lists, dicts and sets compare by content. The record keeps the "
-        "first 100 and adds compared_columns_total."
+        "in the order compared. Missing values of every kind equal each other, as "
+        "in pandas' duplicate check over two or more columns, and lists, dicts "
+        "and sets compare by content. The record keeps the first 100 and adds "
+        "compared_columns_total."
     )
     duplicate_groups: Annotated[list[DuplicateGroup], _ENTRIES] = Field(
         description="Each group of rows equal in every compared column, ordered "
         "by first occurrence; a group's number is its position here. The record "
-        "keeps the first 100 and adds duplicate_groups_total; the full table "
-        "(to_frame, or table_path over MCP) has every row of every group."
+        "keeps the first 100 and adds duplicate_groups_total; the complete table "
+        "has every row of every group."
     )
     duplicate_group_count: int = Field(description="Groups of duplicate rows.")
     duplicate_group_row_count: int = Field(
@@ -1922,8 +1927,9 @@ class ProfileTargetClass(ResultModel):
 
     label: str | bool | int | float = Field(
         description="The label exactly as stored, so 'Yes' and 'yes ' are two "
-        "classes. A label JSON can't hold, such as a Decimal or a non-finite "
-        "float, appears as its string form; label_type names its type. With "
+        "classes. A datetime is ISO 8601 text and a Decimal a number or, when float64 "
+        "can't hold it as written, its exact text; any other label JSON can't "
+        "hold appears as its string form. label_type names its type. With "
         "masking on and a sensitive target, a numbered placeholder, '<masked 1>' "
         "for the target's first label in level order and so on."
     )
@@ -1968,9 +1974,9 @@ class ProfileTargetStatistics(SummarizeNumericColumn):
         "numpy.quantile computes them with its default method, linear."
     )
     trimmed_mean: float | None = Field(
-        description="Mean of the finite values left after cutting int(0.1 * n) of "
-        "them from each end, summarize_numeric's default trim_fraction, as "
-        "scipy.stats.trim_mean(x, 0.1) does."
+        description="Mean of the finite values left after cutting 10% of them, "
+        "rounded down, from each end, summarize_numeric's default trim_fraction, "
+        "as SciPy's trimmed mean does."
     )
 
 
@@ -1980,8 +1986,8 @@ class ProfileTargetResult(MaskableResult):
     non_missing_count: int = Field(description="Target values that aren't missing.")
     missing_count: int = Field(
         description="Target values that are missing, the rows without a label. "
-        "For classification: None, NaN, NaT and pd.NA, as pandas value_counts "
-        "leaves them out. For regression: as statistics.missing_count counts "
+        "For classification: the native missing values, as pandas' value counts "
+        "leave them out. For regression: as statistics.missing_count counts "
         "them, NaN that a pyarrow-backed float column stores as a value included."
     )
     missing_share: float | None = Field(
@@ -1995,7 +2001,7 @@ class ProfileTargetResult(MaskableResult):
     )
     class_count: int | None = Field(
         description="Classification: the classes, the distinct valid labels, as "
-        "pandas value_counts tells them apart, so 1, 1.0 and True are one class. "
+        "pandas value_counts tells them apart, so 1, 1.0 and the boolean true are one class. "
         "With expected_labels, a declared label that no row holds is a class of "
         "count 0. Null for regression."
     )
@@ -2006,7 +2012,7 @@ class ProfileTargetResult(MaskableResult):
         "and share. Level order: " + LEVEL_ORDER + " A declared class without "
         "rows comes last, at count 0. "
         "class_count counts every class, the record adds it as classes_total, and "
-        "the full table (to_frame, or table_path over MCP) has every label. Null "
+        "the complete table has every label. Null "
         "for regression."
     )
     majority_share: float | None = Field(
@@ -2322,8 +2328,15 @@ class DeclaredSentinelValue(ResultModel):
 
     value: bool | int | float | str = Field(
         description="The value as declared; dates, datetimes and timedeltas as ISO "
-        "8601 text. With masking on, a sensitive column's values are numbered "
-        "placeholders, '<masked 1>', '<masked 2>' and so on, in the order declared."
+        "8601 text, and a decimal as a number or, when float64 can't hold it as "
+        "written, its exact text. With masking on, a sensitive column's values "
+        "are numbered placeholders, '<masked 1>', '<masked 2>' and so on, in the "
+        "order declared."
+    )
+    value_type: str = Field(
+        description="The Python type of the declared value, such as 'int', 'bool', "
+        "'str', 'date' or 'Timestamp'. It tells apart values that print the same: "
+        "the date 2020-01-01 and the text '2020-01-01', or the boolean true and 1."
     )
     count: int = Field(
         description="Values in the column equal to it, among those pandas doesn't "
@@ -2335,9 +2348,9 @@ class ProfileMissingValuesColumn(ColumnResult):
     """What profile_missing_values found in one column."""
 
     native_missing_count: int = Field(
-        description="Values that are missing: None, NaN, NaT and pd.NA, including "
+        description="Values that are missing: native missing values, including "
         "NaN that a pyarrow-backed or nullable float column stores as a value, "
-        "which pandas isna() doesn't count."
+        "which pandas' missing-value check doesn't count."
     )
     sentinel_count: int | None = Field(
         description="Values equal to a sentinel value declared for the column; null "
@@ -2379,7 +2392,7 @@ class ProfileMissingValuesResult(MaskableResult):
     columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES] = Field(
         description="One entry per selected column, keyed by column name, in the "
         "selected order. The record keeps the first 100 and adds columns_total; "
-        "the full table (to_frame, or table_path over MCP) has every column."
+        "the complete table has every column."
     )
     missing_count: int = Field(
         description="Selected values that are missing or a declared sentinel value, "
@@ -2400,8 +2413,8 @@ class ProfileMissingValuesResult(MaskableResult):
     row_distribution: Annotated[list[ProfileMissingValuesRowCount], _ENTRIES] = Field(
         description="How many rows miss each number of selected values, one entry "
         "per number that occurs, fewest missing first. The record keeps the first "
-        "100 and adds row_distribution_total; in Python, to_frame with "
-        "table='row_distribution' has every entry."
+        "100 and adds row_distribution_total; the Python-only table "
+        "row_distribution has every entry."
     )
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
@@ -2470,8 +2483,9 @@ class ProfileMissingValuesResult(MaskableResult):
         Args:
             table: 'columns', the default, gives one row per selected column in
                 the selected order, with its counts and share; status_reason
-                holds the reason's code, and sentinel_values maps each declared
-                value to its count. 'row_distribution' gives one row per number
+                holds the reason's code, and sentinel_values lists each declared
+                value with its type and count, so values that print the same
+                stay apart. 'row_distribution' gives one row per number
                 of missing values that occurs: missing_count, row_count and
                 row_share.
         """
@@ -2486,7 +2500,13 @@ class ProfileMissingValuesResult(MaskableResult):
                 codes = [reason.code if reason else None for reason in values]
                 columns[name] = pd.Series(codes, dtype=object)
             elif name == "sentinel_values":
-                counts = [{v.value: v.count for v in declared} for declared in values]
+                counts = [
+                    [
+                        {"value": v.value, "value_type": v.value_type, "count": v.count}
+                        for v in declared
+                    ]
+                    for declared in values
+                ]
                 columns[name] = pd.Series(counts, dtype=object)
             else:
                 dtype = _FRAME_DTYPES.get(field.annotation)
@@ -2504,8 +2524,10 @@ class SentinelCandidate(ResultModel):
     column: str = Field(description="The column that holds the value.")
     value: bool | int | float | str = Field(
         description="The value: a declared one as declared, a suspected one as "
-        "stored. Dates, datetimes and durations appear as ISO 8601 text and "
-        "decimals as floats; value_type names the type."
+        "stored. Dates, datetimes and durations appear as ISO 8601 text, and a "
+        "decimal as a number or, when float64 can't hold it as written, its exact "
+        "text; value_type names the type. A text stand-in keeps the surrounding "
+        "whitespace it occurs with."
     )
     value_type: str = Field(
         description="The Python type of the value, such as 'int', 'float', 'str', "
@@ -2688,7 +2710,7 @@ class CandidateKey(ResultModel):
     )
     distinct_count: int = Field(
         description="Distinct combinations of values in these columns, with missing "
-        "values of every kind (None, NaN, NaT, NA) compared equal: the rows of the "
+        "values of every native kind compared equal: the rows of the "
         "set that no earlier row repeats."
     )
     duplicate_row_count: int = Field(
@@ -2745,8 +2767,7 @@ class FindCandidateKeysResult(AnalysisResult):
         description="Minimal keys without missing values, each fit to serve as a "
         "primary key: column sets whose combination of values no two rows share. "
         "Fewest columns first, then in column order. The record keeps the first "
-        "100 and adds keys_total; the full table (to_frame, or table_path over "
-        "MCP) has every one."
+        "100 and adds keys_total; the complete table has every one."
     )
     keys_with_missing_values: Annotated[list[CandidateKey], _ENTRIES] = Field(
         description="Minimal keys with a missing value in some rows, which can't "
@@ -2759,8 +2780,8 @@ class FindCandidateKeysResult(AnalysisResult):
     )
     exhaustive: bool = Field(
         description="Whether the search examined every set of up to max_key_size "
-        "columns, apart from supersets of keys. False when max_combinations "
-        "stopped it, or when no search ran."
+        "columns, apart from supersets of keys. It is false when max_combinations "
+        "stopped the search, or when no search ran."
     )
     search: KeySearch = Field(description="How far the search went.")
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
@@ -2770,8 +2791,9 @@ class FindCandidateKeysResult(AnalysisResult):
     )
     non_integral_float_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns of floats with at least one fractional value, such "
-        "as 0.5, which columns=None leaves out because they are measurements, not "
-        "IDs, in DataFrame order. Empty when columns named the columns searched, "
+        "as 0.5, which the default column selection leaves out because they are "
+        "measurements, not IDs, in DataFrame order. Empty when the call named the "
+        "columns searched, "
         "or when none holds a fraction."
     )
 
@@ -2904,8 +2926,8 @@ class AssociationColumn(ResultModel):
         description="Values the pairs can use: present, and finite in a numeric column."
     )
     missing_count: int = Field(
-        description="Missing values: None, NaN, NaT and pd.NA, including NaN that a "
-        "pyarrow-backed or nullable float column stores as a value."
+        description="Native missing values, including NaN that a pyarrow-backed "
+        "or nullable float column stores as a value."
     )
     infinite_count: int = Field(
         description="Values equal to inf or -inf in a numeric column, which the "
@@ -2924,7 +2946,7 @@ class SkippedColumn(ResultModel):
     dtype: str = Field(description="The dtype as pandas reports it.")
     reason: SkipReason = Field(
         description="Why it was skipped: datetime, timedelta or unsupported_dtype "
-        "for dtypes without a measure (only when columns is None); all_missing; "
+        "for dtypes without a measure (only when the call leaves columns out); all_missing; "
         "no_finite_values for a numeric column holding only inf and -inf; "
         "unhashable_values for values such as lists; too_many_categories for a "
         "categorical column with more distinct values than max_categories."
@@ -2986,7 +3008,7 @@ class ComputeAssociationMatrixResult(AnalysisResult):
         description="One entry per pair of paired columns, strongest first: by "
         "absolute value, descending, then in the selected column order, with null "
         "values last. The record keeps the 100 strongest and adds pairs_total; "
-        "the full table (to_frame, or table_path over MCP) has every pair."
+        "the complete table has every pair."
     )
     columns: Annotated[dict[str, AssociationColumn], _ENTRIES] = Field(
         description="The paired columns, keyed by column name, in the selected "
@@ -2994,7 +3016,8 @@ class ComputeAssociationMatrixResult(AnalysisResult):
     )
     skipped_columns: Annotated[list[SkippedColumn], _ENTRIES] = Field(
         description="The columns paired with no other, with the reason, in "
-        "DataFrame order when columns is None and in the given order otherwise."
+        "DataFrame order when the call leaves columns out and in the given order "
+        "otherwise."
     )
 
     def to_frame(self, table: Literal["pairs", "matrix"] = "pairs") -> pd.DataFrame:
@@ -3116,7 +3139,7 @@ class ValueTypeCounts(ResultModel):
     )
     text: int = Field(description="Values that are strings, whatever they hold.")
     datetime: int = Field(
-        description="Values that are datetimes or dates, pd.Timestamp included."
+        description="Values that are datetimes or dates, pandas Timestamps included."
     )
     timedelta: int = Field(description="Values that are durations.")
     other: int = Field(
@@ -3132,13 +3155,12 @@ class ColumnEvidence(ResultModel):
     """
 
     non_missing_count: int = Field(
-        description="Values that aren't missing: None, NaN, NaT and pd.NA are "
-        "missing, as pandas isna() counts them, and so is NaN that a float "
-        "column stores as a value."
+        description="Values that aren't missing: native missing values, and NaN "
+        "that a float column stores as a value, are missing."
     )
     distinct_count: int | None = Field(
         description="Distinct non-missing values, as pandas counts them, so 1, "
-        "1.0 and True are one value; null when values such as lists can't be "
+        "1.0 and the boolean true are one value; null when values such as lists can't be "
         "hashed."
     )
     uniqueness_share: float | None = Field(
@@ -3234,7 +3256,7 @@ class InferColumnSemanticsResult(AnalysisResult):
     columns: Annotated[dict[str, InferColumnSemanticsColumn], _ENTRIES] = Field(
         description="One entry per selected column, keyed by column name, in the "
         "selected order. The record keeps the first 100 and adds columns_total; "
-        "the full table (to_frame, or table_path over MCP) has every column."
+        "the complete table has every column."
     )
     missing_declared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns declared_schema names that the data doesn't have, in "
@@ -3378,9 +3400,10 @@ class InvalidValue(ResultModel):
     """A distinct value that neither has nor converts to the declared logical type."""
 
     value: str | bool | int | float = Field(
-        description="The value as stored. A value JSON can't hold, such as a "
-        "timestamp, a list or a non-finite float, appears as its string form; "
-        "value_type names its type. With masking on, a sensitive column's values "
+        description="The value as stored. A datetime is ISO 8601 text and a Decimal a number "
+        "or, when float64 can't hold it as written, its exact text; any other "
+        "value JSON can't hold appears as its string form. value_type names "
+        "its type. With masking on, a sensitive column's values "
         "are numbered placeholders, '<masked 1>' for its first invalid value in "
         "level order and so on."
     )
@@ -3428,8 +3451,8 @@ class ValidateColumnTypesColumn(ResultModel):
         "to it exactly."
     )
     missing_count: int | None = Field(
-        description="Missing values: None, NaN, NaT and pd.NA, as pandas isna() "
-        "counts them, and NaN that a float column stores as a value."
+        description="Native missing values, and NaN that a float column stores "
+        "as a value."
     )
     invalid_row_ids: Annotated[list[RowId], _Cap(10, total="invalid_count")] = Field(
         description="The IDs of the first 10 rows that hold an invalid value, in row "
@@ -3440,7 +3463,7 @@ class ValidateColumnTypesColumn(ResultModel):
     )
     invalid_distinct_count: int | None = Field(
         description="Distinct invalid values; values of different types count "
-        "apart, so 1 and True are two."
+        "apart, so 1 and the boolean true are two."
     )
     invalid_values: Annotated[
         list[InvalidValue], _Cap(5, total="invalid_distinct_count")
@@ -3448,8 +3471,8 @@ class ValidateColumnTypesColumn(ResultModel):
         description="The first 5 distinct invalid values with their counts, in level "
         "order as summarize_categorical orders levels: most frequent first, then "
         "by value. invalid_distinct_count counts them all, the record adds it as "
-        "invalid_values_total, and in Python, to_frame with table='invalid_values' "
-        "has every one."
+        "invalid_values_total, and the Python-only table invalid_values has "
+        "every one."
     )
     assessment: Literal["passed", "violation", "unknown"] = Field(
         description="The assessment of the column, as its findings give it: violation "
@@ -3465,7 +3488,7 @@ class ValidateColumnTypesResult(MaskableResult):
     columns: Annotated[dict[str, ValidateColumnTypesColumn], _ENTRIES] = Field(
         description="One entry per declared column, keyed by column name, in "
         "declared order. The record keeps the first 100 and adds columns_total; "
-        "the full table (to_frame, or table_path over MCP) has every column."
+        "the complete table has every column."
     )
     undeclared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="The data's columns that schema doesn't declare, in DataFrame "

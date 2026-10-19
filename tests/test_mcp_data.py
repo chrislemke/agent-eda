@@ -116,6 +116,33 @@ def test_only_an_empty_field_is_missing_so_stand_ins_reach_the_analysis(tmp_path
     ]
 
 
+def test_a_csv_column_holding_n_a_and_a_numeric_code_suggests_both(tmp_path):
+    # The column is read as text because of "N/A", so -999 is the text "-999".
+    path = tmp_path / "ages.csv"
+    path.write_text("age\n34\nN/A\n-999\n-999\n51\n29\n", encoding="utf-8")
+
+    response = anyio.run(call, "detect_missing_sentinels", {"data_path": str(path)})
+
+    found = [
+        (c["value"], c["evidence"], c["row_ids"])
+        for c in response.structured_content["candidates"]
+    ]
+    assert found == [
+        ("-999", ["builtin_list", "isolated_extreme"], [2, 3]),
+        ("N/A", ["builtin_list"], [1]),
+    ]
+    # The suggested value can be declared as it is shown.
+    declared = anyio.run(
+        call,
+        "detect_missing_sentinels",
+        {"data_path": str(path), "sentinel_values": {"age": ["-999", "N/A"]}},
+    )
+    assert [c["confirmation"] for c in declared.structured_content["candidates"]] == [
+        "declared",
+        "declared",
+    ]
+
+
 def test_row_ids_of_a_csv_are_0_based_data_row_numbers(tmp_path):
     path = tmp_path / "orders.csv"
     path.write_text(

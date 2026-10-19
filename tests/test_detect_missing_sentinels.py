@@ -157,7 +157,7 @@ LISTED_TEXT = [
     "MISSING",
 ]
 # Text that only resembles them.
-UNLISTED_TEXT = ["Lyon", "N/A ", " NA", "n.a.", "--", "??", "-999", "none yet", "0"]
+UNLISTED_TEXT = ["Lyon", "n.a.", "--", "??", "12", "none yet", "0"]
 TEXT_DTYPES = [object, "string", "string[pyarrow]", STR, pd.ArrowDtype(pa.string())]
 
 
@@ -817,8 +817,7 @@ def test_repeated_index_labels_make_the_row_ids_that_repeat_ambiguous():
     assert limitation.code == "ambiguous_row_ids"
     assert limitation.reason == (
         "2 rows share an index label, so a row ID can match several rows: use a "
-        "unique id_column. Or make the index unique, such as with "
-        "df.reset_index(drop=True)."
+        "unique id_column. Or make the index unique."
     )
     # -999.0 sits in rows b and b; '' in rows a and b.
     assert limitation.fields == ["candidates[0].row_ids", "candidates[1].row_ids"]

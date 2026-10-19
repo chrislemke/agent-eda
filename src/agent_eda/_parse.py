@@ -162,6 +162,20 @@ def read_texts(texts: np.ndarray) -> TextReading:
     )
 
 
+def number_texts(texts: np.ndarray) -> np.ndarray:
+    """Which strings of an object array parse as numbers, as read_texts decides.
+
+    Strings that can't parse, judged by their first character, cost one
+    vectorized check; the rest are read one by one.
+    """
+    found = np.zeros(len(texts), dtype=bool)
+    if len(texts):
+        firsts = texts.astype("U1").view(np.uint32)
+        for position in np.flatnonzero(np.isin(firsts, _STARTS)).tolist():
+            found[position] = bool(_read(texts[position]) & _NUMBER_BIT)
+    return found
+
+
 def _read(text: str) -> int:
     """What one string parses as, as bits."""
     stripped = text.strip()
@@ -356,6 +370,26 @@ def read_as(
 
 
 _TRUE_WORDS = frozenset(("true", "t", "yes", "y"))
+
+# A decimal written with an exponent beyond this reads as nothing.
+_MAX_DECIMAL_EXPONENT = 1000
+
+
+def read_decimal(text: str) -> Decimal | None:
+    """The exact decimal a piece of text writes, or None if it isn't a number.
+
+    The text is a number as the rules above read it (42, -3.5, .5, 1e-3,
+    +4.2E1), without surrounding whitespace, and the decimal keeps every digit
+    as written: '12345678901234567.25' is that decimal, not a float. Leading
+    zeros are fine, since no value is a code here.
+    """
+    if _NUMBER.fullmatch(text) is None or not text.isascii():
+        return None
+    try:
+        value = Decimal(text)
+    except ArithmeticError:
+        return None
+    return value if abs(value.adjusted()) < _MAX_DECIMAL_EXPONENT else None
 
 
 def _number(stripped: str, bits: int, whole: bool) -> int | float | None:

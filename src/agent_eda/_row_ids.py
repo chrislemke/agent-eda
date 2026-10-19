@@ -127,12 +127,12 @@ def ambiguous_row_ids(row_ids: RowIds, fields: Sequence[str]) -> list[Limitation
         return []
     if row_ids.id_column is None:
         what = "an index label"
-        more = " Or make the index unique, such as with df.reset_index(drop=True)."
+        more = " Or make the index unique."
     else:
         what = "an id_column value"
         more = ""
     if not fields:
-        more += " None of the row IDs in this result repeats."
+        more += " No row ID in this result repeats."
     return [
         Limitation(
             code="ambiguous_row_ids",
