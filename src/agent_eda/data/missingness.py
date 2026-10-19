@@ -10,7 +10,7 @@ import pandas as pd
 from agent_eda._columns import ALL_KINDS, Column, ColumnRule, select_columns
 from agent_eda._levels import stored_label, type_name
 from agent_eda._masking import mask_values, resolve_masking
-from agent_eda._numeric import stored_nan_count
+from agent_eda._numeric import stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, data_shape, execution, overall_status
@@ -24,6 +24,7 @@ from agent_eda._sentinels import (
     matches,
 )
 from agent_eda._text import join_labels, plural
+from agent_eda._values import stored_nan_mask
 from agent_eda.project import Project
 from agent_eda.results import (
     ColumnSupport,
@@ -124,8 +125,10 @@ def profile_missing_values(
         ProfileMissingValuesResult: `columns` maps each selected column name to
         its entry, which holds:
 
-        - `native_missing_count`, the values pandas' `isna` counts as missing:
-          None, NaN, NaT and NA.
+        - `native_missing_count`, the values that are missing without a declared
+          sentinel value: None, NaN, NaT and NA, including NaN that a
+          pyarrow-backed or nullable float column stores as a value, which
+          pandas' `isna` doesn't count.
         - `sentinel_count`, the values equal to a declared sentinel value;
           null when the column has none declared.
         - `missing_count`, both together, and `missing_share`, that count over
@@ -145,8 +148,8 @@ def profile_missing_values(
         whose declared values the result shows.
 
         Limitations: `sentinel_values_not_declared` names the columns whose
-        sentinel_count is null; `nan_not_counted_as_missing` the columns that
-        store NaN as a value, which `isna` doesn't count; `too_few_values` the
+        sentinel_count is null; `nan_counted_as_missing` the columns that
+        store NaN as a value, which `isna` doesn't count and this analysis does; `too_few_values` the
         shares that are null for want of rows or columns.
 
         The findings:
@@ -230,15 +233,18 @@ def profile_missing_values(
     }
     entries = {}
     # Columns that store NaN as a value, which isna() doesn't count.
-    stored_nan: list[Column] = []
+    stored_nan: list[str] = []
     # How many selected values each row misses.
     per_row = np.zeros(row_count, dtype=np.int64)
     for column in selection.columns:
         series = data.iloc[:, column.position]
         native = np.asarray(series.isna(), dtype=bool)
+        stored = stored_nan_mask(series)
+        if stored is not None:
+            # NaN stored as a value is missing here, though isna() says otherwise.
+            native = native | stored
+            stored_nan.append(column.name)
         native_count = int(native.sum())
-        if stored_nan_count(series):
-            stored_nan.append(column)
         # A value counts once, however many declared values it equals.
         missing_mask, sentinel, counted = native, None, []
         values = declared.get(column.name)
@@ -315,7 +321,11 @@ def profile_missing_values(
             *_sentinel_values_present(entries),
         ],
         limitations=[
-            *_nan_not_counted(stored_nan),
+            *stored_nan_limitations(
+                stored_nan,
+                [f"{_entry_path(name)}.native_missing_count" for name in stored_nan],
+                "native_missing_count counts it",
+            ),
             *_not_declared(entries, any_declared=bool(declared)),
             *_null_shares(entries, row_count),
         ],
@@ -332,27 +342,6 @@ def profile_missing_values(
 
 _NO_COLUMNS = StatusReason(code="no_columns", message="The data has no columns.")
 _NO_ROWS = StatusReason(code="no_rows", message="The data has no rows.")
-
-
-def _nan_not_counted(columns: list[Column]) -> list[Limitation]:
-    if not columns:
-        return []
-    store = plural(len(columns), "column stores", "columns store")
-    names = join_labels([column.name for column in columns])
-    return [
-        Limitation(
-            code="nan_not_counted_as_missing",
-            reason=(
-                f"{store} NaN as a value, which pandas isna() doesn't count as "
-                f"missing, so native_missing_count leaves it out: {names}. To count "
-                "it, read the column as float64 first, such as "
-                f"df[{columns[0].label!r}].astype('float64')."
-            ),
-            fields=[
-                f"{_entry_path(column.name)}.native_missing_count" for column in columns
-            ],
-        )
-    ]
 
 
 def _null_shares(
@@ -552,18 +541,22 @@ def detect_missing_sentinels(
             accidental exposure, not anonymization or access control.
 
     Returns:
-        DetectMissingSentinelsResult: `candidates` lists the values that may stand in
-        for missing ones, column by column in the order checked: first the declared
-        values a column holds, in the order given, then the suspected ones, most
-        frequent first. Each candidate has its `column`; its `value`, with dates and
-        times as ISO 8601 text and `value_type` naming the type; its `count` and its
-        `share` of all rows; its `evidence` codes; its `confirmation`, declared or
-        suspected; and in `row_ids` the IDs of the first 10 rows that hold it. Row IDs
-        are index labels, or id_column values when given. The record keeps the first 100
-        candidates and adds candidates_total; `to_frame` returns every candidate, and
-        the printed table shows the most frequent first. `columns_without_rules` names
-        the checked columns whose values no rule reads, such as booleans and durations,
-        where only declared values were looked for.
+        DetectMissingSentinelsResult: `candidates` lists the values that may
+        stand in for missing ones, column by column in the order checked:
+        first the declared values a column holds, in the order given, then
+        the suspected ones, most frequent first. Each candidate has its
+        `column`; its `value`, with dates and times as ISO 8601 text and
+        `value_type` naming the type; its `count` and its `share` of all rows;
+        its `evidence` codes; its `confirmation`, declared or suspected; and
+        in `row_ids` the IDs of the first 10 rows that hold it. Row IDs are
+        index labels, or id_column values when given. The record keeps the
+        first 100 candidates and adds candidates_total; `to_frame` returns
+        every candidate, and the printed table shows the most frequent first.
+        `columns_without_rules` names the checked columns whose values no
+        rule reads, such as booleans and durations, where only declared values
+        were looked for. NaN that a pyarrow-backed or nullable float column
+        stores as a value is missing, as in every analysis, and the
+        `nan_counted_as_missing` limitation names such columns.
 
         The evidence codes, and the rules behind them:
 
@@ -737,7 +730,14 @@ def detect_missing_sentinels(
             ],
         ),
         findings=_candidate_findings(candidates),
-        limitations=ambiguous_row_ids(row_ids, ambiguous),
+        limitations=[
+            *ambiguous_row_ids(row_ids, ambiguous),
+            *stored_nan_limitations(
+                [name for name, done in checked.items() if done.stored_nan],
+                ["support.columns"],
+                "support counts it as missing",
+            ),
+        ],
         execution=execution(("numpy", "pandas")),
         masking=masking.record(
             [
@@ -849,6 +849,8 @@ class _Checked:
     missing_count: int
     # Whether a built-in rule reads any of its values.
     ruled: bool
+    # Whether the column stores NaN as a value, which counts as missing here.
+    stored_nan: bool
 
 
 def _check_column(
@@ -862,6 +864,9 @@ def _check_column(
     as if they were missing.
     """
     native = np.asarray(series.isna(), dtype=bool)
+    stored = stored_nan_mask(series)
+    if stored is not None:
+        native = native | stored
     remaining = ~native
     found = []
     for value in declared:
@@ -877,7 +882,9 @@ def _check_column(
         )
         for suspect in suspects(series, column, holding, remaining)
     )
-    return _Checked(found, int(native.sum()), read_by_rules(holding))
+    return _Checked(
+        found, int(native.sum()), read_by_rules(holding), stored is not None
+    )
 
 
 def _check_status(

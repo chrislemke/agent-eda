@@ -745,8 +745,16 @@ def test_groups_and_counts_match_pandas_duplicated(df, data):
         pandas_duplicates(df[columns])
     except (TypeError, NotImplementedError):
         assume(False)  # pandas can't hash lists, dicts and nested Arrow types
+    # pandas reads '' and '\x00a' as one text, which Python's == and
+    # find_duplicate_rows tell apart: test_value_identity covers such text.
+    assume(not any(holds_nul(df[column]) for column in columns))
 
     check_against_pandas(df, columns)
+
+
+def holds_nul(column):
+    """Whether a column holds text with a NUL character."""
+    return any(isinstance(value, str) and "\x00" in value for value in column)
 
 
 @given(df=data_frames(), data=st.data())

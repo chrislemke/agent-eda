@@ -1,7 +1,9 @@
 """How analyses read the values of a column or index and compare them.
 
 Values compare as pandas compares them, so 1, 1.0 and True are one value, with
-one exception: text. pandas' factorize reads '\\x00' in text as the end of the
+two exceptions. NaN that a pyarrow-backed or nullable float column stores as a
+value, which pandas' isna() doesn't count, is a missing value here, as in every
+analysis. And text: pandas' factorize reads '\\x00' in text as the end of the
 text, so '' and '\\x00a' would be one value, which Python's == tells apart.
 value_codes() is the one place that numbers the distinct values of a column,
 and it keeps text apart. Every analysis that counts levels, groups, classes or
@@ -14,11 +16,48 @@ reported as unsupported.
 
 from collections.abc import Hashable
 from dataclasses import dataclass
-from typing import Literal, overload
+from typing import Literal, cast, overload
 
 import numpy as np
 import pandas as pd
 from pandas.api.extensions import ExtensionArray
+
+
+def stored_nan_mask(
+    values: "pd.Series | pd.Index | ExtensionArray",
+) -> np.ndarray | None:
+    """Where a float column stores NaN as a value, or None where it stores none.
+
+    pyarrow-backed floats, and nullable floats on pandas 2, keep NaN apart from
+    a missing value, so pandas' isna() doesn't count it. NumPy floats, whose NaN
+    isna() counts, and every other dtype store none.
+    """
+    dtype = values.dtype
+    if not (isinstance(dtype, pd.api.extensions.ExtensionDtype) and dtype.kind == "f"):
+        return None
+    floats = np.asarray(values.to_numpy(dtype="float64", na_value=np.nan))
+    found = np.isnan(floats) & ~np.asarray(pd.isna(values), dtype=bool)
+    return found if found.any() else None
+
+
+def nan_as_missing(values: pd.Series) -> pd.Series:
+    """The column with NaN that it stores as a value turned into a missing value.
+
+    The column itself when it stores none; the caller's data is never changed.
+    """
+    found = stored_nan_mask(values)
+    return values if found is None else values.mask(found)
+
+
+def is_constant(non_missing: int, distinct: int | None) -> bool:
+    """Whether a column is constant: two or more values that aren't missing, all equal.
+
+    Every analysis that flags a constant column decides it here, from counts of
+    the stored values: `distinct` is the number of distinct non-missing values,
+    None when it wasn't counted, and for numbers any count of 2 or more says
+    that two values differ.
+    """
+    return non_missing >= 2 and distinct == 1
 
 
 def column_values(values: pd.Series | pd.Index) -> np.ndarray | ExtensionArray:
@@ -32,6 +71,40 @@ def column_values(values: pd.Series | pd.Index) -> np.ndarray | ExtensionArray:
     if isinstance(values.dtype, np.dtype):
         return values.to_numpy()
     return values.array
+
+
+def is_arrow_dictionary(dtype: object) -> bool:
+    """Whether the dtype is pyarrow's dictionary type, Arrow's form of a categorical.
+
+    Parquet read with dtype_backend="pyarrow" gives such columns for the
+    categoricals that pandas wrote.
+    """
+    return isinstance(dtype, pd.ArrowDtype) and hasattr(
+        dtype.pyarrow_dtype, "index_type"
+    )
+
+
+def categorical_array(series: pd.Series) -> pd.Categorical:
+    """The column's values as a pandas Categorical, for a categorical column.
+
+    A pandas categorical is returned as it is. An Arrow dictionary column gets
+    the dictionary's entries as its categories, unused ones included, and the
+    positions in the dictionary as its codes, so both forms read the same.
+    """
+    if isinstance(series.array, pd.Categorical):
+        return series.array
+    array = cast("pd.arrays.ArrowExtensionArray", series.array)
+    # pyarrow is installed wherever a column has an Arrow dtype.
+    arrow = array.__arrow_array__()
+    if hasattr(arrow, "chunks"):  # a ChunkedArray
+        arrow = arrow.unify_dictionaries().combine_chunks()
+    entries = pd.Index(pd.arrays.ArrowExtensionArray(arrow.dictionary))
+    if entries.hasnans or not entries.is_unique:
+        # Entries that can't be categories: read the values themselves.
+        decoded = pd.arrays.ArrowExtensionArray(arrow.dictionary_decode())
+        return pd.Categorical(decoded)
+    codes = arrow.indices.cast("int64").fill_null(-1).to_numpy()
+    return pd.Categorical.from_codes(codes, categories=entries, ordered=False)
 
 
 @dataclass(frozen=True)
@@ -104,6 +177,7 @@ def value_codes(
 def _factorize(
     values: "pd.Series | pd.Index | np.ndarray | ExtensionArray",
 ) -> "tuple[np.ndarray, pd.Index | np.ndarray | ExtensionArray]":
+    values = _nan_as_missing(values)
     objects = _all_text_objects(values)
     if objects is None or not _holds_nul(objects):
         return pd.factorize(values)
@@ -118,6 +192,21 @@ def _factorize(
     if isinstance(values, pd.Series | pd.Index):
         uniques = pd.Index(uniques, dtype=values.dtype)
     return codes[:-1], uniques
+
+
+def _nan_as_missing(
+    values: "pd.Series | pd.Index | np.ndarray | ExtensionArray",
+) -> "pd.Series | pd.Index | np.ndarray | ExtensionArray":
+    """The values with stored NaN turned into missing values, of the same kind."""
+    if isinstance(values, np.ndarray):
+        return values
+    found = stored_nan_mask(values)
+    if found is None:
+        return values
+    if isinstance(values, pd.Series):
+        return values.mask(found)
+    masked = pd.Series(values).mask(found).array
+    return pd.Index(masked) if isinstance(values, pd.Index) else masked
 
 
 # value_codes appends this to text that holds '\x00', so the values are never

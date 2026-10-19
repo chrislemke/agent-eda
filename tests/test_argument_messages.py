@@ -210,7 +210,7 @@ MISTAKES = {
             expected_labels=[np.nan, np.nan],
         ),
         "invalid_argument",
-        ["nan in expected_labels", "NaN and infinity can't be class labels"],
+        ["nan in expected_labels", "NaN, NaT and infinity can't be class labels"],
     ),
     "task-that-is-a-prefix": (
         lambda: wrong.profile_target(DF, target_column="target", task="binary"),

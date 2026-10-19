@@ -101,9 +101,11 @@ def measure_pairs(
     *,
     numeric_method: NumericMethod,
     bias_corrected: bool,
+    ratio_bias_corrected: bool,
 ) -> Measures:
     """Every pair's measure: numeric pairs by numeric_method, categorical pairs by
-    Cramér's V and mixed ones by the correlation ratio."""
+    Cramér's V and mixed ones by the correlation ratio, each plain or
+    bias-corrected."""
     # The batched categorical columns, those with tables first.
     batch = sorted(
         (a for a, c in enumerate(categorical) if c.levels <= BATCH_LEVELS),
@@ -145,11 +147,13 @@ def measure_pairs(
     for a, codes in enumerate(categorical):
         batched: list[Measure | None] = [None] * len(numeric)
         if sums is not None and a in position:
-            batched = sums.correlation_ratios(position[a])
+            batched = sums.correlation_ratios(position[a], ratio_bias_corrected)
         for j, values in enumerate(numeric):
             measure = batched[j]
             mixed_measures[a, j] = (
-                mixed_pair(codes.codes, values) if measure is None else measure
+                mixed_pair(codes.codes, values, ratio_bias_corrected)
+                if measure is None
+                else measure
             )
     return Measures(numeric_measures, categorical_measures, mixed_measures)
 
@@ -256,8 +260,9 @@ def _sparse_table_measure(x: Codes, y: Codes, bias_corrected: bool) -> Measure:
     return Measure(_clip(_cramers_v(chi2 / count, r, k, count, bias_corrected)), count)
 
 
-def mixed_pair(codes: np.ndarray, y: np.ndarray) -> Measure:
-    """The correlation ratio from the categorical codes to the numeric y."""
+def mixed_pair(codes: np.ndarray, y: np.ndarray, bias_corrected: bool) -> Measure:
+    """The correlation ratio from the categorical codes to the numeric y, plain or
+    bias-corrected."""
     complete = (codes >= 0) & np.isfinite(y)
     count = int(complete.sum())
     if count < MINIMUM_ROWS:
@@ -270,7 +275,8 @@ def mixed_pair(codes: np.ndarray, y: np.ndarray) -> Measure:
     values = y[complete]
     if _constant(values):
         return Measure(None, count, "constant_column")
-    return Measure(_clip(correlation_ratio(levels, values)), count)
+    ratio = correlation_ratio(levels, values, bias_corrected=bias_corrected)
+    return Measure(_clip(ratio), count)
 
 
 def pearson(a: np.ndarray, b: np.ndarray) -> float:
@@ -342,8 +348,11 @@ def _cramers_v(phi2: float, r: int, k: int, n: int, bias_corrected: bool) -> flo
     return float(np.sqrt(corrected / min(r_corrected, k_corrected)))
 
 
-def correlation_ratio(levels: np.ndarray, values: np.ndarray) -> float:
-    """eta = sqrt(between-level sum of squares / total sum of squares).
+def correlation_ratio(
+    levels: np.ndarray, values: np.ndarray, *, bias_corrected: bool
+) -> float:
+    """The correlation ratio eta, or its bias-corrected form, of numeric values
+    by level.
 
     levels are codes from 0, each present; values aren't constant.
     """
@@ -354,7 +363,30 @@ def correlation_ratio(levels: np.ndarray, values: np.ndarray) -> float:
     centre = sums.sum() / counts.sum()
     between = np.sum(counts * (sums / counts - centre) ** 2)
     total = np.sum((deviations - centre) ** 2)
-    return float(np.sqrt(between / total))
+    return ratio_value(
+        between, total, levels=len(counts), count=len(values), corrected=bias_corrected
+    )
+
+
+def ratio_value(
+    between: float, total: float, *, levels: int, count: int, corrected: bool
+) -> float:
+    """eta = sqrt(between / total), or sqrt(epsilon squared) when corrected.
+
+    between and total are the between-level and total sums of squares; levels
+    counts the levels present, at least 2 and fewer than the count rows.
+    Epsilon squared, Kelley's (1935) bias-adjusted share of the variance that
+    the levels explain, takes the within-level variance that chance alone
+    would leave between the levels off the between-level sum of squares:
+    (between - (levels - 1) * within / (count - levels)) / total, where within
+    is total less between. Below 0, which it is for about half the pairs of
+    unrelated columns, it is clipped at 0.
+    """
+    if not corrected:
+        return float(np.sqrt(between / total))
+    within = total - between
+    epsilon_squared = (between - (levels - 1) * within / (count - levels)) / total
+    return float(np.sqrt(max(epsilon_squared, 0.0)))
 
 
 def _numeric_measures(
@@ -468,7 +500,7 @@ class _Sums:
 
         return measure
 
-    def correlation_ratios(self, a: int) -> list[Measure | None]:
+    def correlation_ratios(self, a: int, bias_corrected: bool) -> list[Measure | None]:
         """Batched categorical column a with every numeric column: its Measure,
         or None where the batched sums aren't precise enough."""
         rows = slice(self.offsets[a], self.offsets[a] + self.levels[a])
@@ -483,7 +515,6 @@ class _Sums:
             spread = squares - total_sum * mean
             level_means = np.where(present, sums / np.where(present, counts, 1), 0.0)
             between = np.sum(counts * (level_means - mean) ** 2, axis=0)
-            eta = np.sqrt(between / spread)
             conditioned = (
                 (self.missing_squares[a] <= (1 - WELL_CONDITIONED) * self.squares)
                 & (squares > total * TINY_MEAN_SQUARE)
@@ -501,7 +532,14 @@ class _Sums:
             elif not conditioned[j]:
                 measures.append(None)
             else:
-                measures.append(Measure(_clip(float(eta[j])), count))
+                ratio = ratio_value(
+                    float(between[j]),
+                    float(spread[j]),
+                    levels=levels,
+                    count=count,
+                    corrected=bias_corrected,
+                )
+                measures.append(Measure(_clip(ratio), count))
         return measures
 
 

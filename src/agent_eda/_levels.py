@@ -13,7 +13,7 @@ The order never follows hash or set iteration order.
 
 import heapq
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._text import placeholder
-from agent_eda._values import value_codes
+from agent_eda._values import categorical_array, value_codes
 from agent_eda._written_form import canonical_text
 
 if TYPE_CHECKING:
@@ -86,6 +86,25 @@ class Levels:
         values = self.values if positions is None else self.values[positions]
         return np.asarray(values, dtype=object)
 
+    def with_empty(self, labels: Sequence[object]) -> "Levels":
+        """These levels followed by one level of count 0 for each of the labels.
+
+        The labels are values no row holds, such as declared classes without
+        rows. They take part in the level order like any other level, after
+        the levels with rows.
+        """
+        if not labels:
+            return self
+        values = self.values.append(pd.Index(list(labels)))
+        return replace(
+            self,
+            values=values,
+            counts=np.concatenate([self.counts, np.zeros(len(labels), np.int64)]),
+            sort_values=_numpy_values(values),
+            text=_all_text(values),
+            unused_categories=[],
+        )
+
     def subset(self, positions: np.ndarray) -> "Levels":
         """The levels at the given positions, in that order, without categories."""
         return replace(
@@ -121,6 +140,8 @@ def count_levels_by_row(
         return levels, codes
     # A category code becomes the category's position among the used ones.
     positions = np.cumsum(used) - 1
+    if not positions.size:  # no categories, so every value is missing
+        return levels, np.full(len(codes), -1, dtype=np.intp)
     return levels, np.where(codes >= 0, positions[codes], -1)
 
 
@@ -173,7 +194,7 @@ def levels_of(values: pd.Index, counts: np.ndarray) -> Levels:
 
 
 def _count_categories(series: pd.Series) -> tuple[Levels, np.ndarray, np.ndarray]:
-    categorical = cast("pd.Categorical", series.array)
+    categorical = categorical_array(series)
     categories = categorical.categories
     codes = np.asarray(categorical.codes, dtype=np.intp)
     counts = np.bincount(codes + 1, minlength=len(categories) + 1)

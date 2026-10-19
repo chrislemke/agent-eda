@@ -405,6 +405,17 @@ def test_data_without_columns_is_not_applicable():
     assert limitation.fields == ["missing_share"]
 
 
+def pandas_missing(column: pd.Series) -> int:
+    """What isna() counts, plus the NaN that an extension float column stores."""
+    stored = 0
+    if isinstance(column.dtype, pd.api.extensions.ExtensionDtype) and (
+        column.dtype.kind == "f"
+    ):
+        floats = column.to_numpy(dtype="float64", na_value=np.nan)
+        stored = int(np.isnan(floats).sum()) - int(column.isna().sum())
+    return int(column.isna().sum()) + stored
+
+
 @pytest.mark.parametrize("frame", ["every kind", "one row", "all missing", "constant"])
 def test_native_missing_counts_match_pandas_isna_for_every_dtype(frame):
     df = EDGE_FRAMES[frame]()
@@ -412,7 +423,7 @@ def test_native_missing_counts_match_pandas_isna_for_every_dtype(frame):
     res = ae.profile_missing_values(df)
 
     counted = {name: entry.native_missing_count for name, entry in res.columns.items()}
-    assert counted == {str(name): int(df[name].isna().sum()) for name in df.columns}
+    assert counted == {str(name): pandas_missing(df[name]) for name in df.columns}
 
 
 @given(df=data_frames())
@@ -470,7 +481,7 @@ def equal_as_declared(item, value):
     return bool(item == value)
 
 
-def test_nan_stored_as_a_value_is_not_native_missing_and_a_limitation_says_so():
+def test_nan_stored_as_a_value_is_native_missing_and_a_limitation_says_so():
     stored = pa.array([1.5, float("nan"), None, float("nan")], from_pandas=False)
     df = pd.DataFrame(
         {
@@ -481,15 +492,17 @@ def test_nan_stored_as_a_value_is_not_native_missing_and_a_limitation_says_so():
 
     res = ae.profile_missing_values(df)
 
-    assert res.columns["x"].native_missing_count == df["x"].isna().sum() == 1
+    # pandas' isna() counts only the null; the analysis counts the NaN too.
+    assert df["x"].isna().sum() == 1
+    assert res.columns["x"].native_missing_count == 3
+    assert res.columns["x"].missing_count == 3
     [limitation] = [
-        lim for lim in res.limitations if lim.code == "nan_not_counted_as_missing"
+        lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
     ]
     assert limitation.fields == ["columns['x'].native_missing_count"]
     assert limitation.reason == (
         "1 column stores NaN as a value, which pandas isna() doesn't count as "
-        "missing, so native_missing_count leaves it out: 'x'. To count it, read the "
-        "column as float64 first, such as df['x'].astype('float64')."
+        "missing; native_missing_count counts it: 'x'."
     )
 
 

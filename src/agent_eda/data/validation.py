@@ -33,7 +33,7 @@ from agent_eda._levels import (
     value_types,
 )
 from agent_eda._masking import MaskedLevels, mask_levels, resolve_masking
-from agent_eda._numeric import stored_nan_count
+from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._parse import (
     VALUE_KINDS,
     ValueKind,
@@ -58,7 +58,7 @@ from agent_eda._text import (
     placeholder,
     plural,
 )
-from agent_eda._values import value_codes
+from agent_eda._values import is_constant, value_codes
 from agent_eda._wording import as_written, worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
@@ -423,8 +423,8 @@ def infer_column_semantics(
           Numbers stored as numbers must also run like a sequence: at least half the
           whole numbers from the smallest to the largest occur. Don't use these
           columns as numbers or features. Flag identifier_like.
-        - `constant_columns`: suspected; a single distinct value in at least two rows.
-          Flag constant.
+        - `constant_columns`: suspected; a single distinct value in at least two rows; NaN is
+          missing. Flag constant.
         - `all_missing_columns`: suspected; no value in at least one row. Flag
           all_missing.
         - `numbers_as_text`: suspected; the top candidate is integer or float and some
@@ -680,7 +680,7 @@ def _read_numbers(series: pd.Series, levels: Levels) -> _Reading:
     reading = _Reading(
         non_missing=len(values),
         distinct=len(levels.values) - nan_levels,
-        stored_nan=stored_nan_count(series, floats),
+        stored_nan=stored_nan_count(series),
     )
     reading.number = reading.kinds["number"] = len(values)
     reading.whole = int(np.count_nonzero(finite == np.floor(finite)))
@@ -1056,7 +1056,7 @@ def _flags(
         and not reading.several_words
         and not non_iso_dates
         and sequence,
-        "constant": count >= 2 and reading.distinct == 1,
+        "constant": is_constant(count, reading.distinct),
         "all_missing": row_count >= 1 and count == 0,
         "numbers_as_text": inferred in ("integer", "float")
         and reading.text_numbers > 0,
@@ -1326,16 +1326,11 @@ def _limitations(readings: dict[str, _Reading]) -> list[Limitation]:
             )
         )
     stored = [name for name, r in readings.items() if r.stored_nan]
-    if stored:
-        store = plural(len(stored), "column stores", "columns store")
-        limitations.append(
-            Limitation(
-                code="nan_counted_as_missing",
-                reason=f"{store} NaN as a value, which pandas isna() doesn't count "
-                f"as missing; non_missing_count leaves it out: {join_labels(stored)}.",
-                fields=[f"{_path(name)}.evidence.non_missing_count" for name in stored],
-            )
-        )
+    limitations += stored_nan_limitations(
+        stored,
+        [f"{_path(name)}.evidence.non_missing_count" for name in stored],
+        "non_missing_count leaves it out",
+    )
     return limitations
 
 
@@ -1873,18 +1868,11 @@ def _validation_limitations(
 ) -> list[Limitation]:
     limitations = []
     stored = [name for name, check in checks.items() if check.stored_nan]
-    if stored:
-        store = plural(len(stored), "column stores", "columns store")
-        limitations.append(
-            Limitation(
-                code="nan_counted_as_missing",
-                reason=(
-                    f"{store} NaN as a value, which pandas isna() doesn't count as "
-                    f"missing; missing_count counts it: {join_labels(stored)}."
-                ),
-                fields=[f"{_path(name)}.missing_count" for name in stored],
-            )
-        )
+    limitations += stored_nan_limitations(
+        stored,
+        [f"{_path(name)}.missing_count" for name in stored],
+        "missing_count counts it",
+    )
     if absent:
         if len(absent) == 1:
             what = (

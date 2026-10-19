@@ -543,7 +543,7 @@ def test_integers_beyond_2_to_the_53_add_a_precision_limitation(values):
     assert len(precision) == 1
     assert precision[0].fields == ["columns['id']"]
     assert precision[0].reason == (
-        "1 column holds integers beyond ±2^53 = 9,007,199,254,740,992, which "
+        "1 column holds integers or decimals beyond ±2^53 = 9,007,199,254,740,992, which "
         "float64 can't represent exactly, so its statistics may be rounded: 'id'."
     )
 

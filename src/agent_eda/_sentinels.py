@@ -38,6 +38,7 @@ from agent_eda._columns import (
 from agent_eda._parse import ReadFamily, read_as
 from agent_eda._run import check_distinct
 from agent_eda._text import Surface, join_items, join_labels
+from agent_eda._values import categorical_array, is_arrow_dictionary
 from agent_eda._wording import worded
 from agent_eda.errors import InvalidArgumentError
 
@@ -133,6 +134,14 @@ def holds(series: pd.Series) -> Holds:
     shown = str(dtype)
     if isinstance(dtype, pd.CategoricalDtype):
         inner = holds(pd.Series(dtype.categories))
+        return dataclasses.replace(
+            inner, dtype=shown, what=f"categories of {inner.what}"
+        )
+    if is_arrow_dictionary(dtype):
+        # Its entries have an Arrow type of their own, such as string.
+        arrow_type = cast("pd.ArrowDtype", dtype).pyarrow_dtype
+        entries = pd.Series(dtype=pd.ArrowDtype(arrow_type.value_type))
+        inner = holds(entries)
         return dataclasses.replace(
             inner, dtype=shown, what=f"categories of {inner.what}"
         )
@@ -707,6 +716,8 @@ def matches(series: pd.Series, value: SentinelValue, missing: np.ndarray) -> np.
         )
         codes = np.asarray(series.cat.codes)
         return np.isin(codes, hits) if hits.size else np.zeros(len(codes), bool)
+    if is_arrow_dictionary(dtype):
+        return matches(pd.Series(categorical_array(series)), value, missing)
     if isinstance(dtype, np.dtype) and dtype.kind == "O":
         return _object_matches(series, value, missing)
     # pyarrow decimals compare with a float inexactly, as floats themselves.
