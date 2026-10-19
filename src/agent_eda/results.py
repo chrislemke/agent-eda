@@ -87,6 +87,10 @@ LimitationCode = Literal[
     # A column stores NaN as a value, which pandas' isna() doesn't count as
     # missing; every analysis counts it as missing all the same.
     "nan_counted_as_missing",
+    # A categorical column has a level for every complete row of a pair, such as
+    # an ID, so it would explain the other column trivially and the pair's
+    # value is null.
+    "one_row_per_level",
     # A computation overflowed float64 or failed numerically (division by zero,
     # an invalid value, precision loss), so the values it affects are null.
     "numerical_warning",
@@ -1834,13 +1838,15 @@ class ProfileTargetResult(MaskableResult):
     class_count: int | None = Field(
         description="Classification: the classes, the distinct valid labels, as "
         "pandas value_counts tells them apart, so 1, 1.0 and True are one class. "
-        "Null for regression."
+        "With expected_labels, a declared label that no row holds is a class of "
+        "count 0. Null for regression."
     )
     classes: Annotated[
         list[ProfileTargetClass] | None, _Cap(100, total="class_count")
     ] = Field(
         description="Classification: the first 100 classes, by count, descending, "
-        "then by label, as level_order states, each with its count and share. "
+        "then by label, as level_order states, each with its count and share; a "
+        "declared class without rows comes last, at count 0. "
         "class_count counts every class, the record adds it as classes_total, and "
         "the full table (to_frame, or table_path over MCP) has every label. Null "
         "for regression."
@@ -1850,13 +1856,16 @@ class ProfileTargetResult(MaskableResult):
         "regression or without a valid label."
     )
     minority_share: float | None = Field(
-        description="Classification: the share of the least common class; null "
-        "for regression or without a valid label."
+        description="Classification: the share of the least common class, 0 when "
+        "a declared class has no rows; null for regression or without a valid "
+        "label."
     )
     imbalance_ratio: float | None = Field(
         description="Classification: the count of the most common class over the "
         "count of the least common one, 1 for balanced classes and higher the "
-        "more imbalanced they are; null for regression or without a valid label."
+        "more imbalanced they are; null for regression, without a valid label, "
+        "and when a declared class has no rows, which would divide by 0, with a "
+        "`too_few_values` limitation."
     )
     unexpected_label_count: int | None = Field(
         description="Classification with expected_labels: the distinct labels "
@@ -1944,11 +1953,15 @@ class ProfileTargetResult(MaskableResult):
             f"{self.valid_label_count or 0:,} valid labels; {missing}."
         ]
         if self.majority_share is not None and self.minority_share is not None:
+            ratio = (
+                "null, a class has no rows"
+                if self.imbalance_ratio is None
+                else _text.format_number(self.imbalance_ratio)
+            )
             facts.append(
                 f"Majority share {_text.format_number(self.majority_share)}, minority "
                 f"share {_text.format_number(self.minority_share)}; imbalance ratio "
-                f"{_text.format_number(self.imbalance_ratio or 0)}, the majority "
-                "count over the minority count."
+                f"{ratio}, the majority count over the minority count."
             )
         if self.unexpected_labels:
             facts.extend(self._unexpected_text(self.unexpected_labels))
@@ -2695,6 +2708,7 @@ AssociationMethod = Literal[
     "kendall",
     "cramers_v",
     "cramers_v_bias_corrected",
+    "correlation_ratio_bias_corrected",
     "correlation_ratio",
 ]
 
@@ -2772,7 +2786,7 @@ class AssociationPair(ResultModel):
     y_type: AssociationType = Field(description="How the pair treats y_column.")
     method: AssociationMethod = Field(
         description="The measure: numeric_method for two numeric columns, "
-        "categorical_method for two categorical ones, correlation_ratio from the "
+        "categorical_method for two categorical ones, mixed_method from the "
         "categorical to the numeric column otherwise."
     )
     value: float | None = Field(
@@ -2785,9 +2799,9 @@ class AssociationPair(ResultModel):
         "present, and finite in a numeric column."
     )
     direction: Literal["symmetric", "x_to_y"] = Field(
-        description="x_to_y for the correlation ratio, which measures how much the "
-        "categorical x_column explains the numeric y_column and not the reverse; "
-        "symmetric for the other measures."
+        description="x_to_y for the correlation ratio, plain or bias-corrected, "
+        "which measures how much the categorical x_column explains the numeric "
+        "y_column and not the reverse; symmetric for the other measures."
     )
     undefined_reason: UndefinedReason | None = Field(
         description="Why value is null: too_few_rows (fewer than 3 complete rows), "
@@ -2860,8 +2874,8 @@ class ComputeAssociationMatrixResult(AnalysisResult):
                     f"({self.parameters.get('numeric_method')}), "
                     f"{counts['categorical']:,} categorical "
                     f"({self.parameters.get('categorical_method')}),",
-                    f"    {counts['mixed']:,} mixed (correlation_ratio, from the "
-                    "categorical x_column to the numeric y_column).",
+                    f"    {counts['mixed']:,} mixed ({self.parameters.get('mixed_method')}, "
+                    "from the categorical x_column to the numeric y_column).",
                 ]
             )
         if self.skipped_columns:
@@ -2879,6 +2893,9 @@ class ComputeAssociationMatrixResult(AnalysisResult):
         return facts
 
     def _text_other_tables(self) -> list[str]:
+        if not self.pairs:
+            # Nothing was computed, so the matrix would hold no value.
+            return []
         size = len(self.columns)
         return [f"res.to_frame(table='matrix') has the wide {size:,} x {size:,} matrix"]
 

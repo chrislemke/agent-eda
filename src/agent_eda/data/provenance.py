@@ -126,8 +126,8 @@ def describe_dataset(
         completed: The description finished, also for data with no rows, no
             columns or neither.
         failed: An anticipated computation failure stopped the description, and
-            `status_reason` gives its code and message. None is known today: a
-            count that can't be computed is null, with a limitation, instead.
+            `status_reason` gives its code and message. No such failure is known today:
+            a count that can't be computed is null, with a limitation, instead.
 
     Examples:
         >>> import pandas as pd

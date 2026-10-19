@@ -2,6 +2,7 @@
 
 import contextlib
 import importlib
+import json
 import platform
 import threading
 import warnings
@@ -13,8 +14,9 @@ import numpy as np
 import pandas as pd
 from pydantic import JsonValue
 
-from agent_eda._text import join_items, join_labels, plural
+from agent_eda._text import Surface, join_items, join_labels, plural
 from agent_eda._version import __version__
+from agent_eda._wording import echoed, worded
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.results import ColumnResult, Execution, Status, StatusReason
 
@@ -171,12 +173,14 @@ def check_distinct(
     *,
     key: Callable[[Any], Hashable] | None = None,
     hide: bool = False,
+    within: str | None = None,
 ) -> None:
     """Raise when a list argument holds the same value more than once.
 
     Values are the same when Python's == says so, or when their `key` is. With
     `hide`, the message counts the repeated values and doesn't quote them: they
-    are values of a sensitive column.
+    are values of a sensitive column. `within` names the key of a mapping
+    argument whose list this is, such as a column of sentinel_values.
     """
     keyed = values if key is None else [key(value) for value in values]
     repeated = [
@@ -184,16 +188,27 @@ def check_distinct(
     ]
     if not repeated:
         return
-    if hide:
-        named = (
-            f"{plural(len(repeated), noun, noun + 's')} (not shown: masking hides "
-            "the values of a sensitive column)"
+
+    def text(surface: Surface) -> str:
+        if hide:
+            named = (
+                f"{plural(len(repeated), noun, noun + 's')} (not shown: masking "
+                "hides the values of a sensitive column)"
+            )
+        else:
+            named = join_items([echoed(value, surface) for value in repeated])
+        where = parameter
+        if within is not None:
+            where = (
+                f"{parameter}[{within!r}]"
+                if surface == "python"
+                else f"the {parameter} list for {json.dumps(within)}"
+            )
+        return (
+            f"{analysis} got {named} more than once in {where}. List each {noun} once."
         )
-    else:
-        named = join_items([repr(value) for value in repeated])
-    raise InvalidArgumentError(
-        f"{analysis} got {named} more than once in {parameter}. List each {noun} once."
-    )
+
+    raise worded(InvalidArgumentError, text)
 
 
 def data_shape(data: pd.DataFrame) -> dict[str, JsonValue]:

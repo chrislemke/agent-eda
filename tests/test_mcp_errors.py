@@ -98,10 +98,13 @@ def test_an_argument_against_the_schema_gets_the_python_message_with_an_mcp_fix(
     assert response.is_error
     assert response.structured_content == {
         "code": "invalid_argument",
-        "message": str(raised.value).replace(
+        "message": str(raised.value)
+        .replace(
             "See help(ae.summarize_numeric) for every argument.",
             "The MCP tool's input schema describes every argument.",
-        ),
+        )
+        # A position in a list is written as a JSON pointer, quantiles/0.
+        .replace("quantiles[0]", "quantiles/0"),
     }
     assert f" {name}" in response.structured_content["message"]
 

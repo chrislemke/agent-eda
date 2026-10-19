@@ -59,40 +59,37 @@ def find_duplicate_rows(
     """Are there exact duplicate rows?
 
     When to use:
-        Call it after `describe_dataset` to find rows that are equal in every
-        compared column, such as records loaded twice. It groups the equal rows
-        and reports each group's row IDs, the rows in groups, the excess copies
-        and the duplicate share. It removes no rows, so you decide what to do
-        with them. Missing values compare equal, as in pandas'
-        DataFrame.duplicated over two or more columns, even when only one
-        column is compared.
-        Pass id_column when a column identifies rows, such as an order number:
-        row IDs then come from it, and columns=None leaves it out of the
-        comparison, so unique IDs don't hide duplicated records. Row IDs are
-        raw values, so when id_column holds personal data, such as email
-        addresses, declare it sensitive in a project and switch masking on.
-        Index labels are never masked: when the index holds sensitive values,
-        pass a non-sensitive id_column. `describe_dataset` reports duplicated
-        column labels and a non-unique index, and columns whose values
-        duplicate or derive from each other show up as perfect associations in
-        `compute_association_matrix`; `list_analyses` lists the other analyses.
+        Call it after `describe_dataset` to find rows that are equal in every compared
+        column, such as records loaded twice. It groups the equal rows and reports each
+        group's row IDs, the rows in groups, the excess copies and the duplicate share.
+        It removes no rows, so you decide what to do with them. Missing values compare
+        equal, as in pandas' DataFrame.duplicated over two or more columns, even when
+        only one column is compared. Pass id_column when a column identifies rows, such
+        as an order number: row IDs then come from it, and the default columns leave it
+        out of the comparison, so unique IDs don't hide duplicated records. Row IDs are
+        raw values, so when id_column holds personal data, such as email addresses,
+        declare it sensitive in a project and switch masking on. Index labels are never
+        masked: when the index holds sensitive values, pass a non-sensitive id_column.
+        `describe_dataset` reports duplicated column labels and a non-unique index, and
+        columns whose values duplicate or derive from each other show up as perfect
+        associations in `compute_association_matrix`; `list_analyses` lists the other
+        analyses.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
             strings and a single level; describe_dataset reports labels that
             aren't. It is never modified.
         columns (Sequence[str] | None): Names of the columns in which two rows
-            must be equal to count as duplicates, in the order to compare them:
-            a list, a tuple, a pandas Index such as df.columns[:3], or a single
-            name. A label that isn't a string can be given as itself, such as 0,
-            or as its string form. Columns of any dtype work. None, the default,
+            must be equal to count as duplicates, in the order to compare them: a list
+            or a single name. A label that isn't a string can be given as itself, such
+            as 0, or as its string form. Columns of any dtype work. None, the default,
             compares every column except id_column, in DataFrame order.
         id_column (str | None): Name of a column whose values identify rows,
-            such as an order number; row IDs are then its values, and
-            columns=None leaves it out of the comparison. Its values must be
-            hashable, such as numbers or strings; a column of lists raises. A
-            label that isn't a string can be given as itself or as its string
-            form. None, the default, uses the index labels as row IDs.
+            such as an order number; row IDs are then its values, and the default
+            columns leave it out of the comparison. Its values must be hashable, such as
+            numbers or strings; a column of lists raises. A label that isn't a string
+            can be given as itself or as its string form. None, the default, uses the
+            index labels as row IDs.
         project (Project | None): The project, whose data policy names the
             sensitive columns and says whether to mask them. None, the
             default, declares no sensitive column, so nothing is masked.
@@ -106,20 +103,19 @@ def find_duplicate_rows(
             accidental exposure, not anonymization or access control.
 
     Returns:
-        FindDuplicateRowsResult: `duplicate_groups` lists each group of rows
-        that are equal in every compared column, ordered by first occurrence,
-        with its `size` and its `row_ids` in row order. With index labels as
-        row IDs, df.loc[row_ids] shows the rows. `duplicate_group_count`
-        counts the groups and `duplicate_group_row_count` the rows in them.
-        `excess_copy_count` counts the rows beyond the first of each group,
-        the ones that removing duplicates would drop, and `duplicate_share` is
-        the excess copies over all rows; it is null, with a `too_few_values`
-        limitation, when the data has no rows. `compared_columns` names the
-        columns compared, and `missing_values_compare_equal` records that
-        missing values (None, NaN, NaT, pd.NA) equal each other. Lists, dicts
-        and sets compare by content. `to_frame` returns every row in a
-        duplicate group with its group number. The record keeps the first 100
-        groups and the first 10 row IDs of each, with their totals.
+        FindDuplicateRowsResult: `duplicate_groups` lists each group of rows that are
+        equal in every compared column, ordered by first occurrence, with its `size` and
+        its `row_ids` in row order. Row IDs are index labels, or id_column values when
+        given. `duplicate_group_count` counts the groups and `duplicate_group_row_count`
+        the rows in them. `excess_copy_count` counts the rows beyond the first of each
+        group, the ones that removing duplicates would drop, and `duplicate_share` is
+        the excess copies over all rows; it is null, with a `too_few_values` limitation,
+        when the data has no rows. `compared_columns` names the columns compared, and
+        `missing_values_compare_equal` records that missing values of every kind (None,
+        NaN, NaT and NA) equal each other. Lists, dicts and sets compare by content.
+        `to_frame` returns every row in a duplicate group with its group number. The
+        record keeps the first 100 groups and the first 10 row IDs of each, with their
+        totals.
 
         When index labels or id_column values repeat, a row ID can match more
         than one row: the `ambiguous_row_ids` limitation names the groups whose
@@ -142,9 +138,9 @@ def find_duplicate_rows(
         completed: The rows were compared, whether or not any repeat.
         insufficient_data: The data has no rows.
         not_applicable: There is no column to compare: the data has no
-            columns, or only id_column, which columns=None leaves out.
+            columns, or only id_column, which the default columns leave out.
         failed: An anticipated failure stopped the comparison, and
-            `status_reason` gives its code and message. None is known today:
+            `status_reason` gives its code and message. No such failure is known today:
             values that can't be hashed, such as lists, compare by content
             instead.
 
@@ -299,7 +295,7 @@ def _status(
     else:
         message = (
             f"The data has no column to compare besides id_column {id_column!r}, "
-            "which columns=None leaves out. Name the columns to compare in columns."
+            "which the default columns leave out. Name the columns to compare in columns."
         )
     return "not_applicable", StatusReason(code="no_columns_to_compare", message=message)
 
