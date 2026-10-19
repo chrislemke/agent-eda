@@ -6,7 +6,8 @@ import platform
 import threading
 import warnings
 from collections import Counter
-from collections.abc import Generator, Hashable, Sequence
+from collections.abc import Callable, Generator, Hashable, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -149,10 +150,21 @@ def budget_exceeded_reason(
 
 
 def check_distinct(
-    analysis: str, parameter: str, values: Sequence[Hashable], noun: str
+    analysis: str,
+    parameter: str,
+    values: Sequence[Hashable],
+    noun: str,
+    *,
+    key: Callable[[Any], Hashable] | None = None,
 ) -> None:
-    """Raise when a list argument holds the same value more than once."""
-    repeated = [value for value, count in Counter(values).items() if count > 1]
+    """Raise when a list argument holds the same value more than once.
+
+    Values are the same when Python's == says so, or when their `key` is.
+    """
+    keyed = values if key is None else [key(value) for value in values]
+    repeated = [
+        values[keyed.index(item)] for item, count in Counter(keyed).items() if count > 1
+    ]
     if repeated:
         raise InvalidArgumentError(
             f"{analysis} got {join_items([repr(value) for value in repeated])} more "

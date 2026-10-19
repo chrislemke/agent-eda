@@ -614,7 +614,7 @@ A data science project's declarations, given to the analyses that use them.
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `name` | `str \| None` | `None` | The project's name; null, the default, leaves it unnamed. |
-| `data_policy` | `DataPolicy \| None` | `None` | Which columns are sensitive and whether to mask them. |
+| `data_policy` | `DataPolicy \| Mapping[str, Any] \| None` | `None` | Which columns are sensitive and whether to mask them. |
 
 #### `DataPolicy`
 
