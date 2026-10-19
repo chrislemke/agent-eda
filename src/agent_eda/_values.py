@@ -231,7 +231,8 @@ def _all_text_objects(
     if isinstance(dtype, pd.StringDtype):
         if dtype.storage != "python":
             return None
-    elif dtype is not np.dtype(object):
+    # Equal, not identical: a dtype that was unpickled isn't the shared instance.
+    elif dtype != np.dtype(object):
         return None
     objects = np.asarray(values, dtype=object)
     if pd.api.types.infer_dtype(objects, skipna=False) != "string":

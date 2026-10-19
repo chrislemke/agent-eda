@@ -61,6 +61,7 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 - `infer_column_semantics` ranks candidates on exact fractions, so scores that are equal on paper tie by the documented order. A column whose categorical and text scores are both 3/5 now infers `categorical`; it inferred `text` because float arithmetic made the text score 0.6000000000000001.
 - `profile_missing_values` and `detect_missing_sentinels` refused any declared value for a sparse column of text, objects, datetimes or durations ("holds values no sentinel value can equal"); they now match it as they do the plain column of those values.
 - `profile_missing_values` and `detect_missing_sentinels` counted no match for a declared text that ends in a NUL character (such as `"\x00"`) in a text column of Python objects, because NumPy dropped the character; they now count it.
+- `infer_column_semantics` counted a text column of Python objects whose dtype was unpickled (`pd.read_pickle`) as if `''` and `'\x00'` were one value, because the check for object dtype compared by identity; it now keeps them apart, as `validate_column_types` always did.
 - A `project=` given as a path (`project="project.toml"`) raises `InvalidArgumentError` with the fix `project=ae.Project.load('project.toml')`. An MCP call that passes `project` to a tool that takes `project_path` is told to use `project_path` instead of "takes no project".
 
 ### Texts that matched the code
@@ -73,7 +74,8 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 
 - `describe_dataset` lives in `agent_eda.data.structure`, which `ae.list_analyses()` reports as its module. `agent_eda.data.provenance` no longer exists. `ae.describe_dataset` is unchanged.
 - Result classes are defined in private modules next to their analyses, so a class's `__module__` is no longer `agent_eda.results`. `ae.results.<Name>` and `from agent_eda.results import <Name>` still give every class, and a result pickled with 0.1.0 still loads. Records, printed text and tables are byte-identical.
-- The MCP adapter's modules moved into a private `agent_eda/_mcp/` package, the engines of single analyses (`_association`, `_keys`, `_conversions`, `_sentinel_rules`) next to their analysis, and `_sentinels` became `_declared_values`. The argument helpers of `_registry` are in `_arguments`, and `_run` is split into `_status` and `_warnings`. All private: `agent_eda.mcp`, the `agent-eda-mcp` command, every public name and every result are unchanged.
+- The MCP adapter's modules moved into a private `agent_eda/_mcp/` package, the engines of single analyses (`_association`, `_keys`, `_value_reading`, `_sentinel_rules`) next to their analysis, and `_sentinels` became `_declared_values`. The argument helpers of `_registry` are in `_arguments`, and `_run` is split into `_status` and `_warnings`. All private: `agent_eda.mcp`, the `agent-eda-mcp` command, every public name and every result are unchanged.
+- `infer_column_semantics` and `validate_column_types` read a column's values through one engine (`agent_eda/data/_value_reading.py`), and `ColumnSpec` is defined in `agent_eda._declarations`. `ae.ColumnSpec` and `agent_eda.data.validation.ColumnSpec` still work; results are unchanged.
 
 ### Changed
 

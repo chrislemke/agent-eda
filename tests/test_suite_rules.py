@@ -296,7 +296,7 @@ def imported_names(node):
 
 
 # Words GLOSSARY.md avoids: Assessment avoids "verdict", Status avoids "outcome"
-# and Analysis result avoids "output". The "verdict" in _conversions names the group
+# and Analysis result avoids "output". The "verdict" in _value_reading names the group
 # a value falls into (compatible, convertible or invalid), not an assessment.
 AVOIDED_WORDS = re.compile(r"\b(verdicts?|outcomes?|outputs?)\b", flags=re.IGNORECASE)
 PACKAGE = Path(ae.__file__).parent
@@ -316,7 +316,7 @@ def test_no_name_uses_a_word_the_glossary_avoids():
         for name in identifiers(path)
         if AVOIDED_WORDS.search(name.replace("_", " "))
         and not any(external in name for external in EXTERNAL_NAMES)
-        and not (path.name == "_conversions.py" and "verdict" in name)
+        and not (path.name == "_value_reading.py" and "verdict" in name)
     ]
 
     assert found == [], "Rename these: GLOSSARY.md says which word to use."

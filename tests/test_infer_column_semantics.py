@@ -1,6 +1,7 @@
 import datetime as dt
 import inspect
 import json
+import pickle
 from decimal import Decimal
 from typing import Any
 
@@ -485,6 +486,18 @@ def test_nan_a_float_column_stores_as_a_value_counts_as_missing():
         lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
     ]
     assert limitation.fields == ["columns['x'].evidence.non_missing_count"]
+
+
+def test_text_that_differs_by_a_nul_character_stays_apart_in_unpickled_data():
+    # An unpickled object dtype is equal to, not the same instance as, np.dtype(object).
+    text = pd.Series(["\x00", "", "a", "a"], dtype=object)
+    data = pickle.loads(pickle.dumps(pd.DataFrame({"x": text})))  # our own bytes
+
+    entry = ae.infer_column_semantics(data).columns["x"]
+    invalid = ae.validate_column_types(data, schema={"x": "integer"}).columns["x"]
+
+    assert entry.evidence.distinct_count == 3
+    assert invalid.invalid_distinct_count == 3
 
 
 def test_values_that_cant_be_hashed_leave_the_distinct_count_null():
