@@ -642,6 +642,13 @@ def detect_missing_sentinels(
         ...     if c.column == "age"
         ... ]
         [(-999, 'declared')]
+        >>> sentinels = res.sentinel_values()
+        >>> sentinels
+        {'age': [-999], 'city': ['N/A', '', 'n/a']}
+        >>> ae.profile_missing_values(df, sentinel_values=sentinels).columns[
+        ...     "age"
+        ... ].sentinel_count
+        2
 
     See Also:
         profile_missing_values: Missing values per column and per row, counting declared
