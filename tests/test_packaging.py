@@ -146,7 +146,7 @@ def record(event, args):
         network.append(event)
 sys.addaudithook(record)
 def is_mcp(name):
-    # mcp, its submodules, mcp_types, agent_eda.mcp and agent_eda._mcp with its modules.
+    # mcp, its submodules, mcp_types, and the package's own MCP modules.
     return any(part.lstrip("_").startswith("mcp") for part in name.split("."))
 heavy = {{"scipy", "statsmodels", "sklearn"}}
 seen = {{"heavy": set(), "mcp": set(), "network": set()}}

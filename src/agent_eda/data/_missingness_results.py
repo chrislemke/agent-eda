@@ -376,10 +376,10 @@ class DetectMissingSentinelsResult(MaskableResult):
             if counts
             else "no candidates"
         )
-        id_column = self.parameters.get("id_column")
+        id_column = self.settings.id_column
         source = (
             f"values of id_column {id_column!r}"
-            if isinstance(id_column, str)
+            if id_column is not None
             else "index labels"
         )
         checked = _text.plural(self.support.column_count, "column", "columns")
@@ -416,8 +416,8 @@ class DetectMissingSentinelsResult(MaskableResult):
         order = sorted(
             range(len(self.candidates)), key=lambda i: -self.candidates[i].count
         )
-        id_column = self.parameters.get("id_column")
-        quote_ids = not (isinstance(id_column, str) and self._masked(id_column))
+        id_column = self.settings.id_column
+        quote_ids = not (id_column is not None and self._masked(id_column))
         return _text.Table(
             title="Candidates, most frequent first",
             unit=("candidate", "candidates"),

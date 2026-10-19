@@ -68,7 +68,7 @@ from agent_eda._result_base import (
     Support,
 )
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS, check_distinct, data_shape, execution
+from agent_eda._run import NO_ROWS, check_distinct
 from agent_eda._text import format_number, join_items, placeholder, plural
 from agent_eda._wording import Listed, Pass, PythonOnly, Say, Wording, Words, mistake
 from agent_eda._written_form import row_id_list
@@ -398,25 +398,13 @@ def profile_target(
         )
     # The other task's fields are null.
     fields: dict[str, Any] = {**dict.fromkeys(_TASK_FIELDS), **profile.fields}
-    result = ProfileTargetResult(
-        analysis="profile_target",
-        method=None,
+    result = ProfileTargetResult.for_call(
+        parameters={"expected_labels": profile.expected_labels},
         status=profile.status,
         status_reason=profile.status_reason,
-        parameters={
-            "data": data_shape(data),
-            "target_column": target.name,
-            "task": task,
-            "expected_labels": profile.expected_labels,
-            "rare_share": rare_share,
-            "id_column": row_ids.id_column,
-            "project": project.model_dump(mode="json") if project else None,
-            "mask_sensitive": mask_sensitive,
-        },
         support=Support(row_count=len(data), column_count=1, columns=[profile.support]),
         findings=profile.findings,
         limitations=[*profile.limitations, _other_task_limitation(task)],
-        execution=execution(("numpy", "pandas")),
         masking=masking.record(profile.shown, data),
         **fields,
     )
@@ -735,12 +723,10 @@ def _classification(
             *([_NO_RARE_SHARE] if rare_share is None else []),
             *_null_shares(row_count, valid_count, len(empty_positions)),
         ],
-        support=ColumnSupport(
-            column=target.name,
-            eligible_count=row_count,
-            evaluated_count=valid_count,
-            excluded_count=row_count - valid_count,
-            excluded_by_reason={
+        support=ColumnSupport.of(
+            target.name,
+            row_count,
+            {
                 reason: count
                 for reason, count in (
                     ("missing", missing),

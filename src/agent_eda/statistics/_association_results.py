@@ -198,10 +198,10 @@ class ComputeAssociationMatrixResult(AnalysisResult):
                 [
                     "Pairs, each on its own complete rows: "
                     f"{counts['numeric']:,} numeric "
-                    f"({self.parameters.get('numeric_method')}), "
+                    f"({self.settings.numeric_method}), "
                     f"{counts['categorical']:,} categorical "
-                    f"({self.parameters.get('categorical_method')}),",
-                    f"    {counts['mixed']:,} mixed ({self.parameters.get('mixed_method')}, "
+                    f"({self.settings.categorical_method}),",
+                    f"    {counts['mixed']:,} mixed ({self.settings.mixed_method}, "
                     "from the categorical x_column to the numeric y_column).",
                 ]
             )

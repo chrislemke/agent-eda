@@ -80,10 +80,10 @@ class FindDuplicateRowsResult(MaskableResult):
                     indent="    ",
                 )
             )
-        id_column = self.parameters.get("id_column")
+        id_column = self.settings.id_column
         source = (
             f"values of id_column {id_column!r}"
-            if isinstance(id_column, str)
+            if id_column is not None
             else "index labels"
         )
         facts.append(f"Row IDs: {source}.")
@@ -91,8 +91,8 @@ class FindDuplicateRowsResult(MaskableResult):
 
     def _text_table(self) -> _text.Table:
         rows = self.duplicate_group_row_count
-        id_column = self.parameters.get("id_column")
-        quote = not (isinstance(id_column, str) and self._masked(id_column))
+        id_column = self.settings.id_column
+        quote = not (id_column is not None and self._masked(id_column))
         return _text.Table(
             title="Duplicate groups",
             unit=("group", "groups"),

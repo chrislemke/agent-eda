@@ -186,7 +186,7 @@ class InferColumnSemanticsResult(AnalysisResult):
             "Scores rank logical types by fixed rules and aren't probabilities. "
             "Dates parse as ISO 8601 only."
         ]
-        if self.parameters.get("schema") is None:
+        if self.settings.schema is None:
             facts.append(
                 "No schema was given, so no column was compared with a "
                 "declared logical type."
@@ -221,11 +221,11 @@ class InferColumnSemanticsResult(AnalysisResult):
         """
         from agent_eda.data.validation import ColumnSpec  # circular at import time
 
-        declared = self.parameters.get("schema")
+        declared = self.settings.schema
         formats = {
-            name: spec.get("datetime_format")
-            for name, spec in (declared if isinstance(declared, dict) else {}).items()
-            if isinstance(spec, dict)
+            name: spec.datetime_format
+            for name, spec in (declared or {}).items()
+            if isinstance(spec, ColumnSpec)
         }
         schema: dict[str, Any] = {}
         for name, entry in self.columns.items():
@@ -244,7 +244,7 @@ class InferColumnSemanticsResult(AnalysisResult):
         return ["res.to_frame(table='candidates') has every candidate with its reasons"]
 
     def _text_table(self) -> _text.Table:
-        declared = self.parameters.get("schema") is not None
+        declared = self.settings.schema is not None
         headers = ["column", "inferred", "score", "next", "next_score"]
         if declared:
             headers.append("declared")
@@ -465,10 +465,10 @@ class ValidateColumnTypesResult(MaskableResult):
             "compatible: stored as the declared type; convertible: converts "
             "exactly; invalid: neither. Nothing was converted."
         ]
-        id_column = self.parameters.get("id_column")
+        id_column = self.settings.id_column
         source = (
             f"values of id_column {id_column!r}"
-            if isinstance(id_column, str)
+            if id_column is not None
             else "index labels"
         )
         facts.append(f"Row IDs: {source}.")
