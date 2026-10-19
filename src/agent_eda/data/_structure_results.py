@@ -272,8 +272,7 @@ class FindCandidateKeysResult(AnalysisResult):
         search = self.search
         if not search.examined_count:
             return []
-        size = self.parameters.get("max_key_size")
-        largest = min(size, search.column_count) if isinstance(size, int) else 0
+        largest = min(self.settings.max_key_size, search.column_count)
         keys = f"keys of up to {_text.plural(largest, 'column', 'columns')}"
         if self.exhaustive:
             columns = _text.plural(search.column_count, "column", "columns")

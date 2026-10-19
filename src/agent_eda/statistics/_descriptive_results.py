@@ -107,12 +107,11 @@ class SummarizeNumericResult(AnalysisResult):
     _left_out_kinds: Mapping[str, str] | None = PrivateAttr(default=None)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
-        trim = self.parameters.get("trim_fraction")
-        fraction = _text.format_number(trim) if isinstance(trim, int | float) else "?"
+        settings = self.settings
         facts = [
             "Statistics use the finite values. Quantile method "
-            f"{self.parameters.get('quantile_method')}; trimmed_mean cuts "
-            f"trim_fraction {fraction} from each end."
+            f"{settings.quantile_method}; trimmed_mean cuts "
+            f"trim_fraction {_text.format_number(settings.trim_fraction)} from each end."
         ]
         facts.extend(
             _left_out_lines(
@@ -166,12 +165,7 @@ class SummarizeNumericResult(AnalysisResult):
             table: 'columns', the only table.
         """
         _check_table(table, ("columns",))
-        recorded = self.parameters.get("quantiles")
-        levels = [
-            float(level)
-            for level in (recorded if isinstance(recorded, list) else [])
-            if isinstance(level, int | float)
-        ]
+        levels = [float(level) for level in self.settings.quantiles]
         return numeric_frame(list(self.columns.values()), levels)
 
 
@@ -328,7 +322,7 @@ class SummarizeCategoricalResult(MaskableResult):
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
             "Shares are fractions of non-missing values. Levels go by count, then "
-            f"label; levels has the top {self.parameters.get('top_n')} of each column."
+            f"label; levels has the top {self.settings.top_n} of each column."
         ]
         facts.extend(
             _left_out_lines(

@@ -52,7 +52,7 @@ from agent_eda._result_base import (
     StatusReason,
     Support,
 )
-from agent_eda._run import check_distinct, data_shape, execution, overall_status
+from agent_eda._run import check_distinct, overall_status
 from agent_eda._text import join_items, join_labels, label_text, plural
 from agent_eda.project import Project
 from agent_eda.statistics._descriptive_results import (
@@ -236,18 +236,10 @@ def summarize_numeric(
     status, status_reason = overall_status(
         row_count, list(entries.values()), no_columns=_NO_NUMERIC_COLUMNS
     )
-    result = SummarizeNumericResult(
-        analysis="summarize_numeric",
-        method=None,
+    result = SummarizeNumericResult.for_call(
+        parameters={"columns": [column.name for column in selected]},
         status=status,
         status_reason=status_reason,
-        parameters={
-            "data": data_shape(data),
-            "columns": [column.name for column in selected],
-            "quantiles": list(levels),
-            "quantile_method": quantile_method,
-            "trim_fraction": trim_fraction,
-        },
         support=Support(
             row_count=row_count,
             column_count=len(selected),
@@ -263,7 +255,6 @@ def summarize_numeric(
             *read_limitations(read, _entry_path),
             *null_limitations(summaries, _entry_path),
         ],
-        execution=execution(("numpy", "pandas")),
         columns=entries,
         left_out_columns=selection.left_out,
     )
@@ -529,18 +520,10 @@ def summarize_categorical(
     status, status_reason = overall_status(
         len(data), list(entries.values()), no_columns=_NO_CATEGORICAL_COLUMNS
     )
-    result = SummarizeCategoricalResult(
-        analysis="summarize_categorical",
-        method=None,
+    result = SummarizeCategoricalResult.for_call(
+        parameters={"columns": [column.name for column in selected]},
         status=status,
         status_reason=status_reason,
-        parameters={
-            "data": data_shape(data),
-            "columns": [column.name for column in selected],
-            "top_n": top_n,
-            "project": project.model_dump(mode="json") if project else None,
-            "mask_sensitive": mask_sensitive,
-        },
         support=Support(
             row_count=len(data),
             column_count=len(selected),
@@ -559,7 +542,6 @@ def summarize_categorical(
             ),
             *_unhashable_values(entries),
         ],
-        execution=execution(("numpy", "pandas")),
         masking=masking.record([column.name for column in selected], data),
         columns=entries,
         left_out_columns=selection.left_out,
@@ -674,13 +656,7 @@ def _categorical_support(
         excluded["missing"] = entry.missing_count
     if entry.distinct_count is None and entry.non_missing_count:
         excluded["unhashable_values"] = entry.non_missing_count
-    return ColumnSupport(
-        column=entry.column,
-        eligible_count=row_count,
-        evaluated_count=row_count - sum(excluded.values()),
-        excluded_count=sum(excluded.values()),
-        excluded_by_reason=excluded,
-    )
+    return ColumnSupport.of(entry.column, row_count, excluded)
 
 
 def _unhashable_values(
