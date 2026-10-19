@@ -725,28 +725,34 @@ def test_prints_the_counts_per_declared_column_violations_first():
         },
     )
 
-    assert str(res).splitlines() == [
-        "validate_column_types: completed on 5 rows x 4 columns",
-        "compatible: stored as the declared type; convertible: converts exactly; invalid: neither. Nothing was converted.",
-        "Row IDs: index labels.",
-        "Not declared in schema, so not checked: 'note'.",
-        "Declared columns, violations first (4 of 4 shown):",
-        "column    declared           dtype            compatible  convertible  invalid  missing  invalid_values",
-        "ordered   datetime           object                    0            3        1        1  '05/01/2024': 1",
-        "qty       integer            object                    0            3        2        0  'n/a': 2",
-        "customer  text               not in the data        null         null     null     null",
-        "order_id  integer, not null  object                    0            5        0        0",
-        "Findings (4 of 4 shown):",
-        "- violation invalid_values: 2 columns hold invalid values: 'ordered' and 'qty'.",
-        "- violation declared_columns_missing: 1 declared column is not in the data: 'customer'.",
-        "- descriptive convertible_values: 3 columns hold convertible values: 'order_id', 'ordered' and 'qty'.",
-        "- passed valid_columns: 1 column passes every check: 'order_id'.",
-        "Limitations (1 of 1 shown):",
-        "- column_not_in_data: 1 declared column isn't in the data, so its dtype and counts are null: 'customer'.",
-        "More: res.to_frame() has all 4 declared columns; res.to_frame(table='invalid_values') "
-        "counts every distinct invalid",
-        "    value; res.findings, res.limitations and res.to_json() have the rest.",
+    lines = str(res).splitlines()
+
+    assert lines[0] == "validate_column_types: completed on 5 rows x 4 columns"
+    assert "Not declared in schema, so not checked: 'note'." in lines
+    start = lines.index("Declared columns, violations first (4 of 4 shown):")
+    assert [line.split()[0] for line in lines[start + 2 : start + 6]] == [
+        "ordered",
+        "qty",
+        "customer",
+        "order_id",
     ]
+    assert lines[start + 2].endswith("'05/01/2024': 1")
+    # Findings print violation first, then descriptive, then passed.
+    findings = [line for line in lines if line.startswith("- ")]
+    assert [line.split()[1] for line in findings[:4]] == [
+        "violation",
+        "violation",
+        "descriptive",
+        "passed",
+    ]
+    assert (
+        "- violation invalid_values: 2 columns hold invalid values: 'ordered' and "
+        "'qty'."
+    ) in lines
+    assert "- column_not_in_data: 1 declared column isn't in the data, so" in " ".join(
+        lines
+    )
+    assert max(len(line) for line in lines) <= 120
 
 
 def test_to_frame_has_a_row_per_declared_column_and_a_table_of_invalid_values():

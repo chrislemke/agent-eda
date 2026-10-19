@@ -183,7 +183,8 @@ def profile_missing_values(
         ... )
         >>> print(res)
         profile_missing_values: completed on 5 rows x 3 columns
-        Missing: 7 of 15 selected values (46.67%), counting declared sentinel values. Complete rows: 1 of 5 (20%).
+        Missing: 7 of 15 selected values (missing_share 0.4667), counting declared sentinel values. Complete rows: 1 of 5
+            (complete_row_share 0.2).
         Missing values per row: 0 in 1 row, 1 in 1 row and 2 in 3 rows.
         Columns, most missing first (3 of 3 shown):
         column  native_missing_count  sentinel_count  missing_count  missing_share
@@ -193,7 +194,8 @@ def profile_missing_values(
         Findings (1 of 1 shown):
         - descriptive sentinel_values_present: Declared sentinel values occur in 2 columns: 'age' and 'city'.
         Limitations (1 of 1 shown):
-        - sentinel_values_not_declared: No sentinel values were declared for 1 column, so its sentinel_count is ...
+        - sentinel_values_not_declared: No sentinel values were declared for 1 column, so its sentinel_count is null and its
+          missing_count counts only native missing values: 'score'.
         More: res.to_frame() has all 3 columns; res.to_frame(table='row_distribution') has the rows per number of missing
             values; res.findings, res.limitations and res.to_json() have the rest.
         >>> res.columns["city"].missing_count
