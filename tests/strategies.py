@@ -480,15 +480,21 @@ def frames_with_secrets(draw: st.DrawFn) -> tuple[pd.DataFrame, dict[str, str]]:
     Returns the DataFrame and each sensitive column's name with its marker.
     """
     df = draw(data_frames())
-    if len(df) and draw(st.booleans()):
-        # Repeat some rows, so that rows repeat apart from their sensitive values.
+    if len(df):
+        # Repeat up to 4 rows, each at least twice, so that rows always repeat
+        # whole, their sensitive values too, in as many groups as rows repeated.
         positions = st.integers(0, len(df) - 1)
-        df = df.iloc[draw(st.lists(positions, min_size=2, max_size=MAX_ROWS))].copy()
+        repeated = draw(st.lists(positions, min_size=1, max_size=4, unique=True))
+        extra = draw(st.lists(positions, max_size=MAX_ROWS - 2 * len(repeated)))
+        df = df.iloc[[*repeated, *repeated, *extra]].copy()
     markers: dict[str, str] = {}
     for position in range(draw(st.integers(1, 2))):
         name = f"sensitive {position}"
         secret = SECRETS[draw(st.sampled_from(list(SECRETS)))]
         values = draw(column_values(secret.kind, len(df)))
+        if len(df) and values.isna().all():
+            # A column with no value has nothing to leak: give it one.
+            values = secret.kind.build([draw(secret.kind.elements)] * len(df))
         df.insert(position, name, values.array)
         markers[name] = secret.marker
     return df, markers

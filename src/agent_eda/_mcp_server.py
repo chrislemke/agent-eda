@@ -259,11 +259,16 @@ def create_server(
             # A bug. Without this, the SDK answers a client that did the
             # initialize handshake with error code 0, not an internal error.
             _log.exception("%s failed with an unexpected error", params.name)
+            # The message of a bug can quote a value of the data, so with
+            # masking on only the exception's type reaches the caller.
+            reason = type(error).__name__
+            if not _masking_on(served, project, arguments):
+                reason = f"{reason}: {error}"
             raise MCPError(
                 code=types.INTERNAL_ERROR,
                 message=f"{params.name} failed with an unexpected error, which is "
-                f"a bug in agent-eda, not in the call: {type(error).__name__}: "
-                f"{error}. The MCP server's log on stderr has the traceback.",
+                f"a bug in agent-eda, not in the call: {reason}. The MCP server's "
+                "log on stderr has the traceback.",
             ) from error
 
     return Server(
@@ -273,6 +278,27 @@ def create_server(
         on_list_tools=list_tools,
         on_call_tool=call_tool,
     )
+
+
+def _masking_on(
+    served: _AnalysisTool | _DiscoveryTool,
+    project: Project | None,
+    arguments: dict[str, Any],
+) -> bool:
+    """Whether the call that failed was masking, or may have been.
+
+    `arguments` are what the call left of them: it pops project_path and puts
+    the project it used under "project". A project that was never loaded counts
+    as masking, so a bug before that point can't show a value either.
+    """
+    if not isinstance(served, _AnalysisTool) or not served.spec.supports_masking:
+        return False
+    if (call := arguments.get("mask_sensitive")) is not None:
+        return call is not False
+    if "project_path" in arguments:
+        return True
+    used = arguments.get("project", project)
+    return used is not None and used.data_policy.mask_sensitive
 
 
 def _call(

@@ -57,10 +57,12 @@ Read the response: an MCP client may show you its text, its structured content o
 # Wrapped when the instructions are built, around the shared sentences.
 _MASKING = (
     "Masking: MCP tools marked [supports masking] can show raw values, such as "
-    "labels or row IDs. Their project_path takes a project TOML file whose "
-    '[data_policy] table has sensitive_columns = ["email"] and mask_sensitive = '
-    "true, and the values show as <masked 1> and so on. agent-eda-mcp --project "
-    f"PATH sets the project for every call. {PRECEDENCE} {GUARDRAIL}"
+    "labels or row IDs. Their project_path takes a "
+    'project TOML file whose [data_policy] table has sensitive_columns = ["email"] '
+    "and mask_sensitive = true, and the values show as <masked 1> and so on. "
+    f"agent-eda-mcp --project PATH sets the project for every call. {PRECEDENCE} "
+    "Numeric statistics, such as a minimum, and index labels are never masked. Tools "
+    f"without [supports masking] don't read the project. {GUARDRAIL}"
 )
 
 _MORE = """\

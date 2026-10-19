@@ -19,7 +19,7 @@ import dataclasses
 import datetime as dt
 import math
 import numbers
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
@@ -243,8 +243,13 @@ def declared_values(
     data: pd.DataFrame,
     selected: Sequence[Column],
     sentinel_values: Mapping[str, Sequence[SentinelValue]] | None,
+    *,
+    hidden: Collection[str] = (),
 ) -> dict[str, list[SentinelValue]]:
     """The declared values of each selected column, checked against the data.
+
+    The messages never quote the values declared for the `hidden` columns, the
+    sensitive columns of a masking call.
 
     A column with an empty list has none declared, as one the mapping leaves
     out. Raises before any computation: ColumnNotFoundError for a name that
@@ -266,7 +271,13 @@ def declared_values(
     for name, values in sentinel_values.items():
         column = by_name[name]
         values = list(values)
-        check_distinct(analysis, f"sentinel_values[{name!r}]", values, "value")
+        check_distinct(
+            analysis,
+            f"sentinel_values[{name!r}]",
+            values,
+            "value",
+            hide=name in hidden,
+        )
         column_holds = holds(data.iloc[:, column.position])
         problems.extend(
             problem
@@ -276,7 +287,7 @@ def declared_values(
         if values:
             declared[name] = values
     if problems:
-        raise InvalidArgumentError(_message(analysis, problems))
+        raise InvalidArgumentError(_message(analysis, problems, set(hidden)))
     return declared
 
 
@@ -501,58 +512,70 @@ def literal(value: object) -> str:
     return text
 
 
-def _message(analysis: str, problems: list[_Problem]) -> str:
-    """Say which declared values can't be used, why, and how to fix the call."""
+def _message(analysis: str, problems: list[_Problem], hidden: set[str]) -> str:
+    """Say which declared values can't be used, why, and how to fix the call.
+
+    The values declared for a hidden column are never quoted, nor the values
+    guessed from them.
+    """
     if len(problems) == 1:
         [problem] = problems
-        value = literal(problem.value)
+        masked = problem.column in hidden
+        value = "a value" if masked else literal(problem.value)
+        it = "it" if masked else value
         head = (
             f"{analysis} got {value} for column {problem.column!r} in sentinel_values"
         )
         if problem.problem == "missing":
-            why = f"{value} is a missing value itself, not a stand-in for one."
+            why = f"{it} is a missing value itself, not a stand-in for one."
         elif problem.problem == "infinite":
-            why = f"{value} is an infinite value, not a stand-in for a missing one."
+            why = f"{it} is an infinite value, not a stand-in for a missing one."
         else:
             why = (
                 f"{problem.column!r} holds {problem.holds} (dtype {problem.dtype}), "
                 "so it can never match."
             )
-            if problem.likely is not None:
+            if problem.likely is not None and not masked:
                 why += f" Did you mean {literal(problem.likely)}?"
-        return f"{head}, but {why} {_closing(problems)}"
-    fragments = [_fragment(problem) for problem in problems[:_MAX_LISTED]]
+        return f"{head}, but {why} {_closing(problems, hidden)}"
+    fragments = [_fragment(problem, hidden) for problem in problems[:_MAX_LISTED]]
     if len(problems) > _MAX_LISTED:
         fragments.append(f"and {len(problems) - _MAX_LISTED:,} more")
     return (
         f"{analysis} can't use {len(problems):,} values in sentinel_values: "
-        f"{'; '.join(fragments)}. {_closing(problems)}"
+        f"{'; '.join(fragments)}. {_closing(problems, hidden)}"
     )
 
 
-def _fragment(problem: _Problem) -> str:
+def _fragment(problem: _Problem, hidden: set[str]) -> str:
     """A value the call can't use and why, as one item of a list."""
-    named = f"{literal(problem.value)} for {problem.column!r}"
+    masked = problem.column in hidden
+    shown = "a value" if masked else literal(problem.value)
+    named = f"{shown} for {problem.column!r}"
     if problem.problem == "missing":
         return f"{named}, a missing value itself"
     if problem.problem == "infinite":
         return f"{named}, an infinite value"
     likely = (
         f"; did you mean {literal(problem.likely)}?"
-        if problem.likely is not None
+        if problem.likely is not None and not masked
         else ""
     )
     return f"{named}, which holds {problem.holds} (dtype {problem.dtype}{likely})"
 
 
-def _closing(problems: list[_Problem]) -> str:
+def _closing(problems: list[_Problem], hidden: set[str]) -> str:
     """How to fix each kind of problem, in a fixed order."""
     kinds = {problem.problem for problem in problems}
     sentences = []
     if "type" in kinds:
         sentence = "Declare each value as the type its column holds"
         [first] = problems if len(problems) == 1 else [None]
-        if first is not None and first.likely is not None:
+        if (
+            first is not None
+            and first.likely is not None
+            and first.column not in hidden
+        ):
             sentence += (
                 f", such as sentinel_values={{{first.column!r}: "
                 f"[{literal(first.likely)}]}}"

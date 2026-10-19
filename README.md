@@ -181,7 +181,7 @@ A mistake in a call, such as a misspelled column or an unknown option, raises a 
 
 ## Projects and masking
 
-Five analyses can show raw values, such as the labels `summarize_categorical` counts or the row IDs `find_duplicate_rows` lists: `validate_column_types`, `detect_missing_sentinels`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
+Six analyses can show raw values, such as the labels `summarize_categorical` counts, the row IDs `find_duplicate_rows` lists or the sentinel values you declare to `profile_missing_values`: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
 
 A `Project` holds settings that stay the same across calls. Its data policy names the sensitive columns, and masking replaces their values with numbered placeholders. Counts and shares stay:
 
@@ -210,7 +210,9 @@ How masking is decided:
 - `mask_sensitive=True` in the data policy switches it on for every call that gets the project.
 - `mask_sensitive=True` or `False` in a call overrides the project for that call.
 - It covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
-- It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` when the index holds sensitive values.
+- It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` when the index holds sensitive values. The other analyses, such as `summarize_numeric`, don't read a project.
+- A sensitive column matches by its exact name. When a name misses a column only by case or Unicode form, such as `'Email'` for `'email'`, nothing is masked for it, and the printed masking text and `masking.near_miss_columns` say "did you mean 'email'?" instead of claiming that no sensitive value is shown.
+- With masking on, no error message quotes a value of a sensitive column, such as an expected label or a declared sentinel value. A message that lists unknown column names names at most 3, each cut to 40 characters, and an option that ends in `column` or `columns` refuses a Series, an Index or an array of a column's values, without showing them, and shows the fix.
 
 Save the project once and load it in every later script, which helps an agent that runs each script in a new process:
 
@@ -297,7 +299,7 @@ To get past the caps, pass `table_path`. The MCP server writes the result's main
 
 ### Masking over MCP
 
-The five MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes.
+The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`. They keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as the minimum `summarize_numeric` reports for a sensitive column, or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error, which is a bug in agent-eda, names only the exception's type, since its message could quote a value; the server's log on stderr keeps the traceback.
 
 Masking over MCP is the same guardrail as in Python: it guards against accidental exposure and is not anonymization or access control. The MCP server enforces nothing, since whoever can call it can usually read the data file directly.
 
@@ -375,7 +377,7 @@ Do the columns hold the logical types I declared?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces the invalid values of sensitive columns, and row IDs taken from a sensitive id_column, with numbered placeholders, '<masked 1>' and so on, equal values alike, and needs a project that declares sensitive columns; False shows them as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `columns` (`column`, `declared_logical_type`, `nullable`, `datetime_format`, `present`, `dtype`, `compatible_count`, `convertible_count`, `invalid_count`, `missing_count`, `invalid_row_ids`, `invalid_distinct_count`, `invalid_values`, `assessment`), `undeclared_columns`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `declared_logical_type`, `nullable`, `datetime_format`, `present`, `dtype`, `compatible_count`, `convertible_count`, `invalid_count`, `missing_count`, `invalid_row_ids`, `invalid_distinct_count`, `invalid_values`, `assessment`), `undeclared_columns`
 
 - `invalid_values` (violation): columns that hold invalid values.
 - `declared_columns_missing` (violation): declared columns the data doesn't have, each with the closest names.
@@ -388,7 +390,7 @@ Do the columns hold the logical types I declared?
 
 #### `profile_missing_values`
 
-`ae.profile_missing_values(data, *, columns=None, sentinel_values=None) -> ProfileMissingValuesResult`
+`ae.profile_missing_values(data, *, columns=None, sentinel_values=None, project=None, mask_sensitive=None) -> ProfileMissingValuesResult`
 
 How much data is missing, and where?
 
@@ -396,8 +398,10 @@ How much data is missing, and where?
 | --- | --- | --- | --- |
 | `columns` | `Sequence[str] \| None` | `None` | Names of the columns to profile, in the order to report them: a list, a tuple, a pandas Index such as df.columns[:3], or a single name. |
 | `sentinel_values` | `Mapping[str, Sequence[bool \| int \| float \| str \| datetime \| date \| timedelta]] \| None` | `None` | The sentinel values to count as missing, by column name, such as {'age': [-999], 'city': ['N/A', '']}: one value or a list of values per column, each a bool, int, float, str, datetime (pd.Timestamp too), date or timedelta (pd.Timedelta too). |
+| `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
+| `mask_sensitive` | `bool \| None` | `None` | True replaces each declared sentinel value of a sensitive column, in parameters and in the columns table, with a numbered placeholder, '<masked 1>' for the first value declared and so on, and needs a project that declares sensitive columns; False shows the values as declared. |
 
-**Fields:** `columns` (`column`, `status`, `status_reason`, `native_missing_count`, `sentinel_count`, `missing_count`, `missing_share`, `sentinel_values`), `missing_count`, `missing_share`, `complete_row_count`, `complete_row_share`, `row_distribution` (`missing_count`, `row_count`, `row_share`)
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `native_missing_count`, `sentinel_count`, `missing_count`, `missing_share`, `sentinel_values`), `missing_count`, `missing_share`, `complete_row_count`, `complete_row_share`, `row_distribution` (`missing_count`, `row_count`, `row_share`)
 
 - `all_missing_columns` (suspected): every value of a column is missing or a declared sentinel value.
 - `sentinel_values_present` (descriptive): declared sentinel values occur in a column, where they count as missing.
@@ -418,7 +422,7 @@ Which values look like stand-ins for missing data?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each value of a sensitive column that the result shows, its candidate values, its declared values in parameters and its values as row IDs when it is id_column, with a numbered placeholder, '<masked 1>' for the first value in result order and so on, equal values alike, and needs a project that declares sensitive columns; False shows the values as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `candidates` (`column`, `value`, `value_type`, `count`, `share`, `evidence`, `confirmation`, `row_ids`), `columns_without_rules`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `candidates` (`column`, `value`, `value_type`, `count`, `share`, `evidence`, `confirmation`, `row_ids`), `columns_without_rules`
 
 - `sentinel_values_present` (descriptive): declared sentinel values occur in a column.
 - `suspected_sentinel_values` (suspected): the built-in rules found values that may stand in for missing ones, which stay valid values until you declare them.
@@ -458,7 +462,7 @@ Which values occur in each categorical column, and how often?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each level of a sensitive column with a numbered placeholder, '<masked 1>' for the most common and so on in level order, and needs a project that declares sensitive columns; False shows the levels as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `cardinality`, `levels`, `most_common_levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`, `share_denominator`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `cardinality`, `levels`, `most_common_levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`, `share_denominator`, `level_order`
 
 - `case_or_space_variants` (suspected): a column holds labels that differ only by case or surrounding spaces, such as 'Yes' and 'yes '.
 - `mixed_value_types` (suspected): a column holds values of more than one Python type, such as 1 and '1'.
@@ -479,7 +483,7 @@ Are there exact duplicate rows?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each row ID taken from a sensitive id_column with a numbered placeholder, '<masked 1>' for the first ID the result shows and so on, equal IDs alike, and needs a project that declares sensitive columns; False shows the IDs as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `compared_columns`, `missing_values_compare_equal`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `compared_columns`, `missing_values_compare_equal`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
 
 - `duplicate_rows` (suspected): two or more rows are equal in every compared column.
 - `no_duplicate_rows` (descriptive): no two rows are equal in every compared column.
@@ -522,7 +526,7 @@ What does the target look like for this task?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces the labels of a sensitive target, the classes, the labels outside expected_labels and expected_labels as parameters records it, with numbered placeholders, '<masked 1>' for its first label in level order and so on, and the row IDs taken from a sensitive id_column too; it needs a project that declares sensitive columns. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`, `level_order`
 
 - `single_class` (violation): every valid label is the same class, so a classifier has nothing to tell apart.
 - `more_than_two_classes` (violation): a binary_classification target has more than two classes.

@@ -133,15 +133,31 @@ def budget_exceeded_reason(
 
 
 def check_distinct(
-    analysis: str, parameter: str, values: Sequence[Hashable], noun: str
+    analysis: str,
+    parameter: str,
+    values: Sequence[Hashable],
+    noun: str,
+    *,
+    hide: bool = False,
 ) -> None:
-    """Raise when a list argument holds the same value more than once."""
+    """Raise when a list argument holds the same value more than once.
+
+    With `hide`, the message counts the repeated values and doesn't quote them:
+    they are values of a sensitive column.
+    """
     repeated = [value for value, count in Counter(values).items() if count > 1]
-    if repeated:
-        raise InvalidArgumentError(
-            f"{analysis} got {join_items([repr(value) for value in repeated])} more "
-            f"than once in {parameter}. List each {noun} once."
+    if not repeated:
+        return
+    if hide:
+        named = (
+            f"{plural(len(repeated), noun, noun + 's')} (not shown: masking hides "
+            "the values of a sensitive column)"
         )
+    else:
+        named = join_items([repr(value) for value in repeated])
+    raise InvalidArgumentError(
+        f"{analysis} got {named} more than once in {parameter}. List each {noun} once."
+    )
 
 
 def data_shape(data: pd.DataFrame) -> dict[str, JsonValue]:
