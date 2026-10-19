@@ -1043,18 +1043,21 @@ def test_the_printed_result_shows_placeholders_without_quotes():
 
 @pytest.mark.parametrize(
     "neighbour",
-    [
-        "profile_missing_values",
-        "describe_dataset",
-        "summarize_numeric",
-        "summarize_categorical",
-    ],
+    ["profile_missing_values", "summarize_numeric", "summarize_categorical"],
 )
 def test_nearby_analyses_point_to_it_for_stand_ins_for_missing_values(neighbour):
+    assert "`detect_missing_sentinels`" in ae.describe_analysis(neighbour).when_to_use
+
+
+@pytest.mark.parametrize(
+    "neighbour", ["profile_missing_values", "summarize_categorical"]
+)
+def test_nearby_analyses_list_it_in_see_also_for_stand_ins(neighbour):
+    # summarize_numeric names it in When to use: only; its See Also keeps its
+    # other next steps.
     doc = inspect.getdoc(getattr(ae, neighbour))
     assert doc
 
-    assert "`detect_missing_sentinels`" in ae.describe_analysis(neighbour).when_to_use
     assert "    detect_missing_sentinels: " in doc.split("See Also:")[1]
 
 

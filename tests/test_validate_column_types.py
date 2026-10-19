@@ -883,8 +883,7 @@ def test_nothing_is_converted_and_the_data_never_changes():
 
 
 @pytest.mark.parametrize(
-    "neighbour",
-    ["infer_column_semantics", "describe_dataset", "profile_missing_values"],
+    "neighbour", ["infer_column_semantics", "profile_missing_values"]
 )
 def test_nearby_analyses_point_to_it_for_checking_declared_types(neighbour):
     doc = inspect.getdoc(getattr(ae, neighbour))

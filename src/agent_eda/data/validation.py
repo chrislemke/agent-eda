@@ -324,20 +324,17 @@ def infer_column_semantics(
     """What kind of values does each column hold?
 
     When to use:
-        Call it right after `describe_dataset`, before you summarize or model,
-        to learn each column's logical type from its values rather than its
-        dtype: numbers stored as text, identifiers that look numeric, postal
-        codes and other codes with leading zeros, ISO 8601 dates stored as
-        text, booleans such as yes/no or 0/1, a few labels repeated over many
-        rows, and free text. Each column gets candidate logical types ranked by
-        a heuristic score, the evidence behind them and flags for what needs
-        attention. Pass the logical types you expect as schema to
-        compare each with what the values show; a declaration is never
-        overwritten. To test every value against the logical types you
-        declare, with the invalid ones and their row IDs, call
-        `validate_column_types`. For how the values of each numeric column are
-        distributed, call `summarize_numeric` next; `list_analyses` lists the
-        other analyses.
+        Call it right after `describe_dataset`, before you summarize or model, to learn
+        each column's logical type from its values rather than its dtype: numbers stored
+        as text, identifiers that look numeric, postal codes and other codes with
+        leading zeros, ISO 8601 dates stored as text, booleans such as yes/no or 0/1, a
+        few labels repeated over many rows, and free text. Each column gets candidate
+        logical types ranked by a heuristic score, the evidence behind them and flags
+        for what needs attention. Pass the logical types you expect as schema to compare
+        each with what the values show; a declaration is never overwritten. To test
+        every value against the logical types you declare, with the invalid ones and
+        their row IDs, call `validate_column_types`. For how the values of each numeric
+        column are distributed, call `summarize_numeric` next.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -502,14 +499,12 @@ def infer_column_semantics(
         0.5
 
     See Also:
-        describe_dataset: Dtypes, missing and distinct counts and memory of every
-            column, whatever its dtype.
-        validate_column_types: How many values of each declared column have,
-            convert to or fail the logical type you declare, with the invalid
-            ones.
-        summarize_numeric: Counts, mean, spread, quantiles and shape of every
-            numeric column.
-        list_analyses: Every analysis, with the question each one answers.
+        validate_column_types: How many values of each declared column have, convert to
+            or fail the logical type you declare, with the invalid ones.
+        summarize_numeric: Counts, mean, spread, quantiles and shape of every numeric
+            column.
+        compute_association_matrix: How strongly pairs of columns are associated,
+            counting the numeric codes found here as categories.
     """
     selected = select_columns(
         "infer_column_semantics", data, columns, _EVERY_COLUMN
@@ -1375,22 +1370,19 @@ def validate_column_types(
     """Do the columns hold the logical types I declared?
 
     When to use:
-        Call it once you know the logical type each column should hold, such
-        as from a data contract, to check every value against its declared
-        type without changing the data. Declare each type in schema, alone or
-        in a ColumnSpec that also says whether values may be missing and which
-        datetime format text uses. Each declared column gets counts of the
-        values already stored as its type, the values that convert to it
-        exactly, such as numbers or ISO 8601 dates stored as text, and the
-        invalid ones, with example row IDs and values. A declared column the
-        data lacks is reported, not raised, so a broken file still gets
-        checked. Example values and row IDs are raw values: when a column
-        holds personal data, declare it sensitive in a project and switch
-        masking on. Index labels are never masked, so pass a non-sensitive
-        id_column when the index holds sensitive values. To guess each
-        column's logical type from its values instead, call
-        `infer_column_semantics`; `describe_dataset` gives every dtype, and
-        `list_analyses` lists the other analyses.
+        Call it once you know the logical type each column should hold, such as from a
+        data contract, to check every value against its declared type without changing
+        the data. Declare each type in schema, alone or in a ColumnSpec that also says
+        whether values may be missing and which datetime format text uses. Each declared
+        column gets counts of the values already stored as its type, the values that
+        convert to it exactly, such as numbers or ISO 8601 dates stored as text, and the
+        invalid ones, with example row IDs and values. A declared column the data lacks
+        is reported, not raised, so a broken file still gets checked. Example values and
+        row IDs are raw values: when a column holds personal data, declare it sensitive
+        in a project and switch masking on. Index labels are never masked, so pass a
+        non-sensitive id_column when the index holds sensitive values. To guess each
+        column's logical type from its values instead, call `infer_column_semantics`;
+        `describe_dataset` gives every dtype.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -1545,13 +1537,12 @@ def validate_column_types(
         ['A3', 'A5']
 
     See Also:
-        infer_column_semantics: What kind of values each column holds, ranked
-            by heuristic scores, compared with the logical types you declare.
-        describe_dataset: Dtypes, missing and distinct counts and memory of
-            every column.
-        profile_missing_values: How many values are missing per column and
-            per row, declared sentinel values included.
-        list_analyses: Every analysis, with the question each one answers.
+        profile_missing_values: How many values are missing per column and per row,
+            declared sentinel values included.
+        infer_column_semantics: What kind of values each column holds, ranked by
+            heuristic scores, compared with the logical types you declare.
+        describe_dataset: Dtypes, missing and distinct counts and memory of every
+            column.
     """
     if not schema:
         raise worded(

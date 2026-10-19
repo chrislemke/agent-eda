@@ -147,8 +147,8 @@ Four functions describe the package from inside Python, so an agent needn't read
 
 | Function | What it gives you |
 | --- | --- |
-| `ae.guide()` | Prints one page: how to call an analysis and read its result, every analysis, and the first-look order. |
-| `ae.search_analyses(query)` | The analyses that best match a question in your own words, such as "nulls per column". |
+| `ae.guide()` | Prints one page: how to call an analysis and read its result, the areas with their analysis counts, and the first-look order. |
+| `ae.search_analyses(query)` | The analyses that best match a question in your own words, such as "nulls per column"; weak matches are marked. |
 | `ae.describe_analysis(name)` | An analysis's parameters, statuses, result fields, finding codes and an example. |
 | `ae.list_analyses()` | Every analysis with its module, question and masking support; `.to_frame()` gives a table. |
 
@@ -157,6 +157,8 @@ ae.guide()
 print(ae.search_analyses("nulls per column"))
 print(ae.describe_analysis("profile_missing_values"))
 ```
+
+`pd.read_csv` turns "N/A" and "NULL" into missing values before an analysis sees them; `keep_default_na=False` keeps them as text for `detect_missing_sentinels`.
 
 ## Reading a result
 
@@ -180,7 +182,7 @@ A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any wo
 
 Every analysis decides which values are equal as pandas does, so `1`, `1.0` and `True` are one value. Text with a NUL character (`"\x00"`) stays apart from text equal up to it, as in Python. NaN stored as a value in a pyarrow-backed or nullable float column is missing, with a limitation. Values pandas can't hash, such as lists, are the exception: `find_duplicate_rows` compares them by content, `find_candidate_keys`, `summarize_categorical` and `compute_association_matrix` leave the column out, and `describe_dataset` and `infer_column_semantics` leave its distinct count null, each with an `unhashable_values` note.
 
-`find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as that count.
+`find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates.
 
 A pyarrow dictionary column, such as Parquet gives a categorical, is a categorical like pandas' own. Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, are "other": the defaults leave them out, `compute_association_matrix` lists them in `left_out_columns` as `unsupported_dtype`, and naming one raises `ColumnTypeError`.
 
@@ -192,15 +194,15 @@ A pyarrow dictionary column, such as Parquet gives a categorical, is a categoric
 - `identifier_like` is judged without rows that exactly repeat another row, for columns distinct in at least 90% of rows.
 - A declared type tied with the top candidate matches.
 
-Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples (`frozenset({'blue', 'green', 'red'})` as a label, `["blue", "green", "red"]` as a row ID in the record); an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is.
+Labels and row IDs are written the same way in every process. A set or frozenset lists its items sorted by their JSON text, also inside tuples; an object whose repr holds a memory address reads `<TypeName object>`. Identical calls therefore give byte-identical `to_json()`, text and `to_frame()` tables whatever `PYTHONHASHSEED` is.
 
-A record writes a datetime as ISO 8601 text (`2020-01-01T05:30:00`), and a decimal as a number when float64 holds it as written, else as exact text (`"12345678901234567.25"`). `detect_missing_sentinels` gives number text such as `"-999"` the numeric-code rule, lists pandas' default NA strings (`#N/A`, `<NA>`, `1.#QNAN` and more), and matches text stand-ins after stripping whitespace, showing the raw form that occurred (`" N/A"`).
+A record writes a datetime as ISO 8601 text (`2020-01-01T05:30:00`), and a decimal as a number when float64 holds it as written, else as exact text (`"12345678901234567.25"`). `detect_missing_sentinels` gives number text such as `"-999"` the numeric-code rule, lists pandas' default NA strings, and matches text stand-ins after stripping whitespace, showing the raw form that occurred (`" N/A"`).
 
 Concurrent calls from several threads are safe. An analysis captures its warnings under one lock, one at a time, so each result gets only its own `numerical_warning` limitation and the caller's warning filters and `warnings.showwarning` stay unchanged.
 
 ## Projects and masking
 
-Six analyses can show raw values, such as the labels `summarize_categorical` counts, the row IDs `find_duplicate_rows` lists or the sentinel values you declare: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
+Six analyses can show raw values, such as the labels `summarize_categorical` counts, the row IDs `find_duplicate_rows` lists or the sentinel values you declare: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.list_analyses()` marks them `[supports masking]`.
 
 A `Project` holds settings that stay the same across calls. Its data policy names the sensitive columns, and masking replaces their values with numbered placeholders; counts and shares stay:
 
@@ -230,8 +232,8 @@ How masking is decided:
 - `mask_sensitive=True` or `False` in a call overrides the project.
 - It covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
 - It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` if the index holds sensitive values. The other analyses, such as `summarize_numeric`, don't read a project.
-- A sensitive column matches by exact name. When a name misses a column only by case or Unicode form, such as `'Email'` for `'email'`, nothing is masked for it, and the printed masking text and `masking.near_miss_columns` say "did you mean 'email'?" instead of claiming no sensitive value is shown.
-- With masking on, no error message quotes a value of a sensitive column. A message listing unknown column names lists at most 3, each cut to 40 characters, and an option ending in `column` or `columns` refuses a Series, an Index or an array of values without showing them.
+- A sensitive column matches by exact name. A near miss in case or Unicode form, such as `'Email'` for `'email'`, masks nothing; the printed masking text and `masking.near_miss_columns` then say "did you mean 'email'?".
+- With masking on, no error message quotes a sensitive column's value: a message listing unknown column names lists at most 3, each cut to 40 characters, and a `column` or `columns` option refuses a Series, an Index or an array without showing it.
 
 Save the project once and load it in every later script, which helps an agent that runs each script in a new process:
 
@@ -627,7 +629,7 @@ Find the analyses that best match a question in your own words.
 | `query` | `str` | required | What you want to know, such as 'nulls per column'. |
 | `limit` | `int` | `5` | The most matches to return, at least 1; defaults to 5. |
 
-**Returns:** `matches` holds the best matches, best first, each with its `name`, `summary`, `score` and `matched_terms`.
+**Returns:** `matches` holds the best matches, best first, each with its `name`, `summary`, `score`, `matched_terms` and `weak`; read the summary before you rely on a weak match.
 
 #### `describe_analysis`
 

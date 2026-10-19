@@ -468,13 +468,19 @@ def test_results_use_only_declared_statuses_and_finding_codes(df):
     assert set(codes(res)) <= set(info.finding_codes)
 
 
-def test_docstring_points_to_the_numeric_summary_for_distributions():
+def test_docstring_points_to_the_next_steps_and_no_further():
+    # DES-12: it names its next steps, not every analysis.
     doc = inspect.getdoc(ae.describe_dataset) or ""
     when_to_use = doc.split("When to use:")[1].split("Args:")[0]
     see_also = doc.split("See Also:")[1]
 
-    assert "`summarize_numeric`" in when_to_use
-    assert "\n    summarize_numeric: " in see_also
+    for next_step in [
+        "infer_column_semantics",
+        "profile_missing_values",
+        "summarize_numeric",
+    ]:
+        assert f"`{next_step}`" in when_to_use
+        assert f"\n    {next_step}: " in see_also
 
 
 def codes(res):

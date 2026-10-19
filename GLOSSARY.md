@@ -16,6 +16,10 @@ _Avoid_: bot, assistant, LLM (when you mean the caller)
 A public function that answers one EDA question about data and returns an analysis result.
 _Avoid_: capability, tool, check (as a name for the function)
 
+**Area**:
+A subpackage that groups analyses, such as `data` or `statistics`. The guide and the MCP server's instructions list areas with their analysis counts; `list_analyses` lists the analyses.
+_Avoid_: category, module (a module is one file of an area), group
+
 **Method**:
 A variant of an analysis that the caller chooses, such as Welch's versus Student's t-test.
 _Avoid_: variant, kind, algorithm

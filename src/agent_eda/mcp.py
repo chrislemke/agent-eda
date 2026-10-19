@@ -36,7 +36,8 @@ agent-eda-mcp prints its install commands.
 
 import argparse
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 
 from agent_eda._mcp_instructions import GUARDRAIL, PRECEDENCE
@@ -116,6 +117,19 @@ def _create_server(
     from agent_eda._mcp_server import create_server as create
 
     return create(analyses, project)
+
+
+def _stand_ins(
+    analyses: "Iterable[Callable[..., AnalysisResult]]",
+) -> "AbstractContextManager[None]":
+    """The test hook that lists stand-in analyses as registered while it runs.
+
+    The guide and the instructions read the registry, so a test enters it to
+    see them with many more analyses. Only tests use it.
+    """
+    from agent_eda._registry import listed_as_registered
+
+    return listed_as_registered(analyses)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

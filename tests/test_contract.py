@@ -3,6 +3,7 @@
 import collections.abc
 import doctest
 import inspect
+import itertools
 import re
 import types
 import typing
@@ -24,9 +25,10 @@ NOT_COLUMN_NAMES = {"source", "source_version", "expected_labels"}
 # Parameters that map column names to a setting for each column, named after
 # the setting as the spec names them. They must take a mapping keyed by str.
 KEYED_BY_COLUMN = {"schema", "sentinel_values"}
-# list_analyses is no analysis, yet every See Also lists it (STD-21). Ticket 08
-# of the agent-experience spec drops it from them and deletes this set.
-SEE_ALSO_UNTIL_08 = {"list_analyses"}
+# The most analyses a docstring names as alternatives, in When to use: and in See Also:.
+MOST_ALTERNATIVES = 3
+# Discovery functions, which are no analyses and so no alternatives (STD-21).
+DISCOVERY = {"guide", "list_analyses", "search_analyses", "describe_analysis"}
 ENTRY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?: \([^)]*\))?:(?: |$)")
 REFERENCE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(\))?`")
 SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
@@ -187,14 +189,59 @@ def test_see_also_and_when_to_use_name_only_what_exists(name):
     assert see_also
     unknown = [ref for ref in see_also + references + words if not resolves(ref)]
     assert unknown == []
-    # See Also lists alternatives, so each entry is another analysis in
-    # ae.list_analyses().
-    not_analyses = [
-        ref
-        for ref in see_also
-        if (ref not in ANALYSES or ref == name) and ref not in SEE_ALSO_UNTIL_08
-    ]
+    # See Also lists alternatives, so each entry is another analysis, never a
+    # discovery function such as list_analyses (STD-21).
+    not_analyses = [ref for ref in see_also if ref not in ANALYSES or ref == name]
     assert not_analyses == []
+    assert DISCOVERY.isdisjoint(references + words)
+
+
+def named_analyses(name, text):
+    """The other analyses a docstring section names, each once, in order."""
+    found = REFERENCE.findall(text) + SNAKE_CASE.findall(text)
+    return list(dict.fromkeys(ref for ref in found if ref in ANALYSES and ref != name))
+
+
+def test_when_to_use_names_its_trigger_and_at_most_three_alternatives(name):
+    named = named_analyses(name, sections(name)["When to use:"])
+
+    assert len(named) <= MOST_ALTERNATIVES, (
+        f"{name}: When to use: names {len(named)} other analyses, {named}. Name the "
+        f"trigger and the {MOST_ALTERNATIVES} alternatives an agent most needs, and "
+        "let search_analyses find the rest."
+    )
+
+
+def test_see_also_lists_at_most_three_analyses(name):
+    listed = entries(sections(name)["See Also:"])
+
+    assert 1 <= len(listed) <= MOST_ALTERNATIVES, f"{name}: See Also: lists {listed}"
+
+
+def first_look_steps(capsys):
+    """The analyses of ae.guide()'s first-look order, in order."""
+    ae.guide()
+    lines = capsys.readouterr().out.splitlines()
+    start = lines.index("A first look at a new dataset, in this order:") + 1
+    steps = []
+    for line in lines[start:]:
+        step = re.fullmatch(r"  \d+\. ([a-z_ ]+): .+", line)
+        if not step:
+            break
+        steps.extend(step[1].split(" and "))
+    return steps
+
+
+def test_each_first_look_analysis_points_to_the_next_step_in_see_also(capsys):
+    steps = first_look_steps(capsys)
+
+    assert len(steps) == 11
+    missing = [
+        f"{current} -> {following}"
+        for current, following in itertools.pairwise(steps)
+        if following not in entries(sections(current)["See Also:"])
+    ]
+    assert missing == []
 
 
 def test_every_result_field_has_a_description(name):

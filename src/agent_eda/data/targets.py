@@ -141,27 +141,24 @@ def profile_target(
     """What does the target look like for this task?
 
     When to use:
-        Call it once you know the column a model should learn to predict and
-        the task: binary or multiclass classification, or regression. The task
-        is never inferred from the dtype, so numbers can be class labels and a
-        numeric label isn't mistaken for a regression target. For
-        classification it counts each class and its share of the valid labels,
-        gives the majority and minority shares and the imbalance ratio, and
-        counts missing labels; with expected_labels it lists the labels outside
-        that set with the IDs of their first rows and the declared classes no
-        row holds, and with rare_share the classes whose share lies below it. For regression it gives the
-        statistics `summarize_numeric` gives, from the same implementation,
-        and counts the values that aren't finite. It flags a target that
-        doesn't fit the task, such as a single class or a constant regression
-        target, before you train anything. Class labels and row IDs are raw
-        values, so when the target holds personal data, such as a diagnosis,
-        declare it sensitive in a project and switch masking on; index labels
-        are never masked, so pass a non-sensitive id_column when the index
-        holds sensitive values. For the values of other categorical columns,
-        call `summarize_categorical`; for other numeric columns,
-        `summarize_numeric`; for how the target goes with other columns,
-        `compute_association_matrix`. `list_analyses` lists the other
-        analyses.
+        Call it once you know the column a model should learn to predict and the task:
+        binary or multiclass classification, or regression. The task is never inferred
+        from the dtype, so numbers can be class labels and a numeric label isn't
+        mistaken for a regression target. For classification it counts each class and
+        its share of the valid labels, gives the majority and minority shares and the
+        imbalance ratio, and counts missing labels; with expected_labels it lists the
+        labels outside that set with the IDs of their first rows and the declared
+        classes no row holds, and with rare_share the classes whose share lies below it.
+        For regression it gives the statistics `summarize_numeric` gives, from the same
+        implementation, and counts the values that aren't finite. It flags a target that
+        doesn't fit the task, such as a single class or a constant regression target,
+        before you train anything. Class labels and row IDs are raw values, so when the
+        target holds personal data, such as a diagnosis, declare it sensitive in a
+        project and switch masking on; index labels are never masked, so pass a
+        non-sensitive id_column when the index holds sensitive values. For the values of
+        other categorical columns, call `summarize_categorical`; for other numeric
+        columns, `summarize_numeric`; for how the target goes with other columns,
+        `compute_association_matrix`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -328,15 +325,12 @@ def profile_target(
         26.5
 
     See Also:
-        summarize_categorical: Each level's count and share of every text,
-            categorical and boolean column, for columns besides the target.
-        summarize_numeric: Counts, mean, spread, quantiles and shape of every
-            numeric column, the statistics a regression target gets.
-        infer_column_semantics: Which columns hold identifiers, codes or
-            numbers stored as text rather than measurements or labels.
-        compute_association_matrix: How strongly pairs of columns are
-            associated, the target with the others included.
-        list_analyses: Every analysis, with the question each one answers.
+        compute_association_matrix: How strongly pairs of columns are associated, the
+            target with the others included.
+        summarize_categorical: Each level's count and share of every text, categorical
+            and boolean column, for columns besides the target.
+        summarize_numeric: Counts, mean, spread, quantiles and shape of every numeric
+            column, the statistics a regression target gets.
     """
     masking = resolve_masking("profile_target", project, mask_sensitive)
     labels = None if expected_labels is None else list(expected_labels)

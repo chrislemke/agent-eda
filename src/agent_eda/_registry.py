@@ -7,6 +7,7 @@ while the analysis runs never reach the caller, and the result is checked
 against what the analysis declared.
 """
 
+import contextlib
 import functools
 import importlib
 import inspect
@@ -18,6 +19,7 @@ import warnings
 from collections.abc import (
     Callable,
     Collection,
+    Generator,
     Hashable,
     Iterable,
     Mapping,
@@ -180,6 +182,27 @@ def registered() -> list[AnalysisSpec]:
     for module in sorted(set(agent_eda._EXPORTS.values())):
         importlib.import_module(module)
     return sorted(_REGISTRY.values(), key=lambda spec: (spec.module, spec.name))
+
+
+@contextlib.contextmanager
+def listed_as_registered(functions: Iterable[Callable[..., Any]]) -> Generator[None]:
+    """List stand-in analysis functions as registered ones while the block runs.
+
+    Only tests use it, to see how the guide and the MCP server's instructions
+    grow with the number of analyses. Each function is read the way spec_of
+    reads an unregistered one. Its name must not belong to a registered
+    analysis, and the registry is restored on leaving the block.
+    """
+    specs = [spec_of(function) for function in functions]
+    taken = [spec.name for spec in specs if spec.name in _REGISTRY]
+    if taken:
+        raise ValueError(f"{taken} are registered analyses, not stand-ins")
+    _REGISTRY.update({spec.name: spec for spec in specs})
+    try:
+        yield
+    finally:
+        for spec in specs:
+            _REGISTRY.pop(spec.name, None)
 
 
 def spec_of(function: Callable[..., Any]) -> AnalysisSpec:
