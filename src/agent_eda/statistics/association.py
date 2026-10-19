@@ -288,7 +288,7 @@ def compute_association_matrix(
         column with a level for every complete row, such as an ID, which
         would explain the other column perfectly and trivially. The limitations
         `too_few_values` and `zero_variance` name those pairs.
-        `float_precision` flags integers beyond ±2^53 read as float64, and
+        `float_precision` flags integers or decimals beyond ±2^53 read as float64, and
         `nan_counted_as_missing` NaN that a column stores as a value. There are
         no p-values or intervals.
 

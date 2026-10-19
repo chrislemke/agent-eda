@@ -29,6 +29,8 @@ from agent_eda._numeric import (
     numeric_support,
     read_limitations,
     read_numeric,
+    stored_nan_count,
+    stored_nan_limitations,
     summarize_values,
 )
 from agent_eda._registry import analysis
@@ -162,13 +164,16 @@ def summarize_numeric(
         `zero_variance` means every finite value is equal, and
         `numerical_warning` that float64 can't hold the result. Three more
         limitations flag booleans read as 0 and 1, `boolean_as_numeric`;
-        integers beyond ±2^53 that float64 rounds, `float_precision`; and NaN
-        stored as a value and counted as missing, `nan_counted_as_missing`.
+        integers or decimals beyond ±2^53 that float64 rounds, `float_precision`;
+        and NaN stored as a value and counted as missing, `nan_counted_as_missing`.
+        The standard deviation and shape statistics stay exact for very small
+        values, such as 1e-200.
 
         Both findings are suspected:
 
         - `constant_columns`: suspected; a column holds a single distinct non-missing
-          value in at least two rows, as describe_dataset decides it.
+          value in at least two rows, on stored values; NaN is
+          missing.
         - `infinite_values`: suspected; a column holds inf or -inf, which every
           statistic leaves out.
 
@@ -242,7 +247,7 @@ def summarize_numeric(
     }
     summaries = {
         name: summarize_values(
-            column.values,
+            column,
             quantiles=levels,
             quantile_method=quantile_method,
             trim_fraction=trim_fraction,
@@ -470,7 +475,9 @@ def summarize_categorical(
         each label exactly as stored. `left_out_columns` names the columns
         that columns=None skipped. Values that can't be hashed, such as
         lists, leave a column's levels uncounted, with an `unhashable_values`
-        limitation.
+        limitation. NaN is missing, not a level, also NaN that a pyarrow-backed
+        or nullable float column stores as a value, which pandas' `isna` doesn't
+        count; the `nan_counted_as_missing` limitation names such columns.
 
         `masking` says whether masking was on and names the sensitive columns
         among the selected ones. With masking on, their labels and unused
@@ -559,8 +566,11 @@ def summarize_categorical(
     selected = selection.columns
     tables: dict[str, Levels] = {}
     entries: dict[str, SummarizeCategoricalColumn] = {}
+    stored_nan: list[str] = []
     for column in selected:
         series = data.iloc[:, column.position]
+        if stored_nan_count(series):
+            stored_nan.append(column.name)
         levels = count_levels(series, column.kind)
         masked = (
             mask_levels(levels)
@@ -598,7 +608,14 @@ def summarize_categorical(
             *_mixed_value_types(entries),
             *_unused_categories(entries),
         ],
-        limitations=_unhashable_values(entries),
+        limitations=[
+            *stored_nan_limitations(
+                stored_nan,
+                [f"{_entry_path(name)}.missing_count" for name in stored_nan],
+                "missing_count counts it",
+            ),
+            *_unhashable_values(entries),
+        ],
         execution=execution(("numpy", "pandas")),
         masking=masking.record([column.name for column in selected], data),
         columns=entries,

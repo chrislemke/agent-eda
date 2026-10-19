@@ -7,6 +7,7 @@ import pandas as pd
 
 from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
 from agent_eda._masking import mask_values, resolve_masking
+from agent_eda._numeric import stored_nan_count, stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
@@ -122,7 +123,10 @@ def find_duplicate_rows(
 
         When index labels or id_column values repeat, a row ID can match more
         than one row: the `ambiguous_row_ids` limitation names the groups whose
-        row IDs repeat and recommends a unique id_column.
+        row IDs repeat and recommends a unique id_column. NaN that a pyarrow-backed
+        or nullable float column stores as a value, which pandas' `isna` doesn't
+        count, is a missing value here and equals every other: the
+        `nan_counted_as_missing` limitation names such columns.
 
         `masking` says whether masking was on and names id_column when it is
         sensitive. With masking on, its row IDs are placeholders, numbered in
@@ -189,6 +193,11 @@ def find_duplicate_rows(
         "find_duplicate_rows", data, columns, _ANY_COLUMN, id_column=row_ids.id_column
     )
     compared = [column.name for column in selection.columns]
+    stored_nan = [
+        column.name
+        for column in selection.columns
+        if stored_nan_count(data.iloc[:, column.position])
+    ]
     row_count = len(data)
     status, status_reason = _status(row_count, compared, row_ids.id_column)
     if status == "completed":
@@ -242,6 +251,11 @@ def find_duplicate_rows(
         ),
         limitations=[
             *ambiguous_row_ids(row_ids, ambiguous),
+            *stored_nan_limitations(
+                stored_nan,
+                ["duplicate_groups"],
+                "it equals every missing value",
+            ),
             *([] if row_count else [_NO_SHARE]),
         ],
         execution=execution(("numpy", "pandas")),
