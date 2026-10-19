@@ -472,29 +472,27 @@ CLASSIFY = (
     [
         (
             "plan",
-            f"{CLASSIFY}; if they are numbers stored as text, convert them with "
+            f"{CLASSIFY}; or convert numbers stored as text with "
             "pd.to_numeric(df['plan'], errors='coerce').",
         ),
         (
             "grade",
-            f"{CLASSIFY}; if its categories are numbers, convert them with "
+            f"{CLASSIFY}; or convert numeric categories with "
             "df['grade'].astype(float).",
         ),
         (
             "churned",
-            "If its values are class labels, pass task='binary_classification'; to "
-            "read False and True as 0 and 1, convert them with "
-            "df['churned'].astype(float).",
+            "If its values are class labels, pass task='binary_classification'; or "
+            "convert False and True to 0 and 1 with df['churned'].astype(float).",
         ),
         (
             "wait",
-            "Convert durations to numbers first, such as "
-            "df['wait'].dt.total_seconds().",
+            "Convert durations to numbers with df['wait'].dt.total_seconds().",
         ),
         (
             "signed_up",
-            "Convert datetimes to numbers first, such as the seconds since the "
-            "earliest: (df['signed_up'] - df['signed_up'].min()).dt.total_seconds().",
+            "Convert datetimes to numbers with "
+            "(df['signed_up'] - df['signed_up'].min()).dt.total_seconds().",
         ),
     ],
 )
@@ -514,8 +512,18 @@ def test_a_regression_task_on_a_column_that_isnt_numeric_raises_with_the_fix(
     )
 
 
-@pytest.mark.parametrize("column", ["wait", "signed_up"])
-def test_a_classification_task_on_times_raises_with_the_fix(column):
+@pytest.mark.parametrize(
+    ("column", "fix"),
+    [
+        ("wait", "Convert durations to labels with df['wait'].astype(str)."),
+        (
+            "signed_up",
+            "Convert datetimes to labels with df['signed_up'].astype(str), or to "
+            "months with df['signed_up'].dt.strftime('%Y-%m').",
+        ),
+    ],
+)
+def test_a_classification_task_on_times_raises_with_the_fix(column, fix):
     df = not_numeric()
 
     with pytest.raises(ColumnTypeError) as caught:
@@ -526,8 +534,7 @@ def test_a_classification_task_on_times_raises_with_the_fix(column):
         f"profile_target can't use column {column!r} with dtype {df[column].dtype} "
         "as a classification target, whose labels must be text, numbers, booleans "
         "or categories, nullable and pyarrow-backed ones of those kinds included. "
-        "Convert its "
-        f"values to labels first, such as df[{column!r}].astype(str)."
+        + fix
     )
 
 

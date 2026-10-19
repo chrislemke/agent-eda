@@ -329,6 +329,8 @@ def test_parameters_that_take_names_end_in_column_or_columns(name):
 
 def keyed_by_str(annotation):
     """Whether an annotation takes a mapping keyed by str, alone or with None."""
+    if typing.get_origin(annotation) is typing.Annotated:
+        annotation = typing.get_args(annotation)[0]
     union = typing.get_origin(annotation) in (typing.Union, types.UnionType)
     return any(
         typing.get_origin(member) in (collections.abc.Mapping, dict)

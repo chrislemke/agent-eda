@@ -593,6 +593,8 @@ def detect_missing_sentinels(
         repeat. `masking` says whether masking was on and names the sensitive
         columns whose values the result shows.
 
+        The findings:
+
         - `sentinel_values_present`: descriptive; declared sentinel values
           occur in a column.
         - `suspected_sentinel_values`: suspected; the built-in rules found

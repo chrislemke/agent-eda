@@ -231,12 +231,14 @@ TEXT_FIX = (
         ),
         (
             pd.to_datetime(["2024-01-01", None, "2024-03-01"]),
-            "Leave 'x' out of columns.",
+            "Convert datetimes to numbers with "
+            "(df['x'] - df['x'].min()).dt.total_seconds(), or leave 'x' out of "
+            "columns.",
         ),
         (
             pd.to_timedelta(["1D", None, "3D"]),
-            "Convert durations with df['x'].dt.total_seconds(), or leave 'x' out "
-            "of columns.",
+            "Convert durations to numbers with df['x'].dt.total_seconds(), or leave "
+            "'x' out of columns.",
         ),
     ],
     ids=["default-text", "string", "object", "categorical", "datetime", "timedelta"],
@@ -280,9 +282,10 @@ def test_the_analysis_that_fits_is_named_only_for_the_columns_it_fits(df):
         ae.summarize_numeric(df, columns=["when", "city"])
 
     assert str(caught.value).endswith(
-        f"{ACCEPTED} Use summarize_categorical for 'city' instead; convert numbers "
-        "stored as text with pd.to_numeric(df['city'], errors='coerce'); or leave "
-        "them out of columns."
+        f"{ACCEPTED} Use summarize_categorical for 'city' instead; convert "
+        "datetimes to numbers with (df['when'] - df['when'].min())"
+        ".dt.total_seconds(); convert numbers stored as text with "
+        "pd.to_numeric(df['city'], errors='coerce'); or leave them out of columns."
     )
 
 

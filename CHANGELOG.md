@@ -42,6 +42,8 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 
 ### Changed in records
 
+- `infer_column_semantics`: `evidence.value_types` is capped at 100, with `value_types_total`, as in `summarize_categorical`.
+- `rich.print([res])`, `rich.pretty.pretty_repr(res)` and devtools print the result's text, not a dump of every field. Results and discovery records share one base for their text and JSON methods.
 - An integer beyond ±2^53 (9,007,199,254,740,991) is a string in every JSON record, in row IDs, labels, values and parameters, so that Node-based MCP clients, which read JSON numbers as float64, don't round IDs such as 1234567890123456789. Integers within ±9,007,199,254,740,991 stay numbers. `to_dict()`, `to_json()`, the MCP structured content and the discovery records follow the rule; the result objects keep the exact Python ints. The field descriptions and the output schemas say so.
 - A capped record keeps the entries that findings and limitations point at, then the first of the others, up to 100. Field paths name a mapping entry by its key (`columns['c115'].min`) and an association pair by its two columns (`pairs['a', 'b'].value`); every path resolves in `to_dict()`.
 - Lists and mappings inside a mapping argument of `parameters` are capped at 100 at any depth. A `<key>_total` appears beside them only when entries were dropped. `project` is recorded whole.
@@ -50,6 +52,13 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 ### Fixed
 
 - `summarize_categorical` with a `top_n` below the level count could drop text labels that hold a NUL character.
+- `infer_column_semantics` ranks candidates on exact fractions, so scores that are equal on paper tie by the documented order. A column whose categorical and text scores are both 3/5 now infers `categorical`; it inferred `text` because float arithmetic made the text score 0.6000000000000001.
+
+### Texts that matched the code
+
+- Corrected docstrings and field descriptions: `DetectMissingSentinelsResult.columns_without_rules` (a column without values is listed), the `insufficient_data` entries of `summarize_categorical` and `infer_column_semantics` (no selected column completed and one has no value), the `candidates` of `infer_column_semantics` (the types the values fit, leading-zero codes at score 0 included), `ValidateColumnTypesResult.to_frame` (the columns table counts the distinct invalid values; `table='invalid_values'` lists them), and the base class of records (frozen, without unknown fields or NaN and infinity; it is not strict). The findings of `detect_missing_sentinels` have their "The findings:" lead-in.
+- The advice to convert a column is one wording in every analysis, from one table in `_columns`: "convert datetimes to numbers with (df['x'] - df['x'].min()).dt.total_seconds()", "convert durations to numbers with ...", "convert numbers stored as text with pd.to_numeric(...)", "convert datetimes to labels with df['x'].astype(str), or to months with ...". `summarize_numeric` now gives a fix for a datetime column; `summarize_categorical` and `profile_target` say "convert ... to labels" where they said "count its values as text" and "convert its values to labels first".
+- The docs of `schema` and `ColumnSpec.datetime_format` say that locale-dependent directives such as `%b` read in the process's locale, so a process with another locale can count differently. The JSON Schema of `validate_column_types`' `schema` has `minProperties: 1`.
 
 ### Moved
 

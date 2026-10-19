@@ -48,15 +48,25 @@ ACCEPTED = (
 
 
 @pytest.mark.parametrize(
-    "values",
+    ("values", "fix"),
     [
-        pd.to_datetime(["2024-01-01", None, "2024-03-01"]),
-        pd.to_timedelta(["1D", None, "3D"]),
-        pd.Series([[1], None, [2]], dtype=pd.ArrowDtype(pa.list_(pa.int64()))),
+        (
+            pd.to_datetime(["2024-01-01", None, "2024-03-01"]),
+            "Convert datetimes to labels with df['x'].astype(str), or to months "
+            "with df['x'].dt.strftime('%Y-%m')",
+        ),
+        (
+            pd.to_timedelta(["1D", None, "3D"]),
+            "Convert durations to labels with df['x'].astype(str)",
+        ),
+        (
+            pd.Series([[1], None, [2]], dtype=pd.ArrowDtype(pa.list_(pa.int64()))),
+            "Convert its values to labels with df['x'].astype(str)",
+        ),
     ],
     ids=["datetime", "timedelta", "arrow-list"],
 )
-def test_a_column_it_cannot_count_raises_with_its_dtype_and_a_fix(values):
+def test_a_column_it_cannot_count_raises_with_its_dtype_and_a_fix(values, fix):
     df = pd.DataFrame({"x": values, "plan": ["a", "b", "a"]})
 
     with pytest.raises(ColumnTypeError) as caught:
@@ -65,8 +75,7 @@ def test_a_column_it_cannot_count_raises_with_its_dtype_and_a_fix(values):
     assert caught.value.code == "unsupported_column_type"
     assert str(caught.value) == (
         f"summarize_categorical can't use column 'x' with dtype {df['x'].dtype}. "
-        f"{ACCEPTED} Count its values as text with df['x'].astype(str), or leave "
-        "'x' out of columns."
+        f"{ACCEPTED} {fix}, or leave 'x' out of columns."
     )
 
 

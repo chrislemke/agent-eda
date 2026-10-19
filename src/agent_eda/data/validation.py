@@ -6,7 +6,8 @@ import re
 import typing
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
+from fractions import Fraction
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Self
 
 import numpy as np
 import pandas as pd
@@ -126,7 +127,9 @@ class ColumnSpec(Declaration):
         "format of datetimes stored as text, such as '%d/%m/%Y'. None, the "
         "default, declares none, so only ISO 8601 text reads as a datetime. "
         "infer_column_semantics and validate_column_types both read text in "
-        "this format as datetimes.",
+        "this format as datetimes. Directives that depend on the locale, such "
+        "as %b, %B, %a, %A and %p, read in the process's locale, so the same "
+        "call can count differently in a process with another locale.",
     )
 
     if TYPE_CHECKING:
@@ -354,9 +357,10 @@ def infer_column_semantics(
             with its declaration, which is never overwritten: a declaration that
             ties with the top candidate matches. A ColumnSpec with a
             datetime_format, such as '%d/%m/%Y', also reads text in that format
-            as datetimes, as validate_column_types does. A declared column
-            the data lacks is reported as a violation, and declarations for
-            columns that columns leaves out are ignored. A label that isn't a
+            as datetimes, as validate_column_types does; its locale-dependent
+            directives, such as %b, read in the process's locale. A declared
+            column the data lacks is reported as a violation, and declarations
+            for columns that columns leaves out are ignored. A label that isn't a
             string can be given as itself or as its string form. None, the
             default, declares nothing, so no comparison runs.
 
@@ -366,7 +370,7 @@ def infer_column_semantics(
 
         - `inferred_logical_type`, the top candidate: a guess from the values,
           null when no candidate scores above 0.
-        - `candidates`, the logical types scoring above 0, best first, each
+        - `candidates`, the logical types the values fit, best first, each
           with its `score` and `reasons`. When a text value is a whole number
           with a leading zero, integer and float are listed too, scored 0, so
           that you see why numbers were ruled out. A column where every
@@ -400,8 +404,9 @@ def infer_column_semantics(
         distinct text with several words. When a text value is a whole number written as
         digits alone with a leading zero, such as 01234, the column holds codes: integer
         and float score 0, and its numbers count as plain text. A decimal such as 05.50
-        is a number, not a code. Ties go to boolean, then integer, float, datetime,
-        timedelta, categorical and text. Text is parsed once per distinct value,
+        is a number, not a code. Scores equal as exact fractions tie, and ties go
+        to boolean, then integer, float, datetime, timedelta, categorical and
+        text. Text is parsed once per distinct value,
         weighted by how often it occurs. `to_frame` returns every column's evidence, and
         its Python-only table `candidates` every candidate with its reasons.
 
@@ -454,8 +459,10 @@ def infer_column_semantics(
         partial: Some selected columns have no values or no candidate; their
             entries have status insufficient_data or not_applicable. Reason
             code: `incomplete_columns`.
-        insufficient_data: The data has no rows, or no selected column has a
-            value that isn't missing. Reason codes: `no_rows` and `no_values`.
+        insufficient_data: The data has no rows, or no selected column
+            completed and at least one of them has no value that isn't missing,
+            even if the others hold values no logical type fits. Reason codes:
+            `no_rows` and `no_values`.
         not_applicable: The data has no columns, or no logical type fits any
             selected column: the values are of other types, such as lists or
             intervals, and aren't category labels repeated over rows. Reason
@@ -952,10 +959,12 @@ def _candidates(reading: _Reading) -> list[LogicalTypeCandidate]:
     """The logical types the values fit, best first, by the documented rules."""
     count = reading.non_missing
 
-    def share(part: int) -> float:
-        return part / count
+    # Scores are exact fractions, so that scores equal on paper tie: 1 - 2/5 and
+    # (1 * 2/5 + 4/5) / 2 are both 3/5, but not as floats.
+    def share(part: int) -> Fraction:
+        return Fraction(part, count)
 
-    found: dict[LogicalType, tuple[float, str]] = {}
+    found: dict[LogicalType, tuple[Fraction, str]] = {}
     # Booleans need every value to read as one, so that letter codes such as
     # F and M aren't, and two distinct values, so that a constant column of
     # ones isn't, unless it is stored as booleans.
@@ -965,7 +974,7 @@ def _candidates(reading: _Reading) -> list[LogicalTypeCandidate]:
         and (reading.distinct >= 2 or reading.kinds["boolean"] == count)
     ):
         found["boolean"] = (
-            1.0,
+            Fraction(1),
             "All values are booleans or read as one.",
         )
     if reading.leading_zero:
@@ -974,7 +983,7 @@ def _candidates(reading: _Reading) -> list[LogicalTypeCandidate]:
             "written with a leading zero, which a number would drop, so the "
             "column holds codes."
         )
-        found["integer"] = found["float"] = (0.0, codes)
+        found["integer"] = found["float"] = (Fraction(0), codes)
     else:
         if reading.whole:
             found["integer"] = (
@@ -1020,17 +1029,19 @@ def _candidates(reading: _Reading) -> list[LogicalTypeCandidate]:
         found.items(), key=lambda item: (-item[1][0], _TIE_ORDER.index(item[0]))
     )
     return [
-        LogicalTypeCandidate(logical_type=logical_type, score=score, reasons=[reason])
+        LogicalTypeCandidate(
+            logical_type=logical_type, score=float(score), reasons=[reason]
+        )
         for logical_type, (score, reason) in ranked
     ]
 
 
-def _percent(share: float) -> str:
-    return f"{share * 100:.4g}%"
+def _percent(share: Fraction) -> str:
+    return f"{float(share) * 100:.4g}%"
 
 
-def _share(share: float) -> str:
-    return f"{share:.4g}"
+def _share(share: Fraction) -> str:
+    return f"{float(share):.4g}"
 
 
 def _flags(
@@ -1384,6 +1395,21 @@ _FINDING_CODES = (
 )
 
 
+class _AtLeastOneColumn:
+    """Marks a mapping that must declare a column, in its JSON Schema only.
+
+    pydantic would enforce the minimum with its own message; the analysis checks
+    it itself, so that the message gives the fix, and the JSON Schema says it
+    for the callers that validate before they call.
+    """
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return {**handler(core_schema), "minProperties": 1}
+
+
 @analysis(
     statuses=("completed", "insufficient_data"),
     finding_codes=_FINDING_CODES,
@@ -1401,7 +1427,7 @@ _FINDING_CODES = (
 def validate_column_types(
     data: pd.DataFrame,
     *,
-    schema: Mapping[str, LogicalType | ColumnSpec],
+    schema: Annotated[Mapping[str, LogicalType | ColumnSpec], _AtLeastOneColumn],
     id_column: str | None = None,
     project: Project | None = None,
     mask_sensitive: bool | None = None,
@@ -1435,8 +1461,10 @@ def validate_column_types(
             and one with a datetime_format, a datetime.strptime format such as
             '%d/%m/%Y', lets datetime text in that format convert as ISO 8601
             text does; strptime reads each distinct text, which takes about 4
-            seconds per million. A declared column the data lacks is reported
-            as a violation. A label that isn't a string can be given as itself
+            seconds per million. Locale-dependent directives, such as %b, read in
+            the process's locale, so a process with another locale can count
+            differently. A declared column the data lacks is reported as a
+            violation. A label that isn't a string can be given as itself
             or as its string form. It must declare at least one column; there
             is no default.
         id_column (str | None): Name of a column whose values identify rows,
