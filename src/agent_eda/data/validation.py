@@ -15,6 +15,7 @@ from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema
 
 from agent_eda._columns import (
+    Column,
     ColumnKind,
     ColumnRule,
     column_kind,
@@ -38,12 +39,14 @@ from agent_eda._parse import (
     ValueKind,
     is_whole,
     is_zero_or_one,
+    read_datetime_format,
     read_texts,
     value_kind,
 )
 from agent_eda._registry import (
     analysis,
 )
+from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import data_shape, execution, overall_status
 from agent_eda._text import (
@@ -121,7 +124,9 @@ class ColumnSpec(Declaration):
         default=None,
         description="For logical_type 'datetime' only: the datetime.strptime "
         "format of datetimes stored as text, such as '%d/%m/%Y'. None, the "
-        "default, declares none, so only ISO 8601 text reads as a datetime.",
+        "default, declares none, so only ISO 8601 text reads as a datetime. "
+        "infer_column_semantics and validate_column_types both read text in "
+        "this format as datetimes.",
     )
 
     if TYPE_CHECKING:
@@ -350,7 +355,10 @@ def infer_column_semantics(
             'categorical', 'text', 'datetime' or 'timedelta', or a
             ColumnSpec (a dict of its fields works too), whose logical_type is
             the one compared. Each declared column's top candidate is compared
-            with its declaration, which is never overwritten. A declared column
+            with its declaration, which is never overwritten: a declaration that
+            ties with the top candidate matches. A ColumnSpec with a
+            datetime_format, such as '%d/%m/%Y', also reads text in that format
+            as datetimes, as validate_column_types does. A declared column
             the data lacks is reported as a violation, and declarations for
             columns that columns leaves out are ignored. A label that isn't a
             string can be given as itself or as its string form. None, the
@@ -363,10 +371,14 @@ def infer_column_semantics(
         - `inferred_logical_type`, the top candidate: a guess from the values,
           null when no candidate scores above 0.
         - `candidates`, the logical types scoring above 0, best first, each
-          with its `score` and `reasons`.
+          with its `score` and `reasons`. When a text value is a whole number
+          with a leading zero, integer and float are listed too, scored 0, so
+          that you see why numbers were ruled out. A column where every
+          candidate scores 0 has no inferred type and no top score.
         - `flags`, what needs attention, each explained by a finding below.
         - `declared_logical_type` and `matches_declared`, when declared_schema
-          declares the column.
+          declares the column: true when the declared type is the top candidate
+          or ties with it, such as float for a column of whole numbers.
         - `evidence`: `non_missing_count`, `distinct_count`,
           `uniqueness_share`, the shares of values that read as booleans,
           numbers, whole numbers, datetimes and durations, the shares of
@@ -376,19 +388,25 @@ def infer_column_semantics(
 
         Scores lie between 0 and 1 and come from fixed rules over the evidence;
         they are heuristic, not probabilities. Every share is of the
-        non-missing values. boolean scores boolean_share: booleans, numbers
-        equal to 0 or 1, and true, false, t, f, yes, no, y and n in any case.
+        non-missing values. boolean scores 1 when every value is a boolean, a
+        number equal to 0 or 1, or true, false, t, f, yes, no, y or n in any
+        case, and the column holds at least two distinct values, so a column of
+        F and M, grades with some F, or only 1s isn't boolean; a column stored
+        as booleans is always boolean. Otherwise it has no boolean candidate.
         integer scores integer_share, the values that are or parse as whole
         numbers, and float number_share, the values that are or parse as
-        decimal numbers. datetime scores datetime_share: datetimes, and text in
-        ISO 8601, YYYY-MM-DD with an optional time and offset. No other date
+        decimal numbers that float64 can hold: text such as 1e400 parses as
+        neither. datetime scores datetime_share: datetimes, and text in
+        ISO 8601, YYYY-MM-DD with an optional time and offset, or in the
+        datetime_format of a ColumnSpec declared for the column. No other date
         format parses, so day and month order is never guessed. timedelta
         scores timedelta_share. categorical scores 1 - uniqueness_share, high
         when a few values repeat over many rows. text scores (plain_text_share
         * uniqueness_share + multi_word_share) / 2, high for mostly distinct
         text with several words. When a text value is a whole number written
-        with a leading zero, such as 01234, the column holds codes: integer and
-        float score 0, and its numbers count as plain text. Ties go to
+        as digits alone with a leading zero, such as 01234, the column holds
+        codes: integer and float score 0, and its numbers count as plain text.
+        A decimal such as 05.50 is a number, not a code. Ties go to
         boolean, then integer, float, datetime, timedelta, categorical and
         text. Text is parsed once per distinct value, weighted by how often it
         occurs. `to_frame` returns every column's evidence, and with
@@ -403,8 +421,12 @@ def infer_column_semantics(
 
         - `identifier_like_columns`: suspected; every value is distinct, there are at
           least two, and the top candidate is integer or text without spaces, as for
-          IDs. Numbers stored as numbers must also run like a sequence: at least half
-          the whole numbers from the smallest to the largest occur. Don't use these
+          IDs. Rows that repeat a whole other row don't count, so a few exact
+          duplicate rows don't hide an ID column; only a column with distinct values
+          in at least 90% of its rows is looked at again after dropping them. Text
+          that looks like a date, such as 01/02/2020, is never an identifier.
+          Numbers stored as numbers must also run like a sequence: at least half the
+          whole numbers from the smallest to the largest occur. Don't use these
           columns as numbers or features. Flag identifier_like.
         - `constant_columns`: suspected; a single distinct value in at least two rows.
           Flag constant.
@@ -413,7 +435,8 @@ def infer_column_semantics(
         - `numbers_as_text`: suspected; the top candidate is integer or float and some
           of the numbers are stored as text. Flag numbers_as_text.
         - `dates_as_text`: suspected; the top candidate is datetime and some of the
-          datetimes are ISO 8601 text. Flag dates_as_text.
+          datetimes are text, in ISO 8601 or the declared datetime_format. Flag
+          dates_as_text.
         - `non_iso_date_text`: suspected; at least half the values look like dates, and
           some of them aren't ISO 8601, such as 01/02/2020 or 5 Jan 2020; they are never
           parsed. Flag non_iso_date_text.
@@ -423,10 +446,10 @@ def infer_column_semantics(
         - `mixed_value_types`: suspected; the values have more than one Python type,
           such as int and str: evidence value_types lists them, as summarize_categorical
           does. Flag mixed_value_types.
-        - `declared_type_mismatch`: suspected; a declared column's top candidate differs
-          from its declared logical type.
-        - `declared_type_match`: passed; a declared column's top candidate is its
-          declared logical type.
+        - `declared_type_mismatch`: suspected; a declared column's declared logical type
+          scores below its top candidate, or isn't a candidate.
+        - `declared_type_match`: passed; a declared column's top candidate, or a
+          candidate tied with it, is its declared logical type.
         - `declared_type_unchecked`: unknown; a declared column has no candidate to
           compare, since it has no values or none fits.
         - `declared_columns_missing`: violation; declared_schema names columns the data
@@ -461,7 +484,7 @@ def infer_column_semantics(
         >>> print(res)
         infer_column_semantics: completed on 6 rows x 5 columns
         Scores rank logical types by fixed rules and aren't probabilities. Dates parse as ISO 8601 only.
-        declared_schema: 1 column declared in the data, 0 with that top candidate, 1 with another; 0 not in the data.
+        declared_schema: 1 column declared in the data, 1 matching (a tie with the top counts), 0 not; 0 not in the data.
         Columns (5 of 5 shown):
         column    inferred      score  next         next_score  declared  flags
         zip       categorical  0.3333  text             0.3333  null
@@ -472,9 +495,9 @@ def infer_column_semantics(
         Findings (5 of 5 shown):
         - suspected identifier_like_columns: 1 column looks like an identifier, every value distinct: 'order_id'.
         - suspected numbers_as_text: 1 column stores numbers as text: 'order_id'.
-        - suspected dates_as_text: 1 column stores ISO 8601 dates as text: 'ordered'.
+        - suspected dates_as_text: 1 column stores dates as text: 'ordered'.
         - descriptive boolean_like_columns: 1 column holds booleans stored as numbers or text: 'paid'.
-        - suspected declared_type_mismatch: 1 column has a top candidate other than the declared logical type: 'amount'.
+        - passed declared_type_match: 1 column has the declared logical type as top candidate: 'amount'.
         Limitations: none
         More: res.to_frame() has all 5 columns; res.to_frame(table='candidates') has every candidate with its reasons;
             res.findings, res.limitations and res.to_json() have the rest.
@@ -505,9 +528,14 @@ def infer_column_semantics(
     known = set(names)
     missing_declared = [name for name in declared if name not in known]
     readings = {
-        column.name: _read_column(data.iloc[:, column.position], column.kind)
+        column.name: _read_column(
+            data.iloc[:, column.position],
+            column.kind,
+            declared[column.name].datetime_format if column.name in declared else None,
+        )
         for column in selected
     }
+    _judge_without_duplicate_rows(data, selected, readings)
     entries = {
         column.name: _entry(
             column.name,
@@ -596,10 +624,17 @@ class _Reading:
     # The names of the values' Python types, as summarize_categorical reports
     # them; more than one means mixed value types.
     types: list[str] = field(default_factory=list)
+    # When the values repeat only in rows that duplicate a whole other row: the
+    # non-missing values left once those rows are dropped, all distinct.
+    without_duplicate_rows: int | None = None
 
 
-def _read_column(series: pd.Series, kind: ColumnKind) -> _Reading:
+def _read_column(
+    series: pd.Series, kind: ColumnKind, datetime_format: str | None = None
+) -> _Reading:
     """Read what a column's values are, the way its dtype allows.
+
+    Text in the declared datetime_format, when there is one, counts as datetimes.
 
     The distinct values and their counts are the column's levels, and the names
     of the values' types come from the same module, both as
@@ -607,7 +642,9 @@ def _read_column(series: pd.Series, kind: ColumnKind) -> _Reading:
     """
     levels = count_levels(series, kind)
     if levels is None:  # values such as lists can't be hashed
-        reading = _read_unhashable(np.asarray(series.array, dtype=object))
+        reading = _read_unhashable(
+            np.asarray(series.array, dtype=object), datetime_format
+        )
     elif kind == "numeric":
         reading = _read_numbers(series, levels)
     elif kind in ("boolean", "datetime", "timedelta"):
@@ -617,9 +654,9 @@ def _read_column(series: pd.Series, kind: ColumnKind) -> _Reading:
         reading.kinds[kind] = non_missing
         setattr(reading, kind, non_missing)
     elif kind == "object":
-        reading = _read_objects(series, levels)
+        reading = _read_objects(series, levels, datetime_format)
     else:  # categorical, text and other dtypes, such as periods
-        reading = _read_distinct(levels.objects(), levels.counts)
+        reading = _read_distinct(levels.objects(), levels.counts, datetime_format)
         reading.distinct = len(levels.values)
     reading.types = value_types(series, kind, levels)
     return reading
@@ -658,12 +695,14 @@ def _read_numbers(series: pd.Series, levels: Levels) -> _Reading:
     return reading
 
 
-def _read_objects(series: pd.Series, levels: Levels) -> _Reading:
+def _read_objects(
+    series: pd.Series, levels: Levels, datetime_format: str | None
+) -> _Reading:
     """Read a column of Python objects, whatever their types."""
     uniques = levels.objects()
     counts = levels.counts
     if levels.text:
-        reading = _read_texts(uniques, counts)
+        reading = _read_texts(uniques, counts, datetime_format)
         reading.distinct = len(uniques)
         return reading
     # pandas counts 1, 1.0 and True as one value, so the values behind a
@@ -671,7 +710,7 @@ def _read_objects(series: pd.Series, levels: Levels) -> _Reading:
     ambiguous = np.array(
         [_reads_as_number_or_boolean(value) for value in uniques], dtype=bool
     )
-    reading = _read_distinct(uniques[~ambiguous], counts[~ambiguous])
+    reading = _read_distinct(uniques[~ambiguous], counts[~ambiguous], datetime_format)
     reading.distinct = len(uniques)
     reading.span = _number_span(uniques)
     if ambiguous.any():
@@ -698,7 +737,7 @@ def _reads_as_number_or_boolean(value: object) -> bool:
     return kind == "boolean" or (kind == "number" and is_zero_or_one(value))
 
 
-def _read_unhashable(objects: np.ndarray) -> _Reading:
+def _read_unhashable(objects: np.ndarray, datetime_format: str | None) -> _Reading:
     """Read Python objects some of which can't be hashed, so can't be counted."""
     present = objects[~pd.isna(objects)]
     texts = _objects([value for value in present if isinstance(value, str)])
@@ -706,8 +745,8 @@ def _read_unhashable(objects: np.ndarray) -> _Reading:
     found = value_codes(texts, unhashable="by_content")
     codes, uniques = found.codes, found.uniques
     counts = np.bincount(codes, minlength=len(uniques))
-    reading = _read_texts(np.asarray(uniques, dtype=object), counts)
-    rest = _read_distinct(others, np.ones(len(others), dtype=np.int64))
+    reading = _read_texts(np.asarray(uniques, dtype=object), counts, datetime_format)
+    rest = _read_distinct(others, np.ones(len(others), dtype=np.int64), datetime_format)
     reading = _combined(reading, rest)
     reading.distinct = None
     reading.span = rest.span
@@ -724,13 +763,15 @@ def _all_text(values: np.ndarray) -> bool:
     return pd.api.types.infer_dtype(values, skipna=False) in ("string", "empty")
 
 
-def _read_distinct(values: np.ndarray, counts: np.ndarray) -> _Reading:
+def _read_distinct(
+    values: np.ndarray, counts: np.ndarray, datetime_format: str | None
+) -> _Reading:
     """Read distinct values of any type, each standing for `counts` values."""
     if _all_text(values):
-        return _read_texts(values, counts)
+        return _read_texts(values, counts, datetime_format)
     kinds = [value_kind(value) for value in values]
     is_text = np.array([kind == "text" for kind in kinds], dtype=bool)
-    reading = _read_texts(values[is_text], counts[is_text])
+    reading = _read_texts(values[is_text], counts[is_text], datetime_format)
     for value, kind, count in zip(values, kinds, counts.tolist(), strict=True):
         if kind == "text":
             continue
@@ -764,9 +805,21 @@ def _number_span(values: Iterable[object]) -> float | None:
     return max(numbers) - min(numbers) + 1
 
 
-def _read_texts(texts: np.ndarray, counts: np.ndarray) -> _Reading:
-    """Read distinct strings, each standing for `counts` values, by the parse rules."""
+def _read_texts(
+    texts: np.ndarray, counts: np.ndarray, datetime_format: str | None
+) -> _Reading:
+    """Read distinct strings, each standing for `counts` values, by the parse rules.
+
+    Text that datetime.strptime reads in the declared datetime_format, when
+    there is one, is a datetime, and no longer date-like text.
+    """
     parsed = read_texts(texts)
+    iso_date, date_like = parsed.iso_date, parsed.date_like
+    if datetime_format is not None and len(texts):
+        iso_date = iso_date.copy()
+        rest = np.flatnonzero(~iso_date)
+        iso_date[rest] = read_datetime_format(texts[rest], datetime_format)
+        date_like = date_like & ~iso_date
 
     def weight(mask: np.ndarray) -> int:
         return int(counts[mask].sum())
@@ -774,7 +827,7 @@ def _read_texts(texts: np.ndarray, counts: np.ndarray) -> _Reading:
     total = int(counts.sum())
     leading_zero = weight(parsed.leading_zero)
     # With leading zeros, a column's numbers are codes: they count as text.
-    readable = parsed.iso_date | parsed.boolean
+    readable = iso_date | parsed.boolean
     if not leading_zero:
         readable = readable | parsed.number
     reading = _Reading(
@@ -782,13 +835,13 @@ def _read_texts(texts: np.ndarray, counts: np.ndarray) -> _Reading:
         boolean=weight(parsed.boolean),
         number=weight(parsed.number),
         whole=weight(parsed.whole),
-        datetime=weight(parsed.iso_date),
+        datetime=weight(iso_date),
         leading_zero=leading_zero,
-        date_like=weight(parsed.date_like),
+        date_like=weight(date_like),
         plain_text=weight(~readable),
         several_words=weight(~readable & parsed.several_words),
         text_numbers=weight(parsed.number),
-        text_dates=weight(parsed.iso_date),
+        text_dates=weight(iso_date),
     )
     reading.kinds["text"] = total
     return reading
@@ -821,6 +874,49 @@ _COUNTS = (
 )
 
 
+# A column whose values are distinct in at least this share of the rows can be
+# an identifier that a few duplicate rows repeat; the rest is never read.
+_NEAR_UNIQUE_SHARE = 0.9
+
+
+def _judge_without_duplicate_rows(
+    data: pd.DataFrame, selected: Sequence[Column], readings: dict[str, _Reading]
+) -> None:
+    """Judge the near-unique columns again once duplicate rows are dropped.
+
+    A row that equals another in every column of the data adds no new value, so
+    an identifier repeated by such rows is still an identifier. The columns are
+    read only when some column could change its answer.
+    """
+    near = []
+    for column in selected:
+        reading = readings[column.name]
+        if (
+            reading.distinct is not None
+            and reading.non_missing >= 2
+            and reading.distinct < reading.non_missing
+            and reading.distinct >= _NEAR_UNIQUE_SHARE * reading.non_missing
+            and _candidates(reading)[0].logical_type in ("integer", "text")
+        ):
+            near.append(column)
+    if not near:
+        return
+    first = [column.position for column in near]
+    positions = first + [p for p in range(data.shape[1]) if p not in first]
+    rows, groups = find_row_groups(data, positions)
+    if not rows.size:
+        return
+    # Rows are in ascending order, so the first row of each group is its first.
+    repeats = np.ones(len(rows), dtype=bool)
+    repeats[np.unique(groups, return_index=True)[1]] = False
+    keep = np.ones(len(data), dtype=bool)
+    keep[rows[repeats]] = False
+    for column in near:
+        kept = _read_column(data.iloc[:, column.position].iloc[keep], column.kind)
+        if kept.distinct == kept.non_missing:
+            readings[column.name].without_duplicate_rows = kept.non_missing
+
+
 def _entry(
     name: str,
     dtype: str,
@@ -846,8 +942,10 @@ def _entry(
         inferred_logical_type=inferred,
         declared_logical_type=declared_type,
         matches_declared=None
-        if declared_type is None or inferred is None
-        else inferred == declared_type,
+        if declared_type is None or top is None
+        else any(
+            c.logical_type == declared_type and c.score == top.score for c in candidates
+        ),
         candidates=candidates,
         flags=_flags(reading, inferred, row_count),
         evidence=_evidence(reading),
@@ -862,11 +960,17 @@ def _candidates(reading: _Reading) -> list[LogicalTypeCandidate]:
         return part / count
 
     found: dict[LogicalType, tuple[float, str]] = {}
-    if reading.boolean:
+    # Booleans need every value to read as one, so that letter codes such as
+    # F and M aren't, and two distinct values, so that a constant column of
+    # ones isn't, unless it is stored as booleans.
+    if (
+        reading.boolean == count
+        and reading.distinct is not None
+        and (reading.distinct >= 2 or reading.kinds["boolean"] == count)
+    ):
         found["boolean"] = (
-            share(reading.boolean),
-            f"{_percent(share(reading.boolean))} of values are booleans or read "
-            "as one.",
+            1.0,
+            "All values are booleans or read as one.",
         )
     if reading.leading_zero:
         codes = (
@@ -944,19 +1048,25 @@ def _flags(
     sequence = reading.kinds["text"] > 0 or (
         reading.span is not None and reading.span <= 2 * count
     )
+    # Values that are all distinct, once the rows that duplicate a whole other
+    # row are dropped.
+    identifiers = count if reading.distinct == count else reading.without_duplicate_rows
+    non_iso_dates = (
+        reading.date_like > 0 and 2 * (reading.datetime + reading.date_like) >= count
+    )
     raised: dict[ColumnFlag, bool] = {
-        "identifier_like": count >= 2
-        and reading.distinct == count
+        "identifier_like": identifiers is not None
+        and identifiers >= 2
         and inferred in ("integer", "text")
         and not reading.several_words
+        and not non_iso_dates
         and sequence,
         "constant": count >= 2 and reading.distinct == 1,
         "all_missing": row_count >= 1 and count == 0,
         "numbers_as_text": inferred in ("integer", "float")
         and reading.text_numbers > 0,
         "dates_as_text": inferred == "datetime" and reading.text_dates > 0,
-        "non_iso_date_text": reading.date_like > 0
-        and 2 * (reading.datetime + reading.date_like) >= count,
+        "non_iso_date_text": non_iso_dates,
         "boolean_like": inferred == "boolean"
         and reading.boolean > reading.kinds["boolean"],
         # As summarize_categorical decides it: more than one Python type.
@@ -1056,8 +1166,8 @@ _FLAG_FINDINGS = (
         "dates_as_text",
         "dates_as_text",
         "suspected",
-        "stores ISO 8601 dates as text",
-        "store ISO 8601 dates as text",
+        "stores dates as text",
+        "store dates as text",
         "datetime_share",
     ),
     _FlagFinding(
