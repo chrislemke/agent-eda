@@ -250,8 +250,8 @@ def test_masking_covers_the_levels_in_the_text_the_record_and_to_frame():
         "    counts and shares are unaffected.",
     ]
     assert (
-        "customer                  6              0            3  <masked 1>: 3 (50%), "
-        "<masked 2>: 2 (33.33%), <masked 3>: 1 (..."
+        "customer                  6              0               3  <masked 1>: 3 (50%), "
+        "<masked 2>: 2 (33.33%), <masked 3>: ..."
     ) in lines
     customer = frame[frame["column"] == "customer"]
     assert customer["label"].tolist() == ["<masked 1>", "<masked 2>", "<masked 3>"]

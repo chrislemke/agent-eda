@@ -474,7 +474,7 @@ def test_a_declared_column_missing_from_the_data_is_a_violation_not_an_error():
     assert counts(entry) == (None, None, None, None)
     assert (entry.invalid_row_ids, entry.invalid_values) == ([], [])
     assert res.status == "completed"
-    [finding] = [f for f in res.findings if f.code == "declared_columns_missing"]
+    [finding] = [f for f in res.findings if f.code == "missing_declared_columns"]
     assert finding.assessment == "violation"
     assert finding.columns == ["emial"]
     assert finding.claim == (
@@ -525,11 +525,11 @@ def test_a_clean_column_passes_and_a_column_without_values_is_unknown():
     res = ae.validate_column_types(df, schema={"age": "integer", "notes": "text"})
 
     found = findings_by_code(res)
-    assert (found["valid_columns"].assessment, found["valid_columns"].columns) == (
+    assert (found["passing_columns"].assessment, found["passing_columns"].columns) == (
         "passed",
         ["age"],
     )
-    assert found["valid_columns"].claim == "1 column passes every check: 'age'."
+    assert found["passing_columns"].claim == "1 column passes every check: 'age'."
     assert (
         found["unchecked_columns"].assessment,
         found["unchecked_columns"].columns,
@@ -566,7 +566,7 @@ def test_values_that_need_converting_are_described_and_still_pass():
         found["convertible_values"].claim == "1 column holds convertible values: 'n'."
     )
     assert found["convertible_values"].fields == ["columns['n'].convertible_count"]
-    assert found["valid_columns"].columns == ["n"]
+    assert found["passing_columns"].columns == ["n"]
 
 
 def test_row_ids_are_values_of_id_column_when_it_is_given():
@@ -738,9 +738,9 @@ def test_prints_the_counts_per_declared_column_violations_first():
         "order_id  integer, not null  object                    0            5        0        0",
         "Findings (4 of 4 shown):",
         "- violation invalid_values: 2 columns hold invalid values: 'ordered' and 'qty'.",
-        "- violation declared_columns_missing: 1 declared column is not in the data: 'customer'.",
+        "- violation missing_declared_columns: 1 declared column is not in the data: 'customer'.",
         "- descriptive convertible_values: 3 columns hold convertible values: 'order_id', 'ordered' and 'qty'.",
-        "- passed valid_columns: 1 column passes every check: 'order_id'.",
+        "- passed passing_columns: 1 column passes every check: 'order_id'.",
         "Limitations (1 of 1 shown):",
         "- column_not_in_data: 1 declared column isn't in the data, so its dtype and counts are null: 'customer'.",
         "More: res.to_frame() has all 4 declared columns; res.to_frame(table='invalid_values') "

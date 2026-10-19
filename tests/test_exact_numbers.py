@@ -255,7 +255,7 @@ def test_summarize_categorical_counts_stored_nan_as_missing():
     res = ae.summarize_categorical(lone_nan_frame(), columns=["x"])
 
     entry = res.columns["x"]
-    assert (entry.missing_count, entry.non_missing_count, entry.cardinality) == (
+    assert (entry.missing_count, entry.non_missing_count, entry.distinct_count) == (
         3,
         3,
         2,

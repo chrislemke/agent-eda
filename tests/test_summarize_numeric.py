@@ -129,7 +129,7 @@ def test_a_boolean_column_named_in_columns_is_read_as_0_and_1():
 
     member, flag, arrow = res.columns.values()
     assert (member.mean, member.zero_count, member.max) == (0.75, 1, 1.0)
-    assert (flag.count, flag.missing_count, flag.mean) == (3, 1, 1 / 3)
+    assert (flag.non_missing_count, flag.missing_count, flag.mean) == (3, 1, 1 / 3)
     assert (arrow.min, arrow.max) == (1.0, 1.0)
     [limitation] = [lim for lim in res.limitations if lim.code == "boolean_as_numeric"]
     assert limitation.fields == [
@@ -150,7 +150,7 @@ def test_counts_missing_infinite_zero_and_negative_values():
 
     # -inf is negative and infinite; count includes the infinite values.
     assert (
-        entry.count,
+        entry.non_missing_count,
         entry.missing_count,
         entry.infinite_count,
         entry.zero_count,
@@ -165,7 +165,7 @@ def test_counts_match_pandas_for_every_numeric_dtype(dtype):
 
     entry = ae.summarize_numeric(df).columns["x"]
 
-    assert entry.count == values.count()
+    assert entry.non_missing_count == values.count()
     assert entry.missing_count == values.isna().sum()
     assert entry.infinite_count == values.isin([INF, -INF]).sum()
     assert entry.zero_count == (values == 0).sum()
@@ -247,7 +247,7 @@ def test_nan_stored_as_a_value_counts_as_missing_with_a_limitation():
 
     entry = res.columns["x"]
     assert values.isna().sum() == 1
-    assert (entry.count, entry.missing_count, entry.mean) == (3, 2, 2.5)
+    assert (entry.non_missing_count, entry.missing_count, entry.mean) == (3, 2, 2.5)
     [limitation] = [
         lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
     ]
@@ -848,9 +848,9 @@ def test_text_shows_the_main_statistics_of_each_column():
             "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
             "skewness and excess_kurtosis.",
             "Columns (2 of 2 shown):",
-            "column  count  missing_count       mean        std    min  median    max",
-            "age         5              1       39.8      9.094     29      38     51",
-            "income      6              0  1.667e+05  4.082e+05  48.25      58  1e+06",
+            "column  non_missing_count  missing_count       mean        std    min  median    max",
+            "age                     5              1       39.8      9.094     29      38     51",
+            "income                  6              0  1.667e+05  4.082e+05  48.25      58  1e+06",
             "Findings: none",
             "Limitations: none",
             "More: res.to_frame() has all 2 columns; res.findings, res.limitations "
@@ -880,7 +880,10 @@ def test_text_of_a_partial_result_names_the_incomplete_columns():
         "Reason: incomplete_columns: 1 of 2 columns didn't complete: 'empty'. "
         "There are no finite values to summarize.",
     ]
-    assert "empty       0              2  null    null  null    null  null" in lines
+    assert (
+        "empty                   0              2  null    null  null    null  null"
+        in lines
+    )
 
 
 def test_text_stays_within_40_lines_of_120_characters():
@@ -901,7 +904,7 @@ def test_to_frame_has_every_statistic_of_every_column():
         "column",
         "status",
         "status_reason",
-        "count",
+        "non_missing_count",
         "missing_count",
         "infinite_count",
         "zero_count",
@@ -920,7 +923,7 @@ def test_to_frame_has_every_statistic_of_every_column():
         "excess_kurtosis",
     ]
     assert frame["column"].tolist() == ["age", "income"]
-    assert frame["count"].tolist() == [5, 6]
+    assert frame["non_missing_count"].tolist() == [5, 6]
     assert frame["q0.5"].tolist() == [38.0, 58.0]
     assert frame["status_reason"].isna().all()
 
@@ -930,7 +933,7 @@ def test_to_frame_types_counts_as_integers_and_statistics_as_floats():
 
     frame = ae.summarize_numeric(df).to_frame()
 
-    assert frame["count"].dtype == "int64"
+    assert frame["non_missing_count"].dtype == "int64"
     assert frame["std"].dtype == "float64"
     assert frame["std"].isna().all()
     assert frame["status_reason"].tolist() == ["no_finite_values", None]
@@ -951,7 +954,7 @@ def test_the_result_states_each_statistics_definition():
     definitions = ae.summarize_numeric(survey()).definitions
 
     assert list(definitions) == [
-        "count",
+        "non_missing_count",
         "missing_count",
         "infinite_count",
         "zero_count",

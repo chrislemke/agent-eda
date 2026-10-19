@@ -24,10 +24,10 @@ def test_describes_an_analysis_named_by_its_short_name():
 
 
 def test_describes_an_analysis_named_by_its_fully_qualified_name():
-    description = ae.describe_analysis("agent_eda.data.provenance.describe_dataset")
+    description = ae.describe_analysis("agent_eda.data.structure.describe_dataset")
 
     assert description.name == "describe_dataset"
-    assert description.module == "agent_eda.data.provenance"
+    assert description.module == "agent_eda.data.structure"
 
 
 @pytest.mark.parametrize(

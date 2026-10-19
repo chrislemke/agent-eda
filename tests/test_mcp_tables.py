@@ -232,7 +232,7 @@ def test_an_index_that_holds_more_than_row_numbers_is_written_first(
     written = read_back(table_path)
     assert list(written.columns[:2]) == ["column", "status"]
     assert written["column"].tolist() == ["score", "visits"]
-    assert written["count"].tolist() == [3, 4]
+    assert written["non_missing_count"].tolist() == [3, 4]
 
 
 def test_an_existing_file_is_refused_before_the_analysis_runs_and_left_alone(

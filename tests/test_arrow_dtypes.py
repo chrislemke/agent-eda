@@ -113,7 +113,7 @@ def test_an_arrow_categorical_pairs_with_the_other_columns():
 
     res = ae.compute_association_matrix(arrow_frame)
 
-    assert res.skipped_columns == []
+    assert res.left_out_columns == []
     assert {(p.x_column, p.y_column) for p in res.pairs} == {
         ("c", "t"),
         ("c", "n"),
@@ -224,10 +224,10 @@ def test_time_binary_and_sparse_object_columns_are_other_and_say_why(column):
     assert described.columns[0].dtype == dtype
     # The default leaves the column out and names it.
     assert summary.left_out_columns == ["x"]
-    assert [(s.column, s.reason) for s in pairs.skipped_columns] == [
+    assert [(s.column, s.reason) for s in pairs.left_out_columns] == [
         ("x", "unsupported_dtype")
     ]
-    assert "neither numbers nor categories" in pairs.skipped_columns[0].message
+    assert "neither numbers nor categories" in pairs.left_out_columns[0].message
     with pytest.raises(ColumnTypeError) as caught:
         ae.summarize_categorical(df, columns=["x"])
     message = str(caught.value)

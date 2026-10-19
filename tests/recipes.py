@@ -605,8 +605,8 @@ RECIPES: dict[str, Recipe] = {
     "infer_column_semantics": Recipe(
         options=lambda data: optional(
             columns=column_lists(names(data, any_dtype)),
-            declared_schema=st.none()
-            | declared_schemas(data, "infer_column_semantics", "declared_schema"),
+            schema=st.none()
+            | declared_schemas(data, "infer_column_semantics", "schema"),
         ),
     ),
     "validate_column_types": Recipe(

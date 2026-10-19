@@ -240,6 +240,21 @@ def test_each_mcp_tool_has_an_output_schema_its_record_validates_against(
     assert not validator.is_valid({**record, "made_up_field": 1})
 
 
+def test_no_mcp_schema_holds_a_name_that_a_rename_retired(tools, name):
+    retired = {
+        "declared_schema",
+        "cardinality",
+        "skipped_columns",
+        "duplicate_row_count",
+    }
+
+    schemas = (tools[name].input_schema, tools[name].output_schema)
+
+    assert {
+        key for schema in schemas for key in property_names(schema)
+    } & retired == set()
+
+
 def test_a_call_with_valid_arguments_returns_the_python_record(tmp_path, name):
     data_path, data = mixed_csv(tmp_path)
     arguments = valid_arguments(name, data)
@@ -299,6 +314,18 @@ def test_the_mcp_server_serves_the_analyses_it_is_given():
     tools = anyio.run(list_tools, serving(ae.describe_dataset))
 
     assert [tool.name for tool in tools] == [*DISCOVERY, "describe_dataset"]
+
+
+def property_names(schema):
+    """Every property name in a JSON Schema, however deep."""
+    if isinstance(schema, dict):
+        for key, value in schema.items():
+            if key == "properties" and isinstance(value, dict):
+                yield from value
+            yield from property_names(value)
+    elif isinstance(schema, list):
+        for value in schema:
+            yield from property_names(value)
 
 
 def schema_descriptions(schema):

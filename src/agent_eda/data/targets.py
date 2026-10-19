@@ -1301,7 +1301,7 @@ def _regression(data: pd.DataFrame, target: Column) -> _Profile:
         ),
         support=numeric_support(target.name, summary),
         fields={
-            "non_missing_count": summary.count,
+            "non_missing_count": summary.non_missing_count,
             "missing_count": missing,
             "missing_share": missing / row_count if row_count else None,
             "statistics": statistics,

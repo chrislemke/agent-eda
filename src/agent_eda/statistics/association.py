@@ -37,10 +37,10 @@ from agent_eda.results import (
     ColumnSupport,
     ComputeAssociationMatrixResult,
     Finding,
+    LeftOutColumn,
+    LeftOutReason,
     Limitation,
     LimitationCode,
-    SkippedColumn,
-    SkipReason,
     Status,
     StatusReason,
     Support,
@@ -85,12 +85,12 @@ _CATEGORICAL = ColumnRule(
     },
 )
 # Why columns=None leaves out a column of each other kind.
-_KIND_SKIPS: dict[str, SkipReason] = {
+_KIND_SKIPS: dict[str, LeftOutReason] = {
     "datetime": "datetime",
     "timedelta": "timedelta",
     "other": "unsupported_dtype",
 }
-_SKIP_MESSAGES: dict[SkipReason, str] = {
+_SKIP_MESSAGES: dict[LeftOutReason, str] = {
     "datetime": (
         "Datetimes have no measure here; convert them to numbers or labels and "
         "name the column in columns."
@@ -115,7 +115,7 @@ _SKIP_MESSAGES: dict[SkipReason, str] = {
     ),
 }
 # A column with more rows than this first counts the distinct values in this
-# many rows, so a column with far too many is skipped without reading it all.
+# many rows, so a column with far too many is left out without reading it all.
 PROBE_ROWS = 20_000
 # A rank method (spearman, kendall) spends about 0.3 seconds per million rows on
 # each numeric pair, and pearson a few milliseconds, so max_pairs counts such a
@@ -126,7 +126,7 @@ _FEWER_THAN_TWO_COLUMNS = StatusReason(
     code="fewer_than_two_columns",
     message=(
         "Fewer than two columns can be paired: numeric, boolean, text, object "
-        "and categorical columns can, and skipped_columns says why the others "
+        "and categorical columns can, and left_out_columns says why the others "
         "can't."
     ),
 )
@@ -241,7 +241,7 @@ def compute_association_matrix(
             datetime, timedelta, period or list column, is rejected with the code
             `unsupported_column_type`. None, the default, selects every
             numeric, boolean, text, object and categorical column in DataFrame order and
-            lists the others in skipped_columns.
+            lists the others in left_out_columns.
         categorical_columns (Sequence[str] | None): Numeric columns to treat as
             categorical, so that codes such as 1, 2 and 3 are compared as
             categories instead of correlated as numbers. Each must be a column
@@ -271,7 +271,7 @@ def compute_association_matrix(
             eta rises with the number of levels even when the columns are
             unrelated: 40 levels in 60 rows give about 0.8 for pure noise.
         max_categories (int): The most distinct values a categorical column may
-            have; a column with more is skipped with reason
+            have; a column with more is left out with reason
             too_many_categories. At least 2; defaults to 50.
         max_pairs (int): The most pairs the call computes, a work limit. With
             more, it returns budget_exceeded without computing any. A numeric
@@ -299,7 +299,7 @@ def compute_association_matrix(
 
         `columns` describes each paired column, keyed by name: its `type`,
         `value_count`, `missing_count`, `infinite_count` and, for a categorical one,
-        `level_count`. `skipped_columns` lists the columns paired with no other, each
+        `distinct_count`. `left_out_columns` lists the columns paired with no other, each
         with its `reason`: datetime, timedelta, unsupported_dtype, all_missing,
         no_finite_values, unhashable_values or too_many_categories. The record keeps the
         100 strongest pairs and adds pairs_total. `to_frame` returns every pair, and its
@@ -330,7 +330,7 @@ def compute_association_matrix(
             none was computed; `status_reason` gives the count and the limit.
         insufficient_data: The data has no rows, or no pair has a value, such
             as when every pair has fewer than 3 complete rows.
-        not_applicable: Fewer than two columns can be paired; skipped_columns
+        not_applicable: Fewer than two columns can be paired; left_out_columns
             says why the others can't.
         failed: An anticipated numerical failure stopped the analysis, and
             `status_reason` gives its code and message. No such failure is known today:
@@ -362,7 +362,7 @@ def compute_association_matrix(
         compute_association_matrix: completed on 8 rows x 5 columns
         Pairs, each on its own complete rows: 1 numeric (pearson), 1 categorical (cramers_v_bias_corrected),
             4 mixed (correlation_ratio_bias_corrected, from the categorical x_column to the numeric y_column).
-        Skipped 1 column, see res.skipped_columns: 'joined' (datetime).
+        Left out 1 column, see res.left_out_columns: 'joined' (datetime).
         Pairs (6 of 6 shown):
         x_column  y_column  method                             value  pair_count  direction
         age       income    pearson                           0.9429           8  symmetric
@@ -392,7 +392,7 @@ def compute_association_matrix(
     selection = select_columns(_ANALYSIS, data, columns, _ASSOCIATION)
     categorical = _categorical_names(data, columns, categorical_columns, selection)
     row_count = len(data)
-    skipped: list[SkippedColumn] = []
+    left_out: list[LeftOutColumn] = []
     paired: list[_Paired] = []
     support: list[ColumnSupport] = []
     selected_names = {column.name for column in selection.columns}
@@ -400,14 +400,14 @@ def compute_association_matrix(
         name = str(label)
         if columns is None and name not in selected_names:
             reason = _KIND_SKIPS[column_kind(dtype)]
-            skipped.append(_skipped(name, str(dtype), reason, max_categories))
+            left_out.append(_left_out(name, str(dtype), reason, max_categories))
     for column in selection.columns:
         read = _read(data, column, column.name in categorical, max_categories)
         if isinstance(read, _Paired):
             paired.append(read)
             support.append(read.support(row_count))
         else:
-            skipped.append(_skipped(column.name, column.dtype, read, max_categories))
+            left_out.append(_left_out(column.name, column.dtype, read, max_categories))
             support.append(
                 ColumnSupport(
                     column=column.name,
@@ -419,7 +419,7 @@ def compute_association_matrix(
             )
     if columns is None:
         order = {str(label): i for i, label in enumerate(data.columns)}
-        skipped.sort(key=lambda s: order[s.column])
+        left_out.sort(key=lambda s: order[s.column])
     pair_count = len(paired) * (len(paired) - 1) // 2
     weight = _rank_weight(numeric_method, row_count)
     numeric_pairs = sum(p.floats is not None for p in paired)
@@ -501,7 +501,7 @@ def compute_association_matrix(
         ),
         pairs=pairs,
         columns={p.entry.column: p.entry for p in paired},
-        skipped_columns=skipped,
+        left_out_columns=left_out,
     )
 
 
@@ -535,7 +535,7 @@ def _categorical_names(
 
 def _read(
     data: pd.DataFrame, column: Column, as_category: bool, max_categories: int
-) -> "_Paired | SkipReason":
+) -> "_Paired | LeftOutReason":
     """The column's values or codes, or why the pairs can't use it."""
     series = data.iloc[:, column.position]
     rows = len(series)
@@ -555,7 +555,7 @@ def _read(
                 value_count=finite,
                 missing_count=missing,
                 infinite_count=rows - missing - finite,
-                level_count=None,
+                distinct_count=None,
             ),
             numbers=numbers,
             floats=numbers.values,
@@ -583,7 +583,7 @@ def _read(
             value_count=rows - missing,
             missing_count=missing,
             infinite_count=0,
-            level_count=found.levels,
+            distinct_count=found.levels,
         ),
         # Only the NaN stored as a value matters to the limitations here:
         # the values are compared as categories, not read as float64.
@@ -632,10 +632,10 @@ def _codes(series: pd.Series, *, numbers: bool) -> _Levels | None:
     return _Levels(codes, len(uniques))
 
 
-def _skipped(
-    name: str, dtype: str, reason: SkipReason, max_categories: int
-) -> SkippedColumn:
-    return SkippedColumn(
+def _left_out(
+    name: str, dtype: str, reason: LeftOutReason, max_categories: int
+) -> LeftOutColumn:
+    return LeftOutColumn(
         column=name,
         dtype=dtype,
         reason=reason,
@@ -661,9 +661,9 @@ def _pairs(
             numeric.append(column.floats)
         else:
             assert column.codes is not None
-            assert column.entry.level_count is not None
+            assert column.entry.distinct_count is not None
             index.append(len(categorical))
-            categorical.append(Codes(column.codes, column.entry.level_count))
+            categorical.append(Codes(column.codes, column.entry.distinct_count))
     measures = measure_pairs(
         numeric,
         categorical,

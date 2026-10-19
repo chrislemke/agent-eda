@@ -16,7 +16,7 @@ def info_for(name):
 def test_lists_each_analysis_with_its_module_summary_and_masking_support():
     info = info_for("describe_dataset")
 
-    assert info.module == "agent_eda.data.provenance"
+    assert info.module == "agent_eda.data.structure"
     assert info.summary == "What does this dataset contain?"
     assert info.supports_masking is False
 
@@ -60,7 +60,7 @@ def test_prints_one_line_per_analysis_under_its_module():
 
     count = len(listing.analyses)
     assert lines[0] == f"{count} {'analysis' if count == 1 else 'analyses'}, by module:"
-    assert "agent_eda.data.provenance" in lines
+    assert "agent_eda.data.structure" in lines
     assert "  describe_dataset: What does this dataset contain?" in lines
     modules = {a.module for a in listing.analyses}
     assert len(lines) == 1 + len(modules) + count
@@ -71,8 +71,8 @@ def test_reloading_an_analysis_module_keeps_one_entry_per_analysis():
     code = (
         "import importlib\n"
         "import agent_eda as ae\n"
-        "import agent_eda.data.provenance as provenance\n"
-        "importlib.reload(provenance)\n"
+        "import agent_eda.data.structure as structure\n"
+        "importlib.reload(structure)\n"
         "print([a.name for a in ae.list_analyses().analyses].count('describe_dataset'))\n"
     )
 

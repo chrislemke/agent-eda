@@ -111,7 +111,7 @@ def test_the_printed_result_names_record_fields_without_python(tmp_path):
     response = anyio.run(call, "compute_association_matrix", {"data_path": str(path)})
 
     text = response.content[0].text
-    assert "Skipped 1 column, see skipped_columns: 'joined' (" in text
+    assert "Left out 1 column, see left_out_columns: 'joined' (" in text
     # Over MCP, table_path writes only the default table, so the footer names no
     # other one.
     assert text.splitlines()[-1] == (

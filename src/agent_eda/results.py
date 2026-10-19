@@ -1321,7 +1321,7 @@ class DescribeDatasetResult(AnalysisResult):
 class SummarizeNumericColumn(ColumnResult):
     """What summarize_numeric found in one column."""
 
-    count: int = Field(
+    non_missing_count: int = Field(
         description="Values that aren't missing, infinite ones included."
     )
     missing_count: int = Field(
@@ -1408,7 +1408,15 @@ class SummarizeNumericResult(AnalysisResult):
         return facts
 
     def _text_table(self) -> _text.Table:
-        headers = ("column", "count", "missing_count", "mean", "std", "min", "median")
+        headers = (
+            "column",
+            "non_missing_count",
+            "missing_count",
+            "mean",
+            "std",
+            "min",
+            "median",
+        )
         return _text.Table(
             title="Columns",
             unit=("column", "columns"),
@@ -1416,7 +1424,7 @@ class SummarizeNumericResult(AnalysisResult):
             rows=[
                 (
                     e.column,
-                    e.count,
+                    e.non_missing_count,
                     e.missing_count,
                     e.mean,
                     e.std,
@@ -1519,16 +1527,16 @@ class SummarizeCategoricalColumn(ColumnResult):
         "value_counts leaves out. NaN that a pyarrow-backed float column stores "
         "as a value is a level, as in value_counts."
     )
-    cardinality: int | None = Field(
+    distinct_count: int | None = Field(
         description="Levels: the distinct non-missing values, as pandas "
         "value_counts tells them apart, so 1, 1.0 and True are one level. Null "
         "when the values can't be hashed."
     )
     levels: Annotated[
-        list[SummarizeCategoricalLevel], _Cap(100, total="cardinality")
+        list[SummarizeCategoricalLevel], _Cap(100, total="distinct_count")
     ] = Field(
         description="The first 100 levels, ordered by count, descending, then by "
-        "label, as level_order states. cardinality counts every level, the "
+        "label, as level_order states. distinct_count counts every level, the "
         "record adds it as levels_total, and the full table (to_frame, or "
         "table_path over MCP) has every level."
     )
@@ -1615,7 +1623,7 @@ class SummarizeCategoricalResult(MaskableResult):
                 "column",
                 "non_missing_count",
                 "missing_count",
-                "cardinality",
+                "distinct_count",
                 "most_common_levels",
             ),
             rows=[
@@ -1623,7 +1631,7 @@ class SummarizeCategoricalResult(MaskableResult):
                     e.column,
                     e.non_missing_count,
                     e.missing_count,
-                    e.cardinality,
+                    e.distinct_count,
                     ", ".join(
                         _level_text(level, masked=self._masked(e.column))
                         for level in e.most_common_levels
@@ -1631,7 +1639,7 @@ class SummarizeCategoricalResult(MaskableResult):
                 )
                 for e in self.columns.values()
             ],
-            frame_rows=sum(e.cardinality or 0 for e in self.columns.values()),
+            frame_rows=sum(e.distinct_count or 0 for e in self.columns.values()),
             frame_unit=("level", "levels"),
         )
 
@@ -1645,7 +1653,7 @@ class SummarizeCategoricalResult(MaskableResult):
         no rows.
         """
         if self._tables is None:
-            if any(column.cardinality for column in self.columns.values()):
+            if any(column.distinct_count for column in self.columns.values()):
                 raise _tables_unavailable(self)
             return levels_frame({})
         return levels_frame(self._tables)
@@ -2009,7 +2017,7 @@ class ProfileTargetResult(MaskableResult):
     def _regression_facts(
         self, statistics: "ProfileTargetStatistics", surface: _text.Surface
     ) -> list[str]:
-        finite = statistics.count - statistics.infinite_count
+        finite = statistics.non_missing_count - statistics.infinite_count
         non_finite = self.non_finite_count or 0
         if non_finite:
             others = (
@@ -2035,7 +2043,7 @@ class ProfileTargetResult(MaskableResult):
                 unit=("column", "columns"),
                 headers=(
                     "column",
-                    "count",
+                    "non_missing_count",
                     "missing_count",
                     "mean",
                     "std",
@@ -2046,7 +2054,7 @@ class ProfileTargetResult(MaskableResult):
                 rows=[
                     (
                         entry.column,
-                        entry.count,
+                        entry.non_missing_count,
                         entry.missing_count,
                         entry.mean,
                         entry.std,
@@ -2507,12 +2515,12 @@ class CandidateKey(ResultModel):
     columns: Annotated[list[str], _ENTRIES] = Field(
         description="The columns of the set, in the order of the searched columns."
     )
-    distinct_count: int = Field(
+    distinct_row_count: int = Field(
         description="Distinct combinations of values in these columns, with missing "
         "values of every kind (None, NaN, NaT, NA) compared equal: the rows of the "
         "set that no earlier row repeats."
     )
-    duplicate_row_count: int = Field(
+    duplicate_group_row_count: int = Field(
         description="Rows whose combination another row shares, counting every row "
         "of a repeated combination, the first one too; 0 for a key."
     )
@@ -2520,7 +2528,7 @@ class CandidateKey(ResultModel):
         description="Rows with a missing value in at least one of these columns."
     )
     uniqueness_share: float = Field(
-        description="distinct_count divided by the rows of the data; 1 for a key."
+        description="distinct_row_count divided by the rows of the data; 1 for a key."
     )
     is_minimal: bool = Field(
         description="Whether no smaller set of these columns identifies rows as "
@@ -2650,8 +2658,8 @@ class FindCandidateKeysResult(AnalysisResult):
             headers=(
                 "columns",
                 "kind",
-                "distinct_count",
-                "duplicate_row_count",
+                "distinct_row_count",
+                "duplicate_group_row_count",
                 "missing_row_count",
                 "uniqueness_share",
             ),
@@ -2659,8 +2667,8 @@ class FindCandidateKeysResult(AnalysisResult):
                 (
                     ", ".join(_text.label_text(name) for name in candidate.columns),
                     kind,
-                    candidate.distinct_count,
-                    candidate.duplicate_row_count,
+                    candidate.distinct_row_count,
+                    candidate.duplicate_group_row_count,
                     candidate.missing_row_count,
                     candidate.uniqueness_share,
                 )
@@ -2695,7 +2703,7 @@ AssociationMethod = Literal[
 ]
 
 # Why compute_association_matrix pairs a column with no other.
-SkipReason = Literal[
+LeftOutReason = Literal[
     "datetime",
     "timedelta",
     "unsupported_dtype",
@@ -2732,25 +2740,25 @@ class AssociationColumn(ResultModel):
         description="Values equal to inf or -inf in a numeric column, which the "
         "pairs leave out; 0 in a categorical column, where they are levels."
     )
-    level_count: int | None = Field(
+    distinct_count: int | None = Field(
         description="Distinct values of a categorical column, missing values not "
         "counted; null for a numeric column."
     )
 
 
-class SkippedColumn(ResultModel):
+class LeftOutColumn(ResultModel):
     """A column compute_association_matrix paired with no other, and why."""
 
     column: str = Field(description="The column name: the label's string form.")
     dtype: str = Field(description="The dtype as pandas reports it.")
-    reason: SkipReason = Field(
-        description="Why it was skipped: datetime, timedelta or unsupported_dtype "
+    reason: LeftOutReason = Field(
+        description="Why it was left out: datetime, timedelta or unsupported_dtype "
         "for dtypes without a measure (only when columns is None); all_missing; "
         "no_finite_values for a numeric column holding only inf and -inf; "
         "unhashable_values for values such as lists; too_many_categories for a "
         "categorical column with more distinct values than max_categories."
     )
-    message: str = Field(description="One sentence on why it was skipped.")
+    message: str = Field(description="One sentence on why it was left out.")
 
 
 class AssociationPair(ResultModel):
@@ -2808,7 +2816,7 @@ class ComputeAssociationMatrixResult(AnalysisResult):
         description="The paired columns, keyed by column name, in the selected "
         "order. The record keeps the first 100 and adds columns_total."
     )
-    skipped_columns: Annotated[list[SkippedColumn], _ENTRIES] = Field(
+    left_out_columns: Annotated[list[LeftOutColumn], _ENTRIES] = Field(
         description="The columns paired with no other, with the reason, in "
         "DataFrame order when columns is None and in the given order otherwise."
     )
@@ -2860,14 +2868,14 @@ class ComputeAssociationMatrixResult(AnalysisResult):
                     "from the categorical x_column to the numeric y_column).",
                 ]
             )
-        if self.skipped_columns:
-            skipped = [f"{s.column!r} ({s.reason})" for s in self.skipped_columns]
+        if self.left_out_columns:
+            left_out = [f"{s.column!r} ({s.reason})" for s in self.left_out_columns]
             facts.extend(
                 _text.wrap(
-                    "Skipped "
-                    f"{_text.plural(len(skipped), 'column', 'columns')}, see "
-                    f"{_text.field_name('skipped_columns', surface)}: "
-                    f"{_text.join_items(skipped)}.",
+                    "Left out "
+                    f"{_text.plural(len(left_out), 'column', 'columns')}, see "
+                    f"{_text.field_name('left_out_columns', surface)}: "
+                    f"{_text.join_items(left_out)}.",
                     first="",
                     indent="    ",
                 )
@@ -3018,7 +3026,7 @@ class InferColumnSemanticsColumn(ColumnResult):
         "scores above 0. A guess from the values, never a declaration."
     )
     declared_logical_type: LogicalType | None = Field(
-        description="The logical type declared_schema gives the column; null when "
+        description="The logical type schema gives the column; null when "
         "it declares none. Inference never overwrites it."
     )
     matches_declared: bool | None = Field(
@@ -3053,8 +3061,8 @@ class InferColumnSemanticsResult(AnalysisResult):
         "the full table (to_frame, or table_path over MCP) has every column."
     )
     missing_declared_columns: Annotated[list[str], _ENTRIES] = Field(
-        description="Columns declared_schema names that the data doesn't have, in "
-        "declared order; empty without declared_schema."
+        description="Columns schema names that the data doesn't have, in "
+        "declared order; empty without schema."
     )
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
@@ -3062,9 +3070,9 @@ class InferColumnSemanticsResult(AnalysisResult):
             "Scores rank logical types by fixed rules and aren't probabilities. "
             "Dates parse as ISO 8601 only."
         ]
-        if self.parameters.get("declared_schema") is None:
+        if self.parameters.get("schema") is None:
             facts.append(
-                "No declared_schema was given, so no column was compared with a "
+                "No schema was given, so no column was compared with a "
                 "declared logical type."
             )
         else:
@@ -3074,7 +3082,7 @@ class InferColumnSemanticsResult(AnalysisResult):
             differing = sum(e.matches_declared is False for e in entries)
             missing = len(self.missing_declared_columns)
             facts.append(
-                f"declared_schema: {_text.plural(declared, 'column', 'columns')} "
+                f"schema: {_text.plural(declared, 'column', 'columns')} "
                 f"declared in the data, {matching:,} matching (a tie with the top "
                 f"counts), {differing:,} not; {missing:,} not in the data."
             )
@@ -3084,7 +3092,7 @@ class InferColumnSemanticsResult(AnalysisResult):
         return ["res.to_frame(table='candidates') has every candidate with its reasons"]
 
     def _text_table(self) -> _text.Table:
-        declared = self.parameters.get("declared_schema") is not None
+        declared = self.parameters.get("schema") is not None
         headers = ["column", "inferred", "score", "next", "next_score"]
         if declared:
             headers.append("declared")

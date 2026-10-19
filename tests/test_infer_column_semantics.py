@@ -337,7 +337,7 @@ def test_flags_a_constant_column():
 
 
 def test_flags_an_all_missing_column_and_gives_it_no_candidates():
-    entry = infer([None, None], declared_schema={"x": "integer"})
+    entry = infer([None, None], schema={"x": "integer"})
 
     assert entry.flags == ["all_missing"]
     assert entry.candidates == []
@@ -519,7 +519,7 @@ def test_declared_schema_takes_logical_types_and_column_specs():
         "when": {"logical_type": "datetime", "nullable": False},
     }
 
-    res = ae.infer_column_semantics(frame(), declared_schema=schema)
+    res = ae.infer_column_semantics(frame(), schema=schema)
 
     declared = {
         name: entry.declared_logical_type for name, entry in res.columns.items()
@@ -530,7 +530,7 @@ def test_declared_schema_takes_logical_types_and_column_specs():
         "when": "datetime",
         "member": None,
     }
-    assert res.parameters["declared_schema"] == {
+    assert res.parameters["schema"] == {
         "zip": {"logical_type": "text", "nullable": None, "datetime_format": None},
         "amount": {"logical_type": "float", "nullable": True, "datetime_format": None},
         "when": {
@@ -543,7 +543,7 @@ def test_declared_schema_takes_logical_types_and_column_specs():
 
 def test_never_overwrites_a_declared_type_and_says_where_it_differs():
     res = ae.infer_column_semantics(
-        frame(), declared_schema={"zip": "integer", "when": "datetime"}
+        frame(), schema={"zip": "integer", "when": "datetime"}
     )
 
     zip_code = res.columns["zip"]
@@ -569,7 +569,7 @@ def test_never_overwrites_a_declared_type_and_says_where_it_differs():
 def test_a_declared_column_without_values_cant_be_compared():
     df = pd.DataFrame({"x": [None, None], "y": [1, 2]})
 
-    res = ae.infer_column_semantics(df, declared_schema={"x": "integer"})
+    res = ae.infer_column_semantics(df, schema={"x": "integer"})
 
     [unchecked] = [f for f in res.findings if f.code == "declared_type_unchecked"]
     assert unchecked.assessment == "unknown"
@@ -578,12 +578,10 @@ def test_a_declared_column_without_values_cant_be_compared():
 
 
 def test_a_declared_column_the_data_lacks_is_a_violation_with_the_closest_name():
-    res = ae.infer_column_semantics(
-        frame(), declared_schema={"amout": "float", "zip": "text"}
-    )
+    res = ae.infer_column_semantics(frame(), schema={"amout": "float", "zip": "text"})
 
     assert res.missing_declared_columns == ["amout"]
-    [missing] = [f for f in res.findings if f.code == "declared_columns_missing"]
+    [missing] = [f for f in res.findings if f.code == "missing_declared_columns"]
     assert missing.assessment == "violation"
     assert missing.claim == (
         "1 declared column is not in the data: 'amout' (did you mean 'amount'?)."
@@ -598,8 +596,7 @@ def test_without_declared_schema_no_comparison_runs():
     assert all(e.matches_declared is None for e in res.columns.values())
     assert not [f for f in res.findings if f.code.startswith("declared_")]
     assert (
-        "No declared_schema was given, so no column was compared with a declared "
-        "logical type."
+        "No schema was given, so no column was compared with a declared logical type."
     ) in str(res).splitlines()
 
 
@@ -608,23 +605,23 @@ def test_declared_schema_takes_labels_that_are_not_strings():
     # A label that isn't a string is accepted at runtime.
     schema: dict[Any, Any] = {0: "categorical", "1": "float"}
 
-    res = ae.infer_column_semantics(df, declared_schema=schema)
+    res = ae.infer_column_semantics(df, schema=schema)
 
     assert res.columns["0"].declared_logical_type == "categorical"
     assert res.columns["1"].declared_logical_type == "float"
-    recorded = res.parameters["declared_schema"]
+    recorded = res.parameters["schema"]
     assert isinstance(recorded, dict)
     assert list(recorded) == ["0", "1"]
 
 
 def test_an_unknown_declared_logical_type_raises_with_the_closest():
     with pytest.raises(InvalidArgumentError) as caught:
-        ae.infer_column_semantics(frame(), declared_schema={"zip": "int"})  # ty: ignore[invalid-argument-type]  # the typo is the test
+        ae.infer_column_semantics(frame(), schema={"zip": "int"})  # ty: ignore[invalid-argument-type]  # the typo is the test
 
     assert caught.value.code == "invalid_argument"
     assert str(caught.value) == (
-        "infer_column_semantics got 'int' at declared_schema['zip'], but each "
-        "value in declared_schema must be one of 'boolean', 'integer', 'float', "
+        "infer_column_semantics got 'int' at schema['zip'], but each "
+        "value in schema must be one of 'boolean', 'integer', 'float', "
         "'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec. Did "
         "you mean 'integer'? See help(ae.infer_column_semantics) for every "
         "argument."
@@ -635,10 +632,10 @@ def test_an_invalid_column_spec_in_declared_schema_raises_in_the_package_format(
     schema: dict[str, Any] = {"zip": {"logical_type": "txt"}}
 
     with pytest.raises(InvalidArgumentError) as caught:
-        ae.infer_column_semantics(frame(), declared_schema=schema)
+        ae.infer_column_semantics(frame(), schema=schema)
 
     assert str(caught.value) == (
-        "infer_column_semantics got an invalid value at declared_schema['zip']: "
+        "infer_column_semantics got an invalid value at schema['zip']: "
         "ColumnSpec got 'txt' for logical_type, but logical_type must be one of "
         "'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or "
         "'timedelta'. Did you mean 'text'? See help(ae.ColumnSpec) for every field."
@@ -650,11 +647,11 @@ def test_a_column_named_twice_in_declared_schema_raises():
     df = pd.DataFrame({1: [1, 2]})
 
     with pytest.raises(InvalidArgumentError) as caught:
-        ae.infer_column_semantics(df, declared_schema={1: "integer", "1": "float"})  # ty: ignore[invalid-argument-type]  # labels that aren't strings are accepted at runtime
+        ae.infer_column_semantics(df, schema={1: "integer", "1": "float"})  # ty: ignore[invalid-argument-type]  # labels that aren't strings are accepted at runtime
 
     assert str(caught.value) == (
         "infer_column_semantics got column '1' more than once in "
-        "declared_schema, as 1 and '1'. Name each column once."
+        "schema, as 1 and '1'. Name each column once."
     )
 
 
@@ -696,7 +693,7 @@ def test_the_result_shows_no_raw_data_values():
         }
     )
 
-    res = ae.infer_column_semantics(df, declared_schema={"code": "text"})
+    res = ae.infer_column_semantics(df, schema={"code": "text"})
 
     shown = [
         str(res),
@@ -711,7 +708,7 @@ def test_the_result_shows_no_raw_data_values():
 
 
 def test_prints_each_column_with_its_top_candidates_and_flags():
-    res = ae.infer_column_semantics(frame(), declared_schema={"zip": "integer"})
+    res = ae.infer_column_semantics(frame(), schema={"zip": "integer"})
 
     lines = str(res).splitlines()
     assert lines[0] == "infer_column_semantics: completed on 4 rows x 4 columns"
@@ -720,7 +717,7 @@ def test_prints_each_column_with_its_top_candidates_and_flags():
         "parse as ISO 8601 only."
     )
     assert lines[2] == (
-        "declared_schema: 1 column declared in the data, 0 matching (a tie with "
+        "schema: 1 column declared in the data, 0 matching (a tie with "
         "the top counts), 1 not; 0 not in the data."
     )
     assert lines[3] == "Columns (4 of 4 shown):"
@@ -792,21 +789,21 @@ def test_the_record_caps_a_long_declared_schema_and_gives_its_total():
     df = pd.DataFrame({f"c{i}": [i, i + 1] for i in range(150)})
     schema: dict[str, Any] = {f"c{i}": "integer" for i in range(150)}
 
-    res = ae.infer_column_semantics(df, declared_schema=schema)
+    res = ae.infer_column_semantics(df, schema=schema)
 
     record = res.to_dict()
-    assert len(record["parameters"]["declared_schema"]) == 100
-    assert record["parameters"]["declared_schema_total"] == 150
+    assert len(record["parameters"]["schema"]) == 100
+    assert record["parameters"]["schema_total"] == 150
     assert record["parameters"]["data"] == {"row_count": 2, "column_count": 150}
     assert "data_total" not in record["parameters"]
-    recorded = res.parameters["declared_schema"]
+    recorded = res.parameters["schema"]
     assert isinstance(recorded, dict)
     assert len(recorded) == 150
 
 
 def test_identical_calls_give_identical_json():
-    first = ae.infer_column_semantics(frame(), declared_schema={"zip": "text"})
-    second = ae.infer_column_semantics(frame(), declared_schema={"zip": "text"})
+    first = ae.infer_column_semantics(frame(), schema={"zip": "text"})
+    second = ae.infer_column_semantics(frame(), schema={"zip": "text"})
 
     assert first.to_json() == second.to_json()
     json.loads(first.to_json())

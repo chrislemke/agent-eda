@@ -303,7 +303,7 @@ _TIE_ORDER: tuple[LogicalType, ...] = (
         "declared_type_mismatch",
         "declared_type_match",
         "declared_type_unchecked",
-        "declared_columns_missing",
+        "missing_declared_columns",
     ),
     tags=(
         "logical type",
@@ -319,7 +319,7 @@ def infer_column_semantics(
     data: pd.DataFrame,
     *,
     columns: Sequence[str] | None = None,
-    declared_schema: Mapping[str, LogicalType | ColumnSpec] | None = None,
+    schema: Mapping[str, LogicalType | ColumnSpec] | None = None,
 ) -> InferColumnSemanticsResult:
     """What kind of values does each column hold?
 
@@ -331,7 +331,7 @@ def infer_column_semantics(
         text, booleans such as yes/no or 0/1, a few labels repeated over many
         rows, and free text. Each column gets candidate logical types ranked by
         a heuristic score, the evidence behind them and flags for what needs
-        attention. Pass the logical types you expect as declared_schema to
+        attention. Pass the logical types you expect as schema to
         compare each with what the values show; a declaration is never
         overwritten. To test every value against the logical types you
         declare, with the invalid ones and their row IDs, call
@@ -348,7 +348,7 @@ def infer_column_semantics(
             can be given as itself, such as 0, or as its string form. Columns of every
             dtype are accepted. None, the default, selects every column, in DataFrame
             order.
-        declared_schema (Mapping[str, str | ColumnSpec] | None): The logical
+        schema (Mapping[str, str | ColumnSpec] | None): The logical
             types you declare, by column name: 'boolean', 'integer', 'float',
             'categorical', 'text', 'datetime' or 'timedelta', or a
             ColumnSpec (a mapping of its fields works too), whose logical_type is
@@ -374,7 +374,7 @@ def infer_column_semantics(
           that you see why numbers were ruled out. A column where every
           candidate scores 0 has no inferred type and no top score.
         - `flags`, what needs attention, each explained by a finding below.
-        - `declared_logical_type` and `matches_declared`, when declared_schema
+        - `declared_logical_type` and `matches_declared`, when schema
           declares the column: true when the declared type is the top candidate
           or ties with it, such as float for a column of whole numbers.
         - `evidence`: `non_missing_count`, `distinct_count`,
@@ -447,7 +447,7 @@ def infer_column_semantics(
           candidate tied with it, is its declared logical type.
         - `declared_type_unchecked`: unknown; a declared column has no candidate to
           compare, since it has no values or none fits.
-        - `declared_columns_missing`: violation; declared_schema names columns the data
+        - `missing_declared_columns`: violation; schema names columns the data
           doesn't have, listed in `missing_declared_columns`.
 
     Statuses:
@@ -475,11 +475,11 @@ def infer_column_semantics(
         ...         "amount": [12.0, 30.0, None, 7.0, 12.0, 45.0],
         ...     }
         ... )
-        >>> res = ae.infer_column_semantics(df, declared_schema={"amount": "float"})
+        >>> res = ae.infer_column_semantics(df, schema={"amount": "float"})
         >>> print(res)
         infer_column_semantics: completed on 6 rows x 5 columns
         Scores rank logical types by fixed rules and aren't probabilities. Dates parse as ISO 8601 only.
-        declared_schema: 1 column declared in the data, 1 matching (a tie with the top counts), 0 not; 0 not in the data.
+        schema: 1 column declared in the data, 1 matching (a tie with the top counts), 0 not; 0 not in the data.
         Columns (5 of 5 shown):
         column    inferred      score  next         next_score  declared  flags
         zip       categorical  0.3333  text             0.3333  null
@@ -517,7 +517,7 @@ def infer_column_semantics(
     row_count = len(data)
     declared = {
         name: spec if isinstance(spec, ColumnSpec) else ColumnSpec(logical_type=spec)
-        for name, spec in (declared_schema or {}).items()
+        for name, spec in (schema or {}).items()
     }
     names = [str(label) for label in data.columns]
     known = set(names)
@@ -552,8 +552,8 @@ def infer_column_semantics(
         parameters={
             "data": data_shape(data),
             "columns": [column.name for column in selected],
-            "declared_schema": None
-            if declared_schema is None
+            "schema": None
+            if schema is None
             else {
                 name: spec.model_dump(mode="json") for name, spec in declared.items()
             },
@@ -1268,7 +1268,7 @@ def _declared_findings(
     if missing:
         findings.append(
             Finding(
-                code="declared_columns_missing",
+                code="missing_declared_columns",
                 claim=_missing_columns_claim(missing, names),
                 assessment="violation",
                 columns=missing,
@@ -1342,11 +1342,11 @@ _EXAMPLE_LIMIT = 5
 # first, then what couldn't be checked, what converts and what held.
 _FINDING_CODES = (
     "invalid_values",
-    "declared_columns_missing",
+    "missing_declared_columns",
     "non_nullable_missing_values",
     "unchecked_columns",
     "convertible_values",
-    "valid_columns",
+    "passing_columns",
 )
 
 
@@ -1474,7 +1474,7 @@ def validate_column_types(
         the printed text, `to_dict`, `to_json` and `to_frame` alike.
 
         - `invalid_values`: violation; columns that hold invalid values.
-        - `declared_columns_missing`: violation; declared columns the data doesn't have,
+        - `missing_declared_columns`: violation; declared columns the data doesn't have,
           each with the closest names.
         - `non_nullable_missing_values`: violation; columns declared non-nullable
           that have missing values.
@@ -1482,7 +1482,7 @@ def validate_column_types(
           value is missing.
         - `convertible_values`: descriptive; columns with values stored as another type;
           convert them before you use them as the declared type.
-        - `valid_columns`: passed; columns that pass every check: only compatible and
+        - `passing_columns`: passed; columns that pass every check: only compatible and
           convertible values, and none missing when declared non-nullable.
 
     Statuses:
@@ -1533,10 +1533,10 @@ def validate_column_types(
         paid      boolean             object                    0            4        0        1
         Findings (5 of 5 shown):
         - violation invalid_values: 2 columns hold invalid values: 'qty' and 'ordered'.
-        - violation declared_columns_missing: 1 declared column is not in the data: 'customer'.
+        - violation missing_declared_columns: 1 declared column is not in the data: 'customer'.
         - violation non_nullable_missing_values: 1 column declared non-nullable has missing values: 'ordered'.
         - descriptive convertible_values: 3 columns hold convertible values: 'qty', 'ordered' and 'paid'.
-        - passed valid_columns: 1 column passes every check: 'paid'.
+        - passed passing_columns: 1 column passes every check: 'paid'.
         Limitations (1 of 1 shown):
         - column_not_in_data: 1 declared column isn't in the data, so its dtype and counts are null: 'customer'.
         More: res.to_frame() has all 4 declared columns; res.to_frame(table='invalid_values') counts every distinct invalid
@@ -1824,7 +1824,7 @@ _COLUMN_FINDINGS = (
         lambda e: bool(e.convertible_count),
     ),
     _ColumnFinding(
-        "valid_columns",
+        "passing_columns",
         "passed",
         "passes every check",
         "pass every check",
@@ -1853,8 +1853,8 @@ def _validation_findings(
                 fields=[f"{_path(name)}.{finding.field}" for name in picked],
             )
     if absent:
-        findings["declared_columns_missing"] = Finding(
-            code="declared_columns_missing",
+        findings["missing_declared_columns"] = Finding(
+            code="missing_declared_columns",
             claim=_missing_columns_claim(absent, names),
             assessment="violation",
             columns=absent,
