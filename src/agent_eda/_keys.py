@@ -117,8 +117,8 @@ class SetCounts:
     """How a column set identifies rows, counted on all rows."""
 
     positions: tuple[int, ...]
-    distinct_count: int
-    duplicate_row_count: int
+    distinct_row_count: int
+    duplicate_group_row_count: int
     missing_row_count: int
 
 
@@ -131,9 +131,9 @@ class _Column:
         group_sizes = np.bincount(codes, minlength=self.size)
         row_count = len(codes)
         self.missing_count = int(group_sizes[0])
-        self.distinct_count = int(np.count_nonzero(group_sizes))
+        self.distinct_row_count = int(np.count_nonzero(group_sizes))
         singles = int(np.count_nonzero(group_sizes == 1))
-        self.duplicate_row_count = row_count - singles
+        self.duplicate_group_row_count = row_count - singles
         # The chance that two rows drawn at random share a value.
         squares = float(np.dot(group_sizes, group_sizes.astype(np.float64)))
         self.collision = squares / row_count**2 if row_count else 0.0
@@ -380,7 +380,7 @@ class Searcher:
         if key not in self._repeats:
             if len(positions) == 1 and step == 1:
                 column = self.column(positions[0])
-                self._repeats[key] = self.row_count - column.distinct_count
+                self._repeats[key] = self.row_count - column.distinct_row_count
             else:
                 rows = self._shared_rows(positions, step)
                 self.rows_hashed += len(rows)
@@ -396,7 +396,7 @@ class Searcher:
     def _sharing(self, positions: tuple[int, ...]) -> int:
         """Rows whose combination another row shares too."""
         if len(positions) == 1:
-            return self.column(positions[0]).duplicate_row_count
+            return self.column(positions[0]).duplicate_group_row_count
         rows = self._shared_rows(positions, 1)
         if not len(rows):
             return 0
@@ -540,7 +540,7 @@ class Searcher:
             capacity = 1
             for j, other in enumerate(columns):
                 if j != i:
-                    capacity = min(self.row_count, capacity * other.distinct_count)
+                    capacity = min(self.row_count, capacity * other.distinct_row_count)
             repeats = max(
                 repeats, column.repeats_at_least(capacity, missing_everywhere)
             )
@@ -548,7 +548,7 @@ class Searcher:
 
     def _cannot_be_minimal(self, positions: tuple[int, ...], bound: int) -> bool:
         """Whether a single column of the set already has as many as the bound."""
-        return bound <= max(self.column(p).distinct_count for p in positions)
+        return bound <= max(self.column(p).distinct_row_count for p in positions)
 
     def _missing_everywhere(self, positions: tuple[int, ...]) -> int:
         """Rows missing in every column of the set."""

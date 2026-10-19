@@ -70,9 +70,9 @@ summarize_numeric: completed on 8 rows x 6 columns
 Statistics use the finite values. Quantile method linear; trimmed_mean cuts 10% from each end.
 res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, skewness and excess_kurtosis.
 Columns (2 of 2 shown):
-column  count  missing_count       mean       std       min    median      max
-age         8              0     -86.12       369      -999      41.5       62
-income      7              1  5.521e+04  1.21e+04  3.95e+04  5.85e+04  7.5e+04
+column  non_missing_count  missing_count       mean       std       min    median      max
+age                     8              0     -86.12       369      -999      41.5       62
+income                  7              1  5.521e+04  1.21e+04  3.95e+04  5.85e+04  7.5e+04
 Findings: none
 Limitations: none
 More: res.to_frame() has all 2 columns; res.findings, res.limitations and res.to_json() have the rest.
@@ -182,7 +182,7 @@ Every analysis decides which values are equal as pandas does, so `1`, `1.0` and 
 
 `find_candidate_keys` leaves out float columns with a fraction such as `0.5` unless `columns` names them, and lists them in `non_integral_float_columns`; whole-number floats, `NaN` allowed, stay candidates. A `max_key_size` above the column count acts as that count.
 
-A pyarrow dictionary column, such as Parquet gives a categorical, is a categorical like pandas' own. Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, are "other": the defaults leave them out, `compute_association_matrix` skips them as `unsupported_dtype`, and naming one raises `ColumnTypeError`.
+A pyarrow dictionary column, such as Parquet gives a categorical, is a categorical like pandas' own. Arrow time-of-day, binary and nested columns, and sparse columns of anything but numbers or booleans, are "other": the defaults leave them out, `compute_association_matrix` lists them in `left_out_columns` as `unsupported_dtype`, and naming one raises `ColumnTypeError`.
 
 `infer_column_semantics` and `validate_column_types` read text by the same rules:
 
@@ -216,8 +216,8 @@ Masked (data_policy.mask_sensitive=True): the values of column 'email' show as <
     and shares are unaffected.
 Shares are of each column's non-missing values. Levels go by count, then label; most_common_levels has the top 10.
 Columns (1 of 1 shown):
-column  non_missing_count  missing_count  cardinality  most_common_levels
-email                   8              0            6  <masked 1>: 2 (25%), <masked 2>: 2 (25%), <masked 3>: 1 (12.5%...
+column  non_missing_count  missing_count  distinct_count  most_common_levels
+email                   8              0               6  <masked 1>: 2 (25%), <masked 2>: 2 (25%), <masked 3>: 1 (12...
 Findings: none
 Limitations: none
 More: res.to_frame() has all 6 levels; res.findings, res.limitations and res.to_json() have the rest.
@@ -379,14 +379,14 @@ What does this dataset contain?
 
 #### `infer_column_semantics`
 
-`ae.infer_column_semantics(data, *, columns=None, declared_schema=None) -> InferColumnSemanticsResult`
+`ae.infer_column_semantics(data, *, columns=None, schema=None) -> InferColumnSemanticsResult`
 
 What kind of values does each column hold?
 
 | Argument | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `columns` | `Sequence[str] \| None` | `None` | Names of the columns to read, in the order to report them: a list or a single name. |
-| `declared_schema` | `Mapping[str, str \| ColumnSpec] \| None` | `None` | The logical types you declare, by column name: 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec (a mapping of its fields works too), whose logical_type is the one compared. |
+| `schema` | `Mapping[str, str \| ColumnSpec] \| None` | `None` | The logical types you declare, by column name: 'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec (a mapping of its fields works too), whose logical_type is the one compared. |
 
 **Fields:** `columns` (`column`, `status`, `status_reason`, `dtype`, `inferred_logical_type`, `declared_logical_type`, `matches_declared`, `candidates`, `flags`, `evidence`), `missing_declared_columns`
 
@@ -401,7 +401,7 @@ What kind of values does each column hold?
 - `declared_type_mismatch` (suspected): a declared column's declared logical type scores below its top candidate, or isn't a candidate.
 - `declared_type_match` (passed): a declared column's top candidate, or a candidate tied with it, is its declared logical type.
 - `declared_type_unchecked` (unknown): a declared column has no candidate to compare, since it has no values or none fits.
-- `declared_columns_missing` (violation): declared_schema names columns the data doesn't have, listed in `missing_declared_columns`.
+- `missing_declared_columns` (violation): schema names columns the data doesn't have, listed in `missing_declared_columns`.
 
 **Statuses:** `completed`, `partial`, `insufficient_data`, `not_applicable`, `failed`
 
@@ -421,11 +421,11 @@ Do the columns hold the logical types I declared?
 **Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `declared_logical_type`, `nullable`, `datetime_format`, `present`, `dtype`, `compatible_count`, `convertible_count`, `invalid_count`, `missing_count`, `invalid_row_ids`, `invalid_distinct_count`, `invalid_values`, `assessment`), `undeclared_columns`
 
 - `invalid_values` (violation): columns that hold invalid values.
-- `declared_columns_missing` (violation): declared columns the data doesn't have, each with the closest names.
+- `missing_declared_columns` (violation): declared columns the data doesn't have, each with the closest names.
 - `non_nullable_missing_values` (violation): columns declared non-nullable that have missing values.
 - `unchecked_columns` (unknown): columns without a value to check, as when every value is missing.
 - `convertible_values` (descriptive): columns with values stored as another type; convert them before you use them as the declared type.
-- `valid_columns` (passed): columns that pass every check: only compatible and convertible values, and none missing when declared non-nullable.
+- `passing_columns` (passed): columns that pass every check: only compatible and convertible values, and none missing when declared non-nullable.
 
 **Statuses:** `completed`, `failed`
 
@@ -483,7 +483,7 @@ How are the values in each numeric column distributed?
 | `quantile_method` | `str` | `'linear'` | How numpy.quantile picks or interpolates between values: Hyndman and Fan's definitions 1 to 9 as 'inverted_cdf', 'averaged_inverted_cdf', 'closest_observation', 'interpolated_inverted_cdf', 'hazen', 'weibull', 'linear', 'median_unbiased' and 'normal_unbiased', or 'lower', 'higher', 'midpoint' and 'nearest'. |
 | `trim_fraction` | `float` | `0.1` | The share of the finite values cut from each end for the trimmed mean: trim_fraction times n, rounded down, values each, as SciPy's trim_mean cuts. |
 
-**Fields:** `columns` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `left_out_columns`, `definitions`
+**Fields:** `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `left_out_columns`, `definitions`
 
 - `constant_columns` (suspected): a column holds a single distinct non-missing value in at least two rows, on stored values; NaN is missing.
 - `infinite_values` (suspected): a column holds inf or -inf, which every statistic leaves out.
@@ -503,7 +503,7 @@ Which values occur in each categorical column, and how often?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces each level of a sensitive column with a numbered placeholder, '<masked 1>' for the most common and so on in level order, and needs a project that declares sensitive columns; False shows the levels as stored. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `cardinality`, `levels`, `most_common_levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`, `share_denominator`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `columns` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `distinct_count`, `levels`, `most_common_levels`, `left_out_level_count`, `seen_once_count`, `unused_categories`, `value_types`, `mixed_value_types`, `case_or_space_variants`), `left_out_columns`, `share_denominator`, `level_order`
 
 - `case_or_space_variants` (suspected): a column holds labels that differ only by case or surrounding spaces, such as 'Yes' and 'yes '.
 - `mixed_value_types` (suspected): a column holds values of more than one Python type, such as 1 and '1'.
@@ -543,7 +543,7 @@ Which columns, alone or combined, uniquely identify rows?
 | `max_key_size` | `int` | `2` | The most columns a key may combine, at least 1; defaults to 2. |
 | `max_combinations` | `int` | `10000` | The most column sets the search examines, at least 1; defaults to 10,000, which covers every set of up to 2 of 140 columns. |
 
-**Fields:** `keys` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `keys_with_missing_values` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `most_unique_column_sets` (`columns`, `distinct_count`, `duplicate_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `exhaustive`, `search` (`column_count`, `combination_count`, `examined_count`, `rejected_on_subset_count`, `checked_on_all_rows_count`, `subset_row_count`), `left_out_columns`, `non_integral_float_columns`
+**Fields:** `keys` (`columns`, `distinct_row_count`, `duplicate_group_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `keys_with_missing_values` (`columns`, `distinct_row_count`, `duplicate_group_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `most_unique_column_sets` (`columns`, `distinct_row_count`, `duplicate_group_row_count`, `missing_row_count`, `uniqueness_share`, `is_minimal`), `exhaustive`, `search` (`column_count`, `combination_count`, `examined_count`, `rejected_on_subset_count`, `checked_on_all_rows_count`, `subset_row_count`), `left_out_columns`, `non_integral_float_columns`
 
 - `keys_found` (descriptive): column sets identify every row and have no missing values.
 - `keys_with_missing_values` (descriptive): column sets identify every row but have missing values, so they can't serve as primary keys.
@@ -567,7 +567,7 @@ What does the target look like for this task?
 | `project` | `Project \| None` | `None` | The project, whose data policy names the sensitive columns and says whether to mask them. |
 | `mask_sensitive` | `bool \| None` | `None` | True replaces the labels of a sensitive target, the classes, the labels outside expected_labels and expected_labels as parameters records it, with numbered placeholders, '<masked 1>' for its first label in level order and so on, and the row IDs taken from a sensitive id_column too; it needs a project that declares sensitive columns. |
 
-**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`, `level_order`
+**Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `non_missing_count`, `missing_count`, `missing_share`, `valid_label_count`, `class_count`, `classes` (`label`, `label_type`, `count`, `share`), `majority_share`, `minority_share`, `imbalance_ratio`, `unexpected_label_count`, `unexpected_labels` (`label`, `label_type`, `count`, `row_ids`), `rare_class_count`, `rare_classes` (`label`, `label_type`, `count`, `share`), `statistics` (`column`, `status`, `status_reason`, `non_missing_count`, `missing_count`, `infinite_count`, `zero_count`, `negative_count`, `mean`, `std`, `min`, `max`, `quantiles`, `median`, `trimmed_mean`, `mad`, `mad_scaled`, `skewness`, `excess_kurtosis`), `non_finite_count`, `level_order`
 
 - `single_class` (violation): every valid label is the same class, so a classifier has nothing to tell apart.
 - `more_than_two_classes` (violation): a binary_classification target has more than two classes.
@@ -597,10 +597,10 @@ How strongly are pairs of columns associated?
 | `numeric_method` | `str` | `'pearson'` | The measure for two numeric columns: 'pearson', the default, Pearson's r for linear association; 'spearman', Pearson's r of the ranks, tied values sharing their mean rank, for monotonic association; or 'kendall', Kendall's tau-b, which adjusts for ties. |
 | `categorical_method` | `str` | `'cramers_v_bias_corrected'` | The measure for two categorical columns: 'cramers_v_bias_corrected', the default, Cramér's V with Bergsma's (2013) correction, which removes most of the upward bias that few rows and many levels give V; or 'cramers_v', the uncorrected V of scipy.stats.contingency.association. |
 | `mixed_method` | `str` | `'correlation_ratio_bias_corrected'` | The measure for a categorical and a numeric column, 'correlation_ratio_bias_corrected' or 'correlation_ratio'. |
-| `max_categories` | `int` | `50` | The most distinct values a categorical column may have; a column with more is skipped with reason too_many_categories. |
+| `max_categories` | `int` | `50` | The most distinct values a categorical column may have; a column with more is left out with reason too_many_categories. |
 | `max_pairs` | `int` | `5000` | The most pairs the call computes, a work limit. |
 
-**Fields:** `pairs` (`x_column`, `y_column`, `x_type`, `y_type`, `method`, `value`, `pair_count`, `direction`, `undefined_reason`), `columns` (`column`, `dtype`, `type`, `value_count`, `missing_count`, `infinite_count`, `level_count`), `skipped_columns` (`column`, `dtype`, `reason`, `message`)
+**Fields:** `pairs` (`x_column`, `y_column`, `x_type`, `y_type`, `method`, `value`, `pair_count`, `direction`, `undefined_reason`), `columns` (`column`, `dtype`, `type`, `value_count`, `missing_count`, `infinite_count`, `distinct_count`), `left_out_columns` (`column`, `dtype`, `reason`, `message`)
 
 - `perfect_associations` (suspected): a pair has an absolute value of 1, within 1e-9, so one column may duplicate or derive from the other.
 
@@ -752,8 +752,9 @@ Serve the agent-eda analyses as MCP tools over stdio. `--project PATH`: A projec
 ## Documentation
 
 - [CONTRIBUTING.md](https://github.com/chrislemke/agent-eda/blob/main/CONTRIBUTING.md): how to set up, test and change the package.
-- [AGENTS.md](https://github.com/chrislemke/agent-eda/blob/main/AGENTS.md): the rules for anyone writing code here, people or agents, and the commands.
+- [AGENTS.md](https://github.com/chrislemke/agent-eda/blob/main/AGENTS.md): the rules for code here, and the commands.
 - [GLOSSARY.md](https://github.com/chrislemke/agent-eda/blob/main/GLOSSARY.md): the terms used in code, docstrings and messages.
+- [CHANGELOG.md](https://github.com/chrislemke/agent-eda/blob/main/CHANGELOG.md): renamed names.
 - [Planned analyses](https://github.com/chrislemke/agent-eda/blob/main/docs/planned-analyses.md): the backlog, with proposed names and modules.
 - Architecture decisions:
   - [ADR 0001](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0001-data-policy-is-a-guardrail.md): the data policy is a guardrail.

@@ -116,7 +116,7 @@ def test_counts_missing_and_non_missing_values_and_the_distinct_levels():
     entry = ae.summarize_categorical(df).columns["plan"]
 
     assert (entry.non_missing_count, entry.missing_count) == (4, 2)
-    assert entry.cardinality == 3
+    assert entry.distinct_count == 3
 
 
 def test_shares_divide_by_the_non_missing_count_which_the_result_states():
@@ -155,7 +155,7 @@ def test_top_n_limits_only_the_most_common_levels():
     entry = res.columns["letter"]
     assert [level.label for level in entry.most_common_levels] == ["a", "b", "c"]
     assert entry.left_out_level_count == 10
-    assert len(entry.levels) == entry.cardinality == 13
+    assert len(entry.levels) == entry.distinct_count == 13
     assert res.parameters["top_n"] == 3
 
 
@@ -174,7 +174,7 @@ def test_lists_the_categories_that_never_occur_in_category_order():
 
     assert res.columns["grade"].unused_categories == ["c", "z"]
     assert levels_of(res.columns["grade"]) == [("b", 2), ("a", 1)]
-    assert res.columns["grade"].cardinality == 2
+    assert res.columns["grade"].distinct_count == 2
     assert res.columns["plan"].unused_categories == []
 
 
@@ -268,7 +268,7 @@ def test_the_record_keeps_the_first_100_levels_and_their_total():
     entry = res.to_dict()["columns"]["code"]
     assert len(entry["levels"]) == 100
     assert entry["levels_total"] == 250
-    assert entry["cardinality"] == 250
+    assert entry["distinct_count"] == 250
     assert entry["levels"] == [
         level.model_dump(mode="json") for level in res.columns["code"].levels
     ]
@@ -323,7 +323,7 @@ def test_the_first_100_levels_are_the_first_100_rows_of_to_frame(values):
 
     frame = res.to_frame()
     entry = res.columns["x"]
-    assert len(frame) == entry.cardinality == 250
+    assert len(frame) == entry.distinct_count == 250
     assert [(level.label, level.count) for level in entry.levels] == list(
         zip(frame["label"][:100], frame["count"][:100], strict=True)
     )
@@ -407,7 +407,7 @@ def test_a_column_without_values_makes_the_result_partial():
         "no_values",
         NO_VALUES,
     )
-    assert (empty.non_missing_count, empty.missing_count, empty.cardinality) == (
+    assert (empty.non_missing_count, empty.missing_count, empty.distinct_count) == (
         0,
         3,
         0,
@@ -494,7 +494,11 @@ def test_values_that_cannot_be_hashed_make_a_column_not_applicable():
         UNHASHABLE,
     )
     assert (entry.non_missing_count, entry.missing_count) == (3, 1)
-    assert (entry.cardinality, entry.left_out_level_count, entry.seen_once_count) == (
+    assert (
+        entry.distinct_count,
+        entry.left_out_level_count,
+        entry.seen_once_count,
+    ) == (
         None,
         None,
         None,
@@ -512,7 +516,7 @@ def test_values_that_cannot_be_hashed_make_a_column_not_applicable():
         "levels weren't counted and its counts of levels are null: 'tags'."
     )
     assert limitation.fields == [
-        "columns['tags'].cardinality",
+        "columns['tags'].distinct_count",
         "columns['tags'].left_out_level_count",
         "columns['tags'].seen_once_count",
     ]
@@ -709,7 +713,7 @@ def test_counts_and_shares_match_pandas_value_counts(dtype):
     entry = res.columns["x"]
     assert entry.non_missing_count == values.count()
     assert entry.missing_count == values.isna().sum()
-    assert entry.cardinality == values.nunique()
+    assert entry.distinct_count == values.nunique()
 
 
 def survey():
@@ -737,13 +741,13 @@ def test_text_shows_each_columns_most_common_levels_with_count_and_share():
             "then label; most_common_levels has the top 10.",
             "Left out, not text, object, categorical or boolean: 'age'.",
             "Columns (3 of 3 shown):",
-            "column  non_missing_count  missing_count  cardinality  most_common_levels",
-            "plan                    5              1            3  'basic': 3 (60%), "
+            "column  non_missing_count  missing_count  distinct_count  most_common_levels",
+            "plan                    5              1               3  'basic': 3 (60%), "
             "'pro': 1 (20%), 'team': 1 (20%)",
             # Cut to 120 characters, with "..." for the rest.
-            "answer                  6              0            4  'Yes': 2 (33.33%), "
-            "'no': 2 (33.33%), 'YES': 1 (16.67%), 'yes '...",
-            "grade                   5              1            2  'a': 3 (60%), "
+            "answer                  6              0               4  'Yes': 2 (33.33%), "
+            "'no': 2 (33.33%), 'YES': 1 (16.67%), 'ye...",
+            "grade                   5              1               2  'a': 3 (60%), "
             "'b': 2 (40%)",
             "Findings (2 of 2 shown):",
             "- suspected case_or_space_variants: 1 column holds labels that differ "
@@ -780,7 +784,7 @@ def test_text_of_a_partial_result_names_the_incomplete_columns():
         "summarize_categorical: partial on 2 rows x 2 columns",
         f"Reason: incomplete_columns: 1 of 2 columns didn't complete: 'empty'. {NO_VALUES}",
     ]
-    assert "empty                   0              2            0" in lines
+    assert "empty                   0              2               0" in lines
 
 
 def test_text_stays_within_40_lines_of_120_characters():
@@ -825,7 +829,7 @@ def test_any_columns_levels_match_value_counts_and_each_other(df, top_n):
         counts = values.value_counts(dropna=True)
         rows = frame[frame["column"] == name]
         assert sorted(rows["count"]) == sorted(c for c in counts if c)
-        assert entry.cardinality == len(rows)
+        assert entry.distinct_count == len(rows)
         assert entry.non_missing_count == rows["count"].sum() == values.count()
         assert list(rows["count"]) == sorted(rows["count"], reverse=True)
         assert list(rows["share"]) == list(
@@ -836,7 +840,7 @@ def test_any_columns_levels_match_value_counts_and_each_other(df, top_n):
             zip(kept["count"], kept["label_type"], strict=True)
         )
         assert entry.most_common_levels == entry.levels[:top_n]
-        assert entry.left_out_level_count == entry.cardinality - len(
+        assert entry.left_out_level_count == entry.distinct_count - len(
             entry.most_common_levels
         )
 

@@ -41,11 +41,11 @@ def test_errors_and_results_are_public_modules():
     assert ae.AnalysisResult is results.AnalysisResult
 
 
-def test_describe_dataset_lives_in_data_provenance():
-    provenance = importlib.import_module("agent_eda.data.provenance")
+def test_describe_dataset_lives_in_data_structure():
+    structure = importlib.import_module("agent_eda.data.structure")
 
-    assert ae.describe_dataset is provenance.describe_dataset
-    assert ae.describe_dataset.__module__ == "agent_eda.data.provenance"
+    assert ae.describe_dataset is structure.describe_dataset
+    assert ae.describe_dataset.__module__ == "agent_eda.data.structure"
 
 
 def test_a_misspelled_attribute_suggests_the_closest_export():
@@ -56,9 +56,9 @@ def test_a_misspelled_attribute_suggests_the_closest_export():
 def test_importing_the_package_loads_analyses_only_when_first_used():
     code = (
         "import sys, agent_eda as ae\n"
-        "print('agent_eda.data.provenance' in sys.modules)\n"
+        "print('agent_eda.data.structure' in sys.modules)\n"
         "ae.describe_dataset\n"
-        "print('agent_eda.data.provenance' in sys.modules)\n"
+        "print('agent_eda.data.structure' in sys.modules)\n"
     )
 
     out = run_python(code)

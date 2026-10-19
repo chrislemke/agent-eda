@@ -254,7 +254,7 @@ def read_limitations(
 class NumericSummary:
     """Counts and statistics of one column's values."""
 
-    count: int
+    non_missing_count: int
     missing_count: int
     infinite_count: int
     zero_count: int
@@ -285,8 +285,8 @@ def summarize_values(
     missing = int(np.isnan(values).sum())
     finite_mask = np.isfinite(values)
     x = values if finite_mask.all() else values[finite_mask]
-    count = values.size - missing
-    infinite = count - x.size
+    non_missing_count = values.size - missing
+    infinite = non_missing_count - x.size
     equal = x.size > 0 and bool(x.min() == x.max())
     nulls = _null_reasons(x.size, equal, quantiles)
     computed: dict[str, float] = {}
@@ -298,7 +298,7 @@ def summarize_values(
         nulls.update(dict.fromkeys(warned, "numerical_warning"))
     keys = [*STATISTICS, "quantiles", *(_quantile_key(level) for level in quantiles)]
     return NumericSummary(
-        count=count,
+        non_missing_count=non_missing_count,
         missing_count=missing,
         infinite_count=infinite,
         zero_count=int((values == 0).sum()),
@@ -322,12 +322,12 @@ def numeric_entry[Entry: SummarizeNumericColumn](
     model: type[Entry], name: str, summary: NumericSummary
 ) -> Entry:
     """A column's entry with summarize_numeric's fields; `model` is its class."""
-    finite_count = summary.count - summary.infinite_count
+    finite_count = summary.non_missing_count - summary.infinite_count
     return model(
         column=name,
         status="completed" if finite_count else "insufficient_data",
         status_reason=None if finite_count else NO_FINITE_VALUES,
-        count=summary.count,
+        non_missing_count=summary.non_missing_count,
         missing_count=summary.missing_count,
         infinite_count=summary.infinite_count,
         zero_count=summary.zero_count,
@@ -347,7 +347,7 @@ def numeric_support(name: str, summary: NumericSummary) -> ColumnSupport:
         )
         if count
     }
-    eligible = summary.count + summary.missing_count
+    eligible = summary.non_missing_count + summary.missing_count
     return ColumnSupport(
         column=name,
         eligible_count=eligible,

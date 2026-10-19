@@ -90,6 +90,30 @@ _Avoid_: unique key, composite key (say a key of several columns), identifier (t
 The target is the column a model learns to predict. A label is a value of the target column. For classification, each distinct non-missing label is a class, counted with its share of the valid labels; a regression target has no classes.
 _Avoid_: outcome, response, dependent variable, y; label (for a column's name: that is a column label, always qualified); category (for a class)
 
+**Distinct count**:
+The number of levels a column has, `distinct_count`: in `describe_dataset`, `infer_column_semantics`, `summarize_categorical` and, for a categorical column, `compute_association_matrix`. A key's own count, `distinct_row_count`, is the distinct rows of its columns, missing values compared equal. `class_count` counts the classes of a target, which `profile_target` may extend with declared classes no row holds.
+_Avoid_: `cardinality`, `level_count` (for a column's distinct values; `level_count` stays for the levels of an index)
+
+**Non-missing count**:
+The values of a column that aren't missing, `non_missing_count`, in every analysis that counts them. `summarize_numeric` counts infinite values in it.
+_Avoid_: `count` (for a column's non-missing values; `count` stays for the rows with one label or one value)
+
+**Left-out column**:
+A column an analysis didn't use, named in `left_out_columns`, with its reason where the entry has one.
+_Avoid_: skipped column, `skipped_columns`
+
+**Duplicate group row count**:
+The rows that share their values with another row, the first of each group too: `duplicate_group_row_count`, in `find_duplicate_rows` and for each column set in `find_candidate_keys`.
+_Avoid_: `duplicate_row_count`
+
+**Schema**:
+The logical types a caller declares, by column name: the `schema` argument of `infer_column_semantics` and `validate_column_types`. A declared column the data lacks is a `missing_declared_columns` finding in both.
+_Avoid_: `declared_schema`, `declared_columns_missing`
+
+**Passing column**:
+A column that passes every check of `validate_column_types`: only compatible and convertible values, and none missing when declared non-nullable. The `passing_columns` finding lists them.
+_Avoid_: valid column, `valid_columns`
+
 **Sentinel candidate**:
 A value of one column that `detect_missing_sentinels` reports as possibly standing in for missing values: one the caller declared, or one a built-in rule suspects. A suspected candidate stays a valid value until the caller declares it.
 _Avoid_: possible sentinel, placeholder candidate, magic value, outlier

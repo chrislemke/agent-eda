@@ -45,7 +45,7 @@ def test_a_column_is_typed_once_however_long_the_file_is(tmp_path):
 
     assert not response.is_error
     column = response.structured_content["columns"]["code"]
-    assert column["cardinality"] == 11
+    assert column["distinct_count"] == 11
     assert column["value_types"] == ["str"]
     assert not column["mixed_value_types"]
 
@@ -68,7 +68,7 @@ def test_a_wide_file_with_a_late_text_value_reads_that_column_as_text(tmp_path):
 
     assert not response.is_error
     column = response.structured_content["columns"]["c7"]
-    assert column["cardinality"] == data["c7"].nunique()
+    assert column["distinct_count"] == data["c7"].nunique()
     assert not column["mixed_value_types"]
     assert column["value_types"] == ["str"]
 
@@ -199,7 +199,7 @@ def test_a_leading_zero_after_the_first_chunk_still_makes_the_column_text(tmp_pa
 
     column = response.structured_content["columns"]["code"]
     assert column["value_types"] == ["str"]
-    assert column["cardinality"] == 1001
+    assert column["distinct_count"] == 1001
 
 
 def test_numbers_without_a_leading_zero_code_stay_numbers(tmp_path):

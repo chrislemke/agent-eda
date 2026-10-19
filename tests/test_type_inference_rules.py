@@ -156,7 +156,7 @@ def test_a_declared_datetime_format_does_not_make_date_text_identifier_like():
     days = pd.date_range("2024-01-13", periods=60, freq="D")
     spec = ae.ColumnSpec("datetime", datetime_format="%m/%d/%Y")
 
-    entry = infer(list(days.strftime("%m/%d/%Y")), declared_schema={"x": spec})
+    entry = infer(list(days.strftime("%m/%d/%Y")), schema={"x": spec})
 
     assert "identifier_like" not in entry.flags
     assert entry.matches_declared is True
@@ -219,7 +219,7 @@ def test_a_real_id_column_is_still_identifier_like():
 
 def test_a_zero_one_column_declared_integer_matches():
     res = ae.infer_column_semantics(
-        pd.DataFrame({"flag": [0, 1, 1, 0, 1]}), declared_schema={"flag": "integer"}
+        pd.DataFrame({"flag": [0, 1, 1, 0, 1]}), schema={"flag": "integer"}
     )
 
     entry = res.columns["flag"]
@@ -233,7 +233,7 @@ def test_a_zero_one_column_declared_integer_matches():
 def test_the_docstring_amount_example_declared_float_matches():
     df = pd.DataFrame({"amount": [12.0, 30.0, None, 7.0, 12.0, 45.0]})
 
-    res = ae.infer_column_semantics(df, declared_schema={"amount": "float"})
+    res = ae.infer_column_semantics(df, schema={"amount": "float"})
 
     assert res.columns["amount"].matches_declared is True
     assert "declared_type_mismatch" not in [f.code for f in res.findings]
@@ -241,7 +241,7 @@ def test_the_docstring_amount_example_declared_float_matches():
 
 def test_a_declared_type_below_the_top_score_still_mismatches():
     res = ae.infer_column_semantics(
-        pd.DataFrame({"x": [0, 1, 1, 0, 1]}), declared_schema={"x": "text"}
+        pd.DataFrame({"x": [0, 1, 1, 0, 1]}), schema={"x": "text"}
     )
 
     assert res.columns["x"].matches_declared is False
@@ -256,9 +256,7 @@ def test_a_declared_datetime_format_matches_text_in_that_format():
     text = list(days.strftime("%d/%m/%Y")) * 2
     spec = ae.ColumnSpec("datetime", datetime_format="%d/%m/%Y")
 
-    res = ae.infer_column_semantics(
-        pd.DataFrame({"x": text}), declared_schema={"x": spec}
-    )
+    res = ae.infer_column_semantics(pd.DataFrame({"x": text}), schema={"x": spec})
 
     entry = res.columns["x"]
     assert entry.inferred_logical_type == "datetime"
@@ -285,7 +283,7 @@ def test_a_datetime_format_other_than_the_texts_changes_nothing():
     spec = ae.ColumnSpec("datetime", datetime_format="%Y%m%d")
     text = ["13/01/2024", "14/01/2024", "13/01/2024"]
 
-    entry = infer(text, declared_schema={"x": spec})
+    entry = infer(text, schema={"x": spec})
 
     assert entry.evidence.datetime_share == 0
     assert entry.matches_declared is False

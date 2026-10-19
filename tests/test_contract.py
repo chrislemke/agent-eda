@@ -23,7 +23,7 @@ SECTIONS = ["When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See 
 NOT_COLUMN_NAMES = {"source", "source_version", "expected_labels"}
 # Parameters that map column names to a setting for each column, named after
 # the setting as the spec names them. They must take a mapping keyed by str.
-KEYED_BY_COLUMN = {"declared_schema", "schema", "sentinel_values"}
+KEYED_BY_COLUMN = {"schema", "sentinel_values"}
 # list_analyses is no analysis, yet every See Also lists it (STD-21). Ticket 08
 # of the agent-experience spec drops it from them and deletes this set.
 SEE_ALSO_UNTIL_08 = {"list_analyses"}

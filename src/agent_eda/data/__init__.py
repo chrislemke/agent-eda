@@ -1,1 +1,1 @@
-"""Analyses of a dataset's provenance, structure, validity and missing values."""
+"""Analyses of a dataset's structure, validity and missing values."""

@@ -839,10 +839,10 @@ def test_the_text_shows_the_statistics_of_a_regression_target():
         "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
         "skewness and excess_kurtosis.",
         "Statistics (1 of 1 shown):",
-        "column  count  missing_count  mean    std  min  median  max",
+        "column  non_missing_count  missing_count  mean    std  min  median  max",
         # The finite values 7, 8, 10, 11, 12.5, 12.5 and 30: mean 91 / 7 = 13 and
         # std sqrt(363.5 / 6) = 7.784.
-        "price       9              1    13  7.784    7      11   30",
+        "price                   9              1    13  7.784    7      11   30",
     ]
 
 

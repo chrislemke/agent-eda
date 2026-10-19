@@ -35,7 +35,7 @@ def test_describe_dataset_counts_text_with_a_nul_character_as_distinct():
 def test_summarize_categorical_counts_text_with_a_nul_character_as_distinct():
     res = ae.summarize_categorical(nul_frame())
 
-    assert res.columns["t"].cardinality == 3
+    assert res.columns["t"].distinct_count == 3
 
 
 def test_infer_column_semantics_counts_text_with_a_nul_character_as_distinct():
@@ -62,7 +62,7 @@ def test_compute_association_matrix_counts_text_with_a_nul_character_as_levels()
 
     res = ae.compute_association_matrix(data, columns=["t", "u"])
 
-    assert {n: c.level_count for n, c in res.columns.items()} == {"t": 3, "u": 3}
+    assert {n: c.distinct_count for n, c in res.columns.items()} == {"t": 3, "u": 3}
 
 
 def test_find_duplicate_rows_tells_text_with_a_nul_character_apart():
@@ -170,7 +170,7 @@ POLICIES = {
     ),
     "summarize_categorical leaves the column out": (
         lambda: ae.summarize_categorical(with_list([1, [2], 3]), columns=["p"]),
-        lambda res: (res.columns["p"].status, res.columns["p"].cardinality),
+        lambda res: (res.columns["p"].status, res.columns["p"].distinct_count),
         ("not_applicable", None),
     ),
     "find_candidate_keys leaves the column out": (
@@ -182,7 +182,7 @@ POLICIES = {
         lambda: ae.compute_association_matrix(
             with_list([1, [2], 3]), columns=["p", "id"]
         ),
-        lambda res: [(s.column, s.reason) for s in res.skipped_columns],
+        lambda res: [(s.column, s.reason) for s in res.left_out_columns],
         [("p", "unhashable_values")],
     ),
     "describe_dataset leaves the distinct count null": (
@@ -271,9 +271,9 @@ def check_summarize_categorical(df: pd.DataFrame) -> None:
     for name in df.columns:
         values = list(df[name])
         if any(map(is_unhashable, values)):
-            assert res.columns[name].cardinality is None, (name, values)
+            assert res.columns[name].distinct_count is None, (name, values)
         else:
-            assert res.columns[name].cardinality == python_distinct(values), values
+            assert res.columns[name].distinct_count == python_distinct(values), values
 
 
 def check_infer_column_semantics(df: pd.DataFrame) -> None:
@@ -324,7 +324,7 @@ def check_compute_association_matrix(df: pd.DataFrame) -> None:
     )
     for name, column in res.columns.items():
         values = list(df[name])
-        assert column.level_count == python_distinct(values), values
+        assert column.distinct_count == python_distinct(values), values
 
 
 # The analyses that count levels, groups, classes or keys, each with a check

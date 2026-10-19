@@ -25,8 +25,7 @@ if TYPE_CHECKING:
         detect_missing_sentinels,
         profile_missing_values,
     )
-    from agent_eda.data.provenance import describe_dataset
-    from agent_eda.data.structure import find_candidate_keys
+    from agent_eda.data.structure import describe_dataset, find_candidate_keys
     from agent_eda.data.targets import profile_target
     from agent_eda.data.validation import (
         ColumnSpec,
@@ -82,7 +81,7 @@ _EXPORTS: dict[str, str] = {
     "__version__": "agent_eda._version",
     "compute_association_matrix": "agent_eda.statistics.association",
     "describe_analysis": "agent_eda.discovery",
-    "describe_dataset": "agent_eda.data.provenance",
+    "describe_dataset": "agent_eda.data.structure",
     "detect_missing_sentinels": "agent_eda.data.missingness",
     "find_candidate_keys": "agent_eda.data.structure",
     "find_duplicate_rows": "agent_eda.data.duplicates",

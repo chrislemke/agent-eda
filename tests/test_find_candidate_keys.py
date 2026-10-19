@@ -144,7 +144,10 @@ def test_a_set_unique_on_the_subset_is_still_checked_on_all_rows():
     assert res.search.checked_on_all_rows_count == 1
     assert res.keys == res.keys_with_missing_values == []
     [found] = res.most_unique_column_sets
-    assert (found.distinct_count, found.duplicate_row_count) == (rows - 1, 2)
+    assert (found.distinct_row_count, found.duplicate_group_row_count) == (
+        rows - 1,
+        2,
+    )
 
 
 def test_a_repeat_on_the_subset_rejects_a_set_without_checking_all_rows():
@@ -173,12 +176,12 @@ def test_each_key_reports_its_counts():
 
     single, pair = res.keys
     assert single.columns == ["id"]
-    assert single.distinct_count == 5
-    assert single.duplicate_row_count == 0
+    assert single.distinct_row_count == 5
+    assert single.duplicate_group_row_count == 0
     assert single.missing_row_count == 0
     assert single.uniqueness_share == 1.0
     assert single.is_minimal is True
-    assert (pair.distinct_count, pair.duplicate_row_count) == (5, 0)
+    assert (pair.distinct_row_count, pair.duplicate_group_row_count) == (5, 0)
 
 
 def test_lists_keys_with_missing_values_apart_from_the_keys():
@@ -187,7 +190,7 @@ def test_lists_keys_with_missing_values_apart_from_the_keys():
     assert [key.columns for key in res.keys] == [["order", "line"]]
     [sku] = res.keys_with_missing_values
     assert sku.columns == ["sku"]
-    assert (sku.distinct_count, sku.duplicate_row_count) == (6, 0)
+    assert (sku.distinct_row_count, sku.duplicate_group_row_count) == (6, 0)
     assert sku.missing_row_count == 1
 
 
@@ -239,7 +242,7 @@ def test_without_a_key_lists_the_most_unique_column_sets_first():
         ["day"],
         ["flag"],
     ]
-    assert [s.distinct_count for s in res.most_unique_column_sets] == [
+    assert [s.distinct_row_count for s in res.most_unique_column_sets] == [
         *(7, 7, 7, 5, 4, 4, 2)
     ]
     assert all(s.is_minimal for s in res.most_unique_column_sets)
@@ -254,8 +257,8 @@ def test_the_counts_of_every_listed_set_match_pandas():
     for found in res.most_unique_column_sets:
         reference = pandas_counts(df, found.columns)
         assert (
-            found.distinct_count,
-            found.duplicate_row_count,
+            found.distinct_row_count,
+            found.duplicate_group_row_count,
             found.missing_row_count,
         ) == reference
         assert found.uniqueness_share == reference[0] / len(df)
@@ -272,12 +275,12 @@ def test_prints_the_keys_with_their_counts_and_how_far_the_search_went():
             "Missing values compare equal; a key with missing values can't serve "
             "as a primary key.",
             "Keys (2 of 2 shown):",
-            "columns          kind                     distinct_count  "
-            "duplicate_row_count  missing_row_count  uniqueness_share",
+            "columns          kind                 distinct_row_count  "
+            "duplicate_group_row_count  missing_row_count  uniqueness_share",
             "'order', 'line'  key                                   6  "
-            "                  0                  0                 1",
-            "'sku'            key_with_missing_values               6  "
-            "                  0                  1                 1",
+            "                        0                  0                 1",
+            "'sku'            key_with_missing...                   6  "
+            "                        0                  1                 1",
             "Findings (2 of 2 shown):",
             "- descriptive keys_found: 1 column set identifies every row and has no "
             "missing values: 'order', 'line'.",
@@ -324,7 +327,7 @@ def test_without_a_key_prints_the_most_unique_sets_and_says_no_set_is_a_key():
     assert finding.fields == [
         "keys",
         "keys_with_missing_values",
-        "most_unique_column_sets[0].duplicate_row_count",
+        "most_unique_column_sets[0].duplicate_group_row_count",
     ]
 
 
@@ -365,15 +368,15 @@ def test_to_frame_lists_every_candidate_with_its_kind():
     assert list(frame.columns) == [
         "columns",
         "kind",
-        "distinct_count",
-        "duplicate_row_count",
+        "distinct_row_count",
+        "duplicate_group_row_count",
         "missing_row_count",
         "uniqueness_share",
         "is_minimal",
     ]
     assert frame["columns"].tolist() == [["order", "line"], ["sku"]]
     assert frame["kind"].tolist() == ["key", "key_with_missing_values"]
-    assert frame["distinct_count"].dtype == "int64"
+    assert frame["distinct_row_count"].dtype == "int64"
 
 
 @pytest.mark.parametrize("frame", [orders, unkeyed, keyed])
@@ -418,9 +421,11 @@ def test_every_reported_set_counts_as_pandas_does(data):
     ]
     for found in reported:
         columns = [labels[name] for name in found.columns]
+        if any(holds_nul_text(df[column]) for column in columns):
+            continue  # pandas reads '' and '\x00a' as one text, the analysis doesn't
         assert (
-            found.distinct_count,
-            found.duplicate_row_count,
+            found.distinct_row_count,
+            found.duplicate_group_row_count,
             found.missing_row_count,
         ) == pandas_counts(df, columns)
 
@@ -433,6 +438,11 @@ def holds_nul(df):
         for column in df.columns
         for value in df[column]
     )
+
+
+def holds_nul_text(column):
+    """Whether a column holds text with a NUL character."""
+    return any(isinstance(value, str) and "\x00" in value for value in column)
 
 
 def pandas_counts(df, columns):
@@ -539,8 +549,8 @@ def test_says_when_the_work_limit_stops_the_ranking_before_bounds_prove_it():
     assert 0 < int(counted[1]) < 120
     best = res.most_unique_column_sets[0]
     assert (
-        best.distinct_count,
-        best.duplicate_row_count,
+        best.distinct_row_count,
+        best.duplicate_group_row_count,
         best.missing_row_count,
     ) == pandas_counts(df, best.columns)
 
@@ -797,12 +807,13 @@ def test_a_key_of_five_columns_with_thousands_of_levels_each_counts_as_pandas_do
     assert [key.columns for key in res.keys] == [list(df.columns)]
     [key] = res.keys
     assert (
-        key.distinct_count,
-        key.duplicate_row_count,
+        key.distinct_row_count,
+        key.duplicate_group_row_count,
         key.missing_row_count,
     ) == pandas_counts(df, list(df.columns))
-    assert key.duplicate_row_count == 0
+    assert key.duplicate_group_row_count == 0
     for found in res.most_unique_column_sets:
-        assert (found.distinct_count, found.duplicate_row_count) == pandas_counts(
-            df, found.columns
-        )[:2]
+        assert (
+            found.distinct_row_count,
+            found.duplicate_group_row_count,
+        ) == pandas_counts(df, found.columns)[:2]

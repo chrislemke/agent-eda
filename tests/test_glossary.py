@@ -70,7 +70,7 @@ def test_a_level_is_a_distinct_non_missing_value_as_value_counts_tells_them_apar
     res = ae.summarize_categorical(pd.DataFrame({"x": values}))
 
     column = res.columns["x"]
-    assert column.cardinality == values.value_counts().size == 3
+    assert column.distinct_count == values.value_counts().size == 3
     assert column.missing_count == 2
     definition = " ".join(entry_for("Level")[1])
     assert "value_counts" in definition

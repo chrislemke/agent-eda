@@ -132,7 +132,7 @@ def test_numbers_are_numeric_and_booleans_text_and_categories_are_categorical():
         "string": "categorical",
         "category": "categorical",
     }
-    assert res.skipped_columns == []
+    assert res.left_out_columns == []
 
 
 def test_numeric_codes_listed_as_categorical_count_as_categories():
@@ -164,7 +164,7 @@ def test_skips_datetimes_timedeltas_and_columns_without_values_with_reasons():
 
     res = ae.compute_association_matrix(df)
 
-    assert [(s.column, s.reason) for s in res.skipped_columns] == [
+    assert [(s.column, s.reason) for s in res.left_out_columns] == [
         ("when", "datetime"),
         ("took", "timedelta"),
         ("empty", "all_missing"),
@@ -190,16 +190,16 @@ def test_skips_categorical_columns_with_more_levels_than_max_categories():
         df, categorical_columns=["codes"], max_categories=3
     )
 
-    assert [(s.column, s.reason) for s in res.skipped_columns] == [
+    assert [(s.column, s.reason) for s in res.left_out_columns] == [
         ("many", "too_many_categories"),
         ("codes", "too_many_categories"),
     ]
-    assert res.skipped_columns[0].message == (
+    assert res.left_out_columns[0].message == (
         "It has more distinct values than the max_categories limit of 3; raise "
         "max_categories to pair it."
     )
     assert list(res.columns) == ["few", "x"]
-    assert res.columns["few"].level_count == 2
+    assert res.columns["few"].distinct_count == 2
 
 
 @pytest.mark.parametrize(
@@ -604,7 +604,7 @@ def test_prints_the_strongest_pairs_and_names_both_tables():
         "    3 mixed (correlation_ratio_bias_corrected, from the categorical x_column "
         "to the numeric y_column).",
     ]
-    assert lines[3] == "Skipped 1 column, see res.skipped_columns: 'when' (datetime)."
+    assert lines[3] == "Left out 1 column, see res.left_out_columns: 'when' (datetime)."
     assert lines[4] == "Pairs (6 of 6 shown):"
     assert lines[5].split() == [
         "x_column",
@@ -736,10 +736,10 @@ def test_fewer_than_two_paired_columns_is_not_applicable():
     assert res.status_reason.code == "fewer_than_two_columns"
     assert res.status_reason.message == (
         "Fewer than two columns can be paired: numeric, boolean, text, object and "
-        "categorical columns can, and skipped_columns says why the others can't."
+        "categorical columns can, and left_out_columns says why the others can't."
     )
     assert res.pairs == []
-    assert [s.column for s in res.skipped_columns] == ["when", "empty"]
+    assert [s.column for s in res.left_out_columns] == ["when", "empty"]
 
 
 def test_data_without_rows_is_insufficient_data():
@@ -939,7 +939,7 @@ def test_nan_stored_as_a_value_is_missing_in_numbers_read_as_categories():
     res = ae.compute_association_matrix(df, categorical_columns=["code"])
 
     entry = res.columns["code"]
-    assert (entry.missing_count, entry.level_count) == (2, 2)
+    assert (entry.missing_count, entry.distinct_count) == (2, 2)
     [limitation] = [
         lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
     ]
@@ -1075,7 +1075,7 @@ def test_tables_too_large_to_hold_whole_match_an_independent_computation(method)
         df, max_categories=5_000, categorical_method=method
     )
 
-    assert min(entry.level_count or 0 for entry in res.columns.values()) > 2_048
+    assert min(entry.distinct_count or 0 for entry in res.columns.values()) > 2_048
     [found] = res.pairs
     table = pd.crosstab(df["first"], df["second"]).to_numpy()
     plain = association(table, method="cramer")

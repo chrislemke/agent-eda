@@ -139,7 +139,7 @@ def summarize_numeric(
         SummarizeNumericResult: `columns` maps each selected column name to its
         entry. An entry holds:
 
-        - `count`, the values that aren't missing, infinite ones included, and
+        - `non_missing_count`, the values that aren't missing, infinite ones included, and
           `missing_count`, `infinite_count`, `zero_count` and `negative_count`.
         - `mean`, `std` with ddof 1, `min` and `max`.
         - `quantiles`, keyed by level, and `median`.
@@ -203,9 +203,9 @@ def summarize_numeric(
         Left out, not numeric or boolean: 'member'.
         res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, skewness and excess_kurtosis.
         Columns (2 of 2 shown):
-        column  count  missing_count       mean        std    min  median    max
-        age         5              1       39.8      9.094     29      38     51
-        income      6              0  1.667e+05  4.082e+05  48.25      58  1e+06
+        column  non_missing_count  missing_count       mean        std    min  median    max
+        age                     5              1       39.8      9.094     29      38     51
+        income                  6              0  1.667e+05  4.082e+05  48.25      58  1e+06
         Findings: none
         Limitations: none
         More: res.to_frame() has all 2 columns; res.findings, res.limitations and res.to_json() have the rest.
@@ -375,7 +375,7 @@ _CATEGORICAL = ColumnRule(
         "frequencies",
         "levels",
         "categories",
-        "cardinality",
+        "distinct_count",
         "most common values",
         "unused categories",
         "case variants",
@@ -395,7 +395,7 @@ def summarize_categorical(
     When to use:
         Call it after `describe_dataset` for the values of every text, object,
         categorical and boolean column: each level with its count and its share
-        of the non-missing values, the missing count, the cardinality and the
+        of the non-missing values, the missing count, the distinct_count and the
         most common levels. It also flags labels that differ only by case or
         surrounding spaces, such as 'Yes', 'yes ' and 'YES', which a model
         treats as different categories; values of different Python types in one
@@ -444,7 +444,7 @@ def summarize_categorical(
         SummarizeCategoricalResult: `columns` maps each selected column name to
         its entry. An entry holds:
 
-        - `non_missing_count`, `missing_count` and `cardinality`, the number of
+        - `non_missing_count`, `missing_count` and `distinct_count`, the number of
           levels: the distinct non-missing values, as pandas value_counts tells
           them apart, so 1, 1.0 and true are one level.
         - `levels`, the first 100 levels, and `most_common_levels`, the first
@@ -521,10 +521,10 @@ def summarize_categorical(
         Shares are of each column's non-missing values. Levels go by count, then label; most_common_levels has the top 3.
         Left out, not text, object, categorical or boolean: 'age'.
         Columns (3 of 3 shown):
-        column  non_missing_count  missing_count  cardinality  most_common_levels
-        plan                    5              1            3  'basic': 3 (60%), 'pro': 1 (20%), 'team': 1 (20%)
-        answer                  6              0            4  'Yes': 2 (33.33%), 'no': 2 (33.33%), 'YES': 1 (16.67%)
-        grade                   5              1            2  'a': 3 (60%), 'b': 2 (40%)
+        column  non_missing_count  missing_count  distinct_count  most_common_levels
+        plan                    5              1               3  'basic': 3 (60%), 'pro': 1 (20%), 'team': 1 (20%)
+        answer                  6              0               4  'Yes': 2 (33.33%), 'no': 2 (33.33%), 'YES': 1 (16.67%)
+        grade                   5              1               2  'a': 3 (60%), 'b': 2 (40%)
         Findings (2 of 2 shown):
         - suspected case_or_space_variants: 1 column holds labels that differ only by case or surrounding spaces: 'answer'.
         - descriptive unused_categories: 1 categorical column has categories that never occur: 'grade'.
@@ -643,7 +643,7 @@ _UNHASHABLE = StatusReason(
     ),
 )
 # The counts of levels that are null when a column's values can't be hashed.
-_LEVEL_COUNTS = ("cardinality", "left_out_level_count", "seen_once_count")
+_LEVEL_COUNTS = ("distinct_count", "left_out_level_count", "seen_once_count")
 
 
 def _categorical_entry(
@@ -664,7 +664,7 @@ def _categorical_entry(
             status_reason=_UNHASHABLE,
             non_missing_count=len(series) - missing,
             missing_count=missing,
-            cardinality=None,
+            distinct_count=None,
             levels=[],
             most_common_levels=[],
             left_out_level_count=None,
@@ -679,7 +679,7 @@ def _categorical_entry(
         _level(levels, position, non_missing, masked)
         for position in ordered(levels, _KEPT_LEVELS)
     ]
-    cardinality = len(levels.counts)
+    distinct_count = len(levels.counts)
     shown = kept[:top_n]
     unused = (
         [record_label(c) for c in levels.unused_categories]
@@ -692,10 +692,10 @@ def _categorical_entry(
         status_reason=None if non_missing else _NO_VALUES,
         non_missing_count=non_missing,
         missing_count=levels.missing_count,
-        cardinality=cardinality,
+        distinct_count=distinct_count,
         levels=kept,
         most_common_levels=shown,
-        left_out_level_count=cardinality - len(shown),
+        left_out_level_count=distinct_count - len(shown),
         seen_once_count=int((levels.counts == 1).sum()),
         unused_categories=unused,
         value_types=types,
@@ -731,7 +731,10 @@ def _categorical_support(
         reason: count
         for reason, count in (
             ("missing", entry.missing_count),
-            ("unhashable", entry.non_missing_count if entry.cardinality is None else 0),
+            (
+                "unhashable",
+                entry.non_missing_count if entry.distinct_count is None else 0,
+            ),
         )
         if count
     }
@@ -747,7 +750,7 @@ def _categorical_support(
 def _unhashable_values(
     entries: dict[str, SummarizeCategoricalColumn],
 ) -> list[Limitation]:
-    names = [name for name, entry in entries.items() if entry.cardinality is None]
+    names = [name for name, entry in entries.items() if entry.distinct_count is None]
     if not names:
         return []
     hold = plural(len(names), "column holds", "columns hold")

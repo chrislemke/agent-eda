@@ -113,7 +113,7 @@ def test_the_levels_kept_of_a_categorical_of_datetimes_are_the_earliest_when_cou
     res = ae.summarize_categorical(df)
 
     entry = res.columns["when"]
-    assert entry.cardinality == 150
+    assert entry.distinct_count == 150
     # Every level occurs once, so the record keeps the first 100 by date.
     kept = [pd.Timestamp(lv.label) for lv in entry.levels]
     assert kept == [pd.Timestamp(day) for day in sorted(days)[:100]]

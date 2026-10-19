@@ -184,7 +184,7 @@ def list_analyses() -> AnalysisListing:
         >>> listing = ae.list_analyses()
         >>> [info] = [i for i in listing.analyses if i.name == "describe_dataset"]
         >>> print(info.module, info.summary)
-        agent_eda.data.provenance What does this dataset contain?
+        agent_eda.data.structure What does this dataset contain?
     """
     return AnalysisListing(
         analyses=[
