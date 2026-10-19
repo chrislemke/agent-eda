@@ -57,7 +57,13 @@ def test_a_call_returns_the_printed_result_in_mcp_wording_and_the_record(tmp_pat
     path.write_text(CSV, encoding="utf-8")
     # The server reads a CSV counting only an empty field as missing.
     expected = ae.describe_dataset(
-        pd.read_csv(path, keep_default_na=False, na_values=[""])
+        pd.DataFrame(
+            {
+                "city": ["Oslo", "Lyon", "Oslo"],
+                "score": [1.5, None, 2.5],
+                "note": ["N/A", "ok", float("nan")],
+            }
+        )
     )
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})

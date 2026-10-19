@@ -17,12 +17,13 @@ itself, such as NaN, and an infinite one.
 
 import dataclasses
 import datetime as dt
+import json
 import math
 import numbers
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, TypeGuard, cast
 
 import numpy as np
 import pandas as pd
@@ -34,9 +35,10 @@ from agent_eda._columns import (
     column_kind,
     select_columns,
 )
-from agent_eda._parse import read_as
+from agent_eda._parse import ReadFamily, read_as
 from agent_eda._run import check_distinct
-from agent_eda._text import join_items, join_labels
+from agent_eda._text import Surface, join_items, join_labels
+from agent_eda._wording import worded
 from agent_eda.errors import InvalidArgumentError
 
 # The types a declared sentinel value can have.
@@ -245,9 +247,13 @@ def declared_values(
     selected: Sequence[Column],
     sentinel_values: Mapping[str, Sequence[SentinelValue]] | None,
     *,
+    hidden: Collection[str] = (),
     id_column: str | None = None,
 ) -> dict[str, list[SentinelValue]]:
     """The declared values of each selected column, checked against the data.
+
+    The messages never quote the values declared for the `hidden` columns, the
+    sensitive columns of a masking call.
 
     A column with an empty list has none declared, as one the mapping leaves
     out. Raises before any computation: ColumnNotFoundError for a name that
@@ -278,6 +284,7 @@ def declared_values(
             values,
             "value",
             key=lambda value: (family(value), value),
+            hide=name in hidden,
         )
         column_holds = holds(data.iloc[:, column.position])
         problems.extend(
@@ -288,7 +295,11 @@ def declared_values(
         if values:
             declared[name] = values
     if problems:
-        raise InvalidArgumentError(_message(analysis, problems))
+        hidden_columns = set(hidden)
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: _message(analysis, problems, hidden_columns, surface),
+        )
     return declared
 
 
@@ -469,6 +480,69 @@ def _as_text(value: SentinelValue) -> str | None:
     return value.isoformat()  # a date
 
 
+def read_iso(
+    data: pd.DataFrame, sentinel_values: Mapping[str, Sequence[SentinelValue]]
+) -> dict[str, list[SentinelValue]]:
+    """The declared values, with each string that an ISO 8601 value of the
+    column's family spells read as that value.
+
+    Over MCP, JSON can't carry a datetime, a date or a duration, so a caller
+    declares one as its ISO 8601 text, which the input schema offers next to
+    plain text. The text names such a value when the column holds datetimes,
+    dates or durations and no text, and the text is in ISO 8601: '1900-01-01',
+    '1900-01-01T00:00:00+01:00' or 'PT0S'. Every other string stays text, so
+    declared_values reports it, as it does for a Python caller. A time zone is
+    kept as written: a column without one rejects a time zone, as it does a
+    pd.Timestamp that has one.
+    """
+    positions: dict[str, list[int]] = {}
+    for position, label in enumerate(data.columns):
+        positions.setdefault(str(label), []).append(position)
+    read: dict[str, list[SentinelValue]] = {}
+    for name, values in sentinel_values.items():
+        values = list(values)
+        where = positions.get(name, [])
+        if len(where) == 1 and any(isinstance(value, str) for value in values):
+            column = holds(data.iloc[:, where[0]])
+            values = [_read_iso(value, column) for value in values]
+        read[name] = values
+    return read
+
+
+def _read_iso(value: SentinelValue, column: Holds) -> SentinelValue:
+    """The value as an ISO 8601 datetime, date or duration that its column can
+    hold, or as it is when it is no such text."""
+    if not isinstance(value, str) or column.families is None:
+        return value
+    if "text" in column.families:
+        return value
+    for target in _ISO_FAMILIES:
+        if target in column.families:
+            read = _iso(value.strip(), target)
+            if read is not None:
+                return read
+    return value
+
+
+# The families whose values an ISO 8601 string spells, in the order they are tried.
+_ISO_FAMILIES: tuple[Family, ...] = ("datetime", "date", "timedelta")
+
+
+def _iso(text: str, target: Family) -> SentinelValue | None:
+    """Text as an ISO 8601 datetime, date or duration, or None when it isn't one.
+
+    The rules are the analyses' own (_parse.read_as), except that a duration
+    must be written in ISO 8601, as the input schema's format says: pandas also
+    reads '5' as five nanoseconds and '1 day' as a day.
+    """
+    if target == "timedelta" and not text.lstrip("+-").startswith("P"):
+        return None
+    if target not in _ISO_FAMILIES:
+        return None
+    value = read_as(text, cast("ReadFamily", target))
+    return None if isinstance(value, bool | int | float) else value
+
+
 def _parse(text: str, target: Family, column: Holds) -> SentinelValue | None:
     """Text as a value of the target family, or None when it doesn't parse.
 
@@ -492,69 +566,96 @@ def _in_zone(stamp: pd.Timestamp, tz: dt.tzinfo | str | None) -> pd.Timestamp:
     return stamp.tz_localize(tz) if stamp.tz is None else stamp
 
 
-def literal(value: object) -> str:
-    """A value as the Python that gives it, such as pd.Timestamp('1900-01-01')."""
+def literal(value: object, surface: Surface = "python") -> str:
+    """A value as the caller writes it: the Python that gives it, such as
+    pd.Timestamp('1900-01-01'), or over MCP its JSON, such as "1900-01-01T00:00:00".
+    """
+    if surface == "mcp" and _is_sentinel_value(value):
+        return json.dumps(json_value(value))
     text = repr(value)
     if isinstance(value, pd.Timestamp | pd.Timedelta):
         return f"pd.{text}"
     return text
 
 
-def _message(analysis: str, problems: list[_Problem]) -> str:
-    """Say which declared values can't be used, why, and how to fix the call."""
+def _is_sentinel_value(value: object) -> TypeGuard[SentinelValue]:
+    return isinstance(value, bool | int | float | str | dt.date | dt.timedelta)
+
+
+def _message(
+    analysis: str, problems: list[_Problem], hidden: set[str], surface: Surface
+) -> str:
+    """Say which declared values can't be used, why, and how to fix the call.
+
+    The values declared for a hidden column are never quoted, nor the values
+    guessed from them.
+    """
     if len(problems) == 1:
         [problem] = problems
-        value = literal(problem.value)
+        masked = problem.column in hidden
+        value = "a value" if masked else literal(problem.value, surface)
+        it = "it" if masked else value
         head = (
             f"{analysis} got {value} for column {problem.column!r} in sentinel_values"
         )
         if problem.problem == "missing":
-            why = f"{value} is a missing value itself, not a stand-in for one."
+            why = f"{it} is a missing value itself, not a stand-in for one."
         elif problem.problem == "infinite":
-            why = f"{value} is an infinite value, not a stand-in for a missing one."
+            why = f"{it} is an infinite value, not a stand-in for a missing one."
         else:
             why = (
                 f"{problem.column!r} holds {problem.holds} (dtype {problem.dtype}), "
                 "so it can never match."
             )
-            if problem.likely is not None:
-                why += f" Did you mean {literal(problem.likely)}?"
-        return f"{head}, but {why} {_closing(problems)}"
-    fragments = [_fragment(problem) for problem in problems[:_MAX_LISTED]]
+            if problem.likely is not None and not masked:
+                why += f" Did you mean {literal(problem.likely, surface)}?"
+        return f"{head}, but {why} {_closing(problems, hidden, surface)}"
+    fragments = [
+        _fragment(problem, hidden, surface) for problem in problems[:_MAX_LISTED]
+    ]
     if len(problems) > _MAX_LISTED:
         fragments.append(f"and {len(problems) - _MAX_LISTED:,} more")
     return (
         f"{analysis} can't use {len(problems):,} values in sentinel_values: "
-        f"{'; '.join(fragments)}. {_closing(problems)}"
+        f"{'; '.join(fragments)}. {_closing(problems, hidden, surface)}"
     )
 
 
-def _fragment(problem: _Problem) -> str:
+def _fragment(problem: _Problem, hidden: set[str], surface: Surface) -> str:
     """A value the call can't use and why, as one item of a list."""
-    named = f"{literal(problem.value)} for {problem.column!r}"
+    masked = problem.column in hidden
+    shown = "a value" if masked else literal(problem.value, surface)
+    named = f"{shown} for {problem.column!r}"
     if problem.problem == "missing":
         return f"{named}, a missing value itself"
     if problem.problem == "infinite":
         return f"{named}, an infinite value"
     likely = (
-        f"; did you mean {literal(problem.likely)}?"
-        if problem.likely is not None
+        f"; did you mean {literal(problem.likely, surface)}?"
+        if problem.likely is not None and not masked
         else ""
     )
     return f"{named}, which holds {problem.holds} (dtype {problem.dtype}{likely})"
 
 
-def _closing(problems: list[_Problem]) -> str:
+def _closing(problems: list[_Problem], hidden: set[str], surface: Surface) -> str:
     """How to fix each kind of problem, in a fixed order."""
     kinds = {problem.problem for problem in problems}
     sentences = []
     if "type" in kinds:
         sentence = "Declare each value as the type its column holds"
         [first] = problems if len(problems) == 1 else [None]
-        if first is not None and first.likely is not None:
+        if (
+            first is not None
+            and first.likely is not None
+            and first.column not in hidden
+        ):
+            likely = literal(first.likely, surface)
             sentence += (
-                f", such as sentinel_values={{{first.column!r}: "
-                f"[{literal(first.likely)}]}}"
+                f', such as {{"sentinel_values": {{{json.dumps(first.column)}: '
+                f"[{likely}]}}}}"
+                if surface == "mcp"
+                else f", such as sentinel_values={{{first.column!r}: [{likely}]}}"
             )
         sentences.append(f"{sentence}.")
     if "limit" in kinds:

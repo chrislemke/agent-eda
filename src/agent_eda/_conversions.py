@@ -48,7 +48,7 @@ from agent_eda._parse import (
     read_texts,
     value_kind,
 )
-from agent_eda._values import hashable_values
+from agent_eda._values import value_codes
 from agent_eda.results import LogicalType
 
 # What a value is, measured against the declared logical type.
@@ -216,16 +216,22 @@ def _groups(
     if kind == "categorical":
         return _categories(series, declared, datetime_format)
     if kind in ("boolean", "datetime", "timedelta"):
-        codes, uniques = pd.factorize(series)
+        codes, uniques = _distinct(series)
         verdict = _stored_verdict(kind, declared)
         verdicts = np.full(len(uniques), verdict, dtype=np.uint8)
         return _Groups(codes=codes, values=uniques, verdicts=verdicts)
     if kind == "text":
-        codes, uniques = pd.factorize(series)
+        codes, uniques = _distinct(series)
         texts = np.asarray(uniques, dtype=object)
         verdicts = _text_verdicts(texts, declared, datetime_format)
         return _Groups(codes=codes, values=uniques, verdicts=verdicts)
     return _objects(series, declared, datetime_format)
+
+
+def _distinct(values: "pd.Series | np.ndarray") -> tuple[np.ndarray, typing.Any]:
+    """Each value's code and the distinct values, of values that can be hashed."""
+    found = value_codes(values, unhashable="by_content")
+    return found.codes, found.uniques
 
 
 def _numbers(
@@ -235,10 +241,10 @@ def _numbers(
     stored = _numeric_storage(series)
     if floats is not None:
         # NaN that a float column stores as a value is missing here, too.
-        codes, uniques = pd.factorize(floats)
+        codes, uniques = _distinct(floats)
         numbers = uniques
     else:
-        codes, uniques = pd.factorize(series)
+        codes, uniques = _distinct(series)
         # A Series gives an Index of its distinct values.
         index = typing.cast("pd.Index", uniques)
         numbers = np.asarray(index.to_numpy(dtype="float64", na_value=np.nan))
@@ -278,16 +284,9 @@ def _objects(
 ) -> _Groups:
     """Python objects of any type, read by their own type."""
     values = np.asarray(series.array, dtype=object)
-    try:
-        codes, uniques = pd.factorize(values)
-    # Lists and dicts raise TypeError; nested pyarrow types raise
-    # ArrowNotImplementedError, a NotImplementedError.
-    except (TypeError, NotImplementedError):
-        codes, uniques = pd.factorize(hashable_values(values))
-        hashable = False
-    else:
-        hashable = True
-    if hashable and pd.api.types.infer_dtype(uniques, skipna=False) in (
+    found = value_codes(values, unhashable="by_content")
+    codes, uniques = found.codes, found.uniques
+    if not found.by_content and pd.api.types.infer_dtype(uniques, skipna=False) in (
         "string",
         "empty",
     ):

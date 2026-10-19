@@ -325,8 +325,23 @@ def mixed_csv(tmp_path):
     """The mixed-dtype CSV's path, and its DataFrame as the server reads it."""
     path = tmp_path / "orders.csv"
     path.write_text(CSV, encoding="utf-8")
-    # Only an empty field counts as missing.
-    return path, pd.read_csv(path, keep_default_na=False, na_values=[""])
+    # Only an empty field counts as missing, so "N/A" and -999 are values.
+    return path, pd.DataFrame(
+        {
+            "order_id": [1, 2, 3, 4, 5],
+            "city": ["Oslo", "Lyon", "Oslo", "N/A", "Lyon"],
+            "score": [1.5, None, 2.5, -999.0, 4.0],
+            "joined": [
+                "2024-01-03",
+                "2024-02-11",
+                "2024-03-07",
+                "2024-04-21",
+                float("nan"),
+            ],
+            "member": [True, False, True, False, True],
+            "plan": ["basic", "pro", "basic", "pro", "basic"],
+        }
+    )
 
 
 def valid_arguments(name, data):

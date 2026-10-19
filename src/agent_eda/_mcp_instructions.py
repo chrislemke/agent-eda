@@ -35,10 +35,12 @@ answers one EDA question; the same call on the same file always gives the same r
 _DATA = (
     "Pass the data as data_path: a {extensions} file, absolute or relative to the "
     "MCP server's working directory. In a CSV or TSV only an empty field counts as "
-    "missing, so values such as N/A or -999 reach the analysis as values. Row IDs in "
-    "a result are 0-based data-row numbers for a CSV or TSV and follow the stored "
-    "index for a Parquet file; id_column names rows by a column's values instead. "
-    "Each MCP tool's input schema describes the rest."
+    "missing, so N/A or -999 are values; a column is numbers or booleans only when "
+    "all its non-empty fields parse as such, so codes with a leading zero (01234) "
+    "stay text; inf reads as a number; blank lines are skipped except in a "
+    "one-column file. Row IDs are 0-based data-row numbers for a CSV or TSV and "
+    "follow the stored index for a Parquet file; id_column names rows by a "
+    "column's values instead."
 )
 
 _RESULTS = """\
@@ -59,8 +61,9 @@ _MASKING = (
     "Masking: MCP tools marked [supports masking] can show raw values, such as "
     "labels or row IDs. Their project_path takes a project TOML file whose "
     '[data_policy] table has sensitive_columns = ["email"] and mask_sensitive = '
-    "true, and the values show as <masked 1> and so on. agent-eda-mcp --project "
-    f"PATH sets the project for every call. {PRECEDENCE} {GUARDRAIL}"
+    f"true, and the values show as <masked 1> and so on. {PRECEDENCE} Numeric "
+    "statistics and index labels are never masked; other tools ignore the "
+    f"project. {GUARDRAIL}"
 )
 
 _MORE = """\
@@ -76,7 +79,9 @@ def instructions() -> str:
             _INTRO.format(version=__version__),
             "",
             _fill(
-                _DATA.format(extensions=supported_extensions().replace(" and ", " or "))
+                _DATA.format(
+                    extensions=supported_extensions().replace(" and ", " or "),
+                )
             ),
             "",
             _RESULTS,

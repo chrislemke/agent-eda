@@ -23,7 +23,7 @@ Masking is a guardrail against accidental exposure, not anonymization and not
 access control (ADR 0001).
 """
 
-import itertools
+import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -34,6 +34,7 @@ import pandas as pd
 from agent_eda._levels import Levels, label_types, ordered
 from agent_eda._project_file import TOML_EXAMPLE
 from agent_eda._text import placeholder
+from agent_eda._values import value_codes
 from agent_eda._wording import as_written, worded
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.project import Project
@@ -65,6 +66,15 @@ class MaskingDecision:
         """Whether the result shows this column's values as placeholders."""
         return self.applied and column is not None and column in self.sensitive_columns
 
+    def hidden(self, names: Iterable[str] | None) -> set[str]:
+        """The columns among `names` whose values no message may quote.
+
+        Error messages that would quote a value the caller declared for a
+        column, such as a sentinel value or an expected label, leave it out
+        when the call masks that column.
+        """
+        return {name for name in names or () if self.masks(name)}
+
     def record(self, shown: Iterable[str | None], data: pd.DataFrame) -> Masking:
         """The result's masking field.
 
@@ -77,7 +87,19 @@ class MaskingDecision:
         columns = [c for c in dict.fromkeys(shown) if c is not None and c in sensitive]
         # The index's level names; an unnamed level has none.
         index = [str(name) for name in data.index.names if name is not None]
-        present = {str(label) for label in data.columns} | set(index)
+        names = [str(label) for label in data.columns] + index
+        present = set(names)
+        absent = [c for c in self.sensitive_columns if c not in present]
+        # A name the data spells with other case or Unicode form is no match, as
+        # masking matches exactly, but it is likely meant: report it.
+        spelled: dict[str, str] = {}
+        for name in names:
+            spelled.setdefault(_loosely(name), name)
+        near_misses = {
+            c: spelled[_loosely(c)]
+            for c in absent
+            if _loosely(c) in spelled and spelled[_loosely(c)] not in sensitive
+        }
         return Masking(
             applied=self.applied,
             decided_by=self.decided_by,
@@ -87,8 +109,14 @@ class MaskingDecision:
                 if None in shown
                 else []
             ),
-            absent_columns=[c for c in self.sensitive_columns if c not in present],
+            absent_columns=absent,
+            near_miss_columns=near_misses,
         )
+
+
+def _loosely(name: str) -> str:
+    """The name with case and Unicode form ignored, to find a near miss."""
+    return unicodedata.normalize("NFC", name.casefold())
 
 
 def resolve_masking(
@@ -196,16 +224,7 @@ def mask_values(values: Sequence[object]) -> list[str | None]:
     so values that repeat still show as repeating. Missing values (None, NaN,
     NaT, pd.NA) stay None. Pass the values of one column in result order.
     """
-    # A value that isn't text keeps pandas off its hash table for text, which
-    # reads '\x00' as the end of the text, so '' and '\x00a' would be equal.
     # fromiter keeps tuples whole, where np.array would make them a dimension.
-    marked = np.fromiter(
-        itertools.chain(values, [_NOT_TEXT]), dtype=object, count=len(values) + 1
-    )
-    codes, _ = pd.factorize(marked)
-    return [placeholder(int(code) + 1) if code >= 0 else None for code in codes[:-1]]
-
-
-# mask_values appends this to the values it numbers, so they are never all
-# text. It comes last, so no value gets its code.
-_NOT_TEXT = object()
+    objects = np.fromiter(values, dtype=object, count=len(values))
+    codes = value_codes(objects, unhashable="by_content").codes
+    return [placeholder(int(code) + 1) if code >= 0 else None for code in codes]

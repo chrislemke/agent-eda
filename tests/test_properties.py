@@ -76,30 +76,65 @@ def test_every_analysis_keeps_the_contract_on_edge_cases(name, frame):
 @pytest.mark.parametrize("name", MASKING)
 @given(data=st.data())
 def test_with_masking_on_no_value_of_a_sensitive_column_reaches_the_result(name, data):
-    recipe = recipe_for(name)
-    df, markers = data.draw(frames_with_secrets(), "data")
-    arguments = recipe.required(df)
-    assume(arguments is not None)  # the data allows no valid call
-    arguments |= data.draw(recipe.options(df), "arguments")
-    arguments |= data.draw(recipe.sensitive_options(df, list(markers)), "showing")
-    arguments |= data.draw(masking_on(list(markers)), "masking")
+    df, markers, arguments = masking_example(name, data)
 
     check_contract(name, df, arguments)
     res = getattr(ae, name)(df, **arguments)
 
     assert res.masking.applied
+    assert leaks_in(res, markers) == [], "raw values of sensitive columns reached it"
+
+
+@pytest.mark.parametrize("name", MASKING)
+def test_most_examples_of_the_no_leak_property_would_leak_with_masking_off(name):
+    """The property can only fail where the result shows sensitive values."""
+    leaked = []
+
+    @settings(max_examples=60)
+    @given(data=st.data())
+    def collect(data):
+        df, markers, arguments = masking_example(name, data)
+        res = getattr(ae, name)(df, **{**arguments, "mask_sensitive": False})
+        leaked.append(bool(leaks_in(res, markers)))
+
+    collect()
+
+    assert len(leaked) >= 20, "too few examples allowed a valid call"
+    assert sum(leaked) * 2 >= len(leaked), (
+        f"only {sum(leaked)} of {len(leaked)} examples of {name} show a sensitive "
+        "value with masking off, so most of them can't catch a leak: fix the "
+        "recipe's sensitive_options"
+    )
+
+
+def masking_example(name: str, data: st.DataObject):
+    """A frame with sensitive columns, its markers and the arguments of a call
+    that masks them and shows their values."""
+    recipe = recipe_for(name)
+    df, markers = data.draw(frames_with_secrets(), "data")
+    required = recipe.required(df)
+    assume(required is not None)  # the data allows no valid call
+    arguments = dict(required or {})
+    arguments |= data.draw(recipe.options(df), "arguments")
+    arguments |= data.draw(recipe.sensitive_options(df, list(markers)), "showing")
+    arguments |= data.draw(masking_on(list(markers)), "masking")
+    return df, markers, arguments
+
+
+def leaks_in(res: Any, markers: dict[str, str]) -> list[str]:
+    """Where a marker of a sensitive value shows in a result's text, record or
+    tables."""
     renderings = {
         "the text": str(res),
         "to_json()": res.to_json(),
         **frames_as_text(res),
     }
-    leaks = [
+    return [
         f"{marker!r} in {where}"
         for where, text in renderings.items()
         for marker in sorted(set(markers.values()))
         if marker in text.lower()
     ]
-    assert leaks == [], "raw values of sensitive columns reached the result"
 
 
 def masking_on(columns: list[str]) -> st.SearchStrategy[Arguments]:

@@ -11,6 +11,7 @@ from agent_eda._registry import analysis
 from agent_eda._row_ids import duplicated_labels
 from agent_eda._run import data_shape, execution
 from agent_eda._text import plural
+from agent_eda._values import value_codes
 from agent_eda.results import (
     ColumnSupport,
     DescribeDatasetColumn,
@@ -278,11 +279,11 @@ def _object_column(objects: np.ndarray) -> tuple[int, int | None, int]:
     One hashing pass gives all three. The distinct count is None when values
     such as lists can't be hashed.
     """
-    try:
-        codes, found = pd.factorize(objects)
-    except TypeError:
+    distinct = value_codes(objects, unhashable="unsupported")
+    if distinct is None:
         return int(pd.isna(objects).sum()), None, _object_bytes(objects)
-    uniques = np.asarray(found, dtype=object)
+    codes = distinct.codes
+    uniques = np.asarray(distinct.uniques, dtype=object)
     missing = codes < 0
     if pd.api.types.infer_dtype(uniques, skipna=False) == "string":
         # Equal strings take equal space, so each distinct one is sized once.
@@ -296,12 +297,8 @@ def _object_column(objects: np.ndarray) -> tuple[int, int | None, int]:
 
 def _distinct_count(series: pd.Series) -> int | None:
     """Distinct non-missing values, or None when the values can't be hashed."""
-    try:
-        return int(series.nunique(dropna=True))
-    # Lists and dicts raise TypeError; nested pyarrow types raise
-    # ArrowNotImplementedError, a NotImplementedError.
-    except (TypeError, NotImplementedError):
-        return None
+    found = value_codes(series, unhashable="unsupported")
+    return None if found is None else len(found.uniques)
 
 
 def _describe_index(index: pd.Index) -> DescribeDatasetIndex:

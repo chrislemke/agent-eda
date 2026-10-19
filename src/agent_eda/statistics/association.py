@@ -27,6 +27,7 @@ from agent_eda._numeric import (
 from agent_eda._registry import analysis
 from agent_eda._run import NO_ROWS, budget_exceeded_reason, data_shape, execution
 from agent_eda._text import join_items, join_labels, plural
+from agent_eda._values import value_codes
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.results import (
     AssociationColumn,
@@ -564,13 +565,11 @@ def _codes(series: pd.Series, *, numbers: bool) -> _Levels | None:
     hashed. In a numeric column NaN is missing even where the dtype stores it
     as a value, as summarize_numeric counts it.
     """
-    try:
-        codes, uniques = pd.factorize(series)
-    # Lists and dicts raise TypeError; nested pyarrow types raise
-    # ArrowNotImplementedError, a NotImplementedError.
-    except (TypeError, NotImplementedError):
+    found = value_codes(series, unhashable="unsupported")
+    if found is None:
         return None
-    codes = np.asarray(codes, dtype=np.int64)
+    uniques = found.uniques
+    codes = np.asarray(found.codes, dtype=np.int64)
     if numbers and len(uniques):
         levels = pd.Index(uniques).to_numpy(dtype="float64", na_value=np.nan)
         is_nan = np.isnan(levels)

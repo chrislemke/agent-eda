@@ -34,8 +34,11 @@ Codes, with the class that raises each:
     invalid_project_file (ProjectFileError): Project.load got a file that
         isn't UTF-8 TOML, and the message gives the line at fault, that lacks
         the [data_policy] table or one of its keys, or that holds a value a
-        Project can't take; or project.save got a project with text that TOML
-        can't hold, a lone surrogate.
+        Project can't take, that isn't a regular file, that holds more than
+        1 MiB, that the operating system refuses to read, or that has a newer
+        format_version than this agent-eda reads; or project.save got a
+        project with text that TOML can't hold, a lone surrogate, or one that
+        would fill more than the 1 MiB that Project.load reads.
     unknown_project_key (ProjectFileError): Project.load got a file with a key
         that is neither a field of the Project nor one of its data policy,
         such as a misspelling; the message names the closest key and every
@@ -43,6 +46,11 @@ Codes, with the class that raises each:
     project_file_not_found (ProjectFileNotFoundError, also a
         FileNotFoundError): Project.load found no file at the path; the
         message shows where the path leads and how to save a project there.
+    result_table_unavailable (ResultTableUnavailableError): to_frame() was
+        called on a result that was rebuilt from its record, such as by
+        model_validate(res.model_dump()), which doesn't hold the tables that
+        only a call of the analysis keeps; the message says to call the
+        analysis again or to copy the result with copy.deepcopy or model_copy.
     project_file_exists (ProjectFileExistsError, also a FileExistsError):
         project.save found a file at the path and overwrite was False; pass
         overwrite=True to replace it.
@@ -134,6 +142,17 @@ class ProjectFileExistsError(ProjectFileError, FileExistsError):
     """
 
     code = "project_file_exists"
+
+
+class ResultTableUnavailableError(AgentEDAError, ValueError):
+    """A result rebuilt from its record can't give a table it doesn't hold.
+
+    model_dump() gives the record, which holds no level tables, so a result
+    built from it again by model_validate() raises this from to_frame() instead
+    of returning a table without them. copy.deepcopy and model_copy keep them.
+    """
+
+    code = "result_table_unavailable"
 
 
 class MissingDependencyError(AgentEDAError, ImportError):

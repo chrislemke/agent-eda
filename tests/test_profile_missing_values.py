@@ -1226,3 +1226,92 @@ def test_every_column_with_declared_values_drops_the_limitation():
     res = ae.profile_missing_values(df, sentinel_values={"age": [-999]})
 
     assert [lim.code for lim in res.limitations] == []
+
+
+def contacts():
+    """Five contacts; email is sensitive and stands in 'N/A' and '' for unknown."""
+    return pd.DataFrame(
+        {
+            "email": ["ann@x.org", "N/A", "", "N/A", "bob@x.org"],
+            "age": [34, -999, 29, -999, 51],
+        }
+    )
+
+
+def masking_project(*columns):
+    return ae.Project(
+        data_policy=ae.DataPolicy(sensitive_columns=list(columns), mask_sensitive=True)
+    )
+
+
+def everything_shown(res):
+    """The printed text, the record and both tables, as one string."""
+    return (
+        str(res)
+        + res.to_json()
+        + res.to_frame().to_csv()
+        + res.to_frame(table="row_distribution").to_csv()
+    )
+
+
+def test_masking_puts_placeholders_in_place_of_declared_values_of_sensitive_columns():
+    res = ae.profile_missing_values(
+        contacts(),
+        sentinel_values={"email": ["N/A", ""], "age": [-999]},
+        project=masking_project("email"),
+    )
+
+    assert res.parameters["sentinel_values"] == {
+        "email": ["<masked 1>", "<masked 2>"],
+        "age": [-999],
+    }
+    assert [(v.value, v.count) for v in res.columns["email"].sentinel_values] == [
+        ("<masked 1>", 2),
+        ("<masked 2>", 1),
+    ]
+    assert res.columns["age"].sentinel_values[0].value == -999
+    assert res.to_frame()["sentinel_values"].tolist()[0] == {
+        "<masked 1>": 2,
+        "<masked 2>": 1,
+    }
+    assert "N/A" not in everything_shown(res)
+    # Counts and shares stay.
+    assert res.columns["email"].sentinel_count == 3
+    assert res.masking.applied is True
+    assert res.masking.columns == ["email"]
+
+
+def test_masking_off_shows_declared_values_as_declared_and_says_so():
+    project = ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"]))
+
+    res = ae.profile_missing_values(
+        contacts(), sentinel_values={"email": ["N/A"]}, project=project
+    )
+
+    assert res.parameters["sentinel_values"] == {"email": ["N/A"]}
+    assert res.masking.applied is False
+    assert res.masking.columns == ["email"]
+    assert "Not masked (data_policy.mask_sensitive=False)" in str(res)
+
+
+def test_a_call_asks_for_masking_without_a_project_that_declares_columns():
+    with pytest.raises(InvalidArgumentError, match="mask_sensitive=True"):
+        ae.profile_missing_values(contacts(), mask_sensitive=True)
+
+
+def test_masking_is_recorded_and_discovery_lists_the_analysis_as_masking():
+    description = ae.describe_analysis("profile_missing_values")
+    [info] = [
+        i for i in ae.list_analyses().analyses if i.name == "profile_missing_values"
+    ]
+
+    res = ae.profile_missing_values(contacts(), project=masking_project("age"))
+
+    assert res.masking.decided_by == "project"
+    assert res.to_dict()["parameters"]["project"] == {
+        "name": None,
+        "data_policy": {"sensitive_columns": ["age"], "mask_sensitive": True},
+    }
+    assert description.supports_masking is True
+    assert description.shows_raw_values is True
+    assert info.supports_masking is True
