@@ -1,16 +1,21 @@
 """Result classes returned by agent-eda analyses."""
 
 import ast
+import datetime as dt
+import inspect
 import itertools
 import json
 import re
+import textwrap
 import typing
-from collections.abc import Callable, Mapping, Sequence
-from typing import Annotated, Any, Literal, Self
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from decimal import Decimal
+from typing import Annotated, Any, ClassVar, Literal, Self
 
 import numpy as np
 import pandas as pd
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -28,7 +33,11 @@ from agent_eda import _text
 from agent_eda._annotations import TypeName, python_literal
 from agent_eda._levels import LEVEL_ORDER, Levels, level_rows, levels_frame
 from agent_eda._written_form import record_integers, row_id_json, row_id_list
-from agent_eda.errors import InvalidArgumentError, ResultTableUnavailableError
+from agent_eda.errors import (
+    ColumnNotFoundError,
+    InvalidArgumentError,
+    ResultTableUnavailableError,
+)
 
 Status = Literal[
     "completed",
@@ -230,6 +239,87 @@ def _record_json(record: object) -> str:
     return _LONE_SURROGATE.sub(lambda found: f"\\u{ord(found[0]):04x}", text)
 
 
+def _hint(name: object, names: Sequence[str]) -> str:
+    """ " Did you mean 'x'?" for the closest of the names, or nothing."""
+    closest = _text.closest_names(name, names)[:1] if isinstance(name, str) else []
+    return f" Did you mean {closest[0]!r}?" if closest else ""
+
+
+def _rich_text(text: str) -> Iterator[Any]:
+    """The text as one Rich renderable, which keeps square brackets as they are."""
+    from rich.text import Text  # rich is optional: only Rich calls this
+
+    yield Text(text)
+
+
+class _ColumnKeyError(KeyError):
+    """A KeyError whose text is the message, not the message's repr."""
+
+    def __str__(self) -> str:
+        return str(self.args[0])
+
+
+# A message lists this many column names, then counts the rest.
+_NAMES_LISTED = 10
+
+
+def _no_column(name: object, names: Sequence[str]) -> _ColumnKeyError:
+    """The error for a column name the result doesn't hold: the closest names
+    first, then the columns it holds."""
+    closest = _text.closest_names(name, names)[:3] if isinstance(name, str) else []
+    hint = (
+        " Did you mean " + _text.join_alternatives([repr(c) for c in closest]) + "?"
+        if closest
+        else ""
+    )
+    shown = ", ".join(repr(column) for column in names[:_NAMES_LISTED])
+    more = len(names) - _NAMES_LISTED
+    rest = f" and {more} more" if more > 0 else ""
+    held = (
+        f"The result holds {shown}{rest}." if names else "The result holds no columns."
+    )
+    return _ColumnKeyError(f"no column {name!r} in this result.{hint} {held}")
+
+
+class _ColumnsByName(dict[str, Any]):
+    """A mapping from column name to entry whose KeyError suggests the closest
+    names."""
+
+    def __missing__(self, key: object) -> Any:
+        raise _no_column(key, list(self))
+
+
+class _ColumnList(list[Any]):
+    """A list of column entries that also finds one by column name, with the same
+    KeyError as _ColumnsByName for a name that no entry has."""
+
+    def __getitem__(self, key: Any) -> Any:
+        if not isinstance(key, str):
+            return super().__getitem__(key)
+        found = [i for i, entry in enumerate(self) if entry.column == key]
+        if not found:
+            raise _no_column(key, [entry.column for entry in self])
+        if len(found) > 1:
+            where = ", ".join(map(str, found[:-1])) + f" and {found[-1]}"
+            raise _ColumnKeyError(
+                f"{key!r} labels {len(found)} columns, at positions {where}. "
+                "Index the list by position."
+            )
+        return super().__getitem__(found[0])
+
+
+def _by_name(columns: dict[str, Any]) -> dict[str, Any]:
+    return _ColumnsByName(columns)
+
+
+def _list_by_name(columns: list[Any]) -> list[Any]:
+    return _ColumnList(columns)
+
+
+# Marks a field keyed by column name, whose lookup suggests close names.
+_BY_NAME = AfterValidator(_by_name)
+
+
 def _tables_unavailable(result: "AnalysisResult") -> ResultTableUnavailableError:
     """The error for a result that was rebuilt from its record and so lost the
     tables that only the analysis call keeps."""
@@ -410,8 +500,9 @@ def _check_table(table: object, tables: Sequence[str]) -> None:
     closest = _text.closest_names(table, tables)[:1] if isinstance(table, str) else []
     hint = f" Did you mean {closest[0]!r}?" if closest else ""
     allowed = _text.join_alternatives([repr(name) for name in tables])
+    allowed = allowed if len(tables) == 1 else f"one of {allowed}"
     raise InvalidArgumentError(
-        f"to_frame got {shown} for table, but table must be one of {allowed}.{hint} "
+        f"to_frame got {shown} for table, but table must be {allowed}.{hint} "
         f"res.to_frame() returns the {tables[0]} table."
     )
 
@@ -430,8 +521,85 @@ def _entries_frame(
     return pd.DataFrame(columns, columns=list(model.model_fields))
 
 
-class ResultModel(BaseModel):
+# Where a result's help text wraps.
+_HELP_WIDTH = 100
+
+
+def _fields_doc(cls: Any) -> str:
+    """The class docstring with one entry per field: its name and description."""
+    lines = [cls.__plain_doc__.rstrip(), ""]
+    if cls.__help_note__:
+        lines += [*textwrap.wrap(cls.__help_note__, width=_HELP_WIDTH), ""]
+    lines.append("Fields:")
+    for name, field in cls.model_fields.items():
+        lines += textwrap.wrap(
+            f"{name}: {field.description or ''}".rstrip(),
+            width=_HELP_WIDTH,
+            initial_indent="    ",
+            subsequent_indent="        ",
+        )
+    if "analysis" in cls.model_fields and cls.__name__ != "AnalysisResult":
+        analysis = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__.removesuffix("Result"))
+        lines += [
+            "",
+            f"ae.describe_analysis('{analysis.lower()}') shows how to call the "
+            "analysis, how to read these fields and what each finding code means.",
+        ]
+    return "\n".join(lines)
+
+
+class _ResultMeta(type(BaseModel)):
+    """The metaclass of the result classes. It writes each class's docstring with
+    its fields' descriptions, and keeps pydantic's own members out of dir(cls),
+    so that help(res) shows what a result holds instead of 29,000 characters of
+    pydantic internals."""
+
+    def __new__(
+        mcs,
+        name: str,
+        bases: tuple[type, ...],
+        namespace: dict[str, Any],
+        **kwargs: Any,
+    ):
+        cls: Any = super().__new__(mcs, name, bases, namespace, **kwargs)
+        if "analysis" in cls.model_fields:
+            # An analysis result: help() shows the fields. The record's JSON
+            # Schema keeps the plain docstring (record_schema puts it back).
+            cls.__plain_doc__ = cls.__dict__.get("__doc__") or ""
+            cls.__doc__ = _fields_doc(cls)
+        if cls.model_fields:
+            # help() prints the constructor's signature, which pydantic builds
+            # from the annotations, with objects such as <_Cap object at 0x...>.
+            cls.__signature__ = inspect.Signature(
+                [
+                    inspect.Parameter(field, inspect.Parameter.KEYWORD_ONLY)
+                    for field in cls.model_fields
+                ]
+            )
+        return cls
+
+    def __dir__(cls) -> list[str]:
+        owners = {
+            name: next(c for c in cls.__mro__ if name in vars(c))
+            for name in super().__dir__()
+            if any(name in vars(c) for c in cls.__mro__)
+        }
+        return [
+            name
+            for name, owner in owners.items()
+            if owner.__module__.startswith("agent_eda")
+            and not name.startswith(("_", "model_"))
+        ]
+
+
+class ResultModel(BaseModel, metaclass=_ResultMeta):
     """Base for every record inside an analysis result: frozen and strict."""
+
+    # An analysis result's docstring as written, before the fields were added to
+    # the class docstring that help() shows.
+    __plain_doc__: ClassVar[str] = ""
+    # A note for help() only, such as how to look an entry up in Python.
+    __help_note__: ClassVar[str] = ""
 
     model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
 
@@ -490,6 +658,49 @@ class ResultModel(BaseModel):
             if cap.each_list and isinstance(inner, dict):
                 record[name] = _capped(inner, cap.limit, cap.whole, top=True)
         return record
+
+    # pydantic's deprecated methods give records that differ from the result's own
+    # (no totals for capped lists, a JSON Schema that reads like an inferred
+    # schema), so each points to the method to use. They sit last in the class
+    # body, since a method named dict would otherwise shadow the type below it.
+
+    def json(self, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use to_json()."""
+        raise _use_instead("json()", "to_json()", "model_dump_json()")
+
+    def dict(self, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use to_dict()."""
+        raise _use_instead("dict()", "to_dict()", "model_dump()")
+
+    def copy(self, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use model_copy()."""
+        raise _use_instead("copy()", "model_copy()")
+
+    @classmethod
+    def schema(cls, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use record_schema()."""
+        raise _use_instead("schema()", "record_schema()", "model_json_schema()")
+
+    @classmethod
+    def parse_obj(cls, *args: object, **kwargs: object) -> typing.NoReturn:
+        """Not available: use model_validate()."""
+        raise _use_instead("parse_obj()", "model_validate()")
+
+
+def _use_instead(
+    method: str, instead: str, complete: str | None = None
+) -> InvalidArgumentError:
+    """The error for pydantic's deprecated `method`, naming the one to use."""
+    other = (
+        f" {complete} gives the complete record, with every list in full."
+        if complete
+        else ""
+    )
+    return InvalidArgumentError(
+        f"{method} is a deprecated pydantic method that this result doesn't "
+        f"support: it would give a record that differs from the result's own. "
+        f"Use {instead}.{other}"
+    )
 
 
 class Finding(ResultModel):
@@ -833,6 +1044,10 @@ class AnalysisResult(ResultModel):
     def __repr__(self) -> str:
         return self.__str__()
 
+    def __rich_console__(self, console: Any, options: Any) -> Iterator[Any]:
+        """Rich prints the text that print(res) gives, not pydantic's field dump."""
+        yield from _rich_text(str(self))
+
     def _heading(self) -> str:
         shape = self.parameters.get("data")
         rows = shape.get("row_count") if isinstance(shape, dict) else None
@@ -976,7 +1191,7 @@ class AnalysisResult(ResultModel):
         """
         schema = cls.model_json_schema(mode="validation")
         schema["description"] = (
-            f"{schema.get('description', '')} {_RECORD_INTEGERS}".strip()
+            f"{inspect.cleandoc(cls.__plain_doc__)} {_RECORD_INTEGERS}".strip()
         )
         definitions = schema.get("$defs", {})
         for model in _models_in(cls, {}):
@@ -1027,6 +1242,10 @@ class _DiscoveryRecord(ResultModel):
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    def __rich_console__(self, console: Any, options: Any) -> Iterator[Any]:
+        """Rich prints the text that print(res) gives, not pydantic's field dump."""
+        yield from _rich_text(str(self))
 
     def _render(self, surface: _text.Surface) -> str:
         """The text, worded for the surface the caller reads it on."""
@@ -1601,6 +1820,11 @@ class Provenance(ResultModel):
 class DescribeDatasetResult(AnalysisResult):
     """The result of describe_dataset."""
 
+    __help_note__ = (
+        "res.columns is a list, since column labels can repeat; res.columns['age'] "
+        "finds an entry by name, and res.columns[0] by position."
+    )
+
     row_count: int = Field(description="Rows in the data.")
     column_count: int = Field(description="Columns in the data.")
     column_level_count: int = Field(
@@ -1609,9 +1833,12 @@ class DescribeDatasetResult(AnalysisResult):
     memory_bytes: int = Field(
         description="Bytes the columns and the index use together."
     )
-    columns: Annotated[list[DescribeDatasetColumn], _ENTRIES] = Field(
-        description="One entry per column, in DataFrame order. The record keeps "
-        "the first 100 and adds columns_total; the complete table has every column."
+    columns: Annotated[
+        list[DescribeDatasetColumn], _ENTRIES, AfterValidator(_list_by_name)
+    ] = Field(
+        description="One entry per column, in DataFrame order: a list, not a mapping "
+        "by name, because column labels can repeat. The record keeps the first "
+        "100 and adds columns_total; the complete table has every column."
     )
     index: DescribeDatasetIndex = Field(description="Facts about the row index.")
     provenance: Provenance = Field(description="The provenance as supplied.")
@@ -1637,8 +1864,13 @@ class DescribeDatasetResult(AnalysisResult):
             f"Provenance: {provenance}.",
         ]
 
-    def to_frame(self) -> pd.DataFrame:
-        """Every column's entry as one row, in DataFrame order."""
+    def to_frame(self, table: Literal["columns"] = "columns") -> pd.DataFrame:
+        """Every column's entry as one row, in DataFrame order.
+
+        Args:
+            table: 'columns', the only table.
+        """
+        _check_table(table, ("columns",))
         return _entries_frame(self.columns, DescribeDatasetColumn)
 
     def _text_table(self) -> _text.Table:
@@ -1732,7 +1964,7 @@ class SummarizeNumericColumn(ColumnResult):
 class SummarizeNumericResult(AnalysisResult):
     """The result of summarize_numeric."""
 
-    columns: Annotated[dict[str, SummarizeNumericColumn], _ENTRIES] = Field(
+    columns: Annotated[dict[str, SummarizeNumericColumn], _ENTRIES, _BY_NAME] = Field(
         description="One entry per selected column, keyed by column name, in the "
         "selected order. Every statistic uses the finite values only, and the "
         "description of each entry field defines it. The record keeps the first "
@@ -1797,12 +2029,16 @@ class SummarizeNumericResult(AnalysisResult):
             ],
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["columns"] = "columns") -> pd.DataFrame:
         """Every statistic of every column, one row per column in selected order.
 
         The quantiles become one column per level, named "q" and the level,
         such as "q0.25"; status_reason holds the reason's code.
+
+        Args:
+            table: 'columns', the only table.
         """
+        _check_table(table, ("columns",))
         recorded = self.parameters.get("quantiles")
         levels = [
             float(level)
@@ -1941,11 +2177,13 @@ class SummarizeCategoricalColumn(ColumnResult):
 class SummarizeCategoricalResult(MaskableResult):
     """The result of summarize_categorical."""
 
-    columns: Annotated[dict[str, SummarizeCategoricalColumn], _ENTRIES] = Field(
-        description="One entry per selected column, keyed by column name, in the "
-        "selected order. Every share divides by the entry's non_missing_count, so "
-        "missing values never dilute it and get no share of their own. The record "
-        "keeps the first 100 and adds columns_total."
+    columns: Annotated[dict[str, SummarizeCategoricalColumn], _ENTRIES, _BY_NAME] = (
+        Field(
+            description="One entry per selected column, keyed by column name, in the "
+            "selected order. Every share divides by the entry's non_missing_count, so "
+            "missing values never dilute it and get no share of their own. The record "
+            "keeps the first 100 and adds columns_total."
+        )
     )
     left_out_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns that the default column selection left out because "
@@ -1999,7 +2237,7 @@ class SummarizeCategoricalResult(MaskableResult):
             details_title="Top levels per column",
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["levels"] = "levels") -> pd.DataFrame:
         """Every level of every column, one row per level.
 
         Rows follow the selected column order, then level order. The columns
@@ -2007,7 +2245,11 @@ class SummarizeCategoricalResult(MaskableResult):
         value exactly as stored, or with masking on, a sensitive column's
         placeholder, as in levels. Columns whose values can't be hashed have
         no rows.
+
+        Args:
+            table: 'levels', the only table.
         """
+        _check_table(table, ("levels",))
         if self._tables is None:
             if any(column.distinct_count for column in self.columns.values()):
                 raise _tables_unavailable(self)
@@ -2105,12 +2347,16 @@ class FindDuplicateRowsResult(MaskableResult):
             else "no rows",
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["rows"] = "rows") -> pd.DataFrame:
         """Every row in a duplicate group, by group, then in row order.
 
         The column group holds the group's number, its position in
         duplicate_groups, and row_id the row's ID.
+
+        Args:
+            table: 'rows', the only table.
         """
+        _check_table(table, ("rows",))
         numbers = [
             number
             for number, group in enumerate(self.duplicate_groups)
@@ -2457,7 +2703,7 @@ class ProfileTargetResult(MaskableResult):
             frame_unit=("label", "labels"),
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["target"] = "target") -> pd.DataFrame:
         """The target's table as a DataFrame.
 
         Classification: every label, classes and labels outside expected_labels
@@ -2470,7 +2716,11 @@ class ProfileTargetResult(MaskableResult):
         placeholder. Regression: one row of
         statistics, as summarize_numeric's to_frame() gives it, with
         non_finite_count.
+
+        Args:
+            table: 'target', the only table.
         """
+        _check_table(table, ("target",))
         if self.statistics is not None:
             frame = _numeric_frame([self.statistics], list(self.statistics.quantiles))
             frame["non_finite_count"] = pd.Series(
@@ -2595,10 +2845,12 @@ def _share(name: str, share: float | None) -> str:
 class ProfileMissingValuesResult(MaskableResult):
     """The result of profile_missing_values."""
 
-    columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES] = Field(
-        description="One entry per selected column, keyed by column name, in the "
-        "selected order. The record keeps the first 100 and adds columns_total; "
-        "the complete table has every column."
+    columns: Annotated[dict[str, ProfileMissingValuesColumn], _ENTRIES, _BY_NAME] = (
+        Field(
+            description="One entry per selected column, keyed by column name, in the "
+            "selected order. The record keeps the first 100 and adds columns_total; "
+            "the complete table has every column."
+        )
     )
     missing_count: int = Field(
         description="Selected values that are missing or a declared sentinel value, "
@@ -2764,6 +3016,35 @@ class SentinelCandidate(ResultModel):
     )
 
 
+class SentinelValues(dict[str, list[Any]]):
+    """The sentinel_values that a detect_missing_sentinels result gives: column
+    names mapped to lists of values, as profile_missing_values takes them.
+
+    `note` says which columns were left out because masking replaced their
+    values, or is None when none was.
+    """
+
+    note: str | None = None
+
+
+# How a candidate of each type that the record writes as text comes back.
+_PARSE_VALUE: dict[str, Callable[[str], Any]] = {
+    "Timestamp": pd.Timestamp,
+    "datetime": dt.datetime.fromisoformat,
+    "date": dt.date.fromisoformat,
+    "time": dt.time.fromisoformat,
+    "Timedelta": pd.Timedelta,
+    "timedelta": pd.Timedelta,
+    "Decimal": lambda text: Decimal(str(text)),
+}
+
+
+def _declared_value(candidate: "SentinelCandidate") -> Any:
+    """The candidate's value as the type its column holds."""
+    parse = _PARSE_VALUE.get(candidate.value_type)
+    return candidate.value if parse is None else parse(str(candidate.value))
+
+
 class DetectMissingSentinelsResult(MaskableResult):
     """The result of detect_missing_sentinels."""
 
@@ -2780,6 +3061,55 @@ class DetectMissingSentinelsResult(MaskableResult):
     # record: pandas labels, or lists of placeholders when masked. None for a
     # result rebuilt from its record, which holds the first 10 of each.
     _row_ids: list[Any] | None = PrivateAttr(default=None)
+
+    def sentinel_values(self, columns: Sequence[str] | None = None) -> "SentinelValues":
+        """The candidates as sentinel_values for profile_missing_values.
+
+        Every candidate counts, suspected ones too, so declare only after you
+        have read them. A value that the result writes as text comes back as the
+        type its column holds: a Timestamp, a date, a time, a Timedelta or a
+        Decimal. A candidate of a masked column is left out, since the result
+        holds a placeholder instead of its value, and the returned mapping's
+        `note` names those columns.
+
+        Args:
+            columns: The columns to take candidates from; None, the default,
+                takes every column with a candidate.
+
+        Returns:
+            A dict from column name to its list of values, in candidate order,
+            with a `note` attribute that is None when nothing was left out.
+
+        Raises:
+            ColumnNotFoundError: A name in columns isn't a column of the result.
+        """
+        names = list(dict.fromkeys(c.column for c in self.candidates))
+        if columns is not None:
+            if isinstance(columns, str):
+                columns = [columns]
+            for name in columns:
+                if name not in names:
+                    raise ColumnNotFoundError(
+                        f"sentinel_values got column {name!r}, which has no "
+                        "candidate in this result."
+                        + _hint(name, names)
+                        + f" The columns with candidates are {_text.join_labels(names)}."
+                    )
+        wanted = names if columns is None else list(columns)
+        masked = [name for name in wanted if self._masked(name)]
+        declared = SentinelValues()
+        for candidate in self.candidates:
+            if candidate.column in wanted and candidate.column not in masked:
+                declared.setdefault(candidate.column, []).append(
+                    _declared_value(candidate)
+                )
+        if masked:
+            declared.note = (
+                f"Left out the candidates of {_text.join_labels(masked)}: masking is "
+                "on, so the result holds placeholders, not their values. Declare "
+                "those values yourself."
+            )
+        return declared
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         declared = sum(c.confirmation == "declared" for c in self.candidates)
@@ -2865,13 +3195,17 @@ class DetectMissingSentinelsResult(MaskableResult):
             total=len(self.candidates),
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["candidates"] = "candidates") -> pd.DataFrame:
         """Every candidate, one row each, in the order of candidates.
 
         The columns are the candidate's fields. value holds each value as the
         result does, and evidence and row_ids hold lists; row_ids has the ID of
         every row that holds the value, where the record keeps the first 10.
+
+        Args:
+            table: 'candidates', the only table.
         """
+        _check_table(table, ("candidates",))
         frame = _entries_frame(self.candidates, SentinelCandidate)
         frame["value"] = pd.Series([c.value for c in self.candidates], dtype=object)
         if self._row_ids is None:
@@ -3075,10 +3409,14 @@ class FindCandidateKeysResult(AnalysisResult):
             ],
         )
 
-    def to_frame(self) -> pd.DataFrame:
+    def to_frame(self, table: Literal["candidates"] = "candidates") -> pd.DataFrame:
         """Every reported column set, one row each: keys, keys with missing values,
         then the most unique sets, with `kind` naming the list each comes from.
+
+        Args:
+            table: 'candidates', the only table.
         """
+        _check_table(table, ("candidates",))
         candidates = self._candidates()
         frame = _entries_frame([candidate for _, candidate in candidates], CandidateKey)
         frame.insert(
@@ -3216,7 +3554,7 @@ class ComputeAssociationMatrixResult(AnalysisResult):
         "values last. The record keeps the 100 strongest and adds pairs_total; "
         "the complete table has every pair."
     )
-    columns: Annotated[dict[str, AssociationColumn], _ENTRIES] = Field(
+    columns: Annotated[dict[str, AssociationColumn], _ENTRIES, _BY_NAME] = Field(
         description="The paired columns, keyed by column name, in the selected "
         "order. The record keeps the first 100 and adds columns_total."
     )
@@ -3459,10 +3797,12 @@ _FLAGS: tuple[ColumnFlag, ...] = typing.get_args(ColumnFlag)
 class InferColumnSemanticsResult(AnalysisResult):
     """The result of infer_column_semantics."""
 
-    columns: Annotated[dict[str, InferColumnSemanticsColumn], _ENTRIES] = Field(
-        description="One entry per selected column, keyed by column name, in the "
-        "selected order. The record keeps the first 100 and adds columns_total; "
-        "the complete table has every column."
+    columns: Annotated[dict[str, InferColumnSemanticsColumn], _ENTRIES, _BY_NAME] = (
+        Field(
+            description="One entry per selected column, keyed by column name, in the "
+            "selected order. The record keeps the first 100 and adds columns_total; "
+            "the complete table has every column."
+        )
     )
     missing_declared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="Columns schema names that the data doesn't have, in "
@@ -3494,6 +3834,39 @@ class InferColumnSemanticsResult(AnalysisResult):
                 f"inferred, {missing:,} not in the data."
             )
         return facts
+
+    def inferred_schema(self) -> dict[str, Any]:
+        """The inferred logical types as a schema for validate_column_types.
+
+        A column without an inferred type is left out, since nothing could be
+        declared for it. A datetime column keeps the datetime_format that this
+        call's schema declared for it, so that the text that was read as dates
+        is read the same way.
+
+        Returns:
+            A dict from column name to a logical type, or to a ColumnSpec for a
+            datetime column with a declared format.
+        """
+        from agent_eda.data.validation import ColumnSpec  # circular at import time
+
+        declared = self.parameters.get("schema")
+        formats = {
+            name: spec.get("datetime_format")
+            for name, spec in (declared if isinstance(declared, dict) else {}).items()
+            if isinstance(spec, dict)
+        }
+        schema: dict[str, Any] = {}
+        for name, entry in self.columns.items():
+            logical_type = entry.inferred_logical_type
+            if logical_type is None:
+                continue
+            datetime_format = formats.get(name) if logical_type == "datetime" else None
+            schema[name] = (
+                ColumnSpec(logical_type, datetime_format=datetime_format)
+                if isinstance(datetime_format, str)
+                else logical_type
+            )
+        return schema
 
     def _text_other_tables(self) -> list[str]:
         return ["res.to_frame(table='candidates') has every candidate with its reasons"]
@@ -3694,10 +4067,12 @@ class ValidateColumnTypesColumn(ResultModel):
 class ValidateColumnTypesResult(MaskableResult):
     """The result of validate_column_types."""
 
-    columns: Annotated[dict[str, ValidateColumnTypesColumn], _ENTRIES] = Field(
-        description="One entry per declared column, keyed by column name, in "
-        "declared order. The record keeps the first 100 and adds columns_total; "
-        "the complete table has every column."
+    columns: Annotated[dict[str, ValidateColumnTypesColumn], _ENTRIES, _BY_NAME] = (
+        Field(
+            description="One entry per declared column, keyed by column name, in "
+            "declared order. The record keeps the first 100 and adds columns_total; "
+            "the complete table has every column."
+        )
     )
     undeclared_columns: Annotated[list[str], _ENTRIES] = Field(
         description="The data's columns that schema doesn't declare, in DataFrame "

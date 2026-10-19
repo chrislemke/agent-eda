@@ -25,10 +25,10 @@ Measured with the same sum the test uses: `len(description) + len(json.dumps(inp
 | Descriptions | 52,829 | 52,829 |
 | Input schemas | 67,849 | 31,638 |
 | Descriptions plus input schemas | 120,678 | 84,467 |
-| Output schemas | 180,729 | 164,815 |
-| Whole `tools/list` | 304,742 | 252,617 |
+| Output schemas | 180,729 | 164,880 |
+| Whole `tools/list` | 304,742 | 252,682 |
 
-Audit baseline (October 2026, 11 tools): 100,159 for descriptions plus input schemas, 257,899 for `tools/list`. The input schemas dropped 36,211 characters: `table_path` 17,897 to 2,046 over the 11 analysis tools, `data_path` 15,455 to 1,694, `project_path` 5,130 to 1,332, `mask_sensitive` 4,717 to 3,349, and the 59 input titles are gone. The output schemas dropped 15,914 characters, the 682 titles.
+Audit baseline (October 2026, 11 tools): 100,159 for descriptions plus input schemas, 257,899 for `tools/list`. The input schemas dropped 36,211 characters: `table_path` 17,897 to 2,046 over the 11 analysis tools, `data_path` 15,455 to 1,694, `project_path` 5,130 to 1,332, `mask_sensitive` 4,717 to 3,349, and the 59 input titles are gone. The output schemas dropped the 682 titles (15,914 characters); ticket 07's merge added 65 to them.
 
 What the ticket settled that the spec left open:
 - **Where the rules went.** The MCP instructions now hold the CSV/TSV and Parquet reading rules (the shared `CSV_RULES` and `PARQUET_RULES`), the `table_path` rules (main table only, directory, no overwrite or symbolic link, the response line, `table_file`, JSON text cells, index column) and the project file format with its default. They are 57 of 60 lines; the overview below them doesn't grow with more analyses (the 60-stand-in test still passes).

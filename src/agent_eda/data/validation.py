@@ -498,6 +498,11 @@ def infer_column_semantics(
         'categorical'
         >>> res.columns["zip"].evidence.leading_zero_share
         0.5
+        >>> schema = res.inferred_schema()
+        >>> schema["order_id"], schema["ordered"]
+        ('integer', 'datetime')
+        >>> ae.validate_column_types(df, schema=schema).status
+        'completed'
 
     See Also:
         validate_column_types: How many values of each declared column have, convert to
