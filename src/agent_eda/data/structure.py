@@ -37,8 +37,6 @@ from agent_eda._result_base import (
 from agent_eda._row_ids import duplicated_labels
 from agent_eda._run import (
     budget_exceeded_reason,
-    data_shape,
-    execution,
     overall_status,
 )
 from agent_eda._text import MAX_NAMED, join_labels, label_text, plural
@@ -275,17 +273,10 @@ def find_candidate_keys(
         for counts in (ranking.sets if ranking else [])
     ]
     exhaustive = status == "completed"
-    return FindCandidateKeysResult(
-        analysis="find_candidate_keys",
-        method=None,
+    return FindCandidateKeysResult.for_call(
+        parameters={"columns": list(values)},
         status=status,
         status_reason=status_reason,
-        parameters={
-            "data": data_shape(data),
-            "columns": list(values),
-            "max_key_size": max_key_size,
-            "max_combinations": max_combinations,
-        },
         support=Support(
             row_count=row_count,
             column_count=len(selected),
@@ -311,7 +302,6 @@ def find_candidate_keys(
             *_unhashable_values(left_out),
             *_ranking_not_proven(ranking, tally),
         ],
-        execution=execution(("numpy", "pandas")),
         keys=keys,
         keys_with_missing_values=with_missing,
         most_unique_column_sets=most_unique,
@@ -479,13 +469,7 @@ def _support(name: str, row_count: int, left_out: bool) -> ColumnSupport:
     excluded: dict[ExclusionReason, int] = (
         {"unhashable_values": row_count} if left_out and row_count else {}
     )
-    return ColumnSupport(
-        column=name,
-        eligible_count=row_count,
-        evaluated_count=row_count - sum(excluded.values()),
-        excluded_count=sum(excluded.values()),
-        excluded_by_reason=excluded,
-    )
+    return ColumnSupport.of(name, row_count, excluded)
 
 
 def _ranking_not_proven(
@@ -692,36 +676,19 @@ def describe_dataset(
         *_all_missing_columns(columns, labels, row_count),
         *_constant_columns(columns, labels),
     ]
-    return DescribeDatasetResult(
-        analysis="describe_dataset",
-        method=None,
+    return DescribeDatasetResult.for_call(
         status="completed",
         status_reason=None,
-        parameters={
-            "data": data_shape(data),
-            "source": source,
-            "source_version": source_version,
-        },
         support=Support(
             row_count=row_count,
             column_count=len(columns),
-            columns=[
-                ColumnSupport(
-                    column=c.column,
-                    eligible_count=row_count,
-                    evaluated_count=row_count,
-                    excluded_count=0,
-                    excluded_by_reason={},
-                )
-                for c in columns
-            ],
+            columns=[ColumnSupport.of(c.column, row_count) for c in columns],
         ),
         findings=findings,
         limitations=[
             *_stored_nan(data, labels),
             *_unhashable_columns(columns, labels),
         ],
-        execution=execution(("numpy", "pandas")),
         row_count=row_count,
         column_count=len(columns),
         column_level_count=labels.level_count,

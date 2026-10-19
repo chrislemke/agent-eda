@@ -33,6 +33,9 @@ from agent_eda.errors import (
     ResultTableUnavailableError,
 )
 
+if typing.TYPE_CHECKING:
+    from agent_eda._envelope import Settings
+
 Status = Literal[
     "completed",
     "partial",
@@ -609,6 +612,11 @@ def _fields_doc(cls: Any) -> str:
     return "\n".join(lines)
 
 
+# Members for the authors of an analysis, not for the readers of its result, so
+# that dir() and help() of a result leave them out.
+_FOR_AUTHORS = frozenset({"for_call", "settings"})
+
+
 class _ResultMeta(type(BaseModel)):
     """The metaclass of the result classes. It writes each class's docstring with
     its fields' descriptions, and keeps pydantic's own members out of dir(cls),
@@ -650,6 +658,7 @@ class _ResultMeta(type(BaseModel)):
             for name, owner in owners.items()
             if owner.__module__.startswith("agent_eda")
             and not name.startswith(("_", "model_"))
+            and name not in _FOR_AUTHORS
         ]
 
 
@@ -823,6 +832,33 @@ class ColumnSupport(ResultModel):
         description="Excluded values per reason: missing, infinite, "
         "unexpected_label, unhashable_values or too_many_categories."
     )
+
+    @classmethod
+    def of(
+        cls,
+        column: str,
+        eligible: int,
+        excluded_by_reason: Mapping[ExclusionReason, int] | None = None,
+    ) -> Self:
+        """The support of a column with `eligible` values, `excluded_by_reason`
+        of them left out; the other counts follow, so they always add up.
+
+        Raises ValueError when the exclusions outnumber the eligible values.
+        """
+        reasons = dict(excluded_by_reason or {})
+        excluded = sum(reasons.values())
+        if excluded > eligible:
+            raise ValueError(
+                f"column {column!r} excludes {excluded} of {eligible} eligible "
+                f"values, by reason {reasons}"
+            )
+        return cls(
+            column=column,
+            eligible_count=eligible,
+            evaluated_count=eligible - excluded,
+            excluded_count=excluded,
+            excluded_by_reason=reasons,
+        )
 
 
 class Support(ResultModel):
@@ -1093,6 +1129,40 @@ class AnalysisResult(_PrintedRecord):
     def _reason_matches_status(self) -> Self:
         _check_status_reason(self.status, self.status_reason)
         return self
+
+    @classmethod
+    def for_call(
+        cls,
+        *,
+        parameters: Mapping[str, Any] | None = None,
+        libraries: Sequence[str] = (),
+        **fields: Any,
+    ) -> Self:
+        """The result of the registered analysis that is running, with its
+        envelope filled in: the analysis's name, its method, its parameters and
+        its execution come from the call, so an analysis passes only the rest.
+
+        `parameters` overrides the recorded value of the arguments whose value
+        the result shows differently, such as the columns the analysis
+        resolved, or declared values it masked. An argument that holds data
+        values, such as sentinel_values, must be overridden when it is given:
+        the registry raises instead of recording it as given. `libraries` names
+        those the analysis used beyond numpy and pandas.
+
+        Raises RuntimeError outside a registered analysis.
+        """
+        from agent_eda._envelope import envelope
+
+        return cls(**envelope(parameters, libraries), **fields)
+
+    @property
+    def settings(self) -> "Settings":
+        """The arguments of the call as the result recorded them, each typed as
+        the analysis declares it, such as `res.settings.top_n`. An argument the
+        record lacks is None."""
+        from agent_eda._envelope import Settings
+
+        return Settings(self.analysis, self.parameters)
 
     def __eq__(self, other: object) -> bool:
         """Whether both are results of the same class with the same record.

@@ -21,7 +21,7 @@ from agent_eda._result_base import (
     Support,
 )
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS, data_shape, execution, overall_status
+from agent_eda._run import NO_ROWS, overall_status
 from agent_eda._sentinel_rules import read_by_rules, suspects
 from agent_eda._sentinels import (
     DeclaredValue,
@@ -281,33 +281,19 @@ def profile_missing_values(
     status, status_reason = overall_status(
         row_count, list(entries.values()), no_columns=_NO_COLUMNS
     )
-    return ProfileMissingValuesResult(
-        analysis="profile_missing_values",
-        method=None,
-        status=status,
-        status_reason=status_reason,
+    return ProfileMissingValuesResult.for_call(
         parameters={
-            "data": data_shape(data),
             "columns": [column.name for column in selection.columns],
             "sentinel_values": None
             if sentinel_values is None
             else {name: shown.get(name, []) for name in sentinel_values},
-            "project": project.model_dump(mode="json") if project else None,
-            "mask_sensitive": mask_sensitive,
         },
+        status=status,
+        status_reason=status_reason,
         support=Support(
             row_count=row_count,
             column_count=len(selection.columns),
-            columns=[
-                ColumnSupport(
-                    column=name,
-                    eligible_count=row_count,
-                    evaluated_count=row_count,
-                    excluded_count=0,
-                    excluded_by_reason={},
-                )
-                for name in entries
-            ],
+            columns=[ColumnSupport.of(name, row_count) for name in entries],
         ),
         findings=[
             *_all_missing_columns(entries, row_count, any_declared=bool(declared)),
@@ -322,7 +308,6 @@ def profile_missing_values(
             *_not_declared(entries, any_declared=bool(declared)),
             *_null_shares(entries, row_count),
         ],
-        execution=execution(("numpy", "pandas")),
         masking=masking.record(declared, data),
         columns=entries,
         missing_count=missing_total,
@@ -701,31 +686,21 @@ def detect_missing_sentinels(
     status, status_reason = _check_status(
         row_count, selection.columns, row_ids.id_column
     )
-    result = DetectMissingSentinelsResult(
-        analysis="detect_missing_sentinels",
-        method=None,
-        status=status,
-        status_reason=status_reason,
+    result = DetectMissingSentinelsResult.for_call(
         parameters={
-            "data": data_shape(data),
             "columns": [column.name for column in selection.columns],
             "sentinel_values": None if sentinel_values is None else view.declared,
-            "id_column": row_ids.id_column,
-            "project": project.model_dump(mode="json") if project else None,
-            "mask_sensitive": mask_sensitive,
         },
+        status=status,
+        status_reason=status_reason,
         support=Support(
             row_count=row_count,
             column_count=len(checked),
             columns=[
-                ColumnSupport(
-                    column=name,
-                    eligible_count=row_count,
-                    evaluated_count=row_count - done.missing_count,
-                    excluded_count=done.missing_count,
-                    excluded_by_reason=(
-                        {"missing": done.missing_count} if done.missing_count else {}
-                    ),
+                ColumnSupport.of(
+                    name,
+                    row_count,
+                    {"missing": done.missing_count} if done.missing_count else {},
                 )
                 for name, done in checked.items()
             ],
@@ -740,7 +715,6 @@ def detect_missing_sentinels(
             ),
             *([_NO_DECLARED_SENTINELS] if sentinel_values is None else []),
         ],
-        execution=execution(("numpy", "pandas")),
         masking=masking.record(
             [
                 *_shown_columns(found, sentinel_values, None),

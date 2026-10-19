@@ -44,6 +44,7 @@ from agent_eda._annotations import (
 from agent_eda._columns import check_column_labels
 from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
+from agent_eda._envelope import DATA_VALUED, Call, data_shape, recording
 from agent_eda._result_base import AnalysisResult, Limitation, Status, StatusReasonCode
 from agent_eda._run import capture_warnings, watch_all_warnings
 from agent_eda._text import (
@@ -167,9 +168,20 @@ def analysis[F: FunctionType](
             _check_data(spec.name, data)
             if not spec.any_column_labels:
                 check_column_labels(spec.name, data.columns)
-            validated = _validate(spec, data, options)
-            with watch_all_warnings() as caught:
-                result = func(data, **validated)
+            model = _validated(spec, data, options)
+            call = Call(
+                analysis=spec.name,
+                method=_method_of(model),
+                data=data_shape(data),
+                arguments=model,
+                data_valued=data_valued(spec.parameters)
+                if spec.supports_masking
+                else (),
+            )
+            with recording(call), watch_all_warnings() as caught:
+                result = func(
+                    data, **{name: getattr(model, name) for name in spec.parameters[1:]}
+                )
             result = _absorb_warnings(result, caught)
             _check_result(spec, result)
             return result
@@ -179,6 +191,11 @@ def analysis[F: FunctionType](
         return cast("F", checked)
 
     return register
+
+
+def data_valued(parameters: Iterable[str]) -> tuple[str, ...]:
+    """The given parameters that hold data values, in the order given."""
+    return tuple(name for name in parameters if name in DATA_VALUED)
 
 
 def registered() -> list[AnalysisSpec]:
@@ -493,6 +510,18 @@ def _validate(
     json_mode: bool = False,
 ) -> dict[str, Any]:
     """Check the keyword options against their annotations, defaults included."""
+    validated = _validated(spec, data, options, json_mode=json_mode)
+    return {name: getattr(validated, name) for name in spec.parameters[1:]}
+
+
+def _validated(
+    spec: AnalysisSpec,
+    data: pd.DataFrame,
+    options: dict[str, Any],
+    *,
+    json_mode: bool = False,
+) -> pydantic.BaseModel:
+    """The arguments model holding the options, checked, defaults included."""
     given = options
     options = {
         name: _normalize(spec, data, name, value) for name, value in options.items()
@@ -527,7 +556,25 @@ def _validate(
                 surface=surface,
             ),
         ) from None
-    return {name: getattr(validated, name) for name in spec.parameters[1:]}
+    return validated
+
+
+def _method_of(model: pydantic.BaseModel) -> str | None:
+    """The method the call chose, for an analysis whose `method` option picks one."""
+    method = getattr(model, "method", None)
+    return method if isinstance(method, str) else None
+
+
+def arguments_model(analysis: str) -> type[pydantic.BaseModel]:
+    """The arguments model of a registered analysis, importing its module if need be."""
+    import agent_eda
+
+    module = agent_eda._EXPORTS.get(analysis)
+    if module is not None:
+        importlib.import_module(module)
+    if analysis not in _REGISTRY:
+        raise KeyError(f"{analysis!r} is not a registered analysis")
+    return _REGISTRY[analysis].arguments
 
 
 def checked_keywords[**P, R](function: Callable[P, R]) -> Callable[P, R]:

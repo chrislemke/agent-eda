@@ -37,7 +37,7 @@ from agent_eda._result_base import (
     StatusReason,
     Support,
 )
-from agent_eda._run import NO_ROWS, budget_exceeded_reason, data_shape, execution
+from agent_eda._run import NO_ROWS, budget_exceeded_reason
 from agent_eda._text import join_items, join_labels, plural
 from agent_eda._values import value_codes
 from agent_eda.errors import InvalidArgumentError
@@ -166,13 +166,7 @@ class _Paired:
             excluded["missing"] = self.entry.missing_count
         if self.entry.infinite_count:
             excluded["infinite"] = self.entry.infinite_count
-        return ColumnSupport(
-            column=self.entry.column,
-            eligible_count=row_count,
-            evaluated_count=self.entry.value_count,
-            excluded_count=row_count - self.entry.value_count,
-            excluded_by_reason=excluded,
-        )
+        return ColumnSupport.of(self.entry.column, row_count, excluded)
 
 
 @analysis(
@@ -396,14 +390,10 @@ def compute_association_matrix(
         else:
             left_out.append(_left_out(column.name, column.dtype, read, max_categories))
             support.append(
-                ColumnSupport(
-                    column=column.name,
-                    eligible_count=row_count,
-                    evaluated_count=0,
-                    excluded_count=row_count,
-                    excluded_by_reason=_left_out_exclusions(
-                        data.iloc[:, column.position], read
-                    ),
+                ColumnSupport.of(
+                    column.name,
+                    row_count,
+                    _left_out_exclusions(data.iloc[:, column.position], read),
                 )
             )
     if columns is None:
@@ -453,21 +443,18 @@ def compute_association_matrix(
         )
         if all(p.value is None for p in pairs):
             status, reason = "insufficient_data", _NO_DEFINED_PAIRS
-    return ComputeAssociationMatrixResult(
-        analysis=_ANALYSIS,
-        method=None,
-        status=status,
-        status_reason=reason,
+    return ComputeAssociationMatrixResult.for_call(
         parameters={
-            "data": data_shape(data),
             "columns": [column.name for column in selection.columns],
             "categorical_columns": list(categorical),
-            "numeric_method": numeric_method,
-            "categorical_method": categorical_method,
-            "mixed_method": mixed_method,
-            "max_categories": max_categories,
-            "max_pairs": max_pairs,
         },
+        libraries=(
+            ("scipy",)
+            if any(p.method == "kendall" and p.value is not None for p in pairs)
+            else ()
+        ),
+        status=status,
+        status_reason=reason,
         support=Support(
             row_count=row_count,
             column_count=len(selection.columns),
@@ -483,11 +470,6 @@ def compute_association_matrix(
             ),
             *_null_limitations(pairs),
         ],
-        execution=execution(
-            ("numpy", "pandas", "scipy")
-            if any(p.method == "kendall" and p.value is not None for p in pairs)
-            else ("numpy", "pandas")
-        ),
         pairs=pairs,
         columns={p.entry.column: p.entry for p in paired},
         left_out_columns=left_out,

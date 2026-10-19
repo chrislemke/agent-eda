@@ -1,9 +1,7 @@
 """Pieces every analysis puts into its result, and checks every analysis runs."""
 
 import contextlib
-import importlib
 import json
-import platform
 import threading
 import warnings
 from collections import Counter
@@ -11,18 +9,14 @@ from collections.abc import Callable, Generator, Hashable, Sequence
 from typing import Any
 
 import numpy as np
-import pandas as pd
-from pydantic import JsonValue
 
 from agent_eda._result_base import (
     ColumnResult,
-    Execution,
     Status,
     StatusReason,
     StatusReasonCode,
 )
 from agent_eda._text import Surface, join_items, join_labels, plural
-from agent_eda._version import __version__
 from agent_eda._wording import echoed, worded
 from agent_eda.errors import InvalidArgumentError
 
@@ -216,16 +210,3 @@ def check_distinct(
         )
 
     raise worded(InvalidArgumentError, text)
-
-
-def data_shape(data: pd.DataFrame) -> dict[str, JsonValue]:
-    """How a DataFrame argument appears in a result's parameters."""
-    return {"row_count": data.shape[0], "column_count": data.shape[1]}
-
-
-def execution(libraries: Sequence[str]) -> Execution:
-    """The versions of agent_eda, Python and the given libraries, by import name."""
-    versions = {"agent_eda": __version__, "python": platform.python_version()}
-    for name in libraries:
-        versions[name] = str(importlib.import_module(name).__version__)
-    return Execution(versions=versions)

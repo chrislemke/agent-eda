@@ -19,7 +19,7 @@ from agent_eda._result_base import (
 )
 from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS, data_shape, execution
+from agent_eda._run import NO_ROWS
 from agent_eda._text import format_number, plural
 from agent_eda.data._duplicates_results import FindDuplicateRowsResult
 from agent_eda.project import Project
@@ -207,31 +207,14 @@ def find_duplicate_rows(
     ambiguous = [
         f"duplicate_groups[{number}].row_ids" for number in np.flatnonzero(shared)
     ]
-    return FindDuplicateRowsResult(
-        analysis="find_duplicate_rows",
-        method=None,
+    return FindDuplicateRowsResult.for_call(
+        parameters={"columns": compared},
         status=status,
         status_reason=status_reason,
-        parameters={
-            "data": data_shape(data),
-            "columns": compared,
-            "id_column": row_ids.id_column,
-            "project": project.model_dump(mode="json") if project else None,
-            "mask_sensitive": mask_sensitive,
-        },
         support=Support(
             row_count=row_count,
             column_count=len(compared),
-            columns=[
-                ColumnSupport(
-                    column=name,
-                    eligible_count=row_count,
-                    evaluated_count=row_count,
-                    excluded_count=0,
-                    excluded_by_reason={},
-                )
-                for name in compared
-            ],
+            columns=[ColumnSupport.of(name, row_count) for name in compared],
         ),
         findings=(
             _findings(compared, len(sizes), len(positions), row_count)
@@ -247,7 +230,6 @@ def find_duplicate_rows(
             ),
             *([] if status == "completed" else [_no_share(row_count)]),
         ],
-        execution=execution(("numpy", "pandas")),
         # The row IDs are the only values the result shows, if it has groups.
         masking=masking.record([row_ids.id_column] if sizes else [], data),
         compared_columns=compared,

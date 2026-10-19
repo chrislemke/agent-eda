@@ -59,7 +59,7 @@ from agent_eda._result_base import (
 )
 from agent_eda._row_groups import find_row_groups
 from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS, data_shape, execution, overall_status
+from agent_eda._run import NO_ROWS, overall_status
 from agent_eda._text import (
     Surface,
     closest_names,
@@ -517,13 +517,8 @@ def infer_column_semantics(
     status, status_reason = overall_status(
         row_count, list(entries.values()), no_columns=_NO_COLUMNS
     )
-    return InferColumnSemanticsResult(
-        analysis="infer_column_semantics",
-        method=None,
-        status=status,
-        status_reason=status_reason,
+    return InferColumnSemanticsResult.for_call(
         parameters={
-            "data": data_shape(data),
             "columns": [column.name for column in selected],
             "schema": None
             if schema is None
@@ -531,6 +526,8 @@ def infer_column_semantics(
                 name: spec.model_dump(mode="json") for name, spec in declared.items()
             },
         },
+        status=status,
+        status_reason=status_reason,
         support=Support(
             row_count=row_count,
             column_count=len(selected),
@@ -543,7 +540,6 @@ def infer_column_semantics(
             *_declared_findings(entries, missing_declared, names),
         ],
         limitations=_limitations(readings, entries, schema is None),
-        execution=execution(("numpy", "pandas")),
         columns=entries,
         missing_declared_columns=missing_declared,
     )
@@ -1073,13 +1069,7 @@ def _evidence(reading: _Reading) -> ColumnEvidence:
 
 def _support(name: str, reading: _Reading, row_count: int) -> ColumnSupport:
     missing = row_count - reading.non_missing
-    return ColumnSupport(
-        column=name,
-        eligible_count=row_count,
-        evaluated_count=reading.non_missing,
-        excluded_count=missing,
-        excluded_by_reason={"missing": missing} if missing else {},
-    )
+    return ColumnSupport.of(name, row_count, {"missing": missing} if missing else {})
 
 
 def _path(name: str) -> str:
@@ -1613,32 +1603,22 @@ def validate_column_types(
         for name, check in checks.items()
         if row_ids.repeated[check.invalid_rows].any()
     ]
-    result = ValidateColumnTypesResult(
-        analysis="validate_column_types",
-        method=None,
-        status="completed" if len(data) else "insufficient_data",
-        status_reason=None if len(data) else NO_ROWS,
+    result = ValidateColumnTypesResult.for_call(
         parameters={
-            "data": data_shape(data),
             "schema": {
                 name: spec.model_dump(mode="json") for name, spec in declared.items()
-            },
-            "id_column": row_ids.id_column,
-            "project": project.model_dump(mode="json") if project else None,
-            "mask_sensitive": mask_sensitive,
+            }
         },
+        status="completed" if len(data) else "insufficient_data",
+        status_reason=None if len(data) else NO_ROWS,
         support=Support(
             row_count=len(data),
             column_count=len(checks),
             columns=[
-                ColumnSupport(
-                    column=name,
-                    eligible_count=len(data),
-                    evaluated_count=len(data) - check.missing,
-                    excluded_count=check.missing,
-                    excluded_by_reason={"missing": check.missing}
-                    if check.missing
-                    else {},
+                ColumnSupport.of(
+                    name,
+                    len(data),
+                    {"missing": check.missing} if check.missing else {},
                 )
                 for name, check in checks.items()
             ],
@@ -1648,7 +1628,6 @@ def validate_column_types(
             *ambiguous_row_ids(row_ids, ambiguous),
             *_validation_limitations(checks, absent, entries),
         ],
-        execution=execution(("numpy", "pandas")),
         masking=masking.record(_shown_columns(entries, row_ids.id_column), data),
         columns=entries,
         undeclared_columns=[name for name in names if name not in declared],

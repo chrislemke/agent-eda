@@ -346,13 +346,7 @@ def numeric_support(name: str, summary: NumericSummary) -> ColumnSupport:
     if summary.infinite_count:
         excluded["infinite"] = summary.infinite_count
     eligible = summary.non_missing_count + summary.missing_count
-    return ColumnSupport(
-        column=name,
-        eligible_count=eligible,
-        evaluated_count=eligible - sum(excluded.values()),
-        excluded_count=sum(excluded.values()),
-        excluded_by_reason=excluded,
-    )
+    return ColumnSupport.of(name, eligible, excluded)
 
 
 def null_limitations(

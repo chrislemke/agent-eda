@@ -399,6 +399,7 @@ def check_record(name: str, res: Any, text: str) -> None:
     problems = [
         *capping_problems(record, "record"),
         *path_problems(res),
+        *support_problems(res),
         *assessment_problems(name, res),
         *time_and_html_problems(res, record),
     ]
@@ -474,6 +475,29 @@ PATH_STEP = re.compile(
     r"""\.?(?P<field>[A-Za-z_][A-Za-z0-9_]*)"""
     rf"""|\[(?P<key>(?:{QUOTED})(?:, (?:{QUOTED}))*|-?[0-9][0-9.e+-]*)\]"""
 )
+
+
+def support_problems(res: Any) -> list[str]:
+    """Where a column's support doesn't add up: its excluded values are the
+    eligible ones the analysis didn't evaluate, and its reasons give their count."""
+    support = res.support
+    problems = []
+    if len(support.columns) > support.column_count:
+        problems.append("support lists more columns than it counts")
+    for column in support.columns:
+        reasons = sum(column.excluded_by_reason.values())
+        if (
+            not 0
+            <= column.evaluated_count
+            <= column.eligible_count
+            <= support.row_count
+        ):
+            problems.append(f"support of {column.column!r}: counts out of order")
+        if column.excluded_count != column.eligible_count - column.evaluated_count:
+            problems.append(f"support of {column.column!r}: excluded isn't the rest")
+        if column.excluded_count != reasons:
+            problems.append(f"support of {column.column!r}: reasons give {reasons}")
+    return problems
 
 
 def path_problems(res: Any) -> list[str]:

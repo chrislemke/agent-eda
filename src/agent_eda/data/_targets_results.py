@@ -191,30 +191,22 @@ class ProfileTargetResult(MaskableResult):
     _row_ids: dict[int, Any] | None = PrivateAttr(default=None)
 
     def _target_text(self) -> str:
-        return _text.label_text(self.parameters.get("target_column"))
+        return _text.label_text(self.settings.target_column)
 
     def _masking_facts(self, surface: _text.Surface) -> list[str]:
         # A regression target's statistics show as computed, sensitive or not.
-        target = self.parameters.get("target_column")
-        project = self.parameters.get("project")
-        policy = project.get("data_policy") if isinstance(project, dict) else None
-        sensitive = (
-            policy.get("sensitive_columns") if isinstance(policy, dict) else None
-        )
+        target = self.settings.target_column
+        project = self.settings.project
+        sensitive = project.data_policy.sensitive_columns if project else ()
         statistics = (
-            [target]
-            if self.statistics is not None
-            and isinstance(target, str)
-            and isinstance(sensitive, list)
-            and target in sensitive
-            else []
+            [target] if self.statistics is not None and target in sensitive else []
         )
         return _masking_text(self.masking, surface, statistics)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         if self.statistics is not None:
             return self._regression_facts(self.statistics, surface)
-        task = self.parameters.get("task")
+        task = self.settings.task
         missing = f"{self.missing_count:,} missing" + (
             share_text("missing_share", self.missing_share)
             if self.missing_count
@@ -238,8 +230,8 @@ class ProfileTargetResult(MaskableResult):
             )
         if self.unexpected_labels:
             facts.extend(self._unexpected_text(self.unexpected_labels))
-        rare_share = self.parameters.get("rare_share")
-        if self.rare_class_count is not None and isinstance(rare_share, float):
+        rare_share = self.settings.rare_share
+        if self.rare_class_count is not None and rare_share is not None:
             facts.append(
                 "Rare classes, with a share below rare_share "
                 f"{_text.format_number(rare_share)}: {self.rare_class_count:,} of "
@@ -249,18 +241,18 @@ class ProfileTargetResult(MaskableResult):
 
     def _label_text(self, label: object, label_type: str) -> str:
         """A label as the text shows it: text quoted, a placeholder as it is."""
-        column = self.parameters.get("target_column")
-        masked = isinstance(column, str) and self._masked(column)
+        column = self.settings.target_column
+        masked = column is not None and self._masked(column)
         return repr(label) if label_type == "str" and not masked else str(label)
 
     def _unexpected_text(
         self, unexpected: Sequence["ProfileTargetUnexpectedLabel"]
     ) -> list[str]:
         """The first unexpected labels, each with its first row IDs."""
-        id_column = self.parameters.get("id_column")
+        id_column = self.settings.id_column
         show = (
             str
-            if isinstance(id_column, str) and self._masked(id_column)
+            if id_column is not None and self._masked(id_column)
             else _text.label_text
         )
         items = []
@@ -332,13 +324,8 @@ class ProfileTargetResult(MaskableResult):
                 ],
                 frame="every statistic in one row",
             )
-        recorded = self.parameters.get("rare_share")
         # The share below which a class is rare, when the check ran.
-        rare_share = (
-            recorded
-            if self.rare_classes is not None and isinstance(recorded, float)
-            else None
-        )
+        rare_share = self.settings.rare_share if self.rare_classes is not None else None
         classes = self.classes or []
         return _text.Table(
             title="Classes",
@@ -406,7 +393,7 @@ class ProfileTargetResult(MaskableResult):
         expected = None if self._expected is None else self._expected[order]
         valid = np.ones(len(order), dtype=bool) if expected is None else expected
         shares = counts / max(self.valid_label_count or 0, 1)
-        rare_share = self.parameters.get("rare_share")
+        rare_share = self.settings.rare_share
         return pd.DataFrame(
             {
                 "label": pd.Series(labels, dtype=object),
