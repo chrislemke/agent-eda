@@ -6,12 +6,13 @@ the reader (_data_files) and the writer (_table_files), and one check says what
 a path argument must be. Nothing here imports mcp.
 """
 
+import errno
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from agent_eda._text import join_items
+from agent_eda._text import ELLIPSIS, join_items
 from agent_eda.errors import InvalidArgumentError
 
 
@@ -42,10 +43,65 @@ WRITABLE = tuple(f for f in READABLE if f.writable)
 _RELATIVE = "absolute or relative to the MCP server's working directory"
 
 
+# What the operating system, or Python on its behalf, raises for a path it can't
+# follow: an OSError for most causes, a ValueError for a NUL character and, in
+# Python 3.12, a RuntimeError for a symbolic link loop or a ~user that has no
+# home directory.
+PATH_ERRORS = (OSError, ValueError, RuntimeError)
+
+# The longest a path argument is shown in a message.
+_SHOWN = 80
+
+
 def resolve(path: str) -> Path:
-    """The absolute local path a path argument names, relative ones resolved
-    against the working directory."""
-    return (Path.cwd() / Path(path)).resolve()
+    """The absolute local path a path argument names: a leading ~ is the home
+    directory, and relative paths start at the working directory.
+
+    Raises:
+        PATH_ERRORS: the path can't be followed, as os_cause says.
+    """
+    return (Path.cwd() / Path(path).expanduser()).resolve()
+
+
+def shown(path: str) -> str:
+    """The path as text for a message, cut in the middle when it is long."""
+    text = repr(path)
+    if len(text) <= _SHOWN:
+        return text
+    half = (_SHOWN - len(ELLIPSIS)) // 2
+    return f"{text[:half]}{ELLIPSIS}{text[-half:]}"
+
+
+def os_cause(error: BaseException) -> str:
+    """Why the operating system refused a path, in words that say what to
+    change: for an error in PATH_ERRORS."""
+    code = error.errno if isinstance(error, OSError) else None
+    if isinstance(error, ValueError):
+        return "it holds a NUL character, which no file name can"
+    if isinstance(error, RuntimeError):
+        if "home directory" in str(error):
+            return "its ~ can't be expanded because no home directory is known for it"
+        return "it leads through symbolic links that loop back on themselves"
+    if code == errno.ENAMETOOLONG:
+        return (
+            "a name in it is longer than 255 characters, or the whole path is "
+            "longer than the operating system allows"
+        )
+    if code == errno.ELOOP:
+        return "it leads through symbolic links that loop back on themselves"
+    if code in (errno.EACCES, errno.EPERM):
+        return (
+            "permission denied: the process that runs agent-eda may not search a "
+            "directory on the path or read the file"
+        )
+    if code == errno.EROFS:
+        return "the volume is read-only"
+    if code == errno.ENOSPC:
+        return "No space left on device"
+    if code == errno.ENOTDIR:
+        return "a part of the path that should be a directory is a file"
+    reason = getattr(error, "strerror", None) or str(error)
+    return reason.strip().rstrip(".") or type(error).__name__
 
 
 def extensions(formats: Sequence[FileFormat]) -> str:
@@ -60,9 +116,10 @@ def format_of(path: str, formats: Sequence[FileFormat]) -> FileFormat | None:
 
 
 def extension_text(path: str) -> str:
-    """The path's last two suffixes as text for a message, such as
-    "the extension '.json.gz'", or "no extension"."""
-    suffixes = "".join(Path(path).suffixes[-2:])
+    """The path's extension as text for a message, such as "the extension
+    '.json'" or, under a .gz, "the extension '.json.gz'", or "no extension"."""
+    found = Path(path).suffixes
+    suffixes = "".join(found[-2:] if found[-1:] == [".gz"] else found[-1:])
     return f"the extension {suffixes!r}" if suffixes else "no extension"
 
 
@@ -77,6 +134,12 @@ def path_argument(
         InvalidArgumentError: value isn't a string.
     """
     if isinstance(value, str):
+        if "\x00" in value:
+            raise InvalidArgumentError(
+                f"{analysis} got {shown(value)} for {argument}, which holds a NUL "
+                f"character that no file name can. Pass {what}, {_RELATIVE}, "
+                "without it."
+            )
         return value
     allowed = "a string or null" if nullable else "a string"
     raise InvalidArgumentError(
