@@ -5,7 +5,7 @@ import itertools
 import json
 import re
 import typing
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Annotated, Any, Literal, Self
 
 import numpy as np
@@ -42,6 +42,16 @@ Status = Literal[
 ]
 
 Assessment = Literal["descriptive", "suspected", "violation", "passed", "unknown"]
+
+# The order the printed text lists findings in, so that a cap on the findings it
+# shows never hides a violation behind suspected findings.
+_TEXT_ORDER: tuple[Assessment, ...] = (
+    "violation",
+    "suspected",
+    "descriptive",
+    "passed",
+    "unknown",
+)
 
 # What a column's values mean, as opposed to the dtype pandas stores them in.
 # infer_column_semantics ranks these for each column, and a declared schema
@@ -116,6 +126,37 @@ LimitationCode = Literal[
     # its values are null.
     "column_not_in_data",
 ]
+
+
+# The start of a field path that points at a table entry of a column, as a
+# position, columns[2], or as a label, columns['age'].
+_ENTRY_PATH = re.compile(
+    r"columns\[(?:(?P<position>\d+)|(?P<label>'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"))\]"
+)
+
+
+def _left_out_lines(
+    names: Sequence[str], kinds: Mapping[str, str] | None, *, wanted: str, boolean: str
+) -> list[str]:
+    """Lines saying which columns the default left out and why.
+
+    `wanted` names what the analysis reads, such as "numeric"; `boolean` says
+    what happens to booleans, which some analyses read only when named. The
+    columns are grouped by kind, in the order the kinds first appear. A result
+    rebuilt from its record has no kinds and says only what the analysis reads.
+    """
+    if not names:
+        return []
+    if kinds is None:
+        return [f"Left out, not {wanted}: {_text.join_labels(names)}."]
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        groups.setdefault(kinds.get(name, "other"), []).append(name)
+    lines = []
+    for kind, group in groups.items():
+        why = boolean if kind == "boolean" else f"not {wanted} ({kind})"
+        lines.append(f"Left out, {why}: {_text.join_labels(group)}.")
+    return lines
 
 
 class _Cap:
@@ -768,7 +809,10 @@ class AnalysisResult(ResultModel):
             ],
             table=self._text_table(),
             findings=[
-                _text.Item(f"{f.assessment} {f.code}", f.claim) for f in self.findings
+                _text.Item(f"{f.assessment} {f.code}", f.claim)
+                for f in sorted(
+                    self.findings, key=lambda f: _TEXT_ORDER.index(f.assessment)
+                )
             ],
             limitations=[_text.Item(lim.code, lim.reason) for lim in self.limitations],
             other_tables=self._text_other_tables(),
@@ -796,6 +840,30 @@ class AnalysisResult(ResultModel):
     def to_frame(self) -> pd.DataFrame:
         """The complete main table of the result as a DataFrame."""
         raise NotImplementedError(f"{type(self).__name__} has no table")
+
+    def _by_interest[T](self, entries: Sequence[T], names: Sequence[str]) -> list[T]:
+        """The entries of a table of columns, those with a finding or a limitation
+        first and the rest after them, each group in its own order.
+
+        `names` holds each entry's column name. A finding points at a column by
+        name, a limitation by the path of its entry, "columns['age']" or
+        "columns[2]".
+        """
+        named = {name for finding in self.findings for name in finding.columns}
+        flagged = {i for i, name in enumerate(names) if name in named}
+        for limitation in self.limitations:
+            for path in limitation.fields:
+                match = _ENTRY_PATH.match(path)
+                if match is None:
+                    continue
+                if match["position"] is not None:
+                    flagged.add(int(match["position"]))
+                else:
+                    label = ast.literal_eval(match["label"])
+                    flagged.update(i for i, name in enumerate(names) if name == label)
+        first = [entry for i, entry in enumerate(entries) if i in flagged]
+        rest = [entry for i, entry in enumerate(entries) if i not in flagged]
+        return first + rest
 
     def _masking_facts(self, surface: _text.Surface) -> list[str]:
         """The line on masking, for results that support it."""
@@ -1491,7 +1559,9 @@ class DescribeDatasetResult(AnalysisResult):
                     c.distinct_count,
                     c.memory_bytes,
                 )
-                for c in self.columns
+                for c in self._by_interest(
+                    self.columns, [c.column for c in self.columns]
+                )
             ],
         )
 
@@ -1570,18 +1640,26 @@ class SummarizeNumericResult(AnalysisResult):
         "they aren't numeric or are boolean, in DataFrame order; empty when the "
         "call names the columns."
     )
+    # The kind of each left-out column, outside the record, so that the text
+    # says why it was left out; None for a result rebuilt from its record.
+    _left_out_kinds: Mapping[str, str] | None = PrivateAttr(default=None)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         trim = self.parameters.get("trim_fraction")
-        percent = f"{trim * 100:.4g}%" if isinstance(trim, int | float) else "?"
+        fraction = _text.format_number(trim) if isinstance(trim, int | float) else "?"
         facts = [
             "Statistics use the finite values. Quantile method "
-            f"{self.parameters.get('quantile_method')}; trimmed_mean cuts {percent} "
-            "from each end."
+            f"{self.parameters.get('quantile_method')}; trimmed_mean cuts "
+            f"trim_fraction {fraction} from each end."
         ]
-        if self.left_out_columns:
-            names = _text.join_labels(self.left_out_columns)
-            facts.append(f"Left out, not numeric or boolean: {names}.")
+        facts.extend(
+            _left_out_lines(
+                self.left_out_columns,
+                self._left_out_kinds,
+                wanted="numeric",
+                boolean="boolean, which counts only when columns names it",
+            )
+        )
         facts.append(_text.also_in_table(_MORE_STATISTICS, surface))
         return facts
 
@@ -1610,7 +1688,9 @@ class SummarizeNumericResult(AnalysisResult):
                     e.median,
                     e.max,
                 )
-                for e in self.columns.values()
+                for e in self._by_interest(
+                    list(self.columns.values()), list(self.columns)
+                )
             ],
         )
 
@@ -1676,16 +1756,18 @@ class SummarizeCategoricalLevel(ResultModel):
     )
 
 
-def _level_text(level: SummarizeCategoricalLevel, *, masked: bool = False) -> str:
-    """A level as the text shows it, such as "'basic': 3 (60%)".
-
-    Text labels are quoted, so surrounding spaces stay visible. A masked
-    label, a placeholder such as <masked 1>, is not.
-    """
+def level_label(level: SummarizeCategoricalLevel, *, masked: bool = False) -> str:
+    """A level's label as the text shows it: text labels are quoted, so
+    surrounding spaces stay visible; a masked label, a placeholder such as
+    <masked 1>, is not."""
     quoted = level.label_type == "str" and not masked
-    label = repr(level.label) if quoted else str(level.label)
-    share = _text.format_number(level.share * 100)
-    return f"{label}: {level.count:,} ({share}%)"
+    return repr(level.label) if quoted else str(level.label)
+
+
+def _level_text(level: SummarizeCategoricalLevel, *, masked: bool = False) -> str:
+    """A level as the text shows it, such as "'basic': 3 (share 0.6)"."""
+    share = _text.format_number(level.share)
+    return f"{level_label(level, masked=masked)}: {level.count:,} (share {share})"
 
 
 class SummarizeCategoricalVariants(ResultModel):
@@ -1771,45 +1853,47 @@ class SummarizeCategoricalResult(MaskableResult):
     # them when asked, since sorting a million labels is slow.
     # None for a result rebuilt from its record, which holds no levels.
     _tables: dict[str, Levels] | None = PrivateAttr(default=None)
+    # The kind of each left-out column, outside the record, so that the text
+    # says why it was left out; None for a result rebuilt from its record.
+    _left_out_kinds: Mapping[str, str] | None = PrivateAttr(default=None)
 
     def _text_facts(self, surface: _text.Surface) -> list[str]:
         facts = [
-            "Shares are of each column's non-missing values. Levels go by count, "
-            f"then label; levels has the top {self.parameters.get('top_n')}."
+            "Shares are fractions of non-missing values. Levels go by count, then "
+            f"label; levels has the top {self.parameters.get('top_n')} of each column."
         ]
-        if self.left_out_columns:
-            names = _text.join_labels(self.left_out_columns)
-            facts.append(
-                f"Left out, not text, object, categorical or boolean: {names}."
+        facts.extend(
+            _left_out_lines(
+                self.left_out_columns,
+                self._left_out_kinds,
+                wanted="text, object, categorical or boolean",
+                boolean="boolean",
             )
+        )
         return facts
 
     def _text_table(self) -> _text.Table:
+        entries = self._by_interest(list(self.columns.values()), list(self.columns))
         return _text.Table(
             title="Columns",
             unit=("column", "columns"),
-            headers=(
-                "column",
-                "non_missing_count",
-                "missing_count",
-                "distinct_count",
-                "levels",
-            ),
+            headers=("column", "non_missing_count", "missing_count", "distinct_count"),
             rows=[
-                (
-                    e.column,
-                    e.non_missing_count,
-                    e.missing_count,
-                    e.distinct_count,
-                    ", ".join(
-                        _level_text(level, masked=self._masked(e.column))
-                        for level in e.levels
-                    ),
-                )
-                for e in self.columns.values()
+                (e.column, e.non_missing_count, e.missing_count, e.distinct_count)
+                for e in entries
             ],
             frame_rows=sum(e.distinct_count or 0 for e in self.columns.values()),
             frame_unit=("level", "levels"),
+            details=[
+                f"{e.column}: "
+                + ", ".join(
+                    _level_text(level, masked=self._masked(e.column))
+                    for level in e.levels
+                )
+                for e in entries[: _text.MAX_TABLE_ROWS]
+                if e.levels
+            ],
+            details_title="Top levels per column",
         )
 
     def to_frame(self) -> pd.DataFrame:
@@ -1875,9 +1959,19 @@ class FindDuplicateRowsResult(MaskableResult):
         facts = []
         if self.compared_columns:
             compared = _text.plural(len(self.compared_columns), "column", "columns")
-            facts.append(
-                f"Compared {compared}: {_text.join_labels(self.compared_columns)}; "
-                "missing values compare equal, as in pandas."
+            none = (
+                "no two rows are equal in them; "
+                if self.status == "completed" and not self.duplicate_groups
+                else ""
+            )
+            facts.extend(
+                _text.wrap(
+                    f"Compared {compared}: "
+                    f"{_text.join_labels(self.compared_columns)}; {none}missing "
+                    "values compare equal, as in pandas.",
+                    first="",
+                    indent="    ",
+                )
             )
         id_column = self.parameters.get("id_column")
         source = (
@@ -2115,7 +2209,7 @@ class ProfileTargetResult(MaskableResult):
             return self._regression_facts(self.statistics, surface)
         task = self.parameters.get("task")
         missing = f"{self.missing_count:,} missing" + (
-            _percent(self.missing_share) if self.missing_count else ""
+            _share("missing_share", self.missing_share) if self.missing_count else ""
         )
         classes = _text.plural(self.class_count or 0, "class", "classes")
         facts = [
@@ -2186,7 +2280,7 @@ class ProfileTargetResult(MaskableResult):
         if non_finite:
             others = (
                 f"{non_finite:,} aren't: {self.missing_count:,} missing"
-                f"{_percent(self.missing_share) if self.missing_count else ''} and "
+                f"{_share('missing_share', self.missing_share) if self.missing_count else ''} and "
                 f"{statistics.infinite_count:,} infinite"
             )
         else:
@@ -2195,7 +2289,7 @@ class ProfileTargetResult(MaskableResult):
             f"Target {self._target_text()} for regression: "
             f"{_text.plural(finite, 'finite value', 'finite values')}; {others}.",
             "Statistics use the finite values, as in summarize_numeric: quantile "
-            "method linear; trimmed_mean cuts 10% from each end.",
+            "method linear, trim_fraction 0.1.",
             _text.also_in_table(_MORE_STATISTICS, surface),
         ]
 
@@ -2389,9 +2483,10 @@ class ProfileMissingValuesRowCount(ResultModel):
     row_share: float = Field(description="row_count over all rows, from 0 to 1.")
 
 
-def _percent(share: float | None) -> str:
-    """A share as " (33.33%)" with 4 significant digits; "" when it is null."""
-    return "" if share is None else f" ({_text.format_number(share * 100)}%)"
+def _share(name: str, share: float | None) -> str:
+    """A share as " (missing_share 0.3333)", a fraction of 4 significant digits
+    under its field name; "" when it is null."""
+    return "" if share is None else f" ({name} {_text.format_number(share)})"
 
 
 class ProfileMissingValuesResult(MaskableResult):
@@ -2431,10 +2526,10 @@ class ProfileMissingValuesResult(MaskableResult):
         declared = any(entry.sentinel_count is not None for entry in entries)
         missing = (
             f"Missing: {self.missing_count:,} of {rows * len(self.columns):,} "
-            f"selected values{_percent(self.missing_share)}"
+            f"selected values{_share('missing_share', self.missing_share)}"
             f"{', counting declared sentinel values' if declared else ''}. "
             f"Complete rows: {self.complete_row_count:,} of {rows:,}"
-            f"{_percent(self.complete_row_share)}."
+            f"{_share('complete_row_share', self.complete_row_share)}."
         )
         facts = _text.wrap(missing, first="", indent="    ")
         if self.row_distribution:
@@ -3283,14 +3378,17 @@ class InferColumnSemanticsResult(AnalysisResult):
             )
         else:
             entries = self.columns.values()
-            declared = sum(e.declared_logical_type is not None for e in entries)
+            present = sum(e.declared_logical_type is not None for e in entries)
             matching = sum(e.matches_declared is True for e in entries)
             differing = sum(e.matches_declared is False for e in entries)
+            unchecked = present - matching - differing
             missing = len(self.missing_declared_columns)
+            declared = _text.plural(present + missing, "column", "columns")
+            # Every declared column is in exactly one of the counts.
             facts.append(
-                f"schema: {_text.plural(declared, 'column', 'columns')} "
-                f"declared in the data, {matching:,} matching (a tie with the top "
-                f"counts), {differing:,} not; {missing:,} not in the data."
+                f"schema: {declared} declared: {matching:,} matching "
+                f"(ties with the top count), {differing:,} not, {unchecked:,} not "
+                f"inferred, {missing:,} not in the data."
             )
         return facts
 
@@ -3304,7 +3402,7 @@ class InferColumnSemanticsResult(AnalysisResult):
             headers.append("declared")
         headers.append("flags")
         rows = []
-        for entry in self.columns.values():
+        for entry in self._by_interest(list(self.columns.values()), list(self.columns)):
             # Candidates scored 0 rank no type: a column with none has no top.
             top = entry.candidates[0] if entry.inferred_logical_type else None
             runner_up = (

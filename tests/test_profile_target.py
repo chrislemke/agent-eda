@@ -340,7 +340,7 @@ def test_a_classification_target_whose_values_are_all_distinct_is_suspected():
         (
             "missing_labels",
             "descriptive",
-            "1 of 5 rows (20%) has no label: its target value is missing.",
+            "1 of 5 rows has no label: its target value is missing (missing_share 0.2).",
             ["spend"],
             ["missing_count", "missing_share"],
         ),
@@ -390,7 +390,7 @@ def test_a_constant_regression_target_is_a_violation():
         (
             "missing_labels",
             "descriptive",
-            "1 of 4 rows (25%) has no label: its target value is missing.",
+            "1 of 4 rows has no label: its target value is missing (missing_share 0.25).",
             ["price"],
             ["missing_count", "missing_share"],
         ),
@@ -793,7 +793,7 @@ def test_the_text_shows_unexpected_labels_with_row_ids_and_marks_rare_classes():
 
     assert str(res).splitlines()[1:9] == [
         "Target 'churned' for binary_classification: 2 classes in 4 valid labels; 1 "
-        "missing (12.5%).",
+        "missing (missing_share 0.125).",
         "Majority share 0.75, minority share 0.25; imbalance ratio 3, the majority "
         "count over the minority count.",
         "Outside expected_labels: 2 labels in 3 rows: 'No' in rows 12 and 15; "
@@ -832,10 +832,10 @@ def test_the_text_shows_the_statistics_of_a_regression_target():
 
     lines = str(res).splitlines()
     assert lines[1:7] == [
-        "Target 'price' for regression: 7 finite values; 3 aren't: 1 missing (10%) "
-        "and 2 infinite.",
+        "Target 'price' for regression: 7 finite values; 3 aren't: 1 missing "
+        "(missing_share 0.1) and 2 infinite.",
         "Statistics use the finite values, as in summarize_numeric: quantile method "
-        "linear; trimmed_mean cuts 10% from each end.",
+        "linear, trim_fraction 0.1.",
         "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
         "skewness and excess_kurtosis.",
         "Statistics (1 of 1 shown):",

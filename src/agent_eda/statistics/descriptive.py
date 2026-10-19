@@ -16,7 +16,12 @@ from agent_eda._levels import (
     value_types,
     variant_groups,
 )
-from agent_eda._masking import MaskedLevels, mask_levels, resolve_masking
+from agent_eda._masking import (
+    MaskedLevels,
+    MaskingDecision,
+    mask_levels,
+    resolve_masking,
+)
 from agent_eda._numeric import (
     DEFAULT_QUANTILE_METHOD,
     DEFAULT_QUANTILES,
@@ -48,6 +53,7 @@ from agent_eda.results import (
     SummarizeNumericColumn,
     SummarizeNumericResult,
     Support,
+    level_label,
 )
 
 _TEXT_FIX = (
@@ -198,8 +204,8 @@ def summarize_numeric(
         >>> res = ae.summarize_numeric(df)
         >>> print(res)
         summarize_numeric: completed on 6 rows x 3 columns
-        Statistics use the finite values. Quantile method linear; trimmed_mean cuts 10% from each end.
-        Left out, not numeric or boolean: 'member'.
+        Statistics use the finite values. Quantile method linear; trimmed_mean cuts trim_fraction 0.1 from each end.
+        Left out, boolean, which counts only when columns names it: 'member'.
         res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, skewness and excess_kurtosis.
         Columns (2 of 2 shown):
         column  non_missing_count  missing_count       mean        std    min  median    max
@@ -256,7 +262,7 @@ def summarize_numeric(
     status, status_reason = overall_status(
         row_count, list(entries.values()), no_columns=_NO_NUMERIC_COLUMNS
     )
-    return SummarizeNumericResult(
+    result = SummarizeNumericResult(
         analysis="summarize_numeric",
         method=None,
         status=status,
@@ -287,6 +293,8 @@ def summarize_numeric(
         columns=entries,
         left_out_columns=selection.left_out,
     )
+    result._left_out_kinds = selection.left_out_kinds
+    return result
 
 
 _NO_NUMERIC_COLUMNS = StatusReason(
@@ -508,15 +516,20 @@ def summarize_categorical(
         >>> res = ae.summarize_categorical(df, top_n=3)
         >>> print(res)
         summarize_categorical: completed on 6 rows x 4 columns
-        Shares are of each column's non-missing values. Levels go by count, then label; levels has the top 3.
-        Left out, not text, object, categorical or boolean: 'age'.
+        Shares are fractions of non-missing values. Levels go by count, then label; levels has the top 3 of each column.
+        Left out, not text, object, categorical or boolean (numeric): 'age'.
         Columns (3 of 3 shown):
-        column  non_missing_count  missing_count  distinct_count  levels
-        plan                    5              1               3  'basic': 3 (60%), 'pro': 1 (20%), 'team': 1 (20%)
-        answer                  6              0               4  'Yes': 2 (33.33%), 'no': 2 (33.33%), 'YES': 1 (16.67%)
-        grade                   5              1               2  'a': 3 (60%), 'b': 2 (40%)
+        column  non_missing_count  missing_count  distinct_count
+        answer                  6              0               4
+        grade                   5              1               2
+        plan                    5              1               3
+        Top levels per column:
+          answer: 'Yes': 2 (share 0.3333), 'no': 2 (share 0.3333), 'YES': 1 (share 0.1667)
+          grade: 'a': 3 (share 0.6), 'b': 2 (share 0.4)
+          plan: 'basic': 3 (share 0.6), 'pro': 1 (share 0.2), 'team': 1 (share 0.2)
         Findings (2 of 2 shown):
-        - suspected case_or_space_variants: 1 column holds labels that differ only by case or surrounding spaces: 'answer'.
+        - suspected case_or_space_variants: 1 column holds labels that differ only by case or surrounding spaces: 'answer'
+          ('Yes', 'YES' and 'yes ').
         - descriptive unused_categories: 1 categorical column has categories that never occur: 'grade'.
         Limitations: none
         More: res.to_frame() has all 9 levels; res.findings, res.limitations and res.to_json() have the rest.
@@ -589,7 +602,7 @@ def summarize_categorical(
             columns=[_categorical_support(e, len(data)) for e in entries.values()],
         ),
         findings=[
-            *_case_or_space_variants(entries),
+            *_case_or_space_variants(entries, masking),
             *_mixed_value_types(entries),
             *_unused_categories(entries),
         ],
@@ -607,6 +620,7 @@ def summarize_categorical(
         left_out_columns=selection.left_out,
     )
     result._tables = tables
+    result._left_out_kinds = selection.left_out_kinds
     return result
 
 
@@ -755,19 +769,37 @@ def _unhashable_values(
     ]
 
 
+# A column's variant groups, and the groups a claim names per column.
+_NAMED_VARIANT_GROUPS = 3
+
+
+def _variants_text(entry: SummarizeCategoricalColumn, *, masked: bool) -> str:
+    """A column and its variant groups, such as "'answer' ('Yes' and 'yes ')";
+    several groups are separated by semicolons."""
+    groups = [
+        join_items([level_label(level, masked=masked) for level in group.levels])
+        for group in entry.case_or_space_variants
+    ]
+    named = "; ".join(groups[:_NAMED_VARIANT_GROUPS])
+    if len(groups) > _NAMED_VARIANT_GROUPS:
+        named += f"; and {len(groups) - _NAMED_VARIANT_GROUPS:,} more groups"
+    return f"{label_text(entry.column)} ({named})"
+
+
 def _case_or_space_variants(
-    entries: dict[str, SummarizeCategoricalColumn],
+    entries: dict[str, SummarizeCategoricalColumn], masking: MaskingDecision
 ) -> list[Finding]:
     names = [name for name, entry in entries.items() if entry.case_or_space_variants]
     if not names:
         return []
     hold = plural(len(names), "column holds", "columns hold")
+    described = [_variants_text(entries[n], masked=masking.masks(n)) for n in names]
     return [
         Finding(
             code="case_or_space_variants",
             claim=(
                 f"{hold} labels that differ only by case or surrounding spaces: "
-                f"{join_labels(names)}."
+                f"{join_items(described)}."
             ),
             assessment="suspected",
             columns=names,

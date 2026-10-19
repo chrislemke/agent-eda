@@ -599,7 +599,7 @@ def test_labels_that_differ_only_by_case_or_surrounding_spaces_are_suspected():
     assert finding.assessment == "suspected"
     assert finding.claim == (
         "1 column holds labels that differ only by case or surrounding spaces: "
-        "'answer'."
+        "'answer' ('Yes', 'YES' and 'yes '; 'No' and 'no')."
     )
     assert finding.columns == ["answer"]
     assert finding.fields == ["columns['answer'].case_or_space_variants"]
@@ -744,31 +744,29 @@ def survey():
 def test_text_shows_each_columns_levels_with_count_and_share():
     res = ae.summarize_categorical(survey())
 
-    assert str(res) == "\n".join(
-        [
-            "summarize_categorical: completed on 6 rows x 4 columns",
-            "Shares are of each column's non-missing values. Levels go by count, "
-            "then label; levels has the top 10.",
-            "Left out, not text, object, categorical or boolean: 'age'.",
-            "Columns (3 of 3 shown):",
-            "column  non_missing_count  missing_count  distinct_count  levels",
-            "plan                    5              1               3  'basic': 3 (60%), "
-            "'pro': 1 (20%), 'team': 1 (20%)",
-            # Cut to 120 characters, with "..." for the rest.
-            "answer                  6              0               4  'Yes': 2 (33.33%), "
-            "'no': 2 (33.33%), 'YES': 1 (16.67%), 'ye...",
-            "grade                   5              1               2  'a': 3 (60%), "
-            "'b': 2 (40%)",
-            "Findings (2 of 2 shown):",
-            "- suspected case_or_space_variants: 1 column holds labels that differ "
-            "only by case or surrounding spaces: 'answer'.",
-            "- descriptive unused_categories: 1 categorical column has categories "
-            "that never occur: 'grade'.",
-            "Limitations: none",
-            "More: res.to_frame() has all 9 levels; res.findings, res.limitations "
-            "and res.to_json() have the rest.",
-        ]
+    lines = str(res).splitlines()
+
+    assert lines[0] == "summarize_categorical: completed on 6 rows x 4 columns"
+    assert (
+        "Left out, not text, object, categorical or boolean (numeric): 'age'." in lines
     )
+    start = lines.index("Columns (3 of 3 shown):")
+    assert lines[start + 1].split() == [
+        "column",
+        "non_missing_count",
+        "missing_count",
+        "distinct_count",
+    ]
+    levels = lines.index("Top levels per column:")
+    # answer and grade come first, the columns with a finding.
+    assert lines[levels + 1 : levels + 4] == [
+        "  answer: 'Yes': 2 (share 0.3333), 'no': 2 (share 0.3333), "
+        "'YES': 1 (share 0.1667), 'yes ': 1 (share 0.1667)",
+        "  grade: 'a': 3 (share 0.6), 'b': 2 (share 0.4)",
+        "  plan: 'basic': 3 (share 0.6), 'pro': 1 (share 0.2), 'team': 1 (share 0.2)",
+    ]
+    assert "%" not in str(res)
+    assert lines[-1].startswith("More: res.to_frame() has all 9 levels;")
 
 
 def test_text_shows_labels_of_other_types_without_quotes():
@@ -778,9 +776,9 @@ def test_text_shows_labels_of_other_types_without_quotes():
         ae.summarize_categorical(df, columns=["flag", "n"], top_n=1)
     ).splitlines()
 
-    assert lines[1].endswith("levels has the top 1.")
-    assert lines[4].endswith("  True: 3 (75%)")
-    assert lines[5].endswith("  2.5: 2 (66.67%)")
+    assert "levels has the top 1 of each column." in lines[1]
+    assert "  flag: True: 3 (share 0.75)" in lines
+    assert "  n: 2.5: 2 (share 0.6667)" in lines
 
 
 def test_text_of_a_partial_result_names_the_incomplete_columns():

@@ -67,7 +67,7 @@ It prints:
 
 ```text
 summarize_numeric: completed on 8 rows x 6 columns
-Statistics use the finite values. Quantile method linear; trimmed_mean cuts 10% from each end.
+Statistics use the finite values. Quantile method linear; trimmed_mean cuts trim_fraction 0.1 from each end.
 res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, skewness and excess_kurtosis.
 Columns (2 of 2 shown):
 column  non_missing_count  missing_count       mean       std       min    median      max
@@ -126,7 +126,7 @@ for res in results:
 ```text
 infer_column_semantics: 1 column looks like an identifier, every value distinct: 'customer_id'.
 detect_missing_sentinels: 1 value in 1 column may stand in for missing values: 'age'.
-summarize_categorical: 1 column holds labels that differ only by case or surrounding spaces: 'plan'.
+summarize_categorical: 1 column holds labels that differ only by case or surrounding spaces: 'plan' ('basic' and 'Basic ').
 find_duplicate_rows: 2 rows form 1 duplicate group; 1 is an excess copy (duplicate_share 0.125).
 ```
 
@@ -174,7 +174,7 @@ record = res.to_json()  # the whole result as strict JSON
 age = res.columns["age"]  # typed fields, such as age.median and age.std
 ```
 
-The printed text stays within 40 lines of 120 characters however large the data, and says what it leaves out. Lists that grow with the data are capped in the JSON record too, with totals, but it keeps the entries that findings and limitations point at, so every path resolves. It keeps `top_n` levels per column and no fixed prose: a first look on a 1,000 × 30 mixed CSV is 104 KB of JSON, and `summarize_categorical` on 1,000 × 100 with 40 text columns 41 KB.
+The printed text stays within 40 lines of 120 characters however large the data, wraps long lines instead of cutting them, and says what it leaves out. Findings come violation first, and tables list columns with a finding first. Shares print as fractions. Lists that grow with the data are capped in the JSON record too, with totals, but it keeps the entries that findings and limitations point at, so every path resolves. It keeps `top_n` levels per column: a first look on a 1,000 × 30 mixed CSV is 104 KB of JSON.
 
 A mistake in a call raises a subclass of `ae.errors.AgentEDAError` before any work starts, with a stable `code` and the fix. Data problems never raise; they show in the status, findings and limitations.
 
@@ -200,7 +200,7 @@ Concurrent calls from several threads are safe. An analysis captures its warning
 
 ## Projects and masking
 
-Six analyses can show raw values, such as the labels `summarize_categorical` counts, the row IDs `find_duplicate_rows` lists or the sentinel values you declare: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
+Six analyses can show raw values, such as labels, row IDs or declared sentinel values: `validate_column_types`, `detect_missing_sentinels`, `profile_missing_values`, `summarize_categorical`, `find_duplicate_rows` and `profile_target`. They take `project=` and `mask_sensitive=`, and `ae.guide()` marks them `[supports masking]`.
 
 A `Project` holds settings that stay the same across calls. Its data policy names the sensitive columns, and masking replaces their values with numbered placeholders; counts and shares stay:
 
@@ -214,10 +214,13 @@ print(ae.summarize_categorical(df, columns=["email"], project=project))
 summarize_categorical: completed on 8 rows x 6 columns
 Masked (data_policy.mask_sensitive=True): the values of column 'email' show as <masked 1>, <masked 2> and so on; counts
     and shares are unaffected.
-Shares are of each column's non-missing values. Levels go by count, then label; levels has the top 10.
+Shares are fractions of non-missing values. Levels go by count, then label; levels has the top 10 of each column.
 Columns (1 of 1 shown):
-column  non_missing_count  missing_count  distinct_count  levels
-email                   8              0               6  <masked 1>: 2 (25%), <masked 2>: 2 (25%), <masked 3>: 1 (12...
+column  non_missing_count  missing_count  distinct_count
+email                   8              0               6
+Top levels per column:
+  email: <masked 1>: 2 (share 0.25), <masked 2>: 2 (share 0.25), <masked 3>: 1 (share 0.125), <masked 4>: 1 (share
+    0.125), <masked 5>: 1 (share 0.125), <masked 6>: 1 (share 0.125)
 Findings: none
 Limitations: none
 More: res.to_frame() has all 6 levels; res.findings, res.limitations and res.to_json() have the rest.
@@ -231,7 +234,7 @@ How masking is decided:
 - It covers the printed text, `to_dict()`, `to_json()` and `to_frame()` alike.
 - It never touches numeric statistics, such as a minimum, or index labels. Pass a non-sensitive `id_column` if the index holds sensitive values. The other analyses, such as `summarize_numeric`, don't read a project.
 - A sensitive column matches by exact name. When a name misses a column only by case or Unicode form, such as `'Email'` for `'email'`, nothing is masked for it, and the printed masking text and `masking.near_miss_columns` say "did you mean 'email'?" instead of claiming no sensitive value is shown.
-- With masking on, no error message quotes a value of a sensitive column. A message listing unknown column names lists at most 3, each cut to 40 characters, and an option ending in `column` or `columns` refuses a Series, an Index or an array of values without showing them.
+- With masking on, no error message quotes a value of a sensitive column. A message listing unknown column names lists at most 3, cut to 40 characters, and an option ending in `column` or `columns` refuses a Series, an Index or an array without showing it.
 
 Save the project once and load it in every later script, which helps an agent that runs each script in a new process:
 
@@ -327,7 +330,7 @@ The server reads arguments as an MCP tool's input schema describes them, so a st
 
 ### Read the response
 
-A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. A run that doesn't complete, such as `insufficient_data` on a file with no rows, is a normal response with its status and reason. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`. The message says what is wrong and what is allowed, as in Python, and gives the fix in MCP terms: `{"task": "regression"}` for `task='regression'`, the input schema for `help()`, and `project_path` for a `Project`. No message, MCP tool description, schema or record text (status reasons, limitation reasons, finding claims) holds Python syntax, and tests scan them all. In an MCP tool's description, `to_dict` is the structured content and `to_frame` is what `table_path` writes.
+A call returns the printed result as text and the whole `to_dict()` record as structured content, with the same caps on long lists as in Python. The text is worded for MCP callers: where `print(res)` points to `res.to_frame()` and `res.to_json()`, it points to `table_path` and the structured content. A run that doesn't complete, such as `insufficient_data`, is a normal response. A mistake in the call comes back as an MCP tool error (`isError: true`) whose structured content holds the stable error `code` and `message`. The message says what is wrong and what is allowed, as in Python, and gives the fix in MCP terms: `{"task": "regression"}` for `task='regression'`, the input schema for `help()`, and `project_path` for a `Project`. No message, MCP tool description, schema or record text (status reasons, limitation reasons, finding claims) holds Python syntax, and tests scan them all. In an MCP tool's description, `to_dict` is the structured content and `to_frame` is what `table_path` writes.
 
 To get past the caps, pass `table_path`. The server writes the result's main table, what `res.to_frame()` gives without arguments, to a new `.csv`, `.parquet` or `.pq` file. The text ends with `Full table written to <absolute path> (<n> rows).`, and the structured content gains `table_file` with the same `path` and `row_count`.
 
@@ -527,7 +530,6 @@ Are there exact duplicate rows?
 **Fields:** `masking` (`applied`, `decided_by`, `columns`, `index_columns`, `absent_columns`, `near_miss_columns`), `compared_columns`, `duplicate_groups` (`size`, `row_ids`), `duplicate_group_count`, `duplicate_group_row_count`, `excess_copy_count`, `duplicate_share`
 
 - `duplicate_rows` (suspected): two or more rows are equal in every compared column.
-- `no_duplicate_rows` (descriptive): no two rows are equal in every compared column.
 
 **Statuses:** `completed`, `insufficient_data`, `not_applicable`, `failed`
 

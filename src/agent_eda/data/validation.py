@@ -480,14 +480,14 @@ def infer_column_semantics(
         >>> print(res)
         infer_column_semantics: completed on 6 rows x 5 columns
         Scores rank logical types by fixed rules and aren't probabilities. Dates parse as ISO 8601 only.
-        schema: 1 column declared in the data, 1 matching (a tie with the top counts), 0 not; 0 not in the data.
+        schema: 1 column declared: 1 matching (ties with the top count), 0 not, 0 not inferred, 0 not in the data.
         Columns (5 of 5 shown):
         column    inferred      score  next         next_score  declared  flags
-        zip       categorical  0.3333  text             0.3333  null
         order_id  integer           1  float                 1  null      identifier_like, numbers_as_text
         ordered   datetime          1  categorical         0.5  null      dates_as_text
         paid      boolean           1  categorical      0.6667  null      boolean_like
         amount    integer           1  float                 1  float
+        zip       categorical  0.3333  text             0.3333  null
         Findings (5 of 5 shown):
         - suspected identifier_like_columns: 1 column looks like an identifier, every value distinct: 'order_id'.
         - suspected numbers_as_text: 1 column stores numbers as text: 'order_id'.

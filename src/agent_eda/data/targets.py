@@ -306,7 +306,7 @@ def profile_target(
         ... )
         >>> print(res)
         profile_target: completed on 8 rows x 3 columns
-        Target 'churned' for binary_classification: 2 classes in 6 valid labels; 1 missing (12.5%).
+        Target 'churned' for binary_classification: 2 classes in 6 valid labels; 1 missing (missing_share 0.125).
         Majority share 0.6667, minority share 0.3333; imbalance ratio 2, the majority count over the minority count.
         Outside expected_labels: 1 label in 1 row: 'No' in row 'c5'.
         Rare classes, with a share below rare_share 0.05: 0 of 2.
@@ -317,7 +317,7 @@ def profile_target(
         Findings (3 of 3 shown):
         - violation unexpected_labels: 1 label in 1 row is outside expected_labels.
         - suspected case_or_space_variants: 1 group of labels differs only by case or surrounding spaces: 'no' and 'No'.
-        - descriptive missing_labels: 1 of 8 rows (12.5%) has no label: its target value is missing.
+        - descriptive missing_labels: 1 of 8 rows has no label: its target value is missing (missing_share 0.125).
         Limitations: none
         More: res.to_frame() has all 3 labels; res.findings, res.limitations and res.to_json() have the rest.
         >>> res.imbalance_ratio
@@ -1153,13 +1153,16 @@ def _missing_labels(target: Column, missing: int, row_count: int) -> list[Findin
     """The missing_labels finding, when target values are missing."""
     if not missing:
         return []
-    percent = format_number(missing / row_count * 100)
+    share = format_number(missing / row_count)
     has = (
         "has no label: its target value is missing"
         if missing == 1
         else "have no label: their target values are missing"
     )
-    claim = f"{missing:,} of {plural(row_count, 'row', 'rows')} ({percent}%) {has}."
+    claim = (
+        f"{missing:,} of {plural(row_count, 'row', 'rows')} {has} "
+        f"(missing_share {share})."
+    )
     return [_finding("missing_labels", target, claim)]
 
 
