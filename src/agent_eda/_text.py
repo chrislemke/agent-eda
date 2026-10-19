@@ -20,6 +20,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from agent_eda._written_form import canonical_text
+
 MAX_LINES = 40
 MAX_WIDTH = 120
 MAX_TABLE_ROWS = 10
@@ -262,8 +264,12 @@ def short_repr(value: object) -> str:
 
 
 def label_text(label: object) -> str:
-    """Show a column or index label: strings quoted, everything else as str()."""
-    return repr(label) if isinstance(label, str) else str(label)
+    """Show a column or index label: strings quoted, everything else as str().
+
+    Sets list their items in a fixed order and objects show no memory address,
+    so the text is the same in every process.
+    """
+    return repr(label) if isinstance(label, str) else canonical_text(label)
 
 
 def join_labels(labels: Sequence[object], *, quote: bool = True) -> str:
