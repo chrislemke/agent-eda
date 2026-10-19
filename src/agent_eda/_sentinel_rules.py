@@ -45,6 +45,7 @@ from agent_eda._sentinels import (
     numpy_dtype,
     type_family,
 )
+from agent_eda._values import value_codes
 
 # Numbers often used for missing values; they count at the column's minimum
 # or maximum.
@@ -223,7 +224,8 @@ def _factorized(
 ) -> tuple[pd.Index, np.ndarray, np.ndarray]:
     """A column's distinct values, how often the read rows hold each, and per
     row the position of its value, -1 for a row not read."""
-    codes, uniques = pd.factorize(series)
+    found = value_codes(series, unhashable="by_content")
+    codes, uniques = found.codes, found.uniques
     codes = np.where(remaining, np.asarray(codes, dtype=np.int64), -1)
     values = uniques if isinstance(uniques, pd.Index) else pd.Index(uniques)
     return values, np.bincount(codes[codes >= 0], minlength=len(values)), codes
@@ -260,7 +262,8 @@ def _object_suspects(series: pd.Series, remaining: np.ndarray) -> list[Suspect]:
             # '\x00' for one value.
             found.extend(_text_rows_suspects(series, present[where]))
             continue
-        family_codes, uniques = pd.factorize(values[where])
+        distinct = value_codes(values[where], unhashable="by_content")
+        family_codes, uniques = distinct.codes, distinct.uniques
         codes = np.full(len(objects), -1, dtype=np.int64)
         codes[present[where]] = family_codes
         counts = np.bincount(family_codes, minlength=len(uniques))
@@ -385,7 +388,10 @@ def _text_rows_suspects(series: pd.Series, rows: np.ndarray) -> list[Suspect]:
     hits = _listed_texts(series, rows)
     if not hits.size:
         return []
-    codes, uniques = pd.factorize(np.asarray(series.iloc[hits], dtype=object))
+    found = value_codes(
+        np.asarray(series.iloc[hits], dtype=object), unhashable="by_content"
+    )
+    codes, uniques = found.codes, found.uniques
     return [
         Suspect(stored_label(text), hits[codes == code], ("builtin_list",))
         for code, text in enumerate(uniques)

@@ -11,7 +11,7 @@ from agent_eda._registry import analysis
 from agent_eda._row_ids import ambiguous_row_ids, read_row_ids
 from agent_eda._run import NO_ROWS, data_shape, execution
 from agent_eda._text import format_number, plural
-from agent_eda._values import column_values, hashable_values
+from agent_eda._values import column_values, value_codes
 from agent_eda.project import Project
 from agent_eda.results import (
     ColumnSupport,
@@ -387,13 +387,8 @@ def _codes(
     values = column_values(column)
     if rows.size < row_count:
         values = values.take(rows)
-    try:
-        codes, uniques = pd.factorize(values)
-    except (TypeError, NotImplementedError):
-        # Lists and dicts raise TypeError; nested pyarrow types raise
-        # ArrowNotImplementedError, a NotImplementedError.
-        codes, uniques = pd.factorize(hashable_values(values))
-    return codes.astype(np.int64, copy=False) + 1, len(uniques) + 1
+    found = value_codes(values, unhashable="by_content")
+    return found.codes.astype(np.int64, copy=False) + 1, len(found.uniques) + 1
 
 
 def _renumber(keys: np.ndarray) -> tuple[np.ndarray, int]:

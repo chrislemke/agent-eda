@@ -23,7 +23,6 @@ Masking is a guardrail against accidental exposure, not anonymization and not
 access control (ADR 0001).
 """
 
-import itertools
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -34,6 +33,7 @@ import pandas as pd
 from agent_eda._levels import Levels, label_types, ordered
 from agent_eda._project_file import TOML_EXAMPLE
 from agent_eda._text import placeholder
+from agent_eda._values import value_codes
 from agent_eda._wording import as_written, worded
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.project import Project
@@ -196,16 +196,7 @@ def mask_values(values: Sequence[object]) -> list[str | None]:
     so values that repeat still show as repeating. Missing values (None, NaN,
     NaT, pd.NA) stay None. Pass the values of one column in result order.
     """
-    # A value that isn't text keeps pandas off its hash table for text, which
-    # reads '\x00' as the end of the text, so '' and '\x00a' would be equal.
     # fromiter keeps tuples whole, where np.array would make them a dimension.
-    marked = np.fromiter(
-        itertools.chain(values, [_NOT_TEXT]), dtype=object, count=len(values) + 1
-    )
-    codes, _ = pd.factorize(marked)
-    return [placeholder(int(code) + 1) if code >= 0 else None for code in codes[:-1]]
-
-
-# mask_values appends this to the values it numbers, so they are never all
-# text. It comes last, so no value gets its code.
-_NOT_TEXT = object()
+    objects = np.fromiter(values, dtype=object, count=len(values))
+    codes = value_codes(objects, unhashable="by_content").codes
+    return [placeholder(int(code) + 1) if code >= 0 else None for code in codes]

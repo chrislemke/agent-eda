@@ -19,7 +19,12 @@ from mcp.server.stdio import stdio_server
 
 import agent_eda
 from agent_eda._annotations import type_text
-from agent_eda._data_files import DataReader, supported_extensions
+from agent_eda._data_files import (
+    CSV_RULES,
+    PARQUET_RULES,
+    DataReader,
+    supported_extensions,
+)
 from agent_eda._local_files import path_argument
 from agent_eda._mcp_instructions import GUARDRAIL, PRECEDENCE, instructions
 from agent_eda._registry import (
@@ -28,7 +33,9 @@ from agent_eda._registry import (
     registered,
     spec_of,
     unknown_name_message,
+    validate_json,
 )
+from agent_eda._sentinels import read_iso
 from agent_eda._table_files import RECORD_KEY, RECORD_SCHEMA, TableFile, table_file
 from agent_eda._version import __version__
 from agent_eda._wording import message as worded_message
@@ -47,8 +54,8 @@ _DATA_PATH = {
     f"names the format: {supported_extensions()}, in any case. In a CSV or TSV "
     "only an empty field counts as missing, so values such as 'N/A' or -999 "
     "reach the analysis as values, and row IDs in the result are 0-based "
-    "data-row numbers. Parquet keeps its dtypes, and row IDs follow the index "
-    "stored in the file.",
+    "data-row numbers; in a Parquet file they follow the index stored in it. "
+    f"{CSV_RULES} {PARQUET_RULES}",
 }
 
 # Why the MCP server makes no enforcement claim (ADR 0006).
@@ -286,8 +293,12 @@ def _call(
     The SDK passes the arguments on without checking them against the input
     schema. The MCP server checks what the MCP tool adds to the analysis's own
     arguments (unknown and missing names among the MCP tool's properties, and
-    data_path); the analysis checks its options, with the message a Python
-    caller gets, its fix worded for an MCP caller. A table_path is checked before the data is read, so an
+    data_path) and validates the analysis's options in JSON mode, so each
+    reads as its schema says: an ISO 8601 string is a datetime, date or
+    duration wherever the schema offers one, and a string in sentinel_values
+    that names such a value for its column is read as one. The message of a
+    bad option is the one a Python caller gets, its fix worded for an MCP
+    caller. A table_path is checked before the data is read, so an
     existing file or a missing directory stops the call before the analysis
     runs. A project_path replaces the MCP server's project for the call; a
     mask_sensitive goes to the analysis, where it wins over either.
@@ -295,13 +306,18 @@ def _call(
     _check_arguments(served, arguments)
     table_path = arguments.pop("table_path", None)
     table = None if table_path is None else table_file(served.spec.name, table_path)
-    if "project_path" in served.tool.input_schema["properties"]:
+    takes_project = "project_path" in served.tool.input_schema["properties"]
+    if takes_project:
         project_path = arguments.pop("project_path", None)
         if project_path is not None:
             project = _load_project(served.spec.name, project_path)
-        arguments["project"] = project
     data = reader.read(arguments.pop("data_path"))
-    return _response(served.function(data, **arguments), table)
+    options = validate_json(served.spec, arguments)
+    if options.get("sentinel_values") is not None:
+        options["sentinel_values"] = read_iso(data, options["sentinel_values"])
+    if takes_project:
+        options["project"] = project
+    return _response(served.function(data, **options), table)
 
 
 def _discover(

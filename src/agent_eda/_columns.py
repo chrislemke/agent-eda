@@ -22,6 +22,7 @@ from agent_eda._text import (
     join_labels,
     plural,
 )
+from agent_eda._values import value_codes
 from agent_eda._wording import left_out, worded
 from agent_eda.errors import ColumnNotFoundError, ColumnTypeError, InvalidArgumentError
 
@@ -53,7 +54,8 @@ class Labels:
         # Iterating gives Python scalars, so label types read 'int', not 'int64'.
         self.labels: list[object] = list(flat)
         self.texts = [str(label) for label in self.labels]
-        codes, uniques = flat.factorize()
+        found = value_codes(flat, unhashable="by_content")
+        codes, uniques = found.codes, found.uniques
         # factorize gives every missing label -1, but pandas tells None, NaN,
         # NaT and NA apart as labels: give each kind of missing label its code.
         missing_kinds: dict[str, int] = {}
@@ -119,7 +121,7 @@ def check_column_labels(analysis: str, columns: pd.Index) -> None:
             code="ambiguous_column_labels",
         )
     labels = Labels(columns)
-    problems, fixes = [], []
+    problems, fixes, in_file = [], [], []
     repeated = first_positions(labels, labels.repeated())
     if repeated:
         occur = "occurs" if len(repeated) == 1 else "occur"
@@ -128,6 +130,7 @@ def check_column_labels(analysis: str, columns: pd.Index) -> None:
             "df.columns = [f'{c}_{i}' if dup else c for i, (c, dup) in "
             "enumerate(zip(df.columns, df.columns.duplicated()))]"
         )
+        in_file.append("the repeated columns")
     colliding = labels.colliding()
     if colliding:
         problems.append(f"{labels.show(colliding)} share a string form")
@@ -142,12 +145,22 @@ def check_column_labels(analysis: str, columns: pd.Index) -> None:
         )
         renamed = f"{label}_{type(label).__name__}"
         fixes.append(f"df = df.rename(columns={{{label!r}: {renamed!r}}})")
+        in_file.append("the columns that share a string form")
     if problems:
-        raise InvalidArgumentError(
-            f"{analysis} refers to columns by name, the string form of each label, "
-            "so labels must be unique and distinct as strings, but "
-            f"{', and '.join(problems)}. Rename them first, such as "
-            f"{' and '.join(fixes)}. {fix_elsewhere}",
+        raise worded(
+            InvalidArgumentError,
+            lambda surface: (
+                f"{analysis} refers to columns by name, the string form of each "
+                "label, so labels must be unique and distinct as strings, but "
+                f"{', and '.join(problems)}. "
+                + (
+                    f"Rename them first, such as {' and '.join(fixes)}."
+                    if surface == "python"
+                    else f"Rename {' and '.join(in_file)} in the file, then pass "
+                    "its path again."
+                )
+                + f" {fix_elsewhere}"
+            ),
             code="ambiguous_column_labels",
         )
 

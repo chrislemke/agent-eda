@@ -71,7 +71,7 @@ A stand-in value that means "missing", such as -999, "N/A" or 1900-01-01.
 _Avoid_: placeholder, missing code, magic number
 
 **Level**:
-A distinct non-missing value of a column, counted as pandas' `value_counts` and `factorize` tell values apart: 1, 1.0 and True are one level, while 'Yes' and 'yes ' are two, and None, NaN, NaT and pd.NA are no level.
+A distinct non-missing value of a column, counted as pandas' `value_counts` and `factorize` tell values apart: 1, 1.0 and True are one level, while 'Yes' and 'yes ' are two, and so are '' and '\x00a', and None, NaN, NaT and pd.NA are no level.
 _Avoid_: category (unless you mean a category of a pandas categorical dtype), unique value (a level can occur many times), factor
 
 **Native missing value**:

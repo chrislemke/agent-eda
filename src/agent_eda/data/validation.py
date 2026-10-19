@@ -55,6 +55,7 @@ from agent_eda._text import (
     placeholder,
     plural,
 )
+from agent_eda._values import value_codes
 from agent_eda._wording import as_written, worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 from agent_eda.project import Project
@@ -698,7 +699,8 @@ def _read_unhashable(objects: np.ndarray) -> _Reading:
     present = objects[~pd.isna(objects)]
     texts = _objects([value for value in present if isinstance(value, str)])
     others = _objects([value for value in present if not isinstance(value, str)])
-    codes, uniques = pd.factorize(texts)
+    found = value_codes(texts, unhashable="by_content")
+    codes, uniques = found.codes, found.uniques
     counts = np.bincount(codes, minlength=len(uniques))
     reading = _read_texts(np.asarray(uniques, dtype=object), counts)
     rest = _read_distinct(others, np.ones(len(others), dtype=np.int64))

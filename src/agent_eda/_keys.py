@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from agent_eda._values import value_codes
+
 # Rows in the evenly spaced subset; smaller data is checked whole.
 SUBSET_ROWS = 16_384
 # A set is checked on every 32nd row of the subset, then every 4th, then all of
@@ -47,9 +49,31 @@ RANKING_ROWS = 100_000_000
 # Combined codes up to this many times the rows are counted with np.bincount,
 # which is faster than hashing them.
 _BINCOUNT_FACTOR = 4
-# What pandas' infer_dtype calls object columns that may hold values such as
-# lists or dicts, which can't be hashed; every other answer means scalars.
-_MAYBE_UNHASHABLE = frozenset({"mixed", "unknown-array"})
+# What pandas' infer_dtype calls object columns whose every value is a scalar,
+# which can be hashed. infer_dtype reads every value to say so. Any other
+# answer, such as "mixed", "mixed-integer" for integers next to lists, or
+# "unknown-array", is settled by hashing the values.
+_SCALARS = frozenset(
+    {
+        "string",
+        "bytes",
+        "floating",
+        "integer",
+        "mixed-integer-float",
+        "decimal",
+        "complex",
+        "boolean",
+        "datetime64",
+        "datetime",
+        "date",
+        "timedelta64",
+        "timedelta",
+        "time",
+        "period",
+        "interval",
+        "empty",
+    }
+)
 
 
 def subset_positions(row_count: int) -> np.ndarray:
@@ -62,25 +86,19 @@ def subset_positions(row_count: int) -> np.ndarray:
 def hashable(values: pd.Series) -> bool:
     """Whether every value can be hashed, which grouping rows by value needs.
 
-    Object columns are read once by infer_dtype and, when they may hold lists
-    or dicts, hashed whole. Nested Arrow types, such as lists and structs,
-    can't be hashed.
+    Object columns that infer_dtype finds hold only scalars are hashable;
+    any other, such as integers next to lists, is hashed whole. Nested Arrow
+    types, such as lists and structs, can't be hashed.
     """
     dtype = values.dtype
     if isinstance(dtype, pd.ArrowDtype):
         return getattr(dtype.pyarrow_dtype, "num_fields", 0) == 0
     if isinstance(dtype, np.dtype) and dtype.kind == "O":
-        if pd.api.types.infer_dtype(values, skipna=True) not in _MAYBE_UNHASHABLE:
+        if pd.api.types.infer_dtype(values, skipna=True) in _SCALARS:
             return True
     elif isinstance(dtype, np.dtype | pd.CategoricalDtype | pd.StringDtype):
         return True
-    try:
-        pd.factorize(values)
-    # Lists and dicts raise TypeError; other extension types may raise
-    # NotImplementedError instead.
-    except (TypeError, NotImplementedError):
-        return False
-    return True
+    return value_codes(values, unhashable="unsupported") is not None
 
 
 def codes_of(values: pd.Series) -> tuple[np.ndarray, int]:
@@ -90,8 +108,8 @@ def codes_of(values: pd.Series) -> tuple[np.ndarray, int]:
     values compare equal. Returns the codes and their range: one more than the
     number of distinct non-missing values.
     """
-    codes, uniques = pd.factorize(values)
-    return codes.astype(np.int64) + 1, len(uniques) + 1
+    found = value_codes(values, unhashable="by_content")
+    return found.codes.astype(np.int64) + 1, len(found.uniques) + 1
 
 
 @dataclass(frozen=True)

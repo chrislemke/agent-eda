@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
-from agent_eda._values import column_values, hashable_values
+from agent_eda._values import hashable_values, value_codes
 from agent_eda._wording import worded
 from agent_eda.errors import ColumnTypeError
 from agent_eda.results import Limitation
@@ -64,11 +64,7 @@ def read_row_ids(analysis: str, data: pd.DataFrame, id_column: str | None) -> Ro
         analysis, data, [id_column], _ID_COLUMN, parameter="id_column"
     ).columns
     labels = data.iloc[:, column.position]
-    try:
-        pd.factorize(column_values(labels))
-    # Lists and dicts raise TypeError; nested pyarrow types raise
-    # ArrowNotImplementedError, a NotImplementedError.
-    except (TypeError, NotImplementedError):
+    if value_codes(labels, unhashable="unsupported") is None:
         raise worded(
             ColumnTypeError,
             lambda surface: (
