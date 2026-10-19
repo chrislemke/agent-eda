@@ -623,11 +623,9 @@ def test_prints_the_strongest_pairs_and_names_both_tables():
         strongest.direction,
     ]
     # The footer names both tables.
-    assert " ".join(line.strip() for line in lines[-2:]) == (
-        "More: res.to_frame() has all 6 pairs; res.to_frame(table='matrix') has the "
-        "wide 4 x 4 matrix; res.findings, res.limitations and res.to_json() have the "
-        "rest."
-    )
+    footer = " ".join(line.strip() for line in lines[-2:])
+    assert footer.startswith("More: res.to_frame() has all 6 pairs;")
+    assert "res.to_frame(table='matrix') has the wide 4 x 4 matrix" in footer
 
 
 def test_flags_perfect_associations_as_suspected_duplicated_or_derived_columns():

@@ -330,7 +330,7 @@ class Project(Declaration):
         try:
             return cls.model_validate(fields)
         except AgentEDAError as error:
-            raise _project_file.invalid(path, error) from None
+            raise _project_file.invalid_project_error(path, error) from None
 
     @checked_keywords
     def save(self, path: str | os.PathLike[str], *, overwrite: bool = False) -> Path:

@@ -23,10 +23,9 @@ from typing import Any
 
 import anyio
 import pandas as pd
-from mcp import Client
+from mcp_helpers import call, listed_tools
 
 import agent_eda as ae
-from agent_eda.mcp import create_server
 
 DAY = dt.date(1900, 1, 1)
 
@@ -308,11 +307,7 @@ def example_of(form, schema, root):
 
 @pytest.fixture(scope="module")
 def tools():
-    async def listing():
-        async with Client(create_server(), mode="legacy") as client:
-            return (await client.list_tools()).tools
-
-    return {tool.name: tool for tool in anyio.run(listing)}
+    return listed_tools()
 
 
 def test_every_format_an_input_schema_offers_has_an_example(tools):
@@ -352,8 +347,3 @@ def test_every_mcp_tool_accepts_an_example_of_each_format_its_input_schema_offer
                 "invalid_call",
             ), f"{name} refuses an example of {form}: {arguments}: {problem}"
     assert sent
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)

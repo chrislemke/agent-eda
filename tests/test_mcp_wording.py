@@ -22,9 +22,9 @@ pytest.importorskip(
 
 import anyio
 from mcp import Client
+from mcp_helpers import call as call_mcp
 from python_syntax import json_words, python_in, strings_in
 from test_mcp_argument_messages import MISTAKES, arguments_of
-from test_mcp_argument_messages import call as call_mcp
 
 import agent_eda as ae
 from agent_eda.mcp import create_server

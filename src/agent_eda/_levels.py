@@ -68,7 +68,7 @@ class Levels:
     # names the type of the value each placeholder stands for, in that order,
     # or once for all of them when they share it. The placeholders themselves
     # are written only when to_frame() asks for them.
-    masked_types: str | tuple[str, ...] | None = None
+    placeholder_types: str | tuple[str, ...] | None = None
 
     def label(self, position: int) -> object:
         """One label as Python holds it."""
@@ -235,7 +235,7 @@ def ordered(levels: Levels, limit: int | None = None) -> np.ndarray:
     """
     counts = levels.counts
     size = len(counts)
-    if levels.masked_types is not None:
+    if levels.placeholder_types is not None:
         return np.arange(size if limit is None else min(limit, size), dtype=np.intp)
     if limit is None or limit >= size:
         return _full_order(levels)
@@ -470,12 +470,12 @@ def level_rows(levels: Levels) -> tuple[np.ndarray, list[object], list[str]]:
     name of each label.
     """
     order = ordered(levels)
-    if levels.masked_types is None:
+    if levels.placeholder_types is None:
         labels = [stored_label(label) for label in levels.objects(order)]
         return order, labels, _type_names(levels, labels)
     # The values are the placeholders' numbers.
     placeholders: list[object] = [placeholder(int(n)) for n in levels.objects(order)]
-    masked = levels.masked_types
+    masked = levels.placeholder_types
     types = [masked] * len(order) if isinstance(masked, str) else list(masked)
     return order, placeholders, types
 

@@ -561,7 +561,7 @@ def _batch_sums(
     offsets = np.concatenate([[0], np.cumsum(levels)[:-1]]).astype(np.int64)
     level_total = int(levels.sum())
     table_levels = int(levels[:table_columns].sum())
-    trash = level_total  # the one-hot column missing values go to
+    missing_slot = level_total  # the one-hot column missing values go to
     width = level_total + 1 + p
     exponents, centres = _exponents_and_centres(numeric)
     row_bytes = 4 * width + 8 * (level_total + 4 * p + q)
@@ -598,17 +598,19 @@ def _batch_sums(
             column -= centres[j]
             np.copyto(column, 0.0, where=~ok)
         np.multiply(z[:m], z[:m], out=squared[:m])
-        one_hot[:m, : trash + 1] = 0.0
-        one_hot[:m, trash + 1 :] = finite[:m]
+        one_hot[:m, : missing_slot + 1] = 0.0
+        one_hot[:m, missing_slot + 1 :] = finite[:m]
         for a, codes in enumerate(categorical):
             block = codes.codes[start:stop]
             missing[:m, a] = block < 0
-            flat[base[:m] + np.where(block >= 0, block + offsets[a], trash)] = 1.0
+            flat[base[:m] + np.where(block >= 0, block + offsets[a], missing_slot)] = (
+                1.0
+            )
         hot = one_hot[:m]
         if table_levels:
             tabled = hot[:, :table_levels]
             level_pairs += tabled.T @ tabled
-        with_finite += hot.T @ hot[:, trash + 1 :]
+        with_finite += hot.T @ hot[:, missing_slot + 1 :]
         level_sums += hot[:, :level_total].astype(np.float64).T @ z[:m]
         missing_squares += missing[:m].T @ squared[:m]
         squares += squared[:m].sum(axis=0)
@@ -616,7 +618,7 @@ def _batch_sums(
             numeric_sums += z_and_squares[:m].T @ finite[:m]
             numeric_products += z[:m].T @ z[:m]
     return _Sums(
-        counts=with_finite[trash + 1 :],
+        counts=with_finite[missing_slot + 1 :],
         first=numeric_sums[:p],
         first_squares=numeric_sums[p:],
         products=numeric_products,

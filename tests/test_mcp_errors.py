@@ -23,6 +23,7 @@ import jsonschema
 import pandas as pd
 from mcp import Client, MCPError
 from mcp.types import INTERNAL_ERROR
+from mcp_helpers import call, reference_read
 from serving import serving
 
 import agent_eda as ae
@@ -232,19 +233,15 @@ def shop_csv(tmp_path):
 
 def read(path):
     """The DataFrame the server reads from the file, built by hand."""
-    text = path.read_text(encoding="utf-8")
-    if text == CSV:
-        return pd.DataFrame(
-            {"city": ["Oslo", "Lyon", "Oslo"], "score": [1.5, 2.5, 4.0]}
-        )
-    assert text == "city,score\n"  # a header and no rows: every column is object
-    return pd.DataFrame(
-        {"city": pd.Series(dtype=object), "score": pd.Series(dtype=object)}
+    return reference_read(
+        path,
+        {
+            CSV: pd.DataFrame(
+                {"city": ["Oslo", "Lyon", "Oslo"], "score": [1.5, 2.5, 4.0]}
+            ),
+            # A header and no rows: every column is object.
+            "city,score\n": pd.DataFrame(
+                {"city": pd.Series(dtype=object), "score": pd.Series(dtype=object)}
+            ),
+        },
     )
-
-
-async def call(name, arguments):
-    # The SDK client validates a result's structured content against the MCP
-    # tool's output schema unless isError is true.
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)

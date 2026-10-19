@@ -25,6 +25,7 @@ pytest.importorskip(
 import anyio
 import jsonschema
 from mcp import Client
+from mcp_helpers import call, list_tools
 from serving import serving, with_stand_ins
 from test_search_analyses import SEARCH_ACCEPTANCE, accepted
 
@@ -410,13 +411,3 @@ def test_an_unknown_or_missing_discovery_argument_is_an_invalid_call(
 def unwrapped(text):
     """The text with its line breaks and indents as single spaces."""
     return " ".join(text.split())
-
-
-async def list_tools():
-    async with Client(create_server(), mode="legacy") as client:
-        return (await client.list_tools()).tools
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)

@@ -212,7 +212,7 @@ def mask_levels(levels: Levels) -> MaskedLevels:
         sort_values=None,
         text=False,
         unused_categories=[placeholder(size + n) for n in range(1, unused + 1)],
-        masked_types=label_types(levels, order),
+        placeholder_types=label_types(levels, order),
     )
     return MaskedLevels(levels=masked, numbers=numbers)
 
