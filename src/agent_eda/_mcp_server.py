@@ -334,16 +334,21 @@ def _call(
     table = None if table_path is None else table_file(served.spec.name, table_path)
     takes_project = "project_path" in served.tool.input_schema["properties"]
     if takes_project:
-        project_path = arguments.pop("project_path", None)
+        # project_path stays in `arguments` until the project is loaded, and the
+        # project replaces it at once, so _masking_on sees the call's masking
+        # whichever step fails.
+        project_path = arguments.get("project_path")
         if project_path is not None:
             project = _load_project(served.spec.name, project_path)
+        arguments.pop("project_path", None)
+        arguments["project"] = project
     data = reader.read(arguments.pop("data_path"))
-    options = validate_json(served.spec, data, arguments)
+    given = {name: value for name, value in arguments.items() if name != "project"}
+    options = validate_json(served.spec, data, given)
     if options.get("sentinel_values") is not None:
         options["sentinel_values"] = read_iso(data, options["sentinel_values"])
     if takes_project:
-        # _masking_on reads the project the call used from `arguments`.
-        arguments["project"] = options["project"] = project
+        options["project"] = project
     return _response(served.function(data, **options), table)
 
 
