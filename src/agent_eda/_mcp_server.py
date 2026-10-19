@@ -20,13 +20,10 @@ from mcp.server.stdio import stdio_server
 import agent_eda
 from agent_eda._annotations import type_text
 from agent_eda._data_files import (
-    CSV_RULES,
-    PARQUET_RULES,
     DataReader,
-    supported_extensions,
 )
 from agent_eda._local_files import path_argument
-from agent_eda._mcp_instructions import GUARDRAIL, PRECEDENCE, instructions
+from agent_eda._mcp_instructions import GUARDRAIL, instructions
 from agent_eda._registry import (
     AnalysisSpec,
     missing_message,
@@ -45,7 +42,7 @@ from agent_eda._table_files import (
 )
 from agent_eda._text import closest_names, join_alternatives
 from agent_eda._version import __version__
-from agent_eda._wording import json_words, json_words_in, see_every
+from agent_eda._wording import json_words, json_words_in, see_every, without_titles
 from agent_eda._wording import message as worded_message
 from agent_eda.discovery import list_analyses, search_analyses
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
@@ -54,65 +51,32 @@ from agent_eda.results import AnalysisListing, AnalysisResult, SearchListing
 
 _log = logging.getLogger("agent_eda.mcp")
 
+# One sentence each: the rules for reading a file, writing a table and loading a
+# project sit once, in the MCP server's instructions.
 _DATA_PATH = {
     "type": "string",
     "description": "Path to the CSV, TSV or Parquet file that holds the data, "
-    "absolute or relative to the MCP server's working directory; a leading ~ is "
-    "the home directory. The extension "
-    f"names the format: {supported_extensions()}, in any case. In a CSV or TSV "
-    "only an empty field counts as missing, so values such as 'N/A' or -999 "
-    "reach the analysis as values, and row IDs in the result are 0-based "
-    "data-row numbers; in a Parquet file they follow the index stored in it. "
-    f"{CSV_RULES} {PARQUET_RULES}",
+    "absolute or relative to the MCP server's working directory.",
 }
-
-# Why the MCP server makes no enforcement claim (ADR 0006).
-_NO_ENFORCEMENT = "Whoever can call the MCP server can usually read the data file too."
 
 _PROJECT_PATH = {
     "anyOf": [{"type": "string"}, {"type": "null"}],
     "default": None,
-    "description": "Path to a project TOML file, absolute or relative to the MCP "
-    "server's working directory (a leading ~ is the home directory), whose data "
-    "policy names the sensitive columns "
-    "and says whether to mask them. The file has a [data_policy] table with "
-    'sensitive_columns = ["email"] and mask_sensitive = true or false, and an '
-    "optional top-level name. null, the default, uses the project the MCP "
-    "server was started with (agent-eda-mcp --project), or no project, which "
-    f"masks nothing. {PRECEDENCE} {GUARDRAIL} {_NO_ENFORCEMENT}",
+    "description": "Path to a project TOML file whose data policy names the "
+    "sensitive columns; null uses the project agent-eda-mcp "
+    "--project loaded, or none.",
 }
 
 _TABLE_PATH = {
     "anyOf": [{"type": "string"}, {"type": "null"}],
     "default": None,
-    "description": "Path of a new file to write the result's full table to, for "
-    "when the capped lists of the structured content aren't enough. It writes "
-    "only the main table, the one a Python caller gets from to_frame without "
-    "arguments; the other tables some results have, such as "
-    "compute_association_matrix's matrix, are for Python callers. The extension "
-    "names the format: .csv "
-    "for CSV, or .parquet or .pq for Parquet, in any case. The path is absolute "
-    "or relative to the MCP server's working directory (a leading ~ is the home "
-    "directory), and its directory must exist and be one the MCP server may "
-    "write in. The MCP server never overwrites and never writes through a "
-    "symbolic link: a path where a file or a link already exists is an error, "
-    "raised before the analysis runs, like a directory it may not write in. A "
-    "write that fails partway leaves no file. The text of the response then "
-    "ends with the line 'Full table written to <absolute path> (<n> rows).' (the "
-    "path on a line of its own when the line would pass 120 characters), and "
-    "the structured content gains table_file with the same path and row_count. "
-    "The index "
-    "becomes the first column only when it is more than the row numbers 0, 1, 2, "
-    "... A cell that holds a list or a mapping, such as row IDs, is written as "
-    "JSON text, and in Parquet a column whose values mix types, such as numbers "
-    "and text, is written as text, as in the CSV. In a CSV a missing value is an "
-    'empty field and an empty string is the quoted field "", which the MCP '
-    "server reads back as an empty string. null, the default, writes no file.",
+    "description": "Path of a new .csv, .parquet or .pq file that gets the "
+    "result's full main table; null writes no file.",
 }
 
 # Follows the docstring's mask_sensitive text, which speaks of the project
 # argument a Python caller passes.
-_MCP_PROJECT = f"Over MCP: {PRECEDENCE}"
+_MCP_PROJECT = "Over MCP, the project is project_path."
 
 # Every analysis MCP tool may write a file (table_path), never overwrites one,
 # gives the same result for the same call and reaches nothing outside the
@@ -208,7 +172,7 @@ def _discovery_tools() -> dict[str, _DiscoveryTool]:
             "required": ["query"],
             "additionalProperties": False,
         },
-        output_schema=SearchListing.model_json_schema(),
+        output_schema=without_titles(SearchListing.model_json_schema()),
         annotations=_DISCOVERY_ANNOTATIONS,
     )
     listing = types.Tool(
@@ -219,7 +183,7 @@ def _discovery_tools() -> dict[str, _DiscoveryTool]:
             "properties": {},
             "additionalProperties": False,
         },
-        output_schema=AnalysisListing.model_json_schema(),
+        output_schema=without_titles(AnalysisListing.model_json_schema()),
         annotations=_DISCOVERY_ANNOTATIONS,
     )
     return {
@@ -517,7 +481,7 @@ def _output_schema(spec: AnalysisSpec) -> dict[str, Any]:
     with table_path adds."""
     schema = spec.result_class.record_schema()
     schema["properties"][RECORD_KEY] = RECORD_SCHEMA
-    return schema
+    return without_titles(schema)
 
 
 def _input_schema(spec: AnalysisSpec) -> dict[str, Any]:
@@ -535,7 +499,9 @@ def _input_schema(spec: AnalysisSpec) -> dict[str, Any]:
         if name == "project":
             properties["project_path"] = dict(_PROJECT_PATH)
         elif name == "mask_sensitive":
-            description = f"{value['description']} {_MCP_PROJECT}"
+            # The guardrail sentence sits once, in the instructions.
+            text = value["description"].replace(GUARDRAIL, "").strip()
+            description = f"{text} {_MCP_PROJECT}"
             properties[name] = {**value, "description": description}
         else:
             properties[name] = value
@@ -549,7 +515,7 @@ def _input_schema(spec: AnalysisSpec) -> dict[str, Any]:
         del schema["$defs"]
     # The docstrings say None, True and False; an MCP caller passes null, true
     # and false.
-    return json_words_in(schema)
+    return without_titles(json_words_in(schema))
 
 
 def _no_json_schema(spec: AnalysisSpec) -> str:

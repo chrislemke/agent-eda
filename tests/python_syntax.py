@@ -58,6 +58,35 @@ def json_words(text: str) -> str:
     return CONSTANT.sub(lambda match: _WORDS[match[0]], text)
 
 
+def titles_in(schema: Any, path: str = "") -> list[str]:
+    """The paths of the pydantic titles in a JSON Schema, which an MCP tool's
+    schemas leave out. A property that is itself named title isn't one."""
+    found = []
+    if isinstance(schema, dict):
+        for key, value in schema.items():
+            if key == "title" and isinstance(value, str):
+                found.append(path)
+            else:
+                found += titles_in(value, f"{path}/{key}")
+    elif isinstance(schema, list):
+        for index, item in enumerate(schema):
+            found += titles_in(item, f"{path}/{index}")
+    return found
+
+
+def without_titles(schema: Any) -> Any:
+    """A JSON Schema without its pydantic titles."""
+    if isinstance(schema, dict):
+        return {
+            key: without_titles(value)
+            for key, value in schema.items()
+            if not (key == "title" and isinstance(value, str))
+        }
+    if isinstance(schema, list):
+        return [without_titles(item) for item in schema]
+    return schema
+
+
 def json_words_in(schema: Any) -> Any:
     """A JSON Schema with json_words applied to each description in it."""
     if isinstance(schema, dict):

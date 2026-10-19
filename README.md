@@ -299,7 +299,7 @@ Claude Desktop, Cursor and most MCP clients read an `mcpServers` entry from thei
 
 If the client doesn't start it in the environment with the extra, give the path that `which agent-eda-mcp` prints as `command`.
 
-Each analysis is an MCP tool of the same name. Its description and input schema come from the docstring that `help()` shows. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order.
+Each analysis is an MCP tool of the same name. Its description and input schema come from the docstring that `help()` shows. Two more MCP tools find analyses: `search_analyses` takes a question in your own words, `list_analyses` lists them all. Its instructions tell a connecting agent how to pass data, read a response and follow the first-look order, and hold the rules of `data_path`, `table_path` and `project_path`, whose descriptions are one sentence each.
 
 ### Pass data by path
 
@@ -314,13 +314,13 @@ An MCP tool takes `data_path`, a file path, where Python passes the DataFrame.
   - A quoted empty field (`""`) is an empty string, not a missing value, and its column stays text.
   - A file with one column whose name holds a `;` gives `unreadable_data_file`, hinting at a semicolon separator. The server reads commas, or tabs for a TSV.
   - A row may end in an empty field, as in `A1,Oslo,10,`. A row with any other extra field gives `unreadable_data_file` and names the line.
-  - A repeated header name stays repeated: `describe_dataset` reports it, and every other analysis asks you to rename the columns in the file.
+  - A repeated header name stays repeated: `describe_dataset` reports it, and the others ask you to rename it in the file.
 - Parquet files keep the dtypes and index pandas stored. A file without pandas metadata, such as from Spark or DuckDB, gets pandas' default dtypes for its Parquet types (an integer column with nulls becomes float) and a 0-based index.
-- A relative path resolves against the server's working directory, where the MCP client starts it; pass absolute paths if unsure. A leading `~` is the home directory, in every path argument.
-- A path the operating system refuses gives an MCP tool error that names the cause: a name over 255 characters, a directory the server may not search, a symbolic link loop, a NUL character, no read permission, or a path that isn't a regular file. A Parquet file with two columns of one name or bad pandas metadata gives `unreadable_data_file`.
+- A relative path resolves against the server's working directory, where the MCP client starts it. A leading `~` is the home directory, in every path argument.
+- A path the operating system refuses gives an MCP tool error that names the cause, such as a name over 255 characters, a symbolic link loop, a NUL character, no read permission or a path that isn't a regular file. A Parquet file with two columns of one name or bad pandas metadata gives `unreadable_data_file`.
 - The server reads only local files: it reads a URL such as `s3://bucket/data.csv` as a relative path. A path that leads nowhere gives `data_file_not_found`, with the absolute path tried and the closest file names there.
 - Row IDs in a result are 0-based data-row numbers for a CSV or TSV file and the stored index for a Parquet file; `id_column` names rows by a column's values instead.
-- The MCP server keeps the last two files it read in memory, so analyses of one large file read it once, and rereads a file when its modification time or size changes.
+- The MCP server keeps the last two files it read in memory, so analyses of one large file read it once, and rereads one whose modification time or size changes.
 
 ### Pass arguments as JSON
 
@@ -347,7 +347,7 @@ To get past the caps, pass `table_path`. The server writes the result's main tab
 
 The six MCP tools that support masking take `project_path`, the path to a project file as `Project.save` writes it, in place of `project=`, and keep `mask_sensitive`. `agent-eda-mcp --project PATH` loads one project file at start and uses it for every call. A call's `project_path` replaces it for that call, and a call's `mask_sensitive` wins over both. Masking then covers the text, the structured content and the file `table_path` writes. As in Python, it never touches numeric statistics, such as a sensitive column's minimum, or index labels, and the MCP tools without masking don't read the project: they have no `project_path`, and `--project` doesn't change them. With masking on, an internal error (a bug in agent-eda) names only the exception's type, as its message could quote a value; the stderr log keeps the traceback.
 
-Masking over MCP is the same guardrail as in Python, not anonymization or access control: whoever can call the server can usually read the data file.
+Masking over MCP is the same guardrail as in Python: whoever can call the server can usually read the data file.
 
 ## Reference
 

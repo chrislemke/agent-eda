@@ -47,6 +47,12 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 - Lists and mappings inside a mapping argument of `parameters` are capped at 100 at any depth. A `<key>_total` appears beside them only when entries were dropped. `project` is recorded whole.
 - `to_frame()` gives every row ID: the `row_ids` column of `detect_missing_sentinels`, the `invalid_row_ids` column of `validate_column_types`, and a new `row_ids` column in `profile_target`, with the rows that hold a label outside `expected_labels`. A result rebuilt from its record raises `result_table_unavailable` when it would lack them.
 
+### Changed in MCP tool definitions
+
+- The descriptions of `data_path`, `table_path` and `project_path` are one sentence each in every MCP tool. Their rules (reading CSV, TSV and Parquet files, writing a table, the project file and the precedence of `project_path` over `agent-eda-mcp --project`) sit once in the MCP server's instructions, which stay at 57 of their 60 lines. `mask_sensitive` no longer repeats the sentence on the guardrail.
+- No input or output schema of an MCP tool holds a pydantic `title`, at the top level or in `$defs`. `describe_analysis().parameters_schema` and `record_schema()` keep theirs.
+- The descriptions plus input schemas of all 13 MCP tools come to 84,467 characters, from 120,678 before; `tools/list` is 252,617 characters, from 304,742.
+
 ### Fixed
 
 - `summarize_categorical` with a `top_n` below the level count could drop text labels that hold a NUL character.

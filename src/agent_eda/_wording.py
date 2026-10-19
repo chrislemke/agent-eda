@@ -107,6 +107,20 @@ def json_words(text: str) -> str:
     return _CONSTANT.sub(lambda match: _JSON_WORDS[match[0]], text)
 
 
+def without_titles(schema: Any) -> Any:
+    """The JSON Schema without pydantic's titles, which only repeat the names
+    they sit under. A property that is itself named title is kept."""
+    if isinstance(schema, dict):
+        return {
+            key: without_titles(value)
+            for key, value in schema.items()
+            if not (key == "title" and isinstance(value, str))
+        }
+    if isinstance(schema, list):
+        return [without_titles(item) for item in schema]
+    return schema
+
+
 def json_words_in(schema: Any) -> Any:
     """The JSON Schema with json_words applied to each description in it."""
     if isinstance(schema, dict):
