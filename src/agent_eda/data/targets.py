@@ -417,7 +417,6 @@ def _check_options(
                 )
             ),
         )
-    check_distinct("profile_target", "expected_labels", labels, "label", hide=hide)
     not_finite = [
         repr(label)
         for label in labels
@@ -429,6 +428,7 @@ def _check_options(
             "NaN and infinity can't be class labels; missing labels are counted "
             "apart, in missing_count. Leave them out of expected_labels."
         )
+    check_distinct("profile_target", "expected_labels", labels, "label", hide=hide)
     given = plural(len(labels), "label", "labels")
     if task == "binary_classification" and len(labels) != 2:
         raise InvalidArgumentError(

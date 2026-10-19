@@ -191,7 +191,8 @@ def test_the_project_types_read_the_same_in_the_signature_and_the_message():
     with pytest.raises(InvalidArgumentError) as caught:
         ae.Project(data_policy=5)  # ty: ignore[invalid-argument-type]  # the call is the test
 
-    assert "must be DataPolicy | Mapping[str, Any] | None" in str(caught.value)
+    # The message says the same in words, without typing syntax.
+    assert "must be a DataPolicy, a dict or None" in str(caught.value)
     # A dict of the fields, which the signature allows, builds one.
     project = ae.Project(data_policy={"sensitive_columns": ["a"]})
     assert project.data_policy == ae.DataPolicy(sensitive_columns=["a"])

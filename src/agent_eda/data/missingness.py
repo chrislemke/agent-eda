@@ -672,6 +672,8 @@ def detect_missing_sentinels(
         selection.columns,
         sentinel_values,
         hidden=masking.hidden(sentinel_values),
+        # Only a call without columns leaves the id_column out by itself.
+        id_column=row_ids.id_column if columns is None else None,
     )
     row_count = len(data)
     checked = {

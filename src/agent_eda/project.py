@@ -17,8 +17,9 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from agent_eda import _project_file
 from agent_eda._declarations import Declaration, keyword_signature
-from agent_eda._registry import python_scalar
+from agent_eda._registry import checked_keywords, python_scalar
 from agent_eda._run import check_distinct
+from agent_eda._text import a_or_an
 from agent_eda._wording import worded
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 
@@ -118,7 +119,7 @@ class DataPolicy(Declaration):
             )
         if isinstance(value, Mapping):
             raise InvalidArgumentError(
-                f"DataPolicy got a {type(value).__name__} for sensitive_columns, but "
+                f"DataPolicy got {a_or_an(type(value).__name__)} for sensitive_columns, but "
                 "sensitive_columns must be a list of column names, such as "
                 f"{cls._example}."
             )
@@ -254,6 +255,7 @@ class Project(Declaration):
         return super()._unknown_field(name)
 
     @classmethod
+    @checked_keywords
     def load(cls, path: str | os.PathLike[str]) -> Self:
         """Load a project from a TOML file, such as one that project.save() wrote.
 
@@ -330,6 +332,7 @@ class Project(Declaration):
         except AgentEDAError as error:
             raise _project_file.invalid(path, error) from None
 
+    @checked_keywords
     def save(self, path: str | os.PathLike[str], *, overwrite: bool = False) -> Path:
         """Save the project to a TOML file that Project.load() reads.
 

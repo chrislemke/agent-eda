@@ -24,11 +24,15 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from itertools import combinations
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 
 from agent_eda.results import UndefinedReason
+
+# The measures of a pair of numeric columns.
+NumericMethod = Literal["pearson", "spearman", "kendall"]
 
 # Every measure needs at least this many complete rows.
 MINIMUM_ROWS = 3
@@ -95,7 +99,7 @@ def measure_pairs(
     numeric: Sequence[np.ndarray],
     categorical: Sequence[Codes],
     *,
-    numeric_method: str,
+    numeric_method: NumericMethod,
     bias_corrected: bool,
 ) -> Measures:
     """Every pair's measure: numeric pairs by numeric_method, categorical pairs by
@@ -123,7 +127,8 @@ def measure_pairs(
     position = {a: i for i, a in enumerate(batch)}
     in_tables = set(tabled)
     rows = len(categorical[0].codes) if categorical else 0
-    buffer = np.empty(rows, dtype=np.int64) if len(categorical) >= 2 else None
+    # Only pairs of categorical columns use it.
+    buffer = np.empty(rows if len(categorical) >= 2 else 0, dtype=np.int64)
     categorical_measures: dict[tuple[int, int], Measure] = {}
     for a, b in combinations(range(len(categorical)), 2):
         if sums is not None and a in in_tables and b in in_tables:
@@ -154,12 +159,11 @@ type RankPair = Callable[[np.ndarray, int], tuple[np.ndarray, np.ndarray]]
 
 
 def numeric_pair(
-    x: np.ndarray, y: np.ndarray, method: str, *, rank_pair: RankPair | None = None
+    x: np.ndarray, y: np.ndarray, method: NumericMethod, *, rank_pair: RankPair
 ) -> Measure:
     """Pearson's r, Spearman's rho or Kendall's tau-b on the complete rows.
 
-    For spearman, rank_pair may supply the ranks; by default each column is
-    ranked within the complete rows here.
+    For spearman, rank_pair supplies the ranks of the pair's complete rows.
     """
     complete = np.isfinite(x) & np.isfinite(y)
     count = int(complete.sum())
@@ -171,23 +175,23 @@ def numeric_pair(
     if method == "pearson":
         value = pearson(a, b)
     elif method == "spearman":
-        ranks = (
-            (average_ranks(a), average_ranks(b))
-            if rank_pair is None
-            else rank_pair(complete, count)
-        )
-        value = pearson(*ranks)
-    else:
+        value = pearson(*rank_pair(complete, count))
+    elif method == "kendall":
         value = kendall_tau_b(a, b)
+    else:
+        raise ValueError(
+            f"agent_eda bug: unknown numeric method {method!r}; the choices are "
+            "'pearson', 'spearman' and 'kendall'"
+        )
     return Measure(_clip(value, -1.0), count)
 
 
 def categorical_pair(
-    x: Codes, y: Codes, *, bias_corrected: bool, buffer: np.ndarray | None = None
+    x: Codes, y: Codes, *, bias_corrected: bool, buffer: np.ndarray
 ) -> Measure:
     """Cramér's V, plain or bias-corrected, on the complete rows.
 
-    buffer, an int64 array as long as the columns, may hold the joint codes.
+    buffer, an int64 array as long as the columns, holds the joint codes.
     """
     cells = (x.levels + 1) * (y.levels + 1)
     if cells > MAX_TABLE_CELLS:
@@ -354,20 +358,16 @@ def correlation_ratio(levels: np.ndarray, values: np.ndarray) -> float:
 
 
 def _numeric_measures(
-    numeric: Sequence[np.ndarray], sums: "_Sums | None", method: str
+    numeric: Sequence[np.ndarray], sums: "_Sums | None", method: NumericMethod
 ) -> dict[tuple[int, int], Measure]:
     """Every numeric pair: from the batched sums where they are precise enough."""
     correlations = sums.correlations() if sums is not None else None
-    column_ranks = _ColumnRanks(numeric) if method == "spearman" else None
+    column_ranks = _ColumnRanks(numeric)
     measures = {}
     for i, j in combinations(range(len(numeric)), 2):
         found = None if correlations is None else correlations(i, j)
         if found is None:
-            rank_pair = (
-                None
-                if column_ranks is None
-                else functools.partial(column_ranks.pair, i, j)
-            )
+            rank_pair = functools.partial(column_ranks.pair, i, j)
             found = numeric_pair(numeric[i], numeric[j], method, rank_pair=rank_pair)
         measures[i, j] = found
     return measures

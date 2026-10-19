@@ -38,9 +38,8 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from agent_eda._columns import closest_names
 from agent_eda._registry import _value_text, python_scalar
-from agent_eda._text import Surface, join_items
+from agent_eda._text import Surface, a_or_an, closest_names, join_items
 from agent_eda._wording import message, worded
 from agent_eda.errors import (
     AgentEDAError,
@@ -635,7 +634,7 @@ def _value(value: object, field: str) -> str:
             f"    {_value(item, f'{field}[{i}]')},\n" for i, item in enumerate(value)
         )
         return "[\n" + "".join(items) + "]"
-    raise TypeError(f"a project file has no form for a {type(value).__name__}")
+    raise TypeError(f"a project file has no form for {a_or_an(type(value).__name__)}")
 
 
 def _string(text: str, field: str) -> str:

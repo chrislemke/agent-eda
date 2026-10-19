@@ -7,16 +7,22 @@ while the analysis runs never reach the caller, and the result is checked
 against what the analysis declared.
 """
 
-import difflib
 import functools
 import importlib
 import inspect
 import json
+import os
 import re
-import types
 import typing
 import warnings
-from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Collection,
+    Hashable,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass
 from types import FunctionType
 from typing import Any, cast
@@ -28,19 +34,20 @@ import pydantic
 from agent_eda._annotations import (
     LIST_TYPES,
     MAPPING_TYPES,
-    bounds,
+    allowed_text,
     item_annotation,
     members,
     strip_optional,
 )
-from agent_eda._columns import check_column_labels, closest_names
+from agent_eda._columns import check_column_labels
 from agent_eda._docstring import Docstring
 from agent_eda._docstring import parse as parse_docstring
 from agent_eda._run import capture_warnings, watch_all_warnings
 from agent_eda._text import (
     MAX_NAME_LENGTH,
     Surface,
-    join_alternatives,
+    a_or_an,
+    closest_names,
     join_items,
     plural,
     short_repr,
@@ -95,6 +102,9 @@ class AnalysisSpec:
 
 
 _REGISTRY: dict[str, AnalysisSpec] = {}
+
+# The arguments of an analysis that shows raw values, and of its MCP tool.
+_MASKING_ARGUMENTS = frozenset({"project", "project_path", "mask_sensitive"})
 
 
 def analysis[F: FunctionType](
@@ -352,11 +362,11 @@ def missing_message(
         annotation = strip_optional(spec.annotations[name])
         item = item_annotation(annotation)
         if typing.get_origin(annotation) is typing.Literal:
-            choices.append(f"{name} is {_allowed(annotation, name)}")
+            choices.append(f"{name} is {allowed_text(annotation, name)}")
         elif item is not annotation and any(
             typing.get_origin(member) is typing.Literal for member in members(item)
         ):
-            choices.append(f"each value in {name} is {_allowed(item, 'value')}")
+            choices.append(f"each value in {name} is {allowed_text(item, 'value')}")
     where = f", where {join_items(choices)}" if choices else ""
     return (
         f"{spec.name} is missing {arguments}: {join_items(missing)}. Pass {them} "
@@ -368,31 +378,55 @@ def _check_data(name: str, data: object) -> None:
     """Raise unless data is a pandas DataFrame, showing the conversion."""
     if isinstance(data, pd.DataFrame):
         return
-    got, conversion = _conversion(data)
-    raise InvalidArgumentError(
-        f"data must be a pandas DataFrame, but got {got}. Convert it first: "
-        f"ae.{name}({conversion})",
-        code="unsupported_data_type",
-    )
+    raise InvalidArgumentError(_not_a_frame(name, data), code="unsupported_data_type")
 
 
-def _conversion(data: object) -> tuple[str, str]:
-    """Describe what data is and the one-line conversion to a DataFrame."""
-    kind = type(data)
-    library = kind.__module__.split(".")[0]
-    known = {
-        ("pandas", "Series"): ("a pandas Series", "series.to_frame()"),
-        ("numpy", "ndarray"): ("a NumPy array", "pd.DataFrame(array)"),
-        ("polars", "DataFrame"): ("a polars DataFrame", "df.to_pandas()"),
-        ("polars", "LazyFrame"): ("a polars LazyFrame", "lf.collect().to_pandas()"),
-        ("polars", "Series"): ("a polars Series", "s.to_frame().to_pandas()"),
-        ("pyarrow", "Table"): ("a pyarrow Table", "table.to_pandas()"),
-    }
-    if (library, kind.__name__) in known:
-        return known[(library, kind.__name__)]
+def _not_a_frame(name: str, data: object) -> str:
+    """Say what data is, and the one-line conversion to a DataFrame if there is one."""
+    start = f"data must be a pandas DataFrame, but got {_describe_data(data)}."
+    call = f"ae.{name}"
     if data is None:
-        return "None", "pd.DataFrame(data)"
-    return f"a {kind.__name__}", "pd.DataFrame(data)"
+        return (
+            f"{start} The variable holds no data, so whatever should have loaded "
+            f"or built it didn't. Check that step, then pass its DataFrame: "
+            f"{call}(df)."
+        )
+    if isinstance(data, str | os.PathLike):
+        return (
+            f"{start} A path isn't data; read the file first: "
+            f"{call}(pd.read_csv(path)) for a CSV file, or "
+            f"{call}(pd.read_parquet(path)) for a Parquet file."
+        )
+    return f"{start} Convert it first: {call}({_conversion(data)})"
+
+
+def _describe_data(data: object) -> str:
+    """What data is, for the message: 'a pandas Series', 'None', 'a str'."""
+    if data is None:
+        return "None"
+    kind = type(data)
+    known = _CONVERSIONS.get((kind.__module__.split(".")[0], kind.__name__))
+    return known[0] if known is not None else a_or_an(kind.__name__)
+
+
+# What a DataFrame replacement is called and the conversion to a DataFrame,
+# by library and class name.
+_CONVERSIONS = {
+    ("pandas", "Series"): ("a pandas Series", "series.to_frame()"),
+    ("numpy", "ndarray"): ("a NumPy array", "pd.DataFrame(array)"),
+    ("polars", "DataFrame"): ("a polars DataFrame", "df.to_pandas()"),
+    ("polars", "LazyFrame"): ("a polars LazyFrame", "lf.collect().to_pandas()"),
+    ("polars", "Series"): ("a polars Series", "s.to_frame().to_pandas()"),
+    ("pyarrow", "Table"): ("a pyarrow Table", "table.to_pandas()"),
+    ("pyarrow", "RecordBatch"): ("a pyarrow RecordBatch", "batch.to_pandas()"),
+}
+
+
+def _conversion(data: object) -> str:
+    """The one-line conversion of data to a DataFrame."""
+    kind = type(data)
+    known = _CONVERSIONS.get((kind.__module__.split(".")[0], kind.__name__))
+    return known[1] if known is not None else "pd.DataFrame(data)"
 
 
 def validate_json(
@@ -418,9 +452,16 @@ def _validate(
     json_mode: bool = False,
 ) -> dict[str, Any]:
     """Check the keyword options against their annotations, defaults included."""
+    given = options
     options = {
         name: _normalize(spec, data, name, value) for name, value in options.items()
     }
+    # Options given one value that became a list of one, as quantiles=0.5 does.
+    single = frozenset(
+        name
+        for name, value in given.items()
+        if isinstance(options[name], list) and _is_single(value)
+    )
     try:
         if json_mode:
             validated = spec.arguments.model_validate_json(json.dumps(options))
@@ -437,19 +478,74 @@ def _validate(
         raise worded(
             InvalidArgumentError,
             lambda surface: invalid_message(
-                spec.name, spec.annotations, options, problems, surface=surface
+                spec.name,
+                spec.annotations,
+                options,
+                problems,
+                single=single,
+                surface=surface,
             ),
         ) from None
     return {name: getattr(validated, name) for name in spec.parameters[1:]}
 
 
+def checked_keywords[**P, R](function: Callable[P, R]) -> Callable[P, R]:
+    """Make a call with a keyword the function doesn't take raise InvalidArgumentError.
+
+    Python raises a bare TypeError for it. The error has the code invalid_call and
+    names the closest keyword, as an analysis's does. The check reads the
+    function's signature, and the function keeps its name, docstring and
+    signature. A method's own `self` or `cls` isn't a keyword.
+    """
+    owner = getattr(function, "__qualname__", "the function")
+    names = [
+        parameter.name
+        for parameter in inspect.signature(function).parameters.values()
+        if parameter.kind
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        and parameter.name not in ("self", "cls")
+    ]
+
+    @functools.wraps(function)
+    def checked(*args: P.args, **kwargs: P.kwargs) -> R:
+        for key in kwargs:
+            if key not in names:
+                raise InvalidArgumentError(
+                    unknown_name_message(owner, "argument", key, names)
+                    if names
+                    else f"{owner} takes no arguments, but got {key!r}. Call it as "
+                    f"{owner}().",
+                    code="invalid_call",
+                )
+        return function(*args, **kwargs)
+
+    return checked
+
+
+def _is_single(value: object) -> bool:
+    """Whether _as_list makes a list of one of the value."""
+    return value is not None and (
+        isinstance(value, str | bytes | np.generic) or not isinstance(value, Iterable)
+    )
+
+
 def unknown_name_message(
     owner: str, noun: str, name: str, allowed: Sequence[str]
 ) -> str:
-    """Say that a keyword isn't one of `owner`'s, naming the closest and the rest."""
-    closest = difflib.get_close_matches(name, allowed, n=1)
+    """Say that a keyword isn't one of `owner`'s, naming the closest and the rest.
+
+    A project or mask_sensitive passed to an analysis that has none says why: it
+    shows no raw values, so there is nothing to mask.
+    """
+    listed = f"Allowed: {', '.join(allowed)}."
+    if noun == "argument" and name in _MASKING_ARGUMENTS and owner in _REGISTRY:
+        return (
+            f"{owner} takes no {name}: it shows no raw values, so there is nothing "
+            f"to mask. Leave {name} out. {listed}"
+        )
+    closest = closest_names(name, allowed)[:1]
     hint = f" Did you mean {closest[0]!r}?" if closest else ""
-    return f"{owner} has no {noun} {name!r}.{hint} Allowed: {', '.join(allowed)}."
+    return f"{owner} has no {noun} {name!r}.{hint} {listed}"
 
 
 def invalid_message(
@@ -459,19 +555,26 @@ def invalid_message(
     problems: Sequence[Any],
     *,
     noun: str = "argument",
+    single: Collection[str] = (),
     surface: Surface = "python",
 ) -> str:
     """Say what is wrong with an option, what it allows and how to fix it.
 
     `problems` are pydantic's errors for the options; the first one is shown,
     unless one comes from a check of the package's own, such as ColumnSpec's,
-    whose message says it best.
+    whose message says it best. The message says what the option allows in
+    words, never in pydantic's or Python's typing syntax. The options in
+    `single` were given one value, which became a list of one: its message is
+    about the option, not about the list's first item.
     """
     problem = next((p for p in problems if _own_error(p) is not None), problems[0])
     location = problem["loc"]
     name = str(location[0]) if location else "?"
     annotation = annotations.get(name)
+    none = "None" if surface == "python" else "null"
     value, path, inner = _locate(options.get(name), annotation, location[1:])
+    if name in single and path == "[0]":
+        path = ""
     own = _own_error(problem)
     if own is not None:
         # The package's own check, such as ColumnSpec's, says it best.
@@ -484,10 +587,11 @@ def invalid_message(
     if path:
         # A value inside a list option, or inside a mapping or its lists.
         where = f"at {name}{path}"
-        rule = f"each value in {name} must be {_allowed(inner, 'value')}"
+        rule = f"each value in {name} must be {allowed_text(inner, 'value', none=none)}"
     else:
         where = f"for {name}"
-        rule = f"{name} must be {_allowed(annotation, name)}"
+        rule = f"{name} must be {allowed_text(annotation, name, none=none)}"
+    detail = ""
     if problem["type"] == "literal_error":
         # The choices of the Literal, alone or in a union such as a logical type
         # or a ColumnSpec.
@@ -499,11 +603,6 @@ def invalid_message(
         ]
         closest = closest_names(value, choices)[:1] if isinstance(value, str) else []
         detail = f" Did you mean {closest[0]!r}?" if closest else ""
-    elif problem["type"] in _OUT_OF_RANGE or len(members(strip_optional(inner))) > 1:
-        # pydantic's message for a union names only its first type.
-        detail = ""
-    else:
-        detail = f" {problem['msg']}."
     return (
         f"{owner} got {_value_text(value)} {where}, but {rule}.{detail} "
         f"{see_every(owner, noun, surface)}"
@@ -536,64 +635,6 @@ def _locate(
         else:
             break  # such as the name of a union's member
     return value, path, annotation
-
-
-# pydantic's error types for a value outside a declared range; the message
-# states the range itself.
-_OUT_OF_RANGE = {"greater_than", "greater_than_equal", "less_than", "less_than_equal"}
-
-
-def _allowed(annotation: object, subject: str) -> str:
-    """What an option allows, such as "float with 0 <= trim_fraction < 0.5".
-
-    A union of fixed choices and other types, such as a logical type or a
-    ColumnSpec, lists the choices first: "one of 'a' or 'b', or a ColumnSpec".
-    """
-    origin = typing.get_origin(annotation)
-    if origin is typing.Literal:
-        choices = [repr(choice) for choice in typing.get_args(annotation)]
-        return f"one of {join_alternatives(choices)}"
-    if origin is typing.Annotated:
-        inner, *metadata = typing.get_args(annotation)
-        limits = bounds(metadata, subject)
-        return f"{_allowed(inner, subject)} with {limits}" if limits else _plain(inner)
-    if origin in (typing.Union, types.UnionType):
-        options = typing.get_args(annotation)
-        optional = strip_optional(annotation)
-        if optional is not annotation and typing.get_origin(optional) in (
-            typing.Annotated,
-            typing.Literal,
-        ):
-            # Such as "float with 0 < rare_share < 1, or None".
-            return f"{_allowed(optional, subject)}, or None"
-        literals = [o for o in options if typing.get_origin(o) is typing.Literal]
-        if literals:
-            others = [_plain(o) for o in options if o not in literals]
-            choices = [
-                repr(c) for literal in literals for c in typing.get_args(literal)
-            ]
-            listed = f"one of {join_alternatives(choices)}"
-            others = [other if other == "None" else f"a {other}" for other in others]
-            return ", or ".join([listed, *others])
-    return _plain(annotation)
-
-
-def _plain(annotation: object) -> str:
-    """A type as an agent reads it: 'Sequence[str] | None', without Annotated."""
-    origin = typing.get_origin(annotation)
-    arguments = typing.get_args(annotation)
-    if origin is typing.Annotated:
-        return _plain(arguments[0])
-    if origin in (typing.Union, types.UnionType):
-        return " | ".join(_plain(argument) for argument in arguments)
-    if origin is typing.Literal:
-        return f"Literal[{', '.join(repr(argument) for argument in arguments)}]"
-    if origin is not None:
-        inner = ", ".join(_plain(argument) for argument in arguments)
-        return f"{getattr(origin, '__name__', str(origin))}[{inner}]"
-    if annotation is type(None):
-        return "None"
-    return getattr(annotation, "__name__", str(annotation))
 
 
 def _normalize(
@@ -701,12 +742,20 @@ def _normalize_mapping(
             )
         given[column] = key
         normalized[column] = (
-            _as_list(spec, name, item) if _takes_list(values) else python_scalar(item)
+            _as_list(spec, name, item, key=column)
+            if _takes_list(values)
+            else python_scalar(item)
         )
     return normalized
 
 
-def _as_list(spec: AnalysisSpec, name: str, value: object) -> object:
+def _as_list(
+    spec: AnalysisSpec, name: str, value: object, *, key: object = None
+) -> object:
+    """The value as a list, or as it is when validation should reject it.
+
+    `key` is the key of a mapping option whose value this is, if it is one.
+    """
     if value is None:
         return None
     if isinstance(value, np.generic):
@@ -714,9 +763,12 @@ def _as_list(spec: AnalysisSpec, name: str, value: object) -> object:
     if isinstance(value, str | bytes) or not isinstance(value, Iterable):
         return [value]
     if isinstance(value, set | frozenset):
+        where = name if key is None else f"{name}[{key!r}]"
+        instead = "a list or tuple" if key is None else "a list or tuple for that key"
+        fix = f"{name}=sorted(...)" if key is None else f"{{{key!r}: sorted(...)}}"
         raise InvalidArgumentError(
-            f"{spec.name} got a set for {name}, and a set has no fixed order. "
-            f"Pass a list or tuple instead, such as {name}=sorted(...)."
+            f"{spec.name} got a set for {where}, and a set has no fixed order. "
+            f"Pass {instead} instead, such as {fix}."
         )
     if isinstance(value, pd.DataFrame | Mapping) or (
         isinstance(value, np.ndarray) and value.ndim != 1
@@ -763,8 +815,11 @@ def _value_text(value: object) -> str:
     if isinstance(value, np.ndarray):
         return f"a NumPy array of shape {value.shape}"
     if isinstance(value, list | tuple | set | frozenset | dict):
-        return f"a {type(value).__name__} of {plural(len(value), 'item', 'items')}"
-    return f"a {type(value).__name__}"
+        kind = a_or_an(type(value).__name__)
+        return f"{kind} of {plural(len(value), 'item', 'items')}"
+    if isinstance(value, type):
+        return f"the type {value.__name__}"
+    return a_or_an(type(value).__name__)
 
 
 def _absorb_warnings(result: object, caught: list[warnings.WarningMessage]) -> object:

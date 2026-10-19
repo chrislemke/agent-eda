@@ -12,6 +12,7 @@ writes and the structured content. Only those phrases differ; the rest of the
 text is the same on both surfaces.
 """
 
+import difflib
 import reprlib
 import textwrap
 import unicodedata
@@ -26,6 +27,10 @@ MAX_FINDINGS = 5
 MAX_LIMITATIONS = 5
 # Claims name at most this many columns or labels and count the rest.
 MAX_NAMED = 5
+# Suggestions for a misspelled name, and the shortest start of a name that
+# suggests it.
+MAX_SUGGESTIONS = 3
+MIN_PREFIX = 3
 
 # A message names at most this many names it didn't find, each cut to
 # MAX_NAME_LENGTH characters, so that a column's values passed for names can't
@@ -201,6 +206,40 @@ def wrap(text: str, *, indent: str = "", first: str | None = None) -> list[str]:
 def plural(count: int, singular: str, plural_form: str) -> str:
     """Return "1 column" or "3 columns" with thousands separators."""
     return f"{count:,} {singular if count == 1 else plural_form}"
+
+
+def closest_names(name: str, names: Sequence[str]) -> list[str]:
+    """The names closest to `name`, at most MAX_SUGGESTIONS of them.
+
+    Names equal to it apart from case and surrounding spaces come first, then
+    names that start with it, such as 'binary_classification' for 'binary',
+    then close spellings, ranked by difflib's similarity.
+    """
+    by_key: dict[str, list[str]] = {}
+    for candidate in names:
+        by_key.setdefault(_fold(candidate), []).append(candidate)
+    key = _fold(name)
+    starting = (
+        [k for k in by_key if k != key and k.startswith(key)]
+        if len(key) >= MIN_PREFIX
+        else []
+    )
+    similar = difflib.get_close_matches(key, list(by_key), n=MAX_SUGGESTIONS)
+    found = [
+        *by_key.get(key, []),
+        *(c for k in starting for c in by_key[k]),
+        *(c for k in similar for c in by_key[k]),
+    ]
+    return list(dict.fromkeys(found))[:MAX_SUGGESTIONS]
+
+
+def _fold(name: str) -> str:
+    return name.strip().casefold()
+
+
+def a_or_an(noun: str) -> str:
+    """The noun with its article: "an object", "an Interval", "a str"."""
+    return f"{'an' if noun[:1] in 'AEIOUaeiou' else 'a'} {noun}"
 
 
 def placeholder(number: int) -> str:

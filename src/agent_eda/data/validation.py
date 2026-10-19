@@ -17,7 +17,6 @@ from pydantic_core import CoreSchema
 from agent_eda._columns import (
     ColumnKind,
     ColumnRule,
-    closest_names,
     column_kind,
     select_columns,
 )
@@ -49,6 +48,7 @@ from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
 from agent_eda._run import data_shape, execution, overall_status
 from agent_eda._text import (
     Surface,
+    closest_names,
     join_alternatives,
     join_items,
     join_labels,
@@ -183,9 +183,13 @@ class ColumnSpec(Declaration):
     def _rejected(cls, fields: Mapping[str, Any], problems: list[Any]) -> AgentEDAError:
         """A spec without a logical_type says how to write one for the surface."""
         first = problems[0]
-        if first["type"] == "missing" and not any(
-            isinstance(problem.get("ctx", {}).get("error"), AgentEDAError)
-            for problem in problems
+        if (
+            first["type"] == "missing"
+            and not any(
+                isinstance(problem.get("ctx", {}).get("error"), AgentEDAError)
+                for problem in problems
+            )
+            and not any(problem["type"] == "extra_forbidden" for problem in problems)
         ):
             allowed = join_alternatives([repr(t) for t in _LOGICAL_TYPES])
             return worded(
