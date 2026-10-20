@@ -63,7 +63,10 @@ def test_every_record_text_table_tool_and_message_matches_the_baseline():
     assert found == [], (
         "The restructuring changed a record, text, table, tool or message. If the "
         "change is meant, refresh the baseline with scripts/record_baseline.py. "
-        f"{len(found)} differ, the first of them:\n" + "\n".join(found[:10])
+        f"{len(found)} differ. Every record and part that differs:\n"
+        + "\n".join(line.split(": ")[0] for line in found)
+        + "\nThe first of them in full:\n"
+        + "\n".join(found[:10])
     )
 
 
