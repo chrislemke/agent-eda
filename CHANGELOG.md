@@ -66,6 +66,8 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 - `infer_column_semantics` counted a text column of Python objects whose dtype was unpickled (`pd.read_pickle`) as if `''` and `'\x00'` were one value, because the check for object dtype compared by identity; it now keeps them apart, as `validate_column_types` always did.
 - A `project=` given as a path (`project="project.toml"`) raises `InvalidArgumentError` with the fix `project=ae.Project.load('project.toml')`. An MCP call that passes `project` to a tool that takes `project_path` is told to use `project_path` instead of "takes no project".
 
+- `agent-eda-mcp` without the mcp extra, or with only part of it such as mcp without pyarrow, prints the install command on stderr and exits 1, as the README says. It ended in a traceback about pyarrow, and `agent-eda-mcp --help` failed the same way without the extra.
+
 ### Texts that matched the code
 
 - Corrected docstrings and field descriptions: `DetectMissingSentinelsResult.columns_without_rules` (a column without values is listed), the `insufficient_data` entries of `summarize_categorical` and `infer_column_semantics` (no selected column completed and one has no value), the `candidates` of `infer_column_semantics` (the types the values fit, leading-zero codes at score 0 included), `ValidateColumnTypesResult.to_frame` (the columns table counts the distinct invalid values; `table='invalid_values'` lists them), and the base class of records (frozen, without unknown fields or NaN and infinity; it is not strict). The findings of `detect_missing_sentinels` have their "The findings:" lead-in.
@@ -92,6 +94,12 @@ The printed text follows: the `count` column of `summarize_numeric` and of `prof
 - `InferColumnSemanticsResult.inferred_schema()`, a `schema` for `validate_column_types` that leaves out columns without an inferred type.
 - `DetectMissingSentinelsResult.sentinel_values(columns=None)`, the `sentinel_values` for `profile_missing_values`. Masked candidates are left out and named in the returned mapping's `note`.
 - `rich` is a dev dependency, for the test of the Rich display.
+
+### Packaging
+
+- Only numpy, pandas, pydantic and SciPy are required. scikit-learn and statsmodels were required, but nothing imported them, so `pip install agent-eda` no longer installs them or what they need (joblib, patsy and others). ADR 0005 still allows both, and one is added back when an analysis first imports it.
+- The package metadata names the author, keywords, classifiers and the repository, issue tracker and changelog URLs, which PyPI shows on the project page.
+- A wheel or source distribution built in a working copy no longer holds the `.DS_Store` files that Finder leaves in folders.
 
 ### Statuses and codes
 

@@ -5,16 +5,43 @@ description = "Deterministic exploratory data analysis functions for LLM agents.
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
+authors = [{ name = "Chris Lemke" }]
+keywords = [
+    "eda",
+    "exploratory-data-analysis",
+    "data-profiling",
+    "data-quality",
+    "pandas",
+    "llm",
+    "agents",
+    "mcp",
+]
+# No License classifier: the license expression above says it (PEP 639).
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
 requires-python = ">=3.12"
 # Minimums match AWS AgentCore Code Interpreter's preinstalled versions (ADR 0005).
+# The ADR allows six libraries; the package requires the ones its code imports.
 dependencies = [
     "numpy>=1.26",
     "pandas>=2.2",
     "pydantic>=2.7",
-    "scikit-learn>=1.5",
     "scipy>=1.11.2",
-    "statsmodels>=0.14.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/chrislemke/agent-eda"
+Source = "https://github.com/chrislemke/agent-eda"
+Issues = "https://github.com/chrislemke/agent-eda/issues"
+Changelog = "https://github.com/chrislemke/agent-eda/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 # The MCP server (ADR 0006). mcp 2.3 needs pydantic 2.12; the core keeps 2.7.
@@ -24,8 +51,14 @@ mcp = ["mcp>=2.3", "pyarrow>=14.0.1"]
 agent-eda-mcp = "agent_eda.mcp:main"
 
 [build-system]
-requires = ["uv_build>=0.10.11,<0.11.0"]
+requires = ["uv_build>=0.13.1,<0.14"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# A folder that Finder has opened holds a .DS_Store, which .gitignore hides from
+# git but not from the build. tests/test_packaging.py builds a copy that has one.
+source-exclude = ["**/.DS_Store"]
+wheel-exclude = ["**/.DS_Store"]
 
 [dependency-groups]
 # The tests import anyio, jsonschema and annotated_types directly. They come with
@@ -46,7 +79,7 @@ dev = [
     "ruff>=0.17.1",
     "threadpoolctl>=3.7.0",
     "ty>=0.0.89",
-    "uv-build>=0.10.11,<0.11.0",
+    "uv-build>=0.13.1,<0.14",
 ]
 # The mcp extra, installed by default so that `uv run pytest` runs the MCP tests.
 mcp = ["agent-eda[mcp]"]

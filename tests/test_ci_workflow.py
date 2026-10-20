@@ -184,6 +184,34 @@ def test_the_offline_packaging_job_installs_no_extra():
     assert not [run for run in commands("packaging") if "mcp" in run]
 
 
+def test_the_packaging_job_builds_checks_and_installs_both_files_on_the_minimums():
+    script = "\n".join(commands("packaging"))
+    [build] = [c for c in commands("packaging") if c.startswith("uv build")]
+
+    # Both files, built with the backend that [build-system] declares.
+    assert "--force-pep517" in words(build)
+    assert not {"--wheel", "--sdist"} & words(build)
+    assert "twine@" in script
+    assert {"check", "--strict"} <= words(script)
+    assert "check-wheel-contents@" in script
+    # Each file goes into an environment of the minimum required versions.
+    assert "--resolution lowest-direct" in script
+    assert "dist/*.whl" in script
+    assert "dist/*.tar.gz" in script
+    assert "tests/smoke.py" in script
+
+
+def test_the_built_wheel_with_the_mcp_extra_is_started_in_a_fresh_environment():
+    script = "\n".join(commands("packaging-mcp"))
+
+    assert "--force-pep517" in script
+    assert "uv venv" in script
+    assert "[mcp]" in script
+    assert "tests/smoke_mcp.py" in script
+    # uv run would use the project's own environment, with the editable install.
+    assert "uv run" not in script
+
+
 def test_a_tag_push_does_not_start_the_ci_workflow_a_second_time():
     push = triggers("ci.yml")["push"]
 

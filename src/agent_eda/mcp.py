@@ -51,8 +51,9 @@ if TYPE_CHECKING:
 
 __all__ = ["create_server", "main"]
 
-# The packages of the mcp extra that the MCP server imports.
-_EXTRA_MODULES = ("mcp", "mcp_types", "anyio")
+# The packages of the mcp extra that the MCP server imports. The extra can be
+# half installed, such as mcp without pyarrow, which writes the table files.
+_EXTRA_MODULES = ("mcp", "mcp_types", "anyio", "pyarrow")
 
 
 def create_server(

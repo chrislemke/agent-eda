@@ -167,9 +167,7 @@ jobs:
           --upgrade-package numpy
           --upgrade-package pandas
           --upgrade-package pydantic
-          --upgrade-package scikit-learn
           --upgrade-package scipy
-          --upgrade-package statsmodels
           --upgrade-package mcp
           --upgrade-package pyarrow
           pytest
@@ -250,7 +248,7 @@ jobs:
         run: uv run --locked --extra mcp python -I tests/smoke_mcp.py
 
   packaging:
-    name: packaging, offline install routes
+    name: packaging, wheel and source distribution
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -262,27 +260,66 @@ jobs:
           version: "0.13.1"
           enable-cache: false
       # --force-pep517 builds with the uv_build that [build-system] declares,
-      # as pip would, not with the copy bundled in this uv.
-      - name: Build the wheel
-        run: uv build --wheel --force-pep517
+      # as pip would, not with the copy bundled in this uv. Both files are what
+      # a release uploads, so both are checked on every change.
+      - name: Build the wheel and the source distribution
+        run: uv build --force-pep517
+      # The metadata and the README that PyPI will render, and the files in the
+      # wheel. release.yml runs the same checks on the files it uploads.
+      - name: Check the metadata and the contents of the files
+        run: |
+          uvx twine@7.0.0 check --strict dist/*
+          uvx check-wheel-contents@0.6.3 dist/*.whl
       # The packaging tests check the wheel AGENT_EDA_WHEEL names: pure Python,
       # importable from sys.path in an isolated interpreter.
       - name: Check that the wheel is pure Python and imports from sys.path
         run: AGENT_EDA_WHEEL="$(echo dist/*.whl)" uv run --locked pytest tests/test_packaging.py
-      # Only the six required dependencies, at the minimums in pyproject.toml.
-      - name: Create an environment with only the minimum required versions
+      # Each file goes into its own environment of only the required
+      # dependencies, at the minimums in pyproject.toml, with pip. The wheel
+      # installs as in an AgentCore sandbox without PyPI access, where --no-index
+      # keeps pip off the network; pip builds the source distribution the way
+      # `pip install` does, which needs the build backend from PyPI.
+      - name: Install each file into an environment of the minimum versions and smoke test it
         run: |
-          uv venv --seed --python 3.12 "$RUNNER_TEMP/minimum"
-          uv pip install --python "$RUNNER_TEMP/minimum" --resolution lowest-direct -r pyproject.toml
-      # As in an AgentCore sandbox without PyPI access; --no-index keeps pip
-      # off the network.
-      - name: Install the wheel with pip install --no-deps
+          for file in dist/*.whl dist/*.tar.gz; do
+            environment="$RUNNER_TEMP/minimum-$(basename "$file")"
+            uv venv --seed --python 3.12 "$environment"
+            uv pip install --python "$environment" --resolution lowest-direct -r pyproject.toml
+            if [ "${file##*.}" = whl ]; then
+              "$environment/bin/python" -m pip install --no-deps --no-index "$file"
+            else
+              "$environment/bin/python" -m pip install --no-deps "$file"
+            fi
+            "$environment/bin/python" -m pip check
+            "$environment/bin/python" -I tests/smoke.py
+          done
+
+  packaging-mcp:
+    name: packaging, wheel with the mcp extra
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Build the wheel
+        run: uv build --wheel --force-pep517
+      # What `pip install 'agent-eda[mcp]'` gives a user: the built wheel and the
+      # extra's latest packages in a fresh environment. mcp-smoke runs the same
+      # script on the editable install, which can't show a packaging slip, and
+      # the packaging job stays free of the extra.
+      - name: Install the wheel with the mcp extra into a fresh environment
         run: |
-          "$RUNNER_TEMP/minimum/bin/python" -m pip install --no-deps --no-index dist/*.whl
-          "$RUNNER_TEMP/minimum/bin/python" -m pip check
-      - name: Smoke test that prints analysis results
+          uv venv --python 3.12 "$RUNNER_TEMP/with-extra"
+          wheel="$(echo dist/*.whl)"
+          uv pip install --python "$RUNNER_TEMP/with-extra" "${wheel}[mcp]"
+      - name: Smoke test the MCP server of the installed wheel over stdio
         run: |
-          "$RUNNER_TEMP/minimum/bin/python" -I tests/smoke.py
+          "$RUNNER_TEMP/with-extra/bin/python" -I tests/smoke_mcp.py
 
   benchmark:
     name: benchmark, ${{ matrix.versions }} versions (Python 3.12, ARM64, 2 CPUs)

@@ -19,11 +19,11 @@ It is written for three kinds of callers:
 - **Helpful errors**: a mistake raises an error that says what is wrong, what is allowed and the fix, such as the available columns and the closest name.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that don't write Python.
-- **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, preinstalled in AgentCore Code Interpreter.
+- **Pure Python** on numpy, pandas, pydantic and SciPy, all preinstalled in AgentCore Code Interpreter.
 
 ## Installation
 
-agent-eda needs Python 3.12 or later, numpy 1.26 through 2.x and pandas 2.2 through 3.x.
+agent-eda needs Python 3.12 or later and four libraries, which pip installs with it: numpy 1.26 through 2.x, pandas 2.2 through 3.x, pydantic 2.7 or later and SciPy 1.11.2 or later.
 
 Until 0.1 is on PyPI, build the wheel in a clone of this repository with [uv](https://docs.astral.sh/uv/):
 

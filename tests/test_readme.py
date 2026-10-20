@@ -6,6 +6,7 @@ import inspect
 import io
 import json
 import re
+import tomllib
 import typing
 from pathlib import Path
 
@@ -91,6 +92,25 @@ def test_the_readme_has_the_sections_of_a_user_guide_in_order():
     )
 
     assert headings == SECTIONS
+
+
+def test_the_installation_text_names_every_required_library():
+    text = README.read_text(encoding="utf-8")
+    installation = text.split("\n## Installation\n")[1].split("\n## ")[0]
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    required = [
+        re.split(r"[\s<>=!~;\[]", spec, maxsplit=1)[0]
+        for spec in project["project"]["dependencies"]
+    ]
+
+    assert required
+    assert [name for name in required if name.lower() not in installation.lower()] == []
+    # The features list says the same libraries, and no others.
+    pure_python = next(
+        line for line in text.splitlines() if line.startswith("- **Pure Python**")
+    )
+    assert "scikit-learn" not in pure_python
+    assert "statsmodels" not in pure_python
 
 
 def test_an_agent_reads_the_whole_readme_in_one_go():
