@@ -113,6 +113,22 @@ def test_the_installation_text_names_every_required_library():
     assert "statsmodels" not in pure_python
 
 
+def test_the_readme_installs_from_pypi_and_keeps_the_wheel_route_for_sandboxes():
+    text = README.read_text(encoding="utf-8")
+    installation = text.split("\n## Installation\n")[1].split("\n## ")[0]
+    mcp = text.split("### Install and register")[1].split("\n### ")[0]
+
+    assert "pip install agent-eda" in installation
+    assert "pip install 'agent-eda[mcp]'" in mcp
+    # No sentence still says that the package has no release.
+    unreleased = r"Until 0\.\d|Once (?:it is )?released|(?:isn't|not|not yet) on PyPI"
+    assert re.findall(unreleased, text) == []
+    # Building a wheel from a clone stays only as the way into a sandbox that
+    # can't reach PyPI.
+    building = [p for p in text.split("\n\n") if "uv build --wheel" in p]
+    assert [p.split(".")[0] for p in building] == ["**AgentCore Code Interpreter"]
+
+
 def test_an_agent_reads_the_whole_readme_in_one_go():
     assert len(README.read_text(encoding="utf-8")) <= READ_LIMIT
 

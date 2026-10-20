@@ -431,14 +431,43 @@ def test_a_final_release_without_its_own_section_stops_the_release(tmp_path):
 
 
 @needs_posix_shell
-def test_the_changelog_of_the_repository_gives_a_release_candidate_its_notes(tmp_path):
+def test_the_changelog_of_the_repository_gives_the_package_version_its_release_notes(
+    tmp_path,
+):
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    version = project["project"]["version"]
+    prerelease = "true" if re.search(r"(a|b|rc)\d+$", version) else "false"
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
-    run = run_notes(tmp_path, changelog, version="0.1.0rc1", prerelease="true")
+    # What the release workflow does for the tag of this version: a final
+    # version needs a section of its own, a pre-release may take Unreleased.
+    run = run_notes(tmp_path, changelog, version=version, prerelease=prerelease)
 
     assert run.returncode == 0, run.stdout
     assert run.notes.strip()
     assert "## [" not in run.notes
+
+
+def test_the_changelog_has_unreleased_first_and_then_one_dated_section_per_release():
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    headings = re.findall(r"^## (.+)$", text, flags=re.MULTILINE)
+
+    assert headings[0] == "[Unreleased]"
+    assert [
+        h
+        for h in headings[1:]
+        if not re.fullmatch(r"\[\d+\.\d+\.\d+\] - \d{4}-\d{2}-\d{2}", h)
+    ] == []
+
+
+def test_the_first_release_opens_with_a_summary_of_what_it_offers_before_its_lines():
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    section = text.split("\n## [0.1.0] - ")[1].split("\n## ")[0]
+    summary = section.split("\n### ")[0].split("\n", 1)[1]
+
+    assert len(summary.split()) >= 30
+    assert "MCP" in summary
+    assert "analyses" in summary
 
 
 @needs_posix_shell

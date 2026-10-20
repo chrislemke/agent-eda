@@ -1,8 +1,12 @@
 # Changelog
 
-What changed for a caller, newest first. Until 0.1.0 is released, the lines collect under Unreleased and become the 0.1.0 section. A release takes its notes from the section headed with its version, and a pre-release without one takes Unreleased.
+What changed for a caller, newest first. The lines for the next release collect under Unreleased, and a release moves them into a section headed with its version and date. A release takes its notes from the section headed with its version, and a pre-release without one takes Unreleased.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-10-20
+
+The first release of agent-eda: deterministic exploratory data analysis for pandas DataFrames, built for LLM agents and usable by people. It offers 11 first-look analyses (structure, column types, missing values, sentinel values such as -999, distributions, duplicates, keys, the target and associations), each returning a typed result that prints as at most 40 lines and gives the full record as strict JSON. `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` tell an agent what exists and how to call it, a Project can mask sensitive columns, and `agent-eda-mcp`, from the `mcp` extra, serves every analysis as an MCP tool over stdio. It runs on Python 3.12 to 3.14, numpy 1.26 to 2.x and pandas 2.2 to 3.x, and requires only numpy, pandas, pydantic and SciPy. The lines below record what changed during development; a caller who starts with 0.1.0 needs none of them.
 
 ### Renamed, with no old name kept
 
