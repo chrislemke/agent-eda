@@ -22,7 +22,7 @@ conflicts = [[
 
 [[package]]
 name = "agent-eda"
-version = "0.1.0"
+version = "0.1.0rc1"
 source = { editable = "." }
 default-groups = ["dev", "mcp"]
 dependencies = [
