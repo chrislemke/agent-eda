@@ -8,6 +8,14 @@ tests/test_mcp_argument_messages.py and tests/test_mcp_fixes.py) in full. It
 lives in tests/baseline/pandas<major>.json, one file per pandas major version,
 since a record names the storage types pandas gives.
 
+The baseline must not depend on where it runs: the digests are the same on every
+operating system, CPU and patch release of Python, numpy and pandas that the
+major versions allow. Every record names the versions it ran on
+(execution.versions), so `without_environment` blanks their values before a
+digest is taken; a table is written with "\n" line ends, which the operating
+system doesn't choose; and a message names the temporary directory in a form
+that `_stable` replaces on every operating system.
+
 Refresh it, only when a change is meant to alter a record or a message:
 
     uv run python scripts/record_baseline.py            # rewrite this pandas's file
@@ -29,6 +37,7 @@ import importlib
 import inspect
 import io
 import json
+import re
 import sys
 import tempfile
 import typing
@@ -56,14 +65,40 @@ def baseline_path() -> Path:
     return BASELINES / f"pandas{major}.json"
 
 
+_VERSIONS = re.compile(r'("versions"\s*:\s*\{)([^{}]*)(\})')
+_STRING_VALUE = re.compile(r'(:\s*)"(?:[^"\\]|\\.)*"')
+
+
+def without_environment(text: str) -> str:
+    """The text with the version of each library that a record names blanked.
+
+    A record names, in execution.versions, the versions of agent_eda, Python,
+    numpy and pandas it ran on. Those differ between machines, the patch release
+    of Python among them, so they stay out of a digest; the names stay in.
+    """
+
+    def blank(found: re.Match[str]) -> str:
+        values = _STRING_VALUE.sub(r'\1"<version>"', found[2])
+        return f"{found[1]}{values}{found[3]}"
+
+    return _VERSIONS.sub(blank, text)
+
+
 def _digest(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
+    return hashlib.sha256(
+        without_environment(text).encode("utf-8", "surrogatepass")
+    ).hexdigest()
 
 
 def _table(frame: pd.DataFrame) -> str:
-    """A table as text: its CSV, the dtypes of its columns and its index type."""
+    """A table as text: its CSV, the dtypes of its columns and its index type.
+
+    The CSV ends its lines with "\\n" on every operating system; pandas' default
+    is os.linesep, which is "\\r\\n" on Windows.
+    """
     dtypes = ", ".join(str(dtype) for dtype in frame.dtypes)
-    return f"{frame.to_csv()}\n{dtypes}\n{type(frame.index).__name__}"
+    csv = frame.to_csv(lineterminator="\n")
+    return f"{csv}\n{dtypes}\n{type(frame.index).__name__}"
 
 
 def _error(error: BaseException) -> str:
@@ -317,10 +352,22 @@ def _message_records() -> dict[str, Entry]:
     return records
 
 
+_PATH_TAIL = re.compile(r"(<tmp>|<cwd>)((?:(?:/|\\\\|\\(?=[\w.]))[\w.\-]+)+)")
+_SEPARATOR = re.compile(r"\\\\|\\")
+
+
 def _stable(text: str, directory: Path) -> str:
     """The text without the temporary directory a mistake ran in, and without
-    the working directory a message names."""
-    return text.replace(str(directory), "<tmp>").replace(str(Path.cwd()), "<cwd>")
+    the working directory a message names, the same on every operating system.
+
+    A directory appears as its path, as that path inside a JSON string (where
+    Windows' backslashes are doubled) and with forward slashes. What follows it
+    in a Windows path reads with forward slashes too.
+    """
+    for place, name in ((directory, "<tmp>"), (Path.cwd(), "<cwd>")):
+        for form in (str(place), json.dumps(str(place))[1:-1], place.as_posix()):
+            text = text.replace(form, name)
+    return _PATH_TAIL.sub(lambda found: found[1] + _SEPARATOR.sub("/", found[2]), text)
 
 
 def collect(*, full: bool = False) -> dict[str, Entry]:
@@ -391,6 +438,7 @@ def main() -> int:
     path.write_text(
         json.dumps(fresh, indent=1, sort_keys=True, ensure_ascii=True) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     print(f"{len(fresh)} records in {path.relative_to(ROOT)}")
     return 0
