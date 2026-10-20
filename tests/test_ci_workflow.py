@@ -2,9 +2,11 @@
 version tag runs the release workflow that publishes to PyPI and then to GitHub."""
 
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -19,22 +21,140 @@ needs_posix_shell = pytest.mark.skipif(
 )
 
 
-def test_the_minimum_versions_job_runs_the_documented_command():
-    command = documented_command("Test on the minimum versions")
+@pytest.mark.parametrize(
+    ("task", "job", "extra"),
+    [
+        ("Test on the minimum versions", "tests-minimum", False),
+        ("Test on the minimum versions with the mcp extra", "tests-minimum-mcp", True),
+    ],
+)
+def test_the_minimum_versions_jobs_run_the_documented_commands(task, job, extra):
+    documented = documented_command(task)
 
-    assert command in commands("tests-minimum")
-    assert "--no-group mcp" in command
-
-
-def test_a_second_minimum_versions_job_runs_the_documented_command_with_the_extra():
-    command = documented_command("Test on the minimum versions with the mcp extra")
-
-    assert command in commands("tests-minimum-mcp")
-    assert "--extra mcp" in command
+    # The same options as AGENTS.md's Finish checks, in whatever order.
+    assert words(documented) in [words(command) for command in commands(job)]
+    assert {"--isolated", "--resolution", "lowest-direct", "pytest"} <= words(
+        documented
+    )
+    assert ("--extra" in words(documented)) == extra
+    assert ("--no-group" in words(documented)) != extra
 
 
 def test_the_latest_versions_jobs_install_the_mcp_extra():
-    assert "uv run --locked --extra mcp pytest" in commands("tests-latest")
+    (command,) = [c for c in commands("tests-latest") if "pytest" in words(c)]
+
+    # --locked: the versions in uv.lock, and a failure when the lock is stale.
+    assert {"uv", "run", "--locked", "--extra", "mcp", "pytest"} <= words(command)
+
+
+def test_every_job_uses_the_python_that_uv_installs_not_the_runner_s():
+    # Ubuntu's own CPython 3.12.3 differs from the managed 3.12 and 3.13 builds.
+    assert workflow()["env"]["UV_PYTHON_PREFERENCE"] == "only-managed"
+
+
+def test_ci_runs_every_week_and_cancels_only_superseded_pull_request_runs():
+    (entry,) = triggers("ci.yml")["schedule"]
+    concurrency = workflow()["concurrency"]
+
+    day_of_month, month, day_of_week = entry["cron"].split()[2:]
+    assert (day_of_month, month) == ("*", "*")
+    assert day_of_week.isdigit()
+    assert "github.ref" in concurrency["group"]
+    # A push to a branch and a release keep every run.
+    assert re.findall(r"'(\w+)'", concurrency["cancel-in-progress"]) == ["pull_request"]
+
+
+def test_the_newest_releases_are_tested_on_a_schedule_by_hand_and_in_releases():
+    job = workflow()["jobs"]["tests-newest"]
+    (command,) = [c for c in commands("tests-newest") if "pytest" in words(c)]
+
+    assert {"schedule", "workflow_dispatch", "inputs.full"} <= set(
+        re.findall(r"[\w.]+", job["if"])
+    )
+    assert {"--isolated", "--extra", "mcp"} <= words(command)
+    # Every runtime dependency and the extra's, so a new one can't go untested.
+    arguments = shlex.split(command)
+    upgraded = {
+        arguments[i + 1]
+        for i, argument in enumerate(arguments)
+        if argument == "--upgrade-package"
+    }
+    assert upgraded == runtime_dependencies()
+
+
+def test_the_agentcore_job_installs_the_versions_of_adr_0005_on_arm64():
+    job = workflow()["jobs"]["tests-agentcore"]
+    adr = ROOT / "docs/adr/0005-pure-python-within-code-interpreter-dependencies.md"
+    versions = dict(
+        re.findall(r"(numpy|pandas) (\d+\.\d+\.\d+)", adr.read_text(encoding="utf-8"))
+    )
+    [install] = [c for c in commands("tests-agentcore") if "--constraint" in words(c)]
+    [check] = [c for c in commands("tests-agentcore") if "assert" in c]
+    [run] = [c for c in commands("tests-agentcore") if "pytest" in words(c)]
+
+    assert "arm" in job["runs-on"]
+    assert job["name"].startswith("tests, AgentCore versions")
+    assert versions == {
+        "numpy": job["env"]["AGENTCORE_NUMPY"],
+        "pandas": job["env"]["AGENTCORE_PANDAS"],
+    }
+    # The versions are constraints on the install, and the run checks that the
+    # interpreter imports them, so a different resolution can't pass unnoticed.
+    for name in versions:
+        assert f"{name}==$AGENTCORE_{name.upper()}" in install
+        assert f"AGENTCORE_{name.upper()}" in check
+    assert {"uv", "pip", "install", "--editable"} <= words(install)
+    # Without --no-sync, uv would put the locked versions back before the run.
+    assert {"--no-sync", "pytest"} <= words(run)
+    # The byte baseline holds the digests of pandas 2.2.0, which pandas 2.3 words
+    # differently; it is the one test file this run leaves out.
+    assert "tests/test_baseline.py" in words(run)
+    assert (ROOT / "tests" / "test_baseline.py").is_file()
+    assert run.count("--deselect") == 1
+
+
+def test_the_lint_job_runs_the_pre_commit_file_checks_that_have_no_step_of_their_own():
+    (command,) = [c for c in commands("lint") if "pre-commit" in words(c)]
+    skipped = set(
+        next(w for w in shlex.split(command) if w.startswith("SKIP="))
+        .removeprefix("SKIP=")
+        .split(",")
+    )
+    hooks = {
+        hook["id"]: hook
+        for repo in pre_commit_config()["repos"]
+        for hook in repo["hooks"]
+    }
+
+    assert {"pre-commit", "run", "--all-files"} <= words(command)
+    # ruff, ty and the lock check have steps of their own, and pytest runs on push.
+    assert {"ruff-check", "ruff-format", "ty", "pytest", "uv-lock"} <= skipped
+    assert skipped <= hooks.keys()
+    # What remains needs no project environment: the checks of pre-commit-hooks.
+    assert [
+        hook for name, hook in hooks.items() if name not in skipped
+    ] == pre_commit_hooks_repo()["hooks"]
+
+
+def test_pre_commit_hooks_are_pinned_by_commit_sha():
+    remote = [r for r in pre_commit_config()["repos"] if r["repo"] != "local"]
+
+    assert remote
+    for repo in remote:
+        assert re.fullmatch(r"[0-9a-f]{40}", repo["rev"]), repo["repo"]
+
+
+def test_dependabot_keeps_the_action_pins_current_every_week():
+    config = yaml.safe_load(
+        (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    )
+
+    (update,) = [
+        u for u in config["updates"] if u["package-ecosystem"] == "github-actions"
+    ]
+    assert config["version"] == 2
+    assert update["directory"] == "/"
+    assert update["schedule"]["interval"] == "weekly"
 
 
 def test_the_latest_versions_job_also_runs_on_macos_and_windows_with_bash():
@@ -323,6 +443,36 @@ def commands(job, name="ci.yml"):
         for step in workflow(name)["jobs"][job]["steps"]
         if "run" in step
     ]
+
+
+def words(command):
+    """The words of a shell command, without their order: moving an option stays
+    green, while a dropped or changed one fails."""
+    return frozenset(shlex.split(command))
+
+
+def runtime_dependencies():
+    """The names pyproject.toml requires at run time, the mcp extra's included."""
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]
+    specs = [*project["dependencies"], *project["optional-dependencies"]["mcp"]]
+    return {re.split(r"[\s<>=!~;\[]", spec, maxsplit=1)[0] for spec in specs}
+
+
+def pre_commit_config():
+    return yaml.safe_load(
+        (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    )
+
+
+def pre_commit_hooks_repo():
+    (repo,) = [
+        r
+        for r in pre_commit_config()["repos"]
+        if r["repo"].endswith("/pre-commit-hooks")
+    ]
+    return repo
 
 
 def needs(job):

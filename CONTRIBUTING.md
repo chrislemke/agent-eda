@@ -15,7 +15,9 @@ The project uses [uv](https://docs.astral.sh/uv/), 0.13 or later: `pyproject.tom
 
 ## Continuous integration
 
-The pre-commit hooks run ruff, ty and file checks on every commit, and the tests on `git push`. On GitHub, `.github/workflows/ci.yml` runs lint, type checks and the tests, the MCP server tests included, on Python 3.12 to 3.14 on Linux x86_64, on Python 3.12 on Linux ARM64, and on Python 3.12 and 3.14 on macOS and Windows. It also runs both minimum-versions runs, the MCP smoke test on Python 3.12 and 3.14, and a packaging job that installs the wheel offline with only the required dependencies. The benchmark runs only when started by hand from the Actions tab, and in every release. A push of a tag doesn't start this workflow: the release workflow calls it.
+The pre-commit hooks run ruff, ty and file checks on every commit, and the tests on `git push`. On GitHub, `.github/workflows/ci.yml` runs lint, type checks and the pre-commit file checks, so a contributor without the local hooks gets them too. It runs the tests, the MCP server tests included, on Python 3.12 to 3.14 on Linux x86_64, on Python 3.12 on Linux ARM64, and on Python 3.12 and 3.14 on macOS and Windows. It also runs both minimum-versions runs, the tests on the AgentCore versions of numpy and pandas (ADR 0005) on Python 3.12 on Linux ARM64, the MCP smoke test on Python 3.12 and 3.14, and a packaging job that installs the wheel offline with only the required dependencies. Every job uses the Python builds that uv installs, not the runner's own.
+
+Every Monday, and when started by hand, CI also tests the newest release of every dependency, which is what a fresh install gets. The benchmark runs only when started by hand from the Actions tab, and in every release. A superseded pull-request run is cancelled. A push of a tag doesn't start this workflow: the release workflow calls it. The actions are pinned by commit SHA, and Dependabot proposes newer ones every week.
 
 ## Releasing
 

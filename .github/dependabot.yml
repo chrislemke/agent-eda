@@ -1,0 +1,12 @@
+# Keeps the commit SHAs that pin every action in .github/workflows current. A
+# pull request per update shows what changed, and tests/test_ci_workflow.py
+# fails if a workflow uses an action that isn't pinned to a commit.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # A release that is a week old has had time to be yanked or fixed.
+    cooldown:
+      default-days: 7

@@ -27,6 +27,12 @@ def test_every_result_class_has_a_pickle_fixture():
     assert set(CLASSES) == expected
 
 
+# The NumPy 1 fixtures were written on pandas 2.2, whose string dtype pandas 2.3
+# (the AgentCore version) rebuilds under the storage name it has deprecated, and
+# warns when the round trip below pickles it again. Only that warning is let by.
+@pytest.mark.filterwarnings(
+    "ignore:The 'pyarrow_numpy' storage option name is deprecated:FutureWarning"
+)
 @pytest.mark.parametrize("name", CLASSES)
 def test_a_result_pickled_with_0_1_0_loads_and_gives_the_same_record(name):
     # The fixtures are files of this repository, written by scripts/record_pickles.py.

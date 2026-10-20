@@ -1,7 +1,10 @@
 # Every push to a branch and every pull request runs the checks AgentCore users
-# depend on. The benchmark runs only when started by hand (Actions > CI > Run
-# workflow) or when release.yml calls this workflow with full: true. A tag push
-# doesn't start this workflow: release.yml calls it for the tag.
+# depend on. The newest-versions run and the benchmark run only when started by
+# hand (Actions > CI > Run workflow), when release.yml calls this workflow with
+# full: true, and, for the newest versions, every Monday on main: a fresh
+# install gets the newest releases, and the schedule tells us when one breaks
+# the package. A tag push doesn't start this workflow: release.yml calls it for
+# the tag.
 #
 # Each job installs uv 0.13.1, the version the uv-lock pre-commit hook runs;
 # bump the two together. The jobs skip the GitHub Actions cache. They install
@@ -14,15 +17,25 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+  # Mondays, 04:23 UTC, on the default branch.
+  schedule:
+    - cron: "23 4 * * 1"
   workflow_call:
     inputs:
       full:
-        description: Also run the checks that take long, the benchmark.
+        description: Also run the checks that take long, the newest versions and the benchmark.
         type: boolean
         default: false
 
 permissions:
   contents: read
+
+# The Python builds that uv installs, never the runner's own: Ubuntu's CPython
+# 3.12 is 3.12.3, built by Debian, while uv installs the python-build-standalone
+# release of the newest 3.12 patch. The macOS and Windows runners then run the
+# same builds too.
+env:
+  UV_PYTHON_PREFERENCE: only-managed
 
 # A newer push to a pull request supersedes the run of the older one. A branch
 # push and a release keep every run: the release tests the commit it publishes.
@@ -48,6 +61,13 @@ jobs:
       - run: uv run --locked ruff check .
       - run: uv run --locked ruff format --check .
       - run: uv run --locked ty check
+      # The file checks of .pre-commit-config.yaml (whitespace, YAML, TOML and
+      # JSON syntax, merge markers, large files, private keys), which a
+      # contributor without the local hooks never runs. ruff, ty and uv.lock have
+      # their own steps and pytest has its own jobs, so the hooks that run them
+      # are skipped. pre-commit comes from uv.lock.
+      - name: Run the pre-commit file checks
+        run: SKIP=ruff-check,ruff-format,ty,pytest,uv-lock uv run --locked pre-commit run --all-files
 
   tests-latest:
     name: tests, latest versions (Python ${{ matrix.python }}, ${{ matrix.os }} ${{ matrix.arch }})
@@ -117,6 +137,93 @@ jobs:
       # that mcp needs, so the whole suite runs, the MCP tests included.
       - name: Test on the minimum versions with the mcp extra
         run: uv run --isolated --resolution lowest-direct --extra mcp --python 3.12 pytest
+
+  tests-newest:
+    name: tests, newest versions (Python ${{ matrix.python }}, x86_64)
+    # A called workflow sees the caller's event, so a release asks through the input.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.full
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+          python-version: ${{ matrix.python }}
+      # What `pip install 'agent-eda[mcp]'` resolves today, not what uv.lock
+      # records: every runtime dependency and the extra's, upgraded to the newest
+      # release. tests/test_ci_workflow.py fails when pyproject.toml requires a
+      # package this list lacks. --isolated leaves uv.lock unchanged.
+      - name: Test on the newest releases of every dependency
+        run: >-
+          uv run --isolated --extra mcp
+          --upgrade-package numpy
+          --upgrade-package pandas
+          --upgrade-package pydantic
+          --upgrade-package scikit-learn
+          --upgrade-package scipy
+          --upgrade-package statsmodels
+          --upgrade-package mcp
+          --upgrade-package pyarrow
+          pytest
+
+  tests-agentcore:
+    name: tests, AgentCore versions (Python 3.12, ARM64)
+    # AgentCore Runtime runs on ARM64 (see the benchmark job).
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    # The numpy and pandas that Code Interpreter was reported to run (ADR 0005).
+    # tests/test_ci_workflow.py reads them from the ADR.
+    env:
+      AGENTCORE_NUMPY: "1.26.4"
+      AGENTCORE_PANDAS: "2.3.1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+          python-version: "3.12"
+      # The environment pip resolves next to those two, not the locked one with
+      # two packages swapped: uv.lock holds scipy 1.18, which needs a newer numpy,
+      # and installing numpy 1.26 over it gives a set that no installer would
+      # build. The resolver takes the newest scipy and the rest that fit.
+      # pyarrow 26 needs NumPy 2 without saying so in its metadata, and refuses
+      # to import under numpy 1.26, so the constraint keeps it below 26.
+      - name: Install the project next to the AgentCore versions of numpy and pandas
+        run: |
+          printf '%s\n' "numpy==$AGENTCORE_NUMPY" "pandas==$AGENTCORE_PANDAS" 'pyarrow<26' > "$RUNNER_TEMP/agentcore-constraints.txt"
+          uv venv
+          uv pip install --constraint "$RUNNER_TEMP/agentcore-constraints.txt" --group dev --editable '.[mcp]'
+          uv pip check
+      # The run tests what it says it tests: a resolver that picked other
+      # versions would still give a green run.
+      - name: Check that the tests will import the AgentCore versions
+        run: |
+          uv run --no-sync python -c "
+          import os
+          import numpy
+          import pandas
+
+          found = (numpy.__version__, pandas.__version__)
+          assert found == (os.environ['AGENTCORE_NUMPY'], os.environ['AGENTCORE_PANDAS']), found
+          "
+      # --no-sync: uv run would otherwise put the locked versions back.
+      # tests/test_baseline.py is left out: tests/baseline/pandas2.json holds the
+      # digests of pandas 2.2.0, the minimum, and pandas 2.3 gives the test frames
+      # another dtype name (str, not string) and counts their memory differently.
+      # Both minimum-versions runs and the latest-versions runs still check it.
+      - name: Test on the AgentCore versions
+        run: uv run --no-sync pytest --deselect tests/test_baseline.py
 
   mcp-smoke:
     name: MCP server over stdio (Python ${{ matrix.python }}, x86_64)
