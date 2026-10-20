@@ -12,8 +12,13 @@ share.
 
 import textwrap
 
-from agent_eda._mcp.data_files import CSV_RULES, PARQUET_RULES
-from agent_eda._mcp.local_files import READABLE, WRITABLE, extensions
+from agent_eda._mcp.local_files import (
+    CSV_RULES,
+    PARQUET_RULES,
+    READABLE,
+    WRITABLE,
+    extensions,
+)
 from agent_eda._result_base import fill_caps
 from agent_eda._version import __version__
 from agent_eda.discovery import overview, status_lines

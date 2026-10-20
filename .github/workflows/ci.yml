@@ -1,7 +1,10 @@
 # Every push to a branch and every pull request runs the checks AgentCore users
-# depend on. The benchmark runs only when started by hand (Actions > CI > Run
-# workflow) or when release.yml calls this workflow with full: true. A tag push
-# doesn't start this workflow: release.yml calls it for the tag.
+# depend on. The newest-versions run and the benchmark run only when started by
+# hand (Actions > CI > Run workflow), when release.yml calls this workflow with
+# full: true, and, for the newest versions, every Monday on main: a fresh
+# install gets the newest releases, and the schedule tells us when one breaks
+# the package. A tag push doesn't start this workflow: release.yml calls it for
+# the tag.
 #
 # Each job installs uv 0.13.1, the version the uv-lock pre-commit hook runs;
 # bump the two together. The jobs skip the GitHub Actions cache. They install
@@ -14,15 +17,25 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+  # Mondays, 04:23 UTC, on the default branch.
+  schedule:
+    - cron: "23 4 * * 1"
   workflow_call:
     inputs:
       full:
-        description: Also run the checks that take long, the benchmark.
+        description: Also run the checks that take long, the newest versions and the benchmark.
         type: boolean
         default: false
 
 permissions:
   contents: read
+
+# The Python builds that uv installs, never the runner's own: Ubuntu's CPython
+# 3.12 is 3.12.3, built by Debian, while uv installs the python-build-standalone
+# release of the newest 3.12 patch. The macOS and Windows runners then run the
+# same builds too.
+env:
+  UV_PYTHON_PREFERENCE: only-managed
 
 # A newer push to a pull request supersedes the run of the older one. A branch
 # push and a release keep every run: the release tests the commit it publishes.
@@ -48,6 +61,13 @@ jobs:
       - run: uv run --locked ruff check .
       - run: uv run --locked ruff format --check .
       - run: uv run --locked ty check
+      # The file checks of .pre-commit-config.yaml (whitespace, YAML, TOML and
+      # JSON syntax, merge markers, large files, private keys), which a
+      # contributor without the local hooks never runs. ruff, ty and uv.lock have
+      # their own steps and pytest has its own jobs, so the hooks that run them
+      # are skipped. pre-commit comes from uv.lock.
+      - name: Run the pre-commit file checks
+        run: SKIP=ruff-check,ruff-format,ty,pytest,uv-lock uv run --locked pre-commit run --all-files
 
   tests-latest:
     name: tests, latest versions (Python ${{ matrix.python }}, ${{ matrix.os }} ${{ matrix.arch }})
@@ -118,6 +138,91 @@ jobs:
       - name: Test on the minimum versions with the mcp extra
         run: uv run --isolated --resolution lowest-direct --extra mcp --python 3.12 pytest
 
+  tests-newest:
+    name: tests, newest versions (Python ${{ matrix.python }}, x86_64)
+    # A called workflow sees the caller's event, so a release asks through the input.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.full
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+          python-version: ${{ matrix.python }}
+      # What `pip install 'agent-eda[mcp]'` resolves today, not what uv.lock
+      # records: every runtime dependency and the extra's, upgraded to the newest
+      # release. tests/test_ci_workflow.py fails when pyproject.toml requires a
+      # package this list lacks. --isolated leaves uv.lock unchanged.
+      - name: Test on the newest releases of every dependency
+        run: >-
+          uv run --isolated --extra mcp
+          --upgrade-package numpy
+          --upgrade-package pandas
+          --upgrade-package pydantic
+          --upgrade-package scipy
+          --upgrade-package mcp
+          --upgrade-package pyarrow
+          pytest
+
+  tests-agentcore:
+    name: tests, AgentCore versions (Python 3.12, ARM64)
+    # AgentCore Runtime runs on ARM64 (see the benchmark job).
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    # The numpy and pandas that Code Interpreter was reported to run (ADR 0005).
+    # tests/test_ci_workflow.py reads them from the ADR.
+    env:
+      AGENTCORE_NUMPY: "1.26.4"
+      AGENTCORE_PANDAS: "2.3.1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+          python-version: "3.12"
+      # The environment pip resolves next to those two, not the locked one with
+      # two packages swapped: uv.lock holds scipy 1.18, which needs a newer numpy,
+      # and installing numpy 1.26 over it gives a set that no installer would
+      # build. The resolver takes the newest scipy and the rest that fit.
+      # pyarrow 26 needs NumPy 2 without saying so in its metadata, and refuses
+      # to import under numpy 1.26, so the constraint keeps it below 26.
+      - name: Install the project next to the AgentCore versions of numpy and pandas
+        run: |
+          printf '%s\n' "numpy==$AGENTCORE_NUMPY" "pandas==$AGENTCORE_PANDAS" 'pyarrow<26' > "$RUNNER_TEMP/agentcore-constraints.txt"
+          uv venv
+          uv pip install --constraint "$RUNNER_TEMP/agentcore-constraints.txt" --group dev --editable '.[mcp]'
+          uv pip check
+      # The run tests what it says it tests: a resolver that picked other
+      # versions would still give a green run.
+      - name: Check that the tests will import the AgentCore versions
+        run: |
+          uv run --no-sync python -c "
+          import os
+          import numpy
+          import pandas
+
+          found = (numpy.__version__, pandas.__version__)
+          assert found == (os.environ['AGENTCORE_NUMPY'], os.environ['AGENTCORE_PANDAS']), found
+          "
+      # --no-sync: uv run would otherwise put the locked versions back.
+      # tests/test_baseline.py is left out: tests/baseline/pandas2.json holds the
+      # digests of pandas 2.2.0, the minimum, and pandas 2.3 gives the test frames
+      # another dtype name (str, not string) and counts their memory differently.
+      # Both minimum-versions runs and the latest-versions runs still check it.
+      - name: Test on the AgentCore versions
+        run: uv run --no-sync pytest --deselect tests/test_baseline.py
+
   mcp-smoke:
     name: MCP server over stdio (Python ${{ matrix.python }}, x86_64)
     runs-on: ubuntu-24.04
@@ -143,7 +248,7 @@ jobs:
         run: uv run --locked --extra mcp python -I tests/smoke_mcp.py
 
   packaging:
-    name: packaging, offline install routes
+    name: packaging, wheel and source distribution
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -155,27 +260,66 @@ jobs:
           version: "0.13.1"
           enable-cache: false
       # --force-pep517 builds with the uv_build that [build-system] declares,
-      # as pip would, not with the copy bundled in this uv.
-      - name: Build the wheel
-        run: uv build --wheel --force-pep517
+      # as pip would, not with the copy bundled in this uv. Both files are what
+      # a release uploads, so both are checked on every change.
+      - name: Build the wheel and the source distribution
+        run: uv build --force-pep517
+      # The metadata and the README that PyPI will render, and the files in the
+      # wheel. release.yml runs the same checks on the files it uploads.
+      - name: Check the metadata and the contents of the files
+        run: |
+          uvx twine@7.0.0 check --strict dist/*
+          uvx check-wheel-contents@0.6.3 dist/*.whl
       # The packaging tests check the wheel AGENT_EDA_WHEEL names: pure Python,
       # importable from sys.path in an isolated interpreter.
       - name: Check that the wheel is pure Python and imports from sys.path
         run: AGENT_EDA_WHEEL="$(echo dist/*.whl)" uv run --locked pytest tests/test_packaging.py
-      # Only the six required dependencies, at the minimums in pyproject.toml.
-      - name: Create an environment with only the minimum required versions
+      # Each file goes into its own environment of only the required
+      # dependencies, at the minimums in pyproject.toml, with pip. The wheel
+      # installs as in an AgentCore sandbox without PyPI access, where --no-index
+      # keeps pip off the network; pip builds the source distribution the way
+      # `pip install` does, which needs the build backend from PyPI.
+      - name: Install each file into an environment of the minimum versions and smoke test it
         run: |
-          uv venv --seed --python 3.12 "$RUNNER_TEMP/minimum"
-          uv pip install --python "$RUNNER_TEMP/minimum" --resolution lowest-direct -r pyproject.toml
-      # As in an AgentCore sandbox without PyPI access; --no-index keeps pip
-      # off the network.
-      - name: Install the wheel with pip install --no-deps
+          for file in dist/*.whl dist/*.tar.gz; do
+            environment="$RUNNER_TEMP/minimum-$(basename "$file")"
+            uv venv --seed --python 3.12 "$environment"
+            uv pip install --python "$environment" --resolution lowest-direct -r pyproject.toml
+            if [ "${file##*.}" = whl ]; then
+              "$environment/bin/python" -m pip install --no-deps --no-index "$file"
+            else
+              "$environment/bin/python" -m pip install --no-deps "$file"
+            fi
+            "$environment/bin/python" -m pip check
+            "$environment/bin/python" -I tests/smoke.py
+          done
+
+  packaging-mcp:
+    name: packaging, wheel with the mcp extra
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Build the wheel
+        run: uv build --wheel --force-pep517
+      # What `pip install 'agent-eda[mcp]'` gives a user: the built wheel and the
+      # extra's latest packages in a fresh environment. mcp-smoke runs the same
+      # script on the editable install, which can't show a packaging slip, and
+      # the packaging job stays free of the extra.
+      - name: Install the wheel with the mcp extra into a fresh environment
         run: |
-          "$RUNNER_TEMP/minimum/bin/python" -m pip install --no-deps --no-index dist/*.whl
-          "$RUNNER_TEMP/minimum/bin/python" -m pip check
-      - name: Smoke test that prints analysis results
+          uv venv --python 3.12 "$RUNNER_TEMP/with-extra"
+          wheel="$(echo dist/*.whl)"
+          uv pip install --python "$RUNNER_TEMP/with-extra" "${wheel}[mcp]"
+      - name: Smoke test the MCP server of the installed wheel over stdio
         run: |
-          "$RUNNER_TEMP/minimum/bin/python" -I tests/smoke.py
+          "$RUNNER_TEMP/with-extra/bin/python" -I tests/smoke_mcp.py
 
   benchmark:
     name: benchmark, ${{ matrix.versions }} versions (Python 3.12, ARM64, 2 CPUs)

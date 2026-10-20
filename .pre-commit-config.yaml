@@ -1,12 +1,17 @@
 # Install once with: uv run pre-commit install
 # (installs both the pre-commit and pre-push hooks listed below)
+#
+# Each hook repository is pinned by commit SHA, as `pre-commit autoupdate
+# --freeze` writes it, so a moved tag can't change what CI and the hooks run.
+# The uv-lock hook runs the uv version that the CI jobs install: bump the two
+# together, and not with autoupdate alone.
 default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
 
 repos:
   # General file hygiene
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
     hooks:
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
@@ -25,7 +30,7 @@ repos:
 
   # Keep uv.lock in sync with pyproject.toml
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.13.1
+    rev: d4acaec07ac3bc6017fba3c3b8e9810af1b615db # frozen: 0.13.1
     hooks:
       - id: uv-lock
 

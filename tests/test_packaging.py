@@ -1,10 +1,17 @@
 """Packaging checks, each in a fresh interpreter, as a sandboxed agent would run."""
 
+import ast
+import email
+import gzip
 import json
 import os
 import py_compile
+import re
+import shutil
 import subprocess
 import sys
+import tarfile
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -14,16 +21,22 @@ import agent_eda as ae
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# ADR 0005: the six required dependencies, at the minimums Code Interpreter runs.
+# ADR 0005 allows six required libraries. The package requires the ones its code
+# imports, at the minimums Code Interpreter runs; one of the other two is added
+# back when an analysis first imports it.
 REQUIRED_DEPENDENCIES = [
     "numpy>=1.26",
     "pandas>=2.2",
     "pydantic>=2.7",
-    "scikit-learn>=1.5",
     "scipy>=1.11.2",
-    "statsmodels>=0.14.1",
 ]
 MCP_EXTRA = ["mcp>=2.3 ; extra == 'mcp'", "pyarrow>=14.0.1 ; extra == 'mcp'"]
+# What the MCP server imports, which only the mcp extra installs (anyio comes with mcp).
+MCP_EXTRA_MODULES = {"mcp", "mcp_types", "anyio", "pyarrow"}
+# Imported without being required: pydantic always installs the first two, and
+# Rich, the third, is the caller of the one function that imports it.
+COMES_WITH_THE_REQUIRED = {"pydantic_core", "annotated_types", "rich"}
+REPOSITORY = "https://github.com/chrislemke/agent-eda"
 
 # Fails the subprocess on a DeprecationWarning or FutureWarning, like the suite.
 STRICT_WARNINGS = ("-W", "error::DeprecationWarning", "-W", "error::FutureWarning")
@@ -41,16 +54,38 @@ def wheel(tmp_path_factory):
     """
     if os.environ.get("AGENT_EDA_WHEEL"):
         return Path(os.environ["AGENT_EDA_WHEEL"]).resolve()
-    out = tmp_path_factory.mktemp("dist")
+    return build("build_wheel", ROOT, tmp_path_factory.mktemp("dist"))
+
+
+@pytest.fixture(scope="module")
+def stray_files_build(tmp_path_factory):
+    """A wheel and a source distribution built in a working copy that holds the
+    files Finder leaves in every folder it opens, which .gitignore hides from git
+    but not from a build."""
+    copy = tmp_path_factory.mktemp("working-copy")
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copy2(ROOT / name, copy / name)
+    shutil.copytree(
+        ROOT / "src", copy / "src", ignore=shutil.ignore_patterns("__pycache__")
+    )
+    package = copy / "src" / "agent_eda"
+    for directory in (package, package / "data"):
+        (directory / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1")
+    out = tmp_path_factory.mktemp("stray-dist")
+    return build("build_wheel", copy, out), build("build_sdist", copy, out)
+
+
+def build(function, source, out):
+    """Build with the uv_build of this environment, as the PEP 517 hook does."""
     bin_dir = str(Path(sys.executable).parent)  # the hook runs uv-build from PATH
     built = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import sys, uv_build; print(uv_build.build_wheel(sys.argv[1]))",
+            f"import sys, uv_build; print(uv_build.{function}(sys.argv[1]))",
             str(out),
         ],
-        cwd=ROOT,
+        cwd=source,
         env={**os.environ, "PATH": os.pathsep.join([bin_dir, os.environ["PATH"]])},
         capture_output=True,
         text=True,
@@ -60,7 +95,13 @@ def wheel(tmp_path_factory):
     return out / built.stdout.strip().splitlines()[-1]
 
 
-def test_wheel_is_pure_python_typed_and_declares_the_six_dependencies(wheel):
+def wheel_metadata(wheel):
+    with zipfile.ZipFile(wheel) as archive:
+        (name,) = [n for n in archive.namelist() if n.endswith(".dist-info/METADATA")]
+        return email.message_from_string(archive.read(name).decode())
+
+
+def test_wheel_is_pure_python_typed_and_declares_the_four_dependencies(wheel):
     info = f"agent_eda-{ae.__version__}.dist-info"
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
@@ -83,6 +124,85 @@ def test_wheel_is_pure_python_typed_and_declares_the_six_dependencies(wheel):
     assert sorted(r for r in requires if "extra ==" in r) == MCP_EXTRA
     assert "Provides-Extra: mcp" in metadata.splitlines()
     assert "agent-eda-mcp = agent_eda.mcp:main" in scripts.splitlines()
+
+
+def test_the_wheel_metadata_gives_pypi_an_author_keywords_classifiers_and_urls(wheel):
+    metadata = wheel_metadata(wheel)
+    classifiers = metadata.get_all("Classifier")
+    urls = dict(value.split(", ", 1) for value in metadata.get_all("Project-URL") or [])
+
+    assert "Chris Lemke" in (metadata["Author"] or metadata["Author-email"])
+    assert {"eda", "mcp"} <= set(metadata["Keywords"].split(","))
+    assert classifiers == [
+        "Development Status :: 3 - Alpha",
+        "Intended Audience :: Developers",
+        "Intended Audience :: Science/Research",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
+        "Topic :: Scientific/Engineering",
+        "Typing :: Typed",
+    ]
+    # The license is the PEP 639 expression, which a License classifier would repeat.
+    assert metadata["License-Expression"] == "MIT"
+    assert urls == {
+        "Homepage": REPOSITORY,
+        "Source": REPOSITORY,
+        "Issues": f"{REPOSITORY}/issues",
+        "Changelog": f"{REPOSITORY}/blob/main/CHANGELOG.md",
+    }
+
+
+def test_the_wheel_packs_only_python_files_and_the_py_typed_marker_in_the_package(
+    wheel,
+):
+    with zipfile.ZipFile(wheel) as archive:
+        packed = [
+            n
+            for n in archive.namelist()
+            if n.startswith("agent_eda/") and not n.endswith("/")
+        ]
+
+    assert "agent_eda/__init__.py" in packed
+    assert [
+        n for n in packed if not n.endswith(".py") and n != "agent_eda/py.typed"
+    ] == []
+
+
+def test_files_that_a_folder_view_leaves_in_the_working_copy_stay_out_of_both_files(
+    stray_files_build,
+):
+    wheel, sdist = stray_files_build
+    with zipfile.ZipFile(wheel) as archive:
+        in_wheel = archive.namelist()
+    # GzipFile and TarFile read bytes; tarfile.open reads as well, but looks like
+    # a text open to the suite's rule on encodings.
+    with gzip.GzipFile(sdist) as packed, tarfile.TarFile(fileobj=packed) as archive:
+        in_sdist = archive.getnames()
+
+    # Each file holds the package, so an empty build can't pass for a clean one.
+    assert "agent_eda/__init__.py" in in_wheel
+    assert any(name.endswith("src/agent_eda/__init__.py") for name in in_sdist)
+    assert [n for n in in_wheel + in_sdist if n.endswith(".DS_Store")] == []
+
+
+def test_the_package_requires_the_libraries_its_code_imports_and_no_others():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    required = {
+        re.split(r"[\s<>=!~;\[]", spec, maxsplit=1)[0]
+        for spec in project["project"]["dependencies"]
+    }
+    adr = ROOT / "docs/adr/0005-pure-python-within-code-interpreter-dependencies.md"
+
+    # numpy, pandas, pydantic and scipy are imported under their own names.
+    assert (
+        third_party_imports() - MCP_EXTRA_MODULES - COMES_WITH_THE_REQUIRED == required
+    )
+    # A new required dependency needs its ADR first, which the ADR's text says.
+    assert [
+        name for name in required if name not in adr.read_text(encoding="utf-8")
+    ] == []
+    assert sorted(project["project"]["dependencies"]) == REQUIRED_DEPENDENCIES
 
 
 def test_wheel_on_sys_path_imports_and_runs_in_an_isolated_interpreter(wheel, tmp_path):
@@ -255,32 +375,65 @@ for info in ae.list_analyses().analyses:
     assert len(printed) == 1
 
 
-def test_the_mcp_server_without_the_extra_names_the_install_commands():
-    # Setting sys.modules["mcp"] to None makes `import mcp` fail, as it does
-    # where the extra isn't installed. The console script is loaded from the
-    # installed entry point and run the way its generated script runs it.
-    code = """
+# What a user may lack: all of the extra (a plain `pip install agent-eda`), or one
+# part of it, such as mcp without pyarrow, which writes the table files.
+MISSING_FROM_THE_EXTRA = [
+    ("mcp", "anyio", "pyarrow"),
+    ("mcp",),
+    ("pyarrow",),
+]
+
+
+def run_the_mcp_command_without(missing, *arguments):
+    """Start agent-eda-mcp as its generated script does, with these modules missing.
+
+    Setting sys.modules[name] to None makes `import name` fail, as it does where
+    the module isn't installed. The console script is loaded from the installed
+    entry point.
+    """
+    code = f"""
 import sys
+import warnings
 from importlib.metadata import entry_points
-sys.modules["mcp"] = None
+# pandas 2.2 warns that it found no pyarrow, which is what this run takes away.
+warnings.filterwarnings(
+    "ignore", message=r"\\s*Pyarrow will become a required", category=DeprecationWarning
+)
+for name in {missing!r}:
+    sys.modules[name] = None
 (script,) = entry_points(group="console_scripts", name="agent-eda-mcp")
 assert script.value == "agent_eda.mcp:main", script.value
-sys.argv = ["agent-eda-mcp"]
+sys.argv = ["agent-eda-mcp", *{list(arguments)!r}]
 sys.exit(script.load()())
 """
-
-    completed = subprocess.run(
+    return subprocess.run(
         [sys.executable, *STRICT_WARNINGS, "-c", code],
         capture_output=True,
         text=True,
         check=False,
     )
 
+
+@pytest.mark.parametrize("missing", MISSING_FROM_THE_EXTRA, ids="+".join)
+def test_the_mcp_server_without_a_module_of_the_extra_names_the_install_commands(
+    missing,
+):
+    completed = run_the_mcp_command_without(missing)
+
     assert completed.returncode == 1
     assert completed.stdout == ""
     assert "pip install 'agent-eda[mcp]'" in completed.stderr
     assert "uv add 'agent-eda[mcp]'" in completed.stderr
     assert "Traceback" not in completed.stderr
+
+
+def test_the_mcp_command_prints_its_help_without_the_extra():
+    completed = run_the_mcp_command_without(MISSING_FROM_THE_EXTRA[0], "--help")
+
+    assert completed.returncode == 0, completed.stderr
+    assert "usage: agent-eda-mcp" in completed.stdout
+    assert "--project" in completed.stdout
+    assert completed.stderr == ""
 
 
 def test_missing_dependency_error_has_a_stable_code_and_is_an_import_error():
@@ -298,6 +451,20 @@ def test_package_code_never_reads_files_through_dunder_file():
     assert [
         p.name for p in sources if "__file__" in p.read_text(encoding="utf-8")
     ] == []
+
+
+def third_party_imports():
+    """The top-level names that the package's modules import and no standard
+    library module or agent_eda module provides, whether at the top of a module,
+    inside a function or under TYPE_CHECKING."""
+    names = set()
+    for source in (ROOT / "src" / "agent_eda").rglob("*.py"):
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names.add(node.module.split(".")[0])
+    return names - sys.stdlib_module_names - {"agent_eda"}
 
 
 def run_python(code, *, args=(), env=None, cwd=None):

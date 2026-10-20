@@ -47,26 +47,6 @@ from agent_eda.errors import (
     UnsupportedDataFormatError,
 )
 
-# How the reader types a CSV or TSV file, and a Parquet one, as the data_path
-# description and the MCP instructions say it.
-CSV_RULES = (
-    "A CSV or TSV column is read as numbers or booleans (true or false, in any "
-    "case) only when every non-empty field parses as one, and as text otherwise. "
-    "A whole number written with a leading zero, such as 01234 or 007, is a code, "
-    "so its column stays text; inf and -inf read as numbers. Blank lines are "
-    "skipped, except in a file with one column, where each is a missing value. A "
-    'quoted empty field ("") is an empty string, not a missing value, and its '
-    "column stays text. A row may end in an empty field but has no other field "
-    "past the header's. A header name that repeats stays repeated, and most "
-    "analyses then ask you to rename it in the file."
-)
-PARQUET_RULES = (
-    "A Parquet file keeps the dtypes and the index that pandas stored in it. One "
-    "written without pandas metadata, such as by Spark or DuckDB, gets pandas' "
-    "default dtypes for its Parquet types (an integer column with nulls becomes "
-    "float) and a 0-based index."
-)
-
 # The DataFrames a DataReader keeps, the most recently read ones.
 CACHED_FILES = 2
 

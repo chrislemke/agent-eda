@@ -19,22 +19,19 @@ It is written for three kinds of callers:
 - **Helpful errors**: a mistake raises an error that says what is wrong, what is allowed and the fix, such as the available columns and the closest name.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that don't write Python.
-- **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, preinstalled in AgentCore Code Interpreter.
+- **Pure Python** on numpy, pandas, pydantic and SciPy, all preinstalled in AgentCore Code Interpreter.
 
 ## Installation
 
-agent-eda needs Python 3.12 or later, numpy 1.26 through 2.x and pandas 2.2 through 3.x.
-
-Until 0.1 is on PyPI, build the wheel in a clone of this repository with [uv](https://docs.astral.sh/uv/):
+agent-eda needs Python 3.12 or later and four libraries, which pip installs with it: numpy 1.26 through 2.x, pandas 2.2 through 3.x, pydantic 2.7 or later and SciPy 1.11.2 or later.
 
 ```sh
-uv build --wheel  # writes dist/agent_eda-0.1.0-py3-none-any.whl
-pip install dist/agent_eda-0.1.0-py3-none-any.whl
+pip install agent-eda  # or, in a uv project: uv add agent-eda
 ```
 
-Once released, `pip install agent-eda` is enough. The MCP server needs the `mcp` extra; see [Use over MCP](#use-over-mcp).
+The MCP server needs the `mcp` extra; see [Use over MCP](#use-over-mcp).
 
-**AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode, with no PyPI access, upload the wheel and run `pip install --no-deps <wheel>`, or put the wheel on `sys.path` and import from it. Installs don't carry over to a new session. Code Interpreter returns only printed output, so `print()` results.
+**AgentCore Code Interpreter.** In public network mode, run `pip install agent-eda` in the session. In sandbox mode, with no PyPI access, get the wheel (the GitHub release of each version has it, or build it in a clone of this repository with [uv](https://docs.astral.sh/uv/): `uv build --wheel`), upload it and run `pip install --no-deps <wheel>`, or put the wheel on `sys.path` and import from it. Installs don't carry over to a new session. Code Interpreter returns only printed output, so `print()` results.
 
 **AgentCore Runtime.** Add `agent-eda` to the container image or code zip. AWS's example zip command uses the `manylinux2014` tag, which installs old numpy and pandas; use `--python-platform aarch64-manylinux_2_28` for current ones.
 
@@ -278,7 +275,7 @@ The MCP server needs the optional `mcp` extra, adding the MCP Python SDK and pya
 pip install 'agent-eda[mcp]'  # or, in a uv project: uv add 'agent-eda[mcp]'
 ```
 
-Until 0.1 is on PyPI, install the wheel with it: `pip install 'dist/agent_eda-0.1.0-py3-none-any.whl[mcp]'`. Without the extra, `agent-eda-mcp` prints the install command on stderr and exits.
+Without the extra, `agent-eda-mcp` prints the install command on stderr and exits.
 
 Register it with Claude Code, without or with a project:
 
@@ -774,7 +771,7 @@ Serve the agent-eda analyses as MCP tools over stdio. `--project PATH`: A projec
 - [CONTRIBUTING.md](https://github.com/chrislemke/agent-eda/blob/main/CONTRIBUTING.md): how to set up, test and change the package.
 - [AGENTS.md](https://github.com/chrislemke/agent-eda/blob/main/AGENTS.md): the rules for code here, and the commands.
 - [GLOSSARY.md](https://github.com/chrislemke/agent-eda/blob/main/GLOSSARY.md): the terms used in code, docstrings and messages.
-- [CHANGELOG.md](https://github.com/chrislemke/agent-eda/blob/main/CHANGELOG.md): what changed before 0.1.0.
+- [CHANGELOG.md](https://github.com/chrislemke/agent-eda/blob/main/CHANGELOG.md): what changed for a caller, release by release.
 - [Planned analyses](https://github.com/chrislemke/agent-eda/blob/main/docs/planned-analyses.md): the backlog, with proposed names and modules.
 
 ## License
