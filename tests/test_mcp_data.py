@@ -220,7 +220,7 @@ def test_an_unknown_extension_lists_the_supported_ones(tmp_path, file_name):
 
     assert error.code == "unsupported_data_format"
     assert ".csv, .tsv, .csv.gz, .tsv.gz, .parquet and .pq" in error.message
-    assert error.message.startswith(f"data_path {str(path)!r} has ")
+    assert error.message.startswith(f"data_path '{path}' has ")
 
 
 def test_a_missing_file_names_the_path_tried_and_the_closest_files(tmp_path):

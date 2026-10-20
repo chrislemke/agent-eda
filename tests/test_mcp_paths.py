@@ -115,6 +115,50 @@ def test_a_path_the_os_refuses_is_a_coded_tool_error_naming_the_cause(
     assert cause in response.structured_content["message"]
 
 
+def windows_refusal(monkeypatch):
+    """Make every Path.stat refuse as Windows does a name it can't use: with
+    error 123, which has the errno of any invalid argument."""
+
+    def refuse(self, **kwargs):
+        error = OSError(
+            errno.EINVAL,
+            "The filename, directory name, or volume label syntax is incorrect",
+            str(self),
+        )
+        error.winerror = 123  # ty: ignore[unresolved-attribute] # set as Windows does
+        raise error
+
+    monkeypatch.setattr(Path, "stat", refuse)
+
+
+def test_a_data_path_with_a_character_windows_refuses_in_a_name_has_no_file(
+    tmp_path, monkeypatch
+):
+    windows_refusal(monkeypatch)
+
+    response = anyio.run(
+        call, "describe_dataset", {"data_path": str(tmp_path / "http:" / "orders.csv")}
+    )
+
+    assert response.is_error
+    assert response.structured_content["code"] == "data_file_not_found"
+    assert "There is no file at " in response.structured_content["message"]
+
+
+def test_a_data_path_with_a_name_of_300_characters_that_windows_refuses_says_so(
+    tmp_path, monkeypatch
+):
+    windows_refusal(monkeypatch)
+
+    response = anyio.run(
+        call, "describe_dataset", {"data_path": str(tmp_path / ("x" * 300 + ".csv"))}
+    )
+
+    assert response.is_error
+    assert response.structured_content["code"] == "unreadable_data_file"
+    assert "longer than 255 characters" in response.structured_content["message"]
+
+
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="os.statvfs and os.ST_RDONLY don't exist on Windows, so the server's "
