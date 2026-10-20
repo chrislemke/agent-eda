@@ -59,13 +59,6 @@ def test_every_record_text_table_tool_and_message_matches_the_baseline():
         fresh = without_schemas(fresh)
 
     found = script.differences(recorded, fresh)
-    if found:  # DEBUG-TEMP
-        full = script.collect(full=True)
-        key = "compute_association_matrix | many rows | default"
-        for part in ("json", "text"):
-            body = full[key][part]
-            for i in range(0, len(body), 1500):
-                print("DBG", part, i, repr(body[i : i + 1500]))
 
     assert found == [], (
         "The restructuring changed a record, text, table, tool or message. If the "
@@ -164,3 +157,16 @@ def test_a_message_keeps_what_follows_the_temporary_directory_on_a_unix_system()
     message = r"Write <tmp>/project.toml\"." + " In /x/y, not in <tmp>/a/b.csv"
 
     assert script._stable(message, Path("/nothing/here")) == message
+
+
+def test_the_numbers_of_an_association_record_are_compared_to_ten_digits_only():
+    script = load_script()
+    key = "compute_association_matrix | many rows | default"
+    one = '{"value":1.0,"other":0.15461082092709807}'
+    other = '{"value":0.9999999999999996,"other":0.15461082092709805}'
+    moved = '{"value":0.999999,"other":0.15461082092709805}'
+
+    assert script._rounded(key, one) == script._rounded(key, other)
+    assert script._rounded(key, one) != script._rounded(key, moved)
+    # Any other record is compared whole.
+    assert script._rounded("describe_dataset | many rows | default", one) == one

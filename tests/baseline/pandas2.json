@@ -72,33 +72,33 @@
   "text": "9adb7742829f3c0c4a30939e6dcfd9f3c8cb52b4ff9fb734bbb52e7feae94313"
  },
  "compute_association_matrix | every kind | default": {
-  "json": "148b381db65ef1111bb33c37a2961c67c0bb12eb55efc845eeed738b5767ebc9",
-  "table:matrix": "54113d34b2185ec326d345257407bb8637d7445ac108cff5ae41562403e84320",
-  "table:pairs": "1ec5e040e3caab378bf27ab42812dcbbb3b8fa7c26f70493a41adafc9b672ada",
+  "json": "572c1662ccdfb05f7c5343803dcc81becd6c2e7dba8d56b7689c28a029e6a9c2",
+  "table:matrix": "512417e3b64cb8f6e0570be266611ed8ab5f965479e13119e07e9091ae592276",
+  "table:pairs": "0a5f2d683c2328067202f976e7d1d0b489554b7a76e0bc14932db670876c8b43",
   "text": "6e60903e2d867f1d5103d07e1819b87c2bfd5c6da56dd2b5c86bc3a726b52a58"
  },
  "compute_association_matrix | generated 0 | default": {
-  "json": "0289909e5a044ad0f0e615cb673bd8b0f28b1bfb5b50b0c85953c95cb80a54a8",
-  "table:matrix": "e6d2dec6f34f26c8c2bc6a4e48c9543f1f799b3ce4a5b05ae0475291524c778e",
-  "table:pairs": "32b3c9e77d404c5069bd082c92917945e323d8c688781b04cf4ced7e473f8615",
+  "json": "de63c25aa136d705da060a5fb0f7d9224820917918b382ce379d85d078f1ef99",
+  "table:matrix": "cae4cf7ee5172354dd95c08334f0e41d0054da3b87b91cea2248f22bfdde31cc",
+  "table:pairs": "ca851cfd4b494ac09a184a3ac872e0ce7407da63773e70ff7c5a1d51e80edd14",
   "text": "270f51c0cc3a2e23b5a0d083fc18f86aeee21d456130f05efca568dd4fce035e"
  },
  "compute_association_matrix | generated 1 | default": {
-  "json": "824dee730280ff9ebf9ab23a744c28e13b3cc34cc1fbd916872e31313e86af64",
-  "table:matrix": "d9e49d384fe75e5bdd152684031634de0b119d08207f01bb81e72714bc75a070",
-  "table:pairs": "67c744c7dd28f3b9080b7e9b972d7cd0d9bb1529a8640003223939cd36339e73",
+  "json": "266c6b84fd27d836502da32188190cc3a7c8f986e39ac76010c7ca48bf54645b",
+  "table:matrix": "936c3b630d283cb7b8da2e9ce2819943d6f2fabf23b14af01921a8d245a0015f",
+  "table:pairs": "838c549d4c7ef7ba706cb0d04fc08c25fab4875295824bf11f73bf652c3de55e",
   "text": "26cf14bb746d60089016015346f7b98db37f8d037c45dc437518867d02e00b3b"
  },
  "compute_association_matrix | generated 2 | default": {
-  "json": "fc2d977aa75222a80fc6a8ce9e5efc7fd27859e4dd63562ae35e2822a4e6c56f",
-  "table:matrix": "78d1699dd109cfb5522fc48a9ab1acb786c66ca10cd0f8a9877412d4a8d7055b",
-  "table:pairs": "c5cf9b1c6b5e55c1e07f576ec8b4cd305724ab2c78ec2d4169b7f57f7aae38f7",
+  "json": "12ed7da58f0312f53239ba3121922621a3ef24761ca4e65add27c2cb76fc3013",
+  "table:matrix": "7691dfe990dc8fd74eb514b92bd305867d0a64b62bd075840b2c711bd3032fd1",
+  "table:pairs": "f28a0d9c04e94333c0d3c4240fa9bcc1b5926232105f8081b9fb896ee09177fb",
   "text": "a4f1d7eb2cc48dcbb810cd56d6b7689cd16ca576534543470a5e694ddfc909d4"
  },
  "compute_association_matrix | generated 3 | default": {
-  "json": "82da824e534a8fbfb32378000c595aa05da6a557d0a9180971cae296c9b34258",
-  "table:matrix": "8b6cc7144dd162a8e9c53b7e97c011920539e02a73628ac312c40e3f74fa4592",
-  "table:pairs": "9dc0011fde67143a321cc5203e78fc97073bef9a24a386b3728da96d5f85a5e8",
+  "json": "49634b797c98531d71d8a7c9d38745156b7d3c26ae05e138ab9bc5659f0756de",
+  "table:matrix": "064da475b63884653b963488194715e231c48875fb225d713dd7882ca1b0ad27",
+  "table:pairs": "500fc5f4fb7383513ad32b194e1bd972f550eba4385785f29eb6b4f68f98e383",
   "text": "29b49d3f01f48561642b96da32e5ed3332860c9bd2d8d1a502815e990c17db5e"
  },
  "compute_association_matrix | labels: colliding labels | default": {
@@ -123,9 +123,9 @@
   "text": "a2726e65408a14402637dc46738c6db05a42bbf950dcf4e7b00732c49c25788d"
  },
  "compute_association_matrix | many rows | default": {
-  "json": "d8c5945ce7beb7601d4d39b0df49f84ca7d0627d27dfed64f4cd0cc2a3e5ad6c",
-  "table:matrix": "069d2fc7f4a01990a8ea7be0309ae23237e7201745a39328f54d914a9b31b1f2",
-  "table:pairs": "b10d4f73c38c2d980de8a19cf09229e346b5964850f5a61a49068065c42365e6",
+  "json": "d50fe6f051c4930fb2f027395d2a84a810d4af445229bbac8db412cb29620211",
+  "table:matrix": "ff0251f530e267a81cdefa089fc54c8204b18f32d6e3e7587da53c7451bad30d",
+  "table:pairs": "fcc216008e0dd0aa12cbd9951f7acdd500228accea2d93967aeaef5964cbd14b",
   "text": "a2354fc846b98bbd97f47dd9805568ae89aa7210d0753b3857b5269e884309e6"
  },
  "compute_association_matrix | no columns | default": {
