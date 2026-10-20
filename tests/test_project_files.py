@@ -818,7 +818,7 @@ def test_a_directory_for_the_path_raises_with_a_file_path_in_it(
     assert str(caught.value) == (
         f"Project.{call} got the directory 'config' ({tmp_path / 'config'}) for "
         "path, but path must name a file in it, such as "
-        f"'{Path('config', 'project.toml')}'."
+        f"{str(Path('config', 'project.toml'))!r}."
     )
 
 
@@ -871,20 +871,34 @@ def test_load_from_a_file_as_if_it_were_a_directory_finds_no_file(
 
 
 @pytest.mark.parametrize("call", ["load", "save"])
+@pytest.mark.parametrize(
+    "separator",
+    [
+        os.sep,
+        pytest.param(
+            os.altsep,
+            marks=pytest.mark.skipif(
+                os.altsep is None, reason="only Windows has a second separator, /"
+            ),
+        ),
+    ],
+)
 def test_a_path_ending_in_a_separator_raises_as_it_names_a_directory(
-    tmp_path, monkeypatch, call
+    tmp_path, monkeypatch, call, separator
 ):
     monkeypatch.chdir(tmp_path)
     method = ae.Project.load if call == "load" else ae.Project().save
-    path = "config" + os.sep
+    path = "config" + separator
 
     with pytest.raises(InvalidArgumentError) as caught:
         method(path)
 
     assert caught.value.code == "invalid_argument"
+    # The path as the caller wrote it, and the file to name instead as code that
+    # writes it.
     assert str(caught.value) == (
-        f"Project.{call} got {path!r} for path, whose last {os.sep!r} makes it name "
-        "a directory, but path must name a file, such as "
+        f"Project.{call} got '{path}' for path, whose last '{separator}' makes it "
+        "name a directory, but path must name a file, such as "
         f"{os.path.join(path, 'project.toml')!r}."
     )
     assert list(tmp_path.iterdir()) == []

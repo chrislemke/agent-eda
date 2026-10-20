@@ -61,12 +61,11 @@ def test_every_record_text_table_tool_and_message_matches_the_baseline():
     found = script.differences(recorded, fresh)
     if found:  # DEBUG-TEMP
         full = script.collect(full=True)
-        for key in (
-            "compute_association_matrix | generated 0 | default",
-            "compute_association_matrix | many rows | default",
-        ):
-            print("DEBUGJSON", key, "json", full[key]["json"])
-            print("DEBUGTEXT", key, "text", repr(full[key]["text"]))
+        key = "compute_association_matrix | many rows | default"
+        for part in ("json", "text"):
+            body = full[key][part]
+            for i in range(0, len(body), 1500):
+                print("DBG", part, i, repr(body[i : i + 1500]))
 
     assert found == [], (
         "The restructuring changed a record, text, table, tool or message. If the "
