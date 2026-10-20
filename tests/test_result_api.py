@@ -182,7 +182,9 @@ def test_help_of_a_result_shows_each_field_and_points_to_describe_analysis(name)
 
     text = pydoc.plain(pydoc.render_doc(type(res)))
 
-    assert len(text) < 10_000, f"help({type(res).__name__}) is {len(text)} characters"
+    # Python 3.13 and later print a long signature one field per line, which adds
+    # about 220 characters to the longest of these helps: 9,907 on 3.12.
+    assert len(text) < 10_500, f"help({type(res).__name__}) is {len(text)} characters"
     for field, info in type(res).model_fields.items():
         assert field in text
         # A description is wrapped in the text, so compare its words.

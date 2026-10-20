@@ -48,6 +48,10 @@ def test_text_is_a_datetime_exactly_when_python_reads_it_as_iso_8601(text):
         reads = True
     except ValueError:
         reads = False
+    if "T24:" in text:
+        # Python 3.14 reads hour 24 as midnight of the next day. The rule stays
+        # the one that agent_eda documents, hours 00 to 23, on every Python.
+        reads = False
     assert counts(res.columns["x"]) == ((0, 1, 0, 0) if reads else (0, 0, 1, 0))
 
 

@@ -72,9 +72,10 @@ def test_the_docstring_examples_run(model):
 
 
 def test_help_shows_the_fields_as_keyword_arguments():
-    assert str(inspect.signature(ae.Project)) == (
+    # Python 3.14 writes typing.Any as Any.
+    assert str(inspect.signature(ae.Project)).replace("typing.Any", "Any") == (
         "(*, name: str | None = None, data_policy: agent_eda.project.DataPolicy | "
-        "collections.abc.Mapping[str, typing.Any] | None = None)"
+        "collections.abc.Mapping[str, Any] | None = None)"
     )
     assert str(inspect.signature(ae.DataPolicy)) == (
         "(*, sensitive_columns: collections.abc.Sequence[str] | None = (), "
