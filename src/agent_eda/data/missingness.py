@@ -19,7 +19,7 @@ from agent_eda._declared_values import (
 )
 from agent_eda._findings import all_missing_columns
 from agent_eda._levels import stored_label, type_name
-from agent_eda._masking import mask_values, resolve_masking
+from agent_eda._masking import mask_groups, mask_values, resolve_masking
 from agent_eda._numeric import stored_nan_limitations
 from agent_eda._registry import analysis
 from agent_eda._result_base import (
@@ -764,43 +764,44 @@ def _masked(
     row IDs, so a value shows as the same placeholder everywhere.
     """
     own = declared.get(name, [])
-    raw: list[object] = list(own)
+    ids_masked = id_column == name
+    # Each candidate's entry: its value when it is in this column, then its shown
+    # row IDs when this column is id_column.
+    entries: list[list[object]] = []
     for candidate, ids in zip(found, view.row_ids, strict=True):
-        if candidate.column == name:
-            raw.append(candidate.value)
-        if id_column == name:
-            raw.extend(ids)
+        entry: list[object] = [candidate.value] if candidate.column == name else []
+        if ids_masked:
+            entry.extend(ids)
+        entries.append(entry)
     # The row IDs beyond the shown ones come last, so the shown ones keep their
     # numbers and equal IDs share a placeholder.
-    rest = (
-        [
-            row_id_list(full)[len(ids) :]
-            for full, ids in zip(view.all_row_ids, view.row_ids, strict=True)
-        ]
-        if id_column == name
-        else []
-    )
-    raw.extend(i for ids in rest for i in ids)
-    placeholders = iter(mask_values(raw))
-
-    def placeholder() -> str:
-        # Declared and candidate values are never missing, so never None.
-        return cast("str", next(placeholders))
+    rest: list[list[object]] = [
+        row_id_list(full)[len(ids) :] if ids_masked else []
+        for full, ids in zip(view.all_row_ids, view.row_ids, strict=True)
+    ]
+    [masked_own], masked_entries, masked_rest = mask_groups([list(own)], entries, rest)
 
     masked_declared = dict(view.declared)
     if name in masked_declared:
-        masked_declared[name] = [placeholder() for _ in own]
+        # Declared values are never missing, so never None.
+        masked_declared[name] = cast("list[JsonSentinel]", masked_own)
     values: list[JsonSentinel] = []
     row_ids: list[list[object]] = []
-    for candidate, value, ids in zip(found, view.values, view.row_ids, strict=True):
-        values.append(placeholder() if candidate.column == name else value)
+    for candidate, value, ids, entry in zip(
+        found, view.values, view.row_ids, masked_entries, strict=True
+    ):
+        in_column = candidate.column == name
+        # Declared and candidate values are never missing, so never None.
+        values.append(cast("str", entry[0]) if in_column else value)
         # A missing row ID stays None.
-        row_ids.append([next(placeholders) for _ in ids] if id_column == name else ids)
-    if id_column != name:
+        if not ids_masked:
+            row_ids.append(ids)
+        else:
+            row_ids.append(entry[1:] if in_column else entry)
+    if not ids_masked:
         return _View(masked_declared, values, row_ids, view.all_row_ids)
     all_row_ids = [
-        [*shown, *(next(placeholders) for _ in later)]
-        for shown, later in zip(row_ids, rest, strict=True)
+        [*shown, *later] for shown, later in zip(row_ids, masked_rest, strict=True)
     ]
     return _View(masked_declared, values, row_ids, all_row_ids)
 

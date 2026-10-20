@@ -2,6 +2,7 @@
 
 import json
 import os
+import py_compile
 import subprocess
 import sys
 import zipfile
@@ -111,6 +112,39 @@ print(ae.describe_analysis("summarize_numeric"))
     assert "A first look at a new dataset, in this order:" in lines
     assert any(line.startswith("  describe_dataset: What does") for line in lines)
     assert "  trim_fraction: float = 0.1; 0 <= trim_fraction < 0.5" in lines
+
+
+def test_a_zip_without_source_files_still_gives_every_code_its_meaning(tmp_path):
+    # Only bytecode, so nothing can read the source of a module back.
+    package = Path(ae.__file__).parent
+    archive = tmp_path / "agent_eda_bytecode.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for path in sorted(package.rglob("*")):
+            if "__pycache__" in path.parts or not path.is_file():
+                continue
+            name = path.relative_to(package.parent)
+            if path.suffix == ".py":
+                compiled = tmp_path / "compiled.pyc"
+                py_compile.compile(str(path), cfile=str(compiled), doraise=True)
+                bundle.write(compiled, str(name.with_suffix(".pyc")))
+            else:
+                bundle.write(path, str(name))
+    code = f"""
+import sys
+sys.path.insert(0, {str(archive)!r})
+import agent_eda as ae
+assert ae.__file__.startswith({str(archive)!r}), ae.__file__
+description = ae.describe_analysis("describe_dataset")
+codes = [*description.limitation_codes]
+for status in description.statuses:
+    codes += status.reason_codes
+assert codes and all(entry.meaning for entry in codes), codes
+print(len(codes))
+"""
+
+    out = run_python(code, args=("-I",), cwd=tmp_path)
+
+    assert int(out) > 10
 
 
 # The steps an agent takes first, in order: import the package, then call each

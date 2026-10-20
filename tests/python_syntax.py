@@ -15,12 +15,15 @@ CALL = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\(")
 KEYWORD = re.compile(r"\b[A-Za-z_]\w*=[^\s=]")
 # A Python module or variable, such as pd.NA, df.loc, res.columns or ae.guide.
 NAME = re.compile(r"\b(?:pd|np|df|res|ae)\.")
+# A method of a result, with or without its brackets, such as `to_frame`: an MCP
+# caller reads the structured content and a table file instead.
+METHOD = re.compile(r"\b(?:to_(?:frame|dict|json)|model_(?:dump|validate)\w*)\b")
 # None, True or False as a value; a quoted one, such as the text 'None' in a
 # list of stand-ins for missing values, is data, not a constant.
 CONSTANT = re.compile(r"(?<![\w'\"`])(?:None|True|False)(?![\w'\"`])")
 
 PYTHON = re.compile(
-    "|".join(pattern.pattern for pattern in (CALL, KEYWORD, NAME, CONSTANT))
+    "|".join(pattern.pattern for pattern in (CALL, KEYWORD, NAME, METHOD, CONSTANT))
 )
 
 

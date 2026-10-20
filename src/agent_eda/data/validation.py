@@ -30,7 +30,7 @@ from agent_eda._levels import (
     record_label,
     type_name,
 )
-from agent_eda._masking import MaskedLevels, mask_levels, mask_values, resolve_masking
+from agent_eda._masking import MaskedLevels, mask_groups, mask_levels, resolve_masking
 from agent_eda._numeric import stored_nan_limitations
 from agent_eda._registry import (
     analysis,
@@ -1201,15 +1201,13 @@ def _row_ids_of(
     # One numbering, in result order: the shown IDs of every entry, then the rest.
     firsts = [ids[:_ROW_IDS_KEPT] for ids in listed.values()]
     rests = [ids[_ROW_IDS_KEPT:] for ids in listed.values()]
-    flat = [row_id for ids in (*firsts, *rests) for row_id in ids]
-    placeholders = iter(mask_values(flat, first=start, known=list(known.items())))
-    shown_ids: dict[str, list[object]] = {
-        name: [next(placeholders) for _ in ids]
-        for name, ids in zip(listed, firsts, strict=True)
-    }
+    shown_masked, rests_masked = mask_groups(
+        firsts, rests, first=start, known=list(known.items())
+    )
+    shown_ids: dict[str, list[object]] = dict(zip(listed, shown_masked, strict=True))
     every_id = {
-        name: [*shown_ids[name], *(next(placeholders) for _ in ids)]
-        for name, ids in zip(listed, rests, strict=True)
+        name: [*shown, *rest]
+        for name, shown, rest in zip(listed, shown_masked, rests_masked, strict=True)
     }
     return shown_ids, every_id
 

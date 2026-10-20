@@ -376,14 +376,15 @@ def test_prints_the_matches_best_first_with_what_matched():
     assert max(len(line) for line in lines) <= 120
 
 
-def test_a_query_without_matches_says_so_and_points_to_the_guide():
+def test_a_query_without_matches_says_so_and_points_to_the_list_and_the_guide():
     found = ae.search_analyses("xylophone")
 
     assert found.matches == []
     assert found.match_count == 0
     assert str(found) == (
         "No analysis matches 'xylophone'. Searched for: xylophone.\n"
-        "Try other words, or call ae.guide() for every analysis and where to start."
+        "Try other words, or call ae.list_analyses() for every analysis; ae.guide() "
+        "says where to start."
     )
 
 

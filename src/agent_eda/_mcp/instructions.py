@@ -57,7 +57,6 @@ a value that doesn't exist is null.
   is more than row numbers. The text then ends with "Full table written to <path> (<n> rows).", and the record's
   table_file gives the path and row_count. It never overwrites or writes through a symbolic link: an existing path
   gives the error table_file_exists before the analysis runs, and a failed write leaves no file.
-- A description's `to_dict` record is the structured content, and its `to_frame` table is what table_path writes.
 {status}
 - findings are claims about the data, each with a code and an assessment: descriptive, suspected, violation, passed
   or unknown. limitations say what limits how far the numbers can be read.

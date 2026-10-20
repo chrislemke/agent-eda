@@ -176,6 +176,13 @@ MISTAKES = {
             "one of 'boolean', 'integer'",
         ],
     ),
+    "datetime-format-without-a-directive": (
+        "validate_column_types",
+        {"schema": {"score": {"logical_type": "datetime", "datetime_format": "dd"}}},
+        "csv",
+        "invalid_argument",
+        ["datetime_format 'dd'", "a date format", "such as %Y, %m and %d"],
+    ),
     "quantiles-that-is-a-string": (
         "summarize_numeric",
         {"quantiles": "0.5"},
@@ -229,6 +236,13 @@ MISTAKES = {
         "zoned",
         "invalid_argument",
         ['"1900-01-01T00:00:00+00:00"', "Did you mean"],
+    ),
+    "datetime-sentinel-written-as-text-that-is-no-date": (
+        "detect_missing_sentinels",
+        {"sentinel_values": {"when": ["garbage"]}},
+        "zoned",
+        "invalid_argument",
+        ["got \"garbage\" for column 'when'", "can never match", "ISO 8601"],
     ),
     "task-that-needs-more-expected-labels": (
         "profile_target",

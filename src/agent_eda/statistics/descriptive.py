@@ -153,7 +153,7 @@ def summarize_numeric(
         A statistic that doesn't exist is null, and a limitation names its
         field and the reason. `too_few_values` means too few finite values:
         std needs 2, skewness 3, excess_kurtosis 4 and the rest 1.
-        `zero_variance` means every finite value is equal, and
+        `zero_variance` means every finite value is equal as a float64 number, and
         `numerical_warning` that float64 can't hold the result. Three more
         limitations flag booleans read as 0 and 1, `boolean_as_numeric`;
         integers or decimals beyond ±2^53 that float64 rounds, `float_precision`;
@@ -364,7 +364,7 @@ def summarize_categorical(
             boolean column, in DataFrame order.
         top_n (int): How many of each column's most common levels `levels`
             holds and the printed text shows, from 1 to {entries_kept}; defaults to 10.
-            It limits the record and the text: `to_frame` has every level.
+            It limits the record and the text; the full table has every level.
         project (Project | None): The project, whose data policy names the
             sensitive columns and says whether to mask them. None, the
             default, declares no sensitive column, so nothing is masked.

@@ -196,8 +196,8 @@ class SearchListing(_DiscoveryRecord):
                     first="",
                     indent="    ",
                 ),
-                "Try other words, or call ae.guide() for every analysis and where "
-                "to start."
+                "Try other words, or call ae.list_analyses() for every analysis; "
+                "ae.guide() says where to start."
                 if python
                 else "Try other words, or call list_analyses for every analysis; "
                 "the MCP server's instructions say where to start.",

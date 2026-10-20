@@ -434,7 +434,7 @@ def search_analyses(query: str, limit: int = 5) -> SearchListing:
         match, also those beyond the limit, and `terms` shows the words
         searched for with their synonyms, out of `term_count`. `first_look` is
         true for a query that asks where to start. With no match, `matches` is
-        empty and the printed listing points to ae.guide().
+        empty and the printed listing points to ae.list_analyses() and ae.guide().
 
     Raises:
         InvalidArgumentError: The query isn't a string, or limit isn't an int of
@@ -449,7 +449,7 @@ def search_analyses(query: str, limit: int = 5) -> SearchListing:
         ['mean', 'standard', 'deviation']
         >>> print(ae.search_analyses("xylophone"))
         No analysis matches 'xylophone'. Searched for: xylophone.
-        Try other words, or call ae.guide() for every analysis and where to start.
+        Try other words, or call ae.list_analyses() for every analysis; ae.guide() says where to start.
     """
     if not isinstance(query, str):
         raise mistake(

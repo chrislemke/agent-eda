@@ -191,6 +191,15 @@ MISTAKES = {
         "invalid_call",
         ["ColumnSpec has no field 'nullabel'", "Did you mean 'nullable'?"],
     ),
+    "column-spec-datetime-format-without-a-directive": (
+        lambda: wrong.ColumnSpec("datetime", datetime_format="dd/mm/yyyy"),
+        "invalid_argument",
+        [
+            "ColumnSpec got datetime_format 'dd/mm/yyyy'",
+            "a format for datetime.strptime",
+            "It has no directive.",
+        ],
+    ),
     # Values.
     "set-inside-a-mapping": (
         lambda: wrong.detect_missing_sentinels(DF, sentinel_values={"age": {-1, -999}}),

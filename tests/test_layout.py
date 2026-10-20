@@ -87,6 +87,39 @@ def underscore_uses(source: str, importer: str, modules: set[str]) -> list[str]:
     return sorted(found)
 
 
+def private_method_calls(source: str) -> list[str]:
+    """The underscore methods a module calls on an object it doesn't define them
+    for: `obj._name(...)` where obj isn't self, cls or super() and the module
+    defines no function of that name. Such a method belongs to the class's module.
+    """
+    tree = ast.parse(source)
+    defined = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    found = set()
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and is_underscore(node.func.attr)
+            and node.func.attr not in defined
+        ):
+            continue
+        owner = node.func.value
+        if isinstance(owner, ast.Name) and owner.id in ("self", "cls"):
+            continue
+        if (
+            isinstance(owner, ast.Call)
+            and isinstance(owner.func, ast.Name)
+            and owner.func.id == "super"
+        ):
+            continue
+        found.add(f"{ast.unparse(owner)}.{node.func.attr}")
+    return sorted(found)
+
+
 def forbidden_uses(source: str, importer: str, modules: set[str]) -> list[str]:
     """The underscore names a module takes from another that isn't an internal
     interface open to it."""
@@ -114,6 +147,34 @@ def test_no_module_imports_an_underscore_name_from_another_module():
         "A name that starts with an underscore belongs to its module: make it "
         "public, or move the code that needs it into that module."
     )
+
+
+def test_no_module_calls_an_underscore_method_of_an_object_from_another_module():
+    found = [
+        f"{importer} calls {use}"
+        for importer, path in module_names().items()
+        for use in private_method_calls(path.read_text(encoding="utf-8"))
+    ]
+
+    assert found == [], (
+        "A method that starts with an underscore belongs to its class's module: "
+        "give it a public name, or a public function beside the class."
+    )
+
+
+def test_the_method_guard_catches_a_call_on_an_instance_and_leaves_own_methods_alone():
+    caught = private_method_calls("def f(result):\n    return result._render('mcp')")
+    own = private_method_calls(
+        "class A:\n"
+        "    def _x(self): ...\n"
+        "    def y(self, other):\n"
+        "        self._x()\n"
+        "        super()._init()\n"
+        "        return other._x()\n"
+    )
+
+    assert caught == ["result._render"]
+    assert own == []
 
 
 @pytest.mark.parametrize(
@@ -315,3 +376,15 @@ def test_column_spec_is_still_importable_from_its_old_places():
     from agent_eda.data.validation import ColumnSpec
 
     assert ae.ColumnSpec is ColumnSpec
+
+
+def test_only_the_warnings_module_swaps_the_warning_filters():
+    # warnings.catch_warnings swaps process-wide state, so every use runs under
+    # the one lock of _warnings, which a bare catch_warnings would bypass.
+    found = [
+        name
+        for name, path in module_names().items()
+        if "catch_warnings" in path.read_text(encoding="utf-8")
+    ]
+
+    assert found == [pkg("PKG._warnings")]

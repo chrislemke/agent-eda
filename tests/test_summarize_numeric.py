@@ -518,8 +518,8 @@ def test_skewness_and_kurtosis_of_equal_values_are_null_with_a_limitation():
         "columns['three_same'].skewness",
     ]
     assert zero_variance.reason == (
-        "Every finite value is equal in 2 columns, so skewness and excess_kurtosis "
-        "are undefined and null: 'same' and 'three_same'."
+        "Every finite value is equal as a float64 number in 2 columns, so skewness "
+        "and excess_kurtosis are undefined and null: 'same' and 'three_same'."
     )
     assert too_few.code == "too_few_values"
     assert too_few.fields == ["columns['three_same'].excess_kurtosis"]
@@ -548,6 +548,18 @@ def test_integers_beyond_2_to_the_53_add_a_precision_limitation(values):
         "1 column holds integers or decimals beyond ±2^53 = 9,007,199,254,740,992, which "
         "float64 can't represent exactly, so its statistics may be rounded: 'id'."
     )
+
+
+def test_integers_that_differ_only_beyond_float64_precision_say_they_are_equal_as_floats():
+    values = [2**60 + step for step in range(5)]
+
+    res = ae.summarize_numeric(pd.DataFrame({"big": values}))
+
+    codes = {lim.code: lim for lim in res.limitations}
+    assert res.columns["big"].std == 0.0
+    # The values differ, so the reason says what is equal: the float64 numbers.
+    assert "equal as a float64 number" in codes["zero_variance"].reason
+    assert "float_precision" in codes
 
 
 @pytest.mark.parametrize(

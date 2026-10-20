@@ -47,7 +47,7 @@ from agent_eda._result_base import (
     StatusReasonCode,
     fill_caps,
 )
-from agent_eda._warnings import absorb_warnings, watch_all_warnings
+from agent_eda._warnings import absorb_warnings, scoped_filters, watch_all_warnings
 from agent_eda._wording import (
     SeeArguments,
     mistake,
@@ -285,7 +285,7 @@ def _spec(
         p.name: (hints[p.name], ... if p.default is p.empty else p.default)
         for p in list(signature.parameters.values())[1:]
     }
-    with warnings.catch_warnings():
+    with scoped_filters():
         # An option may share a name with a BaseModel attribute, such as
         # validate_column_types' schema; the arguments model never uses it.
         warnings.filterwarnings(

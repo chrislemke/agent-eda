@@ -16,7 +16,7 @@ It is written for three kinds of callers:
 - **Results you can read and parse**: `print(res)` gives at most 40 lines, `res.to_frame()` the full tables and `res.to_json()` the whole record as strict JSON.
 - **Findings, not just numbers**: each result lists what it noticed, such as "1 value in 1 column may stand in for missing values".
 - **Discovery for agents**: `ae.guide()`, `ae.search_analyses()` and `ae.describe_analysis()` explain the package.
-- **Helpful errors**: a mistake in a call raises an error that says what is wrong, what is allowed and the fix: a misspelled column lists the available names and the closest match.
+- **Helpful errors**: a mistake raises an error that says what is wrong, what is allowed and the fix, such as the available columns and the closest name.
 - **Opt-in masking** of sensitive columns, such as e-mail addresses.
 - **An MCP server**: `agent-eda-mcp` serves every analysis as an MCP tool over stdio, for agents that don't write Python.
 - **Pure Python** on numpy, pandas, pydantic, SciPy, scikit-learn and statsmodels, preinstalled in AgentCore Code Interpreter.
@@ -720,7 +720,7 @@ Each limitation's `code` is one of these:
 - `unhashable_values`: Values can't be hashed, so counts of distinct values are null.
 - `non_integral_float_columns`: A key search left out float columns that hold fractions.
 - `too_few_values`: A statistic needs more values than the column has, so it is null.
-- `zero_variance`: Every value is equal, so a statistic such as skewness is null.
+- `zero_variance`: Every value is equal as a float64 number, so a statistic such as skewness is null.
 - `float_precision`: Numbers beyond ±2^53 were read as float64, which rounds them.
 - `boolean_as_numeric`: Booleans were read as numbers: 0 for False and 1 for True.
 - `nan_counted_as_missing`: A column stores NaN as a value, which every analysis counts as missing, unlike isna().

@@ -41,7 +41,7 @@ from agent_eda._mcp.table_files import (
     table_file,
 )
 from agent_eda._registry import AnalysisSpec, registered, spec_of, validate_json
-from agent_eda._result_base import AnalysisResult
+from agent_eda._result_base import AnalysisResult, printed_text
 from agent_eda._text import closest_names, join_alternatives, join_items
 from agent_eda._version import __version__
 from agent_eda._wording import (
@@ -394,7 +394,7 @@ def _discover(
     )
     listing = served.function(**arguments)
     return types.CallToolResult(
-        content=[types.TextContent(text=listing._render("mcp"))],
+        content=[types.TextContent(text=printed_text(listing, "mcp"))],
         structured_content=listing.to_dict(),
     )
 
@@ -608,12 +608,12 @@ def _response(
     """
     record = result.to_dict()
     if table is None:
-        text = result._render("mcp")
+        text = printed_text(result, "mcp")
     else:
         frame = result.to_frame()
         # The lines the text gains count toward its 40, so the result leaves room.
         lines = WrittenTable(table.path, len(frame)).lines()
-        text = "\n".join([result._render("mcp", reserve=len(lines)), *lines])
+        text = "\n".join([printed_text(result, "mcp", reserve=len(lines)), *lines])
         written = table.write(frame)
         record[RECORD_KEY] = written.record()
     return types.CallToolResult(
