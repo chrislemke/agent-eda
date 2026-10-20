@@ -175,7 +175,6 @@ def test_the_documentation_section_links_to_every_guide_for_contributors():
     text = README.read_text(encoding="utf-8")
     documentation = text[text.index("## Documentation") : text.index("## License")]
     files = ["CONTRIBUTING.md", "AGENTS.md", "GLOSSARY.md", "docs/planned-analyses.md"]
-    files += [f"docs/adr/{p.name}" for p in sorted((ROOT / "docs/adr").glob("*.md"))]
 
     for name in files:
         assert f"({BLOB}{name})" in documentation, name

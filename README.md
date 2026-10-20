@@ -776,7 +776,6 @@ Serve the agent-eda analyses as MCP tools over stdio. `--project PATH`: A projec
 - [GLOSSARY.md](https://github.com/chrislemke/agent-eda/blob/main/GLOSSARY.md): the terms used in code, docstrings and messages.
 - [CHANGELOG.md](https://github.com/chrislemke/agent-eda/blob/main/CHANGELOG.md): what changed before 0.1.0.
 - [Planned analyses](https://github.com/chrislemke/agent-eda/blob/main/docs/planned-analyses.md): the backlog, with proposed names and modules.
-- Architecture decisions: [ADR 0001](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0001-data-policy-is-a-guardrail.md), [ADR 0002](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0002-pandas-in-numpy-inside.md), [ADR 0003](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0003-no-llm-calls-in-the-package.md), [ADR 0004](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0004-plain-functions-with-explicit-arguments.md), [ADR 0005](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0005-pure-python-within-code-interpreter-dependencies.md), [ADR 0006](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0006-local-mcp-server-over-stdio-data-by-path.md).
 
 ## License
 

@@ -50,7 +50,8 @@ Specs and tickets live under `.scratch/<feature>/` (see `docs/agents/issue-track
 2. Work test-first with the `/tdd` skill: for each acceptance box, write a failing test through the public API, then the code that makes it pass.
 3. Tick a box (`- [x]`) once a test or a command shows it holds.
 4. Under `## Comments` at the end of the ticket, record what the ticket settled that the spec left open, any measurement it asks for, and any check you couldn't run locally.
-5. A ticket is finished when every box is ticked and the Finish checks under Commands pass. Set its `Status:` line to `done`, and commit with the message `NN: <ticket title>`.
+5. When a caller can see the change (a name, an argument, a field, printed text, a message, a status, a dependency), add a line under `## [Unreleased]` in `CHANGELOG.md` that says what changed for the caller. Until 0.1.0, the lines collect there and become the 0.1.0 section.
+6. A ticket is finished when every box is ticked and the Finish checks under Commands pass. Set its `Status:` line to `done`, and commit with the message `NN: <ticket title>`.
 
 The ticket is the acceptance bar. Where it settles a point the spec left open, the ticket wins, and the spec overrides the proposed names in `docs/planned-analyses.md`. Later tickets extend the shared parts that earlier ones built (the result base class, the text template, the registry, the errors, the column and row ID rules, masking). If a ticket contradicts an ADR, flag it as `docs/agents/domain.md` describes instead of overriding the ADR.
 

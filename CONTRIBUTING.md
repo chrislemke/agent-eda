@@ -15,4 +15,21 @@ The project uses [uv](https://docs.astral.sh/uv/), 0.13 or later: `pyproject.tom
 
 ## Continuous integration
 
-The pre-commit hooks run ruff, ty and file checks on every commit, and the tests on `git push`. On GitHub, `.github/workflows/ci.yml` runs lint, type checks and the tests, the MCP server tests included, on Python 3.12 to 3.14 on Linux x86_64, on Python 3.12 on Linux ARM64, and on Python 3.12 and 3.14 on macOS and Windows. It also runs both minimum-versions runs, the MCP smoke test on Python 3.12 and 3.14, and a packaging job that installs the wheel offline with only the required dependencies. The benchmark runs only when started by hand from the Actions tab.
+The pre-commit hooks run ruff, ty and file checks on every commit, and the tests on `git push`. On GitHub, `.github/workflows/ci.yml` runs lint, type checks and the tests, the MCP server tests included, on Python 3.12 to 3.14 on Linux x86_64, on Python 3.12 on Linux ARM64, and on Python 3.12 and 3.14 on macOS and Windows. It also runs both minimum-versions runs, the MCP smoke test on Python 3.12 and 3.14, and a packaging job that installs the wheel offline with only the required dependencies. The benchmark runs only when started by hand from the Actions tab, and in every release. A push of a tag doesn't start this workflow: the release workflow calls it.
+
+## Releasing
+
+A version tag starts `.github/workflows/release.yml`: the full CI with the benchmark, the build, build provenance, the upload to PyPI, and then the GitHub release with the wheel, the source distribution and the notes from `CHANGELOG.md`. The upload waits for your approval. [docs/adr/0007](https://github.com/chrislemke/agent-eda/blob/main/docs/adr/0007-one-tag-started-workflow-publishes-then-releases.md) says why it is one workflow and how it is secured.
+
+Once, before the first release: run `bash scripts/release-setup-wizard.sh`. It walks through the trusted publishers on PyPI and TestPyPI, the GitHub environments `pypi` and `testpypi`, the tag ruleset and release immutability, and checks what it can.
+
+For each release:
+
+1. Set the version: `uv version <new>`, such as `uv version 0.1.0rc1`.
+2. Move the lines under `## [Unreleased]` in `CHANGELOG.md` into a section headed `## [<new>] - YYYY-MM-DD`. A final version needs its own section, a pre-release takes Unreleased when it has none.
+3. Commit both files, and merge them to `main`.
+4. Tag that commit and push the tag: `git tag -a v<new> -m "agent-eda <new>"` and `git push origin v<new>`. The tag must be `v` plus the version in `pyproject.toml`, or the build job stops.
+5. When the CI and the build have passed, approve the `pypi` deployment (the Actions run asks for it). A release candidate, such as `0.1.0rc1`, goes to TestPyPI and a GitHub pre-release, and `a` and `b` versions go to PyPI as pre-releases.
+6. Check the results: the project page on PyPI, `gh release view v<new>`, and `gh attestation verify <wheel> --repo chrislemke/agent-eda` on the downloaded wheel.
+
+A job that fails before the upload leaves nothing published: fix the cause, move the tag with `git tag -f` and `git push -f origin v<new>` (the tag ruleset lets an admin do so), or delete the tag and make a new one. PyPI never takes a file name twice, so once the upload has succeeded, a mistake needs a new version.
