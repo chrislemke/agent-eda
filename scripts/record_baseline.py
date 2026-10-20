@@ -302,7 +302,7 @@ def _message_records() -> dict[str, Entry]:
             except Exception as error:  # the baseline records any failure
                 records[f"python: {name}"] = {
                     "code": str(getattr(error, "code", type(error).__name__)),
-                    "message": str(error),
+                    "message": str(error).replace("WindowsPath", "PosixPath"),
                     "expected_code": code,
                 }
     try:

@@ -59,6 +59,14 @@ def test_every_record_text_table_tool_and_message_matches_the_baseline():
         fresh = without_schemas(fresh)
 
     found = script.differences(recorded, fresh)
+    if found:  # DEBUG-TEMP
+        full = script.collect(full=True)
+        for key in (
+            "compute_association_matrix | generated 0 | default",
+            "compute_association_matrix | many rows | default",
+        ):
+            print("DEBUGJSON", key, "json", full[key]["json"])
+            print("DEBUGTEXT", key, "text", repr(full[key]["text"]))
 
     assert found == [], (
         "The restructuring changed a record, text, table, tool or message. If the "

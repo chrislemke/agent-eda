@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_eda._arguments import python_scalar, value_text
-from agent_eda._text import a_or_an, closest_names, join_items
+from agent_eda._text import a_or_an, closest_names, join_items, quoted_path
 from agent_eda._wording import Of, Wording, Words, mistake, os_cause
 from agent_eda.errors import (
     AgentEDAError,
@@ -86,7 +86,7 @@ _LOADER = Words("Project.load", "The MCP server")
 def _file(given: str) -> Words:
     """A project file in a message: the path as given, and over MCP also the
     argument that gave it."""
-    return Words(repr(given), f"the project_path file {given!r}")
+    return Words(quoted_path(given), f"the project_path file {quoted_path(given)}")
 
 
 def _rewrite() -> Words:
@@ -309,12 +309,12 @@ def write(path: object, fields: Mapping[str, Any], *, overwrite: object) -> Path
     absolute = Path(os.path.abspath(os.path.expanduser(given)))
     if absolute.parent.exists() and not absolute.parent.is_dir():
         raise InvalidArgumentError(
-            f"Project.save got {given!r} for path, but {absolute.parent} is a file, "
+            f"Project.save got {quoted_path(given)} for path, but {absolute.parent} is a file, "
             "so it can't hold one. Pass a path in a directory."
         )
     if not absolute.parent.is_dir():
         raise InvalidArgumentError(
-            f"Project.save got {given!r} for path, but its directory "
+            f"Project.save got {quoted_path(given)} for path, but its directory "
             f"{absolute.parent} doesn't exist. Create it first, such as with "
             f"os.makedirs({str(absolute.parent)!r}), or pass a path in an existing "
             "directory."
@@ -449,9 +449,9 @@ def _file_path(owner: str, path: object) -> str:
         raise mistake(
             InvalidArgumentError,
             subject,
-            f" got {given!r} for ",
+            f" got {quoted_path(given)} for ",
             argument,
-            f", whose last {given[-1]!r} makes it name a directory, but ",
+            f", whose last {quoted_path(given[-1])} makes it name a directory, but ",
             argument,
             " must name a file, such as ",
             written(example),
@@ -475,7 +475,8 @@ def _file_path(owner: str, path: object) -> str:
 def _where(given: str) -> str:
     """A path as the caller gave it, and where it leads if that differs."""
     absolute = os.path.abspath(os.path.expanduser(given))
-    return repr(given) if absolute == given else f"{given!r} ({absolute})"
+    shown = quoted_path(given)
+    return shown if absolute == given else f"{shown} ({absolute})"
 
 
 def _parse(given: str, data: bytes) -> dict[str, Any]:

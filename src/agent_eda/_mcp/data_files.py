@@ -37,9 +37,9 @@ from agent_eda._mcp.local_files import (
     shown,
 )
 from agent_eda._parse import read_texts
-from agent_eda._text import closest_names, join_alternatives
+from agent_eda._text import closest_names, join_alternatives, quoted_path
 from agent_eda._warnings import scoped_filters
-from agent_eda._wording import os_cause
+from agent_eda._wording import names_nothing, os_cause
 from agent_eda.errors import (
     DataFileError,
     DataFileNotFoundError,
@@ -156,7 +156,7 @@ def _format_of(data_path: str) -> FileFormat:
     if file_format is not None:
         return file_format
     raise UnsupportedDataFormatError(
-        f"data_path {data_path!r} has {extension_text(data_path)}, which the MCP "
+        f"data_path {quoted_path(data_path)} has {extension_text(data_path)}, which the MCP "
         f"server can't read. It reads {extensions(READABLE)} files, in upper or "
         f"lower case. Save the data as {format_names(READABLE)} and pass that "
         "file's path."
@@ -181,6 +181,8 @@ def _stat(data_path: str) -> tuple[Path, Any]:
     except ValueError:
         raise InvalidArgumentError(_refused(data_path, "NUL")) from None
     except PATH_ERRORS as error:
+        if names_nothing(error):
+            raise DataFileNotFoundError(_not_found(resolve(data_path))) from None
         raise DataFileError(_refused(data_path, os_cause(error))) from None
     if stat.S_ISDIR(status.st_mode):
         raise DataFileNotFoundError(_not_found(path))

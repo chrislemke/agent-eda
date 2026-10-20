@@ -115,6 +115,11 @@ def test_a_path_the_os_refuses_is_a_coded_tool_error_naming_the_cause(
     assert cause in response.structured_content["message"]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="os.statvfs and os.ST_RDONLY don't exist on Windows, so the server's "
+    "read-only volume check, which asks them, doesn't run there",
+)
 def test_a_table_path_on_a_read_only_volume_is_refused_before_the_analysis_runs(
     tmp_path, monkeypatch
 ):
@@ -501,7 +506,11 @@ def test_a_text_that_is_already_full_loses_a_line_to_the_table_path_line(tmp_pat
 
     assert len(plain.content[0].text.splitlines()) <= 40
     assert len(with_table.content[0].text.splitlines()) <= 40
-    assert with_table.content[0].text.splitlines()[-1].startswith("Full table written")
+    # The line is "Full table written to <path> (...)." when it fits, and a
+    # second line holds the path when only the path overflows, as the path of a
+    # long temporary directory does.
+    last_two = with_table.content[0].text.splitlines()[-2:]
+    assert any(line.startswith("Full table written") for line in last_two)
 
 
 def break_on_run(data: pd.DataFrame) -> SummarizeNumericResult:

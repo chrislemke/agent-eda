@@ -394,6 +394,20 @@ def json_words_in(schema: Any) -> Any:
     return schema
 
 
+# What Windows reports, as OSError.winerror, for a name it can't use: one that
+# holds a character a file name can't, as the ":" of "http://host/file.csv"
+# does, or one that is too long. Its errno for them is the same as for any
+# other invalid argument, so errno alone doesn't tell them apart.
+ERROR_INVALID_NAME = 123
+ERROR_FILENAME_EXCED_RANGE = 206
+
+
+def names_nothing(error: BaseException) -> bool:
+    """Whether the operating system refused a path because it holds a character
+    no file name can, which means no file is there to find."""
+    return getattr(error, "winerror", None) == ERROR_INVALID_NAME
+
+
 def os_cause(error: BaseException) -> str:
     """Why the operating system refused a path, in words that say what to
     change: for an OSError, ValueError or RuntimeError raised by resolving a path."""
@@ -404,10 +418,17 @@ def os_cause(error: BaseException) -> str:
         if "home directory" in str(error):
             return "its ~ can't be expanded because no home directory is known for it"
         return "it leads through symbolic links that loop back on themselves"
-    if code == errno.ENAMETOOLONG:
+    if code == errno.ENAMETOOLONG or (
+        getattr(error, "winerror", None) == ERROR_FILENAME_EXCED_RANGE
+    ):
         return (
             "a name in it is longer than 255 characters, or the whole path is "
             "longer than the operating system allows"
+        )
+    if names_nothing(error):
+        return (
+            "it holds a character that a Windows file name can't, such as : * ? "
+            '" < > or |'
         )
     if code == errno.ELOOP:
         return "it leads through symbolic links that loop back on themselves"
