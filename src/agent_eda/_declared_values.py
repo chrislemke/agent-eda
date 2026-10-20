@@ -747,6 +747,19 @@ def _closing(problems: list[_Problem], hidden: set[str]) -> Wording:
                     ),
                 )
             )
+        if (
+            first is not None
+            and first.likely is None
+            and isinstance(first.value, str)
+            and first.holds.startswith("datetimes")
+        ):
+            # A JSON file has no datetimes: an MCP caller writes the text of one.
+            example = "2024-01-05T00:00:00" + (
+                "+00:00" if "time zone" in first.holds else ""
+            )
+            sentence.append(
+                Words("", f', written as an ISO 8601 string such as "{example}"')
+            )
         sentence.append(".")
         sentences.append(sentence)
     if "limit" in kinds:

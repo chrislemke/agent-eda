@@ -41,8 +41,8 @@ from agent_eda._levels import type_name as label_type_name
 from agent_eda._masking import (
     MaskedLevels,
     MaskingDecision,
+    mask_groups,
     mask_levels,
-    mask_values,
     resolve_masking,
 )
 from agent_eda._numeric import (
@@ -839,16 +839,11 @@ def _unexpected_labels(
             later = [
                 entry[_ROW_IDS_KEPT:] for entry in map(row_id_list, every.values())
             ]
-            placeholders = iter(
-                mask_values([i for entry in [*shown, *later] for i in entry])
-            )
-            masked_shown: list[list[object]] = [
-                [next(placeholders) for _ in entry] for entry in shown
-            ]
+            masked_shown, masked_later = mask_groups(shown, later)
             every = {
-                position: [*entry, *(next(placeholders) for _ in rest)]
+                position: [*entry, *rest]
                 for position, entry, rest in zip(
-                    outside_order, masked_shown, later, strict=True
+                    outside_order, masked_shown, masked_later, strict=True
                 )
             }
             ids = masked_shown[: len(kept)]

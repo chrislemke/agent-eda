@@ -346,10 +346,11 @@ class ColumnSpec(Declaration):
                 if unknown
                 else " It has no directive."
             )
-            raise InvalidArgumentError(
-                f"ColumnSpec got datetime_format {text!r}, but a datetime_format "
-                "is a format for datetime.strptime, with directives such as %Y, "
-                f"%m and %d, like '%d/%m/%Y'.{problem}"
+            raise mistake(
+                InvalidArgumentError,
+                f"ColumnSpec got datetime_format {text!r}, but a datetime_format is ",
+                Words("a format for datetime.strptime", "a date format"),
+                f", with directives such as %Y, %m and %d, like '%d/%m/%Y'.{problem}",
             )
         return self
 

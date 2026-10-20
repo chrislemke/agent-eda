@@ -89,38 +89,62 @@ ColumnFlag = Literal[
 # follows the rule for renamed names. Each analysis's Statuses: section names
 # the codes it returns, and describe_analysis shows them with these meanings.
 StatusReasonCode = Literal[
-    # The data has no rows.
     "no_rows",
-    # No column is left to work on: the data has none, the call's column
-    # selection or the analysis's column rules leave none, or too few can be
-    # paired. The message says which.
     "no_columns",
-    # No value is left to work on in a column, the target or the pairs: every
-    # value is missing, infinite or outside the declared labels, or no pair has
-    # a value. The message says which.
     "no_values",
-    # The data has one row, which every column identifies, so a key search has
-    # nothing to find.
     "one_row",
-    # The values, such as lists or dicts, can't be hashed, so they can't be
-    # counted as levels.
     "unhashable_values",
-    # No logical type fits the values: they are of other types, such as lists
-    # or intervals, and aren't category labels repeated over rows.
     "unsupported_values",
-    # Some columns didn't complete, so the result is partial; each column's
-    # status_reason says why.
     "incomplete_columns",
-    # The paired columns make more pairs than the max_pairs limit allows, so no
-    # pair was computed.
     "too_many_pairs",
-    # The complete key search covers more column sets than the max_combinations
-    # limit allows, so it stopped early.
     "too_many_combinations",
-    # An anticipated numerical failure stopped the analysis. The status failed
-    # is the only one that carries it, and no analysis returns that status yet.
     "numerical_failure",
 ]
+
+# What each status reason code means, in the order of the list. The first sentence is
+# the code's short meaning. describe_analysis and the README's Reference read these.
+STATUS_REASON_MEANINGS: dict[StatusReasonCode, str] = {
+    "no_rows": "The data has no rows.",
+    "no_columns": (
+        "No column is left to work on: the data has none, the call's column "
+        "selection or the analysis's column rules leave none, or too few can be "
+        "paired. The message says which."
+    ),
+    "no_values": (
+        "No value is left to work on in a column, the target or the pairs: "
+        "every value is missing, infinite or outside the declared labels, or no "
+        "pair has a value. The message says which."
+    ),
+    "one_row": (
+        "The data has one row, which every column identifies, so a key search "
+        "has nothing to find."
+    ),
+    "unhashable_values": (
+        "The values, such as lists or dicts, can't be hashed, so they can't be "
+        "counted as levels."
+    ),
+    "unsupported_values": (
+        "No logical type fits the values: they are of other types, such as "
+        "lists or intervals, and aren't category labels repeated over rows."
+    ),
+    "incomplete_columns": (
+        "Some columns didn't complete, so the result is partial; each column's "
+        "status_reason says why."
+    ),
+    "too_many_pairs": (
+        "The paired columns make more pairs than the max_pairs limit allows, so "
+        "no pair was computed."
+    ),
+    "too_many_combinations": (
+        "The complete key search covers more column sets than the "
+        "max_combinations limit allows, so it stopped early."
+    ),
+    "numerical_failure": (
+        "An anticipated numerical failure stopped the analysis. The status "
+        "failed is the only one that carries it, and no analysis returns that "
+        "status yet."
+    ),
+}
 
 # Why a value was left out of the counts behind a column's result. One spelling
 # per reason, in every analysis.
@@ -143,62 +167,111 @@ ExclusionReason = Literal[
 # is the code's short meaning, which the README's Reference prints. Codes are
 # public API: renaming one follows the rule for renamed names.
 LimitationCode = Literal[
-    # Values can't be hashed, so counts of distinct values are null. Lists and
-    # dicts are such values.
     "unhashable_values",
-    # A key search left out float columns that hold fractions. They are
-    # measurements rather than IDs, and the default columns don't select them.
     "non_integral_float_columns",
-    # A statistic needs more values than the column has, so it is null. A
-    # standard deviation of one value is an example.
     "too_few_values",
-    # Every value is equal, so a statistic such as skewness is null.
     "zero_variance",
-    # Numbers beyond ±2^53 were read as float64, which rounds them. Integers and
-    # decimals are such numbers.
     "float_precision",
-    # Booleans were read as numbers: 0 for False and 1 for True.
     "boolean_as_numeric",
-    # A column stores NaN as a value, which every analysis counts as missing,
-    # unlike isna().
     "nan_counted_as_missing",
-    # A categorical column has one level per row of a pair, so its value is
-    # null.
     "one_row_per_level",
-    # A computation overflowed or failed, so the values it affects are null.
-    # Division by zero, an invalid value and precision loss are examples; the
-    # fields are empty when no value could be named.
     "numerical_warning",
-    # Index labels or id_column values repeat, so a row ID can match several
-    # rows.
     "ambiguous_row_ids",
-    # No sentinel values were declared, so counts are null or candidates stay
-    # suspected. Stand-ins such as -999 don't count as missing.
     "sentinel_values_not_declared",
-    # A ranking stopped at its work limit before it was proven. An uncounted
-    # set could outrank a listed one.
     "ranking_not_proven",
-    # No expected labels were declared, so labels outside them weren't checked.
-    # The fields that list those labels are null.
     "expected_labels_not_declared",
-    # No rare_share was declared, so rare classes weren't checked. The fields
-    # that list them are null.
     "rare_share_not_declared",
-    # A declared column isn't in the data, so its dtype and counts are null.
     "column_not_in_data",
-    # No schema was declared, so no column was compared with a declared type.
-    # The fields that hold the comparison are null.
     "schema_not_declared",
-    # nullable wasn't declared for a column, so its missing values weren't
-    # checked and its nullable field is null.
     "nullable_not_declared",
-    # A column has no inferred logical type, so the field is null. No value is
-    # left after the missing ones, or none fits.
     "type_not_inferred",
-    # A field belongs to the other task, so it is null. The tasks are
-    # classification and regression.
     "not_applicable_to_task",
 ]
+
+# What each limitation code means, in the order of the list. The first sentence of each
+# is the code's short meaning, which the README's Reference prints.
+LIMITATION_MEANINGS: dict[LimitationCode, str] = {
+    "unhashable_values": (
+        "Values can't be hashed, so counts of distinct values are null. Lists "
+        "and dicts are such values."
+    ),
+    "non_integral_float_columns": (
+        "A key search left out float columns that hold fractions. They are "
+        "measurements rather than IDs, and the default columns don't select "
+        "them."
+    ),
+    "too_few_values": (
+        "A statistic needs more values than the column has, so it is null. A "
+        "standard deviation of one value is an example."
+    ),
+    "zero_variance": (
+        "Every value is equal as a float64 number, so a statistic such as skewness "
+        "is null."
+    ),
+    "float_precision": (
+        "Numbers beyond ±2^53 were read as float64, which rounds them. Integers "
+        "and decimals are such numbers."
+    ),
+    "boolean_as_numeric": "Booleans were read as numbers: 0 for False and 1 for True.",
+    "nan_counted_as_missing": (
+        "A column stores NaN as a value, which every analysis counts as "
+        "missing, unlike isna()."
+    ),
+    "one_row_per_level": (
+        "A categorical column has one level per row of a pair, so its value is null."
+    ),
+    "numerical_warning": (
+        "A computation overflowed or failed, so the values it affects are null. "
+        "Division by zero, an invalid value and precision loss are examples; "
+        "the fields are empty when no value could be named."
+    ),
+    "ambiguous_row_ids": (
+        "Index labels or id_column values repeat, so a row ID can match several rows."
+    ),
+    "sentinel_values_not_declared": (
+        "No sentinel values were declared, so counts are null or candidates "
+        "stay suspected. Stand-ins such as -999 don't count as missing."
+    ),
+    "ranking_not_proven": (
+        "A ranking stopped at its work limit before it was proven. An uncounted "
+        "set could outrank a listed one."
+    ),
+    "expected_labels_not_declared": (
+        "No expected labels were declared, so labels outside them weren't "
+        "checked. The fields that list those labels are null."
+    ),
+    "rare_share_not_declared": (
+        "No rare_share was declared, so rare classes weren't checked. The "
+        "fields that list them are null."
+    ),
+    "column_not_in_data": "A declared column isn't in the data, so its dtype and counts are null.",
+    "schema_not_declared": (
+        "No schema was declared, so no column was compared with a declared "
+        "type. The fields that hold the comparison are null."
+    ),
+    "nullable_not_declared": (
+        "nullable wasn't declared for a column, so its missing values weren't "
+        "checked and its nullable field is null."
+    ),
+    "type_not_inferred": (
+        "A column has no inferred logical type, so the field is null. No value "
+        "is left after the missing ones, or none fits."
+    ),
+    "not_applicable_to_task": (
+        "A field belongs to the other task, so it is null. The tasks are "
+        "classification and regression."
+    ),
+}
+
+for _codes, _meanings in (
+    (StatusReasonCode, STATUS_REASON_MEANINGS),
+    (LimitationCode, LIMITATION_MEANINGS),
+):
+    if list(_meanings) != list(typing.get_args(_codes)):
+        raise TypeError(
+            f"the meanings of {_codes} must name each code once, in the order of the list"
+        )
+del _codes, _meanings
 
 
 def entry_path(name: str) -> str:
@@ -1519,6 +1592,19 @@ class MaskableResult(AnalysisResult):
         of a masked id_column."""
         id_column = self.settings.id_column
         return not (id_column is not None and self._masked(id_column))
+
+
+def printed_text(
+    record: _PrintedRecord, surface: _text.Surface, *, reserve: int = 0
+) -> str:
+    """The record's printed text worded for the surface the caller reads it on:
+    what print(record) shows a Python caller, and an MCP tool's response an MCP
+    caller. `reserve` lines of the 40 are left free for the caller to add, and
+    only an analysis result takes it."""
+    if reserve:
+        assert isinstance(record, AnalysisResult)
+        return record._render(surface, reserve)
+    return record._render(surface)
 
 
 def share_text(name: str, share: float | None) -> str:

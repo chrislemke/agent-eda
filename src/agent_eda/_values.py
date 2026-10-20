@@ -40,13 +40,23 @@ def stored_nan_mask(
     return found if found.any() else None
 
 
-def nan_as_missing(values: pd.Series) -> pd.Series:
-    """The column with NaN that it stores as a value turned into a missing value.
+def nan_as_missing[V: pd.Series | pd.Index | np.ndarray | ExtensionArray](
+    values: V,
+) -> V:
+    """The values with the NaN a column stores as a value turned into missing values.
 
-    The column itself when it stores none; the caller's data is never changed.
+    The same kind of values; the values themselves when it stores none (NumPy
+    arrays never do), and the caller's data is never changed.
     """
+    if isinstance(values, np.ndarray):
+        return values
     found = stored_nan_mask(values)
-    return values if found is None else values.mask(found)
+    if found is None:
+        return values
+    if isinstance(values, pd.Series):
+        return cast("V", values.mask(found))
+    masked = pd.Series(values).mask(found).array
+    return cast("V", pd.Index(masked) if isinstance(values, pd.Index) else masked)
 
 
 def is_constant(non_missing: int, distinct: int | None) -> bool:
@@ -177,7 +187,7 @@ def value_codes(
 def _factorize(
     values: "pd.Series | pd.Index | np.ndarray | ExtensionArray",
 ) -> "tuple[np.ndarray, pd.Index | np.ndarray | ExtensionArray]":
-    values = _nan_as_missing(values)
+    values = nan_as_missing(values)
     objects = _all_text_objects(values)
     if objects is None or not _holds_nul(objects):
         return pd.factorize(values)
@@ -192,21 +202,6 @@ def _factorize(
     if isinstance(values, pd.Series | pd.Index):
         uniques = pd.Index(uniques, dtype=values.dtype)
     return codes[:-1], uniques
-
-
-def _nan_as_missing(
-    values: "pd.Series | pd.Index | np.ndarray | ExtensionArray",
-) -> "pd.Series | pd.Index | np.ndarray | ExtensionArray":
-    """The values with stored NaN turned into missing values, of the same kind."""
-    if isinstance(values, np.ndarray):
-        return values
-    found = stored_nan_mask(values)
-    if found is None:
-        return values
-    if isinstance(values, pd.Series):
-        return values.mask(found)
-    masked = pd.Series(values).mask(found).array
-    return pd.Index(masked) if isinstance(values, pd.Index) else masked
 
 
 # value_codes appends this to text that holds '\x00', so the values are never

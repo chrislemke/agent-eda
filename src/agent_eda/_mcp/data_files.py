@@ -38,6 +38,7 @@ from agent_eda._mcp.local_files import (
 )
 from agent_eda._parse import read_texts
 from agent_eda._text import closest_names, join_alternatives
+from agent_eda._warnings import scoped_filters
 from agent_eda._wording import os_cause
 from agent_eda.errors import (
     DataFileError,
@@ -399,7 +400,7 @@ def _restore_empties(frame: pd.DataFrame, marker: str) -> None:
 def _parse(source: _Source, options: dict[str, Any], **more: Any) -> pd.DataFrame:
     """read_csv on the file, with a header row that has fewer names than a row
     has fields raised as an error, not warned about."""
-    with warnings.catch_warnings(), source.open() as handle:
+    with scoped_filters(), source.open() as handle:
         warnings.filterwarnings(
             "error",
             message="Length of header or names does not match length of data",
@@ -488,7 +489,7 @@ def _keep_codes_as_text(
     ]
     codes: list[int] = []
     if numeric and _may_hold_codes(source, options):
-        with warnings.catch_warnings(), source.open() as handle:
+        with scoped_filters(), source.open() as handle:
             reader = pd.read_csv(
                 handle, **options, usecols=numeric, dtype=str, chunksize=_CHUNK_ROWS
             )
@@ -561,7 +562,7 @@ def _read_parquet(handle: BinaryIO, path: Path) -> pd.DataFrame:
             "with distinct column names."
         )
     handle.seek(0)
-    with warnings.catch_warnings():
+    with scoped_filters():
         # pyarrow 14 builds the DataFrame from pandas internals that pandas 2.2
         # deprecates, so every read warns, and a read with a time zone warns
         # twice. The warnings say nothing about the data or the call.

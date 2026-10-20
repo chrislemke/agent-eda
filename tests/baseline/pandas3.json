@@ -159,51 +159,51 @@
   "text": "02ec2bd692f9cae55c1c7f68e1a919ac884a1e3f05bb16c23259a7617f914948"
  },
  "describe_analysis(compute_association_matrix)": {
-  "json": "79bfcb0f7c1426d2dccccc431f6e438527cfc869d46241a6ef2448ffb2c6abd7",
-  "text": "b770fa7e2226fe4e9e71709d717f3fc7b8e664db24ec76dbdd665e8ea26fdcd3"
+  "json": "93a4c450462c501347febb26129d9beb49b85ba8600b7d52b722cdc9525f4865",
+  "text": "9e793e91c2a2f0cde4842a28c8538744dc3de2c4e2bb8b7ad561dc72f495b585"
  },
  "describe_analysis(describe_dataset)": {
-  "json": "64f6de4e6a932f0e6df2ca9118efac0f22855e58c63640c0c6f1fe7c06ddb5ef",
-  "text": "f51d1691d46467b134250ede104f5ec98660e5f889c9f8f6054ff1400864c769"
+  "json": "4bef1c69ec99b781959a14c5ad5f66d3f39b333dabfba9653ea8e8e76fc72117",
+  "text": "97bf0f8ba070afa587229279506d3dc46350ab98f99b28f129e29e2f1d4b9bc1"
  },
  "describe_analysis(detect_missing_sentinels)": {
-  "json": "50783e2e484ee93ec4909aca4a7a9b89f131a9acae00f4fbc301ba8e3d3f59f7",
-  "text": "9224628c82d7186cf9739069433b7caeaee86c8d1b94dc5bf9f53d629738d8ce"
+  "json": "a3beadef5503e30cabdb4e66f27fc6799b5cea657a7496fffe425b241e238831",
+  "text": "4950c78920d72f5de61e637f1497c2e6c2a3e58fcf5d601ed17cf952f6155599"
  },
  "describe_analysis(find_candidate_keys)": {
-  "json": "afc8b9bc5cd9ea4a1e8a57a6b4ab220d01edbe1beae7a7d9823fc62adf82bbf3",
-  "text": "37756686f8fd0c58b322d719e4afb001b375fd1f2fa757f9d1f8d2c9426244a6"
+  "json": "92bd4d23ba255776f82ce43560d87b4649fda283a54080e8565335a5b1cc66dd",
+  "text": "29471e4db24f9d7412bbd3f836685892ccc11554f3b79d750640660e04209284"
  },
  "describe_analysis(find_duplicate_rows)": {
-  "json": "111d2a350c12a4e9774230c4a1bf0a1b4f5c3ad917209fa34942058756e3ecb3",
-  "text": "28292c53788229bcc8df0523479a8ccefc64b7643db37cea387c52848bc88ef3"
+  "json": "77e4a55c3759c117969f13d42ce37d15b9750d9aa3bb5506a765f70c2d998b75",
+  "text": "c32ab0bb0fd2642cc0572c152414cc40d90249048e2c429c19942be3343805cf"
  },
  "describe_analysis(infer_column_semantics)": {
-  "json": "aee78bf6ca596d10107788f7e4f48c4df2a7121c8f99471d02e541057947d334",
-  "text": "18e2054a3051cda95f1e6fef6ed471dd7df10da5899a7a05c1a0c098640c92a2"
+  "json": "29bdf103db67c5527f32929fdd39a8dac85451830bb4b3fa21977249a1d79b13",
+  "text": "5ed8d5b1755b4855ff6cd4e93277c4f59b8d837805a97e0fb383f053acbac759"
  },
  "describe_analysis(profile_missing_values)": {
-  "json": "8b185914e6667ab604c4efa15559b5858c9f4a4896ee176362ad953453cba7a4",
-  "text": "9a1cf968850de1feea360031e6c9c6a32ad875ed66572f9f1a87b1d766922b73"
+  "json": "45cbcf781bffeab6209937ccd229ddf30630e92f576ad49ed286c80585ef083b",
+  "text": "fdc9bd8eb664f2616762a3a94b1f5ec2c745bb8feba8917d99cceb1b1fd56da4"
  },
  "describe_analysis(profile_target)": {
-  "json": "93a692308f0b4a34e677e3464552d4679c07a7d87821ed3777003610976f45c0",
-  "text": "08182536ff8389008249b532fe41554c6654cdac61bd5c89a3c75df154179ee8"
+  "json": "2ba42278702a99cf375d50cf3f92e6fdd9e4fb1c8f08f5e51c5045d64d708b07",
+  "text": "70c486e3546ba407f45a0ca6f7a454e6bf200ff16df24440bd9d378b84a46346"
  },
  "describe_analysis(summarize_categorical)": {
-  "json": "493a59f3a49a2a6479f7b2a00774efdc8eae61c45d075961b436bd39b274d83b",
-  "text": "d3df73e32775ccf42f995f3d07ba4fd4a18c85aa52507d6ea4146e8bea482bc9"
+  "json": "af1473e65042fb6776eb3d38ec2a698f355e4c6e47891d500b3af92c714dd205",
+  "text": "de88fed71ed49830babf940a2bc58f290297895f299972a101dd609e691123f8"
  },
  "describe_analysis(summarize_numeric)": {
-  "json": "1b469ae6530390e458ed03110c0e009e602d647c9030aa575682a7659861fd1a",
-  "text": "07522a414fd28965aa4c33cef1465db0295e0f2ed59994b794d91928c2148317"
+  "json": "a46c3b5528c2114f3336833a4d226a4810f1d404e7fe948656be31fbe86bda97",
+  "text": "2bcebeb3e7678153e048db8f2aadf0c019d121bb0e54be597baacc3870b976ca"
  },
  "describe_analysis(unknown)": {
   "error": "6e73c7be124ddd018af4d094e4d0403ca404d9e6c17885a6170d7d12f5b272fa"
  },
  "describe_analysis(validate_column_types)": {
-  "json": "769cfb503147330fe7ed15408cfac8f32af9f22c2db4f34782f0e764eec2ab50",
-  "text": "986980f4bf3746df30af7794a0d5cd79d120b395989bc90d67ceec03f658bec1"
+  "json": "188b8279216fdbcb9d824b1ace0f0ce9a7f2fa0ab407eb9cf3a1c539c66d3d18",
+  "text": "455084fc4465585837e7adfafd0e98e9c21e61d4779779c0910b27a98a21a818"
  },
  "describe_dataset | all missing | default": {
   "json": "8a59b519e7bb3fa9a1433fefe719a5c797b40c836fe32d2c7cf9fea4af3bb448",
@@ -968,11 +968,23 @@
   "expected_code": "column_not_found",
   "message": "summarize_numeric got an unknown column 'score' in columns. The data has no columns."
  },
+ "mcp: datetime-format-without-a-directive": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "validate_column_types got an invalid value at schema/score: ColumnSpec got datetime_format 'dd', but a datetime_format is a date format, with directives such as %Y, %m and %d, like '%d/%m/%Y'. It has no directive."
+ },
  "mcp: datetime-sentinel-written-as-a-date-for-a-column-with-a-time-zone": {
   "code": "invalid_argument",
   "error": "True",
   "expected_code": "invalid_argument",
   "message": "detect_missing_sentinels got \"1900-01-01T00:00:00\" for column 'when' in sentinel_values, but 'when' holds datetimes in time zone UTC (dtype datetime64[us, UTC]), so it can never match. Did you mean \"1900-01-01T00:00:00+00:00\"? Declare each value as the type its column holds, such as {\"sentinel_values\": {\"when\": [\"1900-01-01T00:00:00+00:00\"]}}."
+ },
+ "mcp: datetime-sentinel-written-as-text-that-is-no-date": {
+  "code": "invalid_argument",
+  "error": "True",
+  "expected_code": "invalid_argument",
+  "message": "detect_missing_sentinels got \"garbage\" for column 'when' in sentinel_values, but 'when' holds datetimes in time zone UTC (dtype datetime64[us, UTC]), so it can never match. Declare each value as the type its column holds, written as an ISO 8601 string such as \"2024-01-05T00:00:00+00:00\"."
  },
  "mcp: expected-label-of-a-type-the-target-cannot-hold": {
   "code": "invalid_argument",
@@ -1510,6 +1522,11 @@
   "expected_code": "invalid_call",
   "message": "find_duplicate_rows has no argument 'ID_COLUMN'. Did you mean 'id_column'? Allowed: data, columns, id_column, project, mask_sensitive."
  },
+ "python: column-spec-datetime-format-without-a-directive": {
+  "code": "invalid_argument",
+  "expected_code": "invalid_argument",
+  "message": "ColumnSpec got datetime_format 'dd/mm/yyyy', but a datetime_format is a format for datetime.strptime, with directives such as %Y, %m and %d, like '%d/%m/%Y'. It has no directive."
+ },
  "python: column-spec-field-misspelled": {
   "code": "invalid_call",
   "expected_code": "invalid_call",
@@ -1733,7 +1750,7 @@
  },
  "search_analyses(zzzz)": {
   "json": "4ed1bf997a3218573da8e15b50cdd1d4f8e87bb6f5bebfc1d221792887ecd23e",
-  "text": "ea74dfd6cf33c10ff1695bdbf21837e7e16ef3d366e91545bd5a531ead1d67c7"
+  "text": "4c8d15d7477631891b6adaca13dac4f6a7278f68b097f166fa4d2ae57f16aac6"
  },
  "summarize_categorical | all missing | default": {
   "json": "ba203a2e3f9d50e933f9e94c57c78978a5eebc1506c18b2f99a3440ab93471bc",
@@ -1909,9 +1926,9 @@
   "text": "f572d44c2d7c455bef7550eb118a85f3b83eb261e908a34c67f094ddc1e19898"
  },
  "summarize_numeric | constant | default": {
-  "json": "49721752326c6339b6bd5818c60a137d0757a8608e075440b260398733526c23",
+  "json": "c11945f2f2b4ca29d2141accb16283f9f75e0d5a1e31b0974c772325cfc2984a",
   "table:columns": "249d02edcf7dafdb6ad7ac79749b48be83289886673c8e47b14544489b055155",
-  "text": "3c8c031716beabc13d00d763bc447ea3d1130c4e59464980bdbc1c13e6d14160"
+  "text": "b9ecf05829c63f27e96f1614c7b6477f21194347aed602d18b3fddc745d83e2f"
  },
  "summarize_numeric | every kind | default": {
   "json": "01193092bbc5dc1ee0228fe5a63ad80c3a34e57c2a3a727a365f00216e812751",
@@ -1919,24 +1936,24 @@
   "text": "1335031b74d3aa20ff75d929d4bab0363a1b2016aae804fe42f0c43d3228d8f6"
  },
  "summarize_numeric | generated 0 | default": {
-  "json": "2af2bb7e2773a7682b4bf3af5174bd36c7219c8c404a45c5fa092b7cbdd3149f",
+  "json": "d5d1fc444e6d53dd60e291606b518f315770f52ab83806b4d27654521226e4cf",
   "table:columns": "7ff2cb7b0d2e736c38fd513ea974c7da8163bf6525f18471cd71b4e4233d1dc3",
-  "text": "457a00b088eb5cd20c331c061815206cc1d50fdbc15772bc46cb313783f3560e"
+  "text": "92725c03a565f4adc859ee179eb401a7c215e8e4827c3f19561706bb8fc3996e"
  },
  "summarize_numeric | generated 1 | default": {
-  "json": "86f26b5ca7512371d8f274e31bec567aec8494a26be82fbd6aa6dcf2c4fb36b4",
+  "json": "3a92856813922f82134e03c659843ddfb0c528eddbaf964b9be0a072ad500bc5",
   "table:columns": "1441e3235de7c098481850ddc77d4e4de40f1758c1d2acd7212465f26d3f4565",
-  "text": "68e04e990bfc430475dbea8510fe860dd569ba977b91bb38986c5418b3e505e1"
+  "text": "a7ede176ba2ad9853109706866a0a0abe3f94cb60aa868aaad91a5d68289051e"
  },
  "summarize_numeric | generated 2 | default": {
-  "json": "7675a4e9eb83dd3cd7cd1ff98ea543403f66b4304e03e4a45006476427aac197",
+  "json": "4ac8b568be46fe4614885dc1a5a7bf851dafc2f1bb92bd1383542cc4f051d773",
   "table:columns": "75784290bcc70ae6e8a2f248d18a5a21f9272f9a7612e0d73dbb5c23e3f72649",
-  "text": "5699c40007cd800ac8f36c245ce9342ec125427a8147bbe61d07d14e7c9b90b4"
+  "text": "d9874e82b5243f5b2e552d6ea1e5c3759faac6d297d312d461c5d931f895da78"
  },
  "summarize_numeric | generated 3 | default": {
-  "json": "80eba91f27b0a483ebf30187f69288a993bf22c8de8b0c485d074d950d432eb6",
+  "json": "74bca7b7cf49ce484b9243583ba31a22635419dcd45aa12c860eb7970963df81",
   "table:columns": "58b2a5490c786ebf81a5b928c13f9dd7833c11c7e278bba2691367d33870364e",
-  "text": "49a438effbd208db58df2840c0b265dd68b0cc8fca2d165457523c5136d8a9bc"
+  "text": "75207904ab4c4ccc152d94c24d7f16d58748d1bc86374d2b2e2254c401b1612d"
  },
  "summarize_numeric | labels: colliding labels | default": {
   "error": "9ec37227d6739074c9fd655e5041ffe0745c2e112a89604be826ab1750fdd7f7"
@@ -1958,9 +1975,9 @@
   "text": "3ee1b3dc267989482c702482cae1bc88746cf111c0ff0fdea893bd441b1e1a06"
  },
  "summarize_numeric | many rows | default": {
-  "json": "6ba2e5d79ee5adab6b46b07c9d1f20bd71c217d85438d4ac13dd2d80e219f135",
+  "json": "983926641b0f033cfd6a0f477e193f4da1e19fe71de5a5fdcf6210046837cf18",
   "table:columns": "4c49d578c3b9ea3f7f00bfa51758221232f8ba753a8ff6d691e00783a71f86d4",
-  "text": "53b122b1c1e514a7c96f521b39d4e0b99641b1a9dfc0ca807e61899b33793eb9"
+  "text": "53d82cfb11c6f46aa1296b22d145986fdc2eaa558fc01f682687195d91cd341d"
  },
  "summarize_numeric | no columns | default": {
   "json": "3ff6274b29f3f356934eaf14f1d9f14269cc5aaf6741a5c21bcf368b3ce152b2",
@@ -2018,10 +2035,10 @@
   "definition": "b01155f7b4583449c3df462d218f1f2816ca47216b8d875a362dc1ddbbeff5c3"
  },
  "tool: summarize_categorical": {
-  "definition": "268f99af8181df69a07e3780a53355f43cf37dc4e5865689a3d0324f0dfac042"
+  "definition": "6f546ac7b20d256ae7ca830505b354d4fc0d3d15432d562ed0d4b0a1a80b2c62"
  },
  "tool: summarize_numeric": {
-  "definition": "d1259b73e5bca0d5b873523c6b4a0e46063291099b73012a33e52ff4b496c68e"
+  "definition": "dcc58bb0608342c333b0a7b39a99f47d4b28910ea9c68f2f262c870abe43bcf0"
  },
  "tool: validate_column_types": {
   "definition": "542479302928d5f581157197a1cb32ab6c404075facc771359a01eeea9052497"

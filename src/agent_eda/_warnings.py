@@ -31,6 +31,14 @@ def capture_warnings() -> Generator[list[warnings.WarningMessage], None, None]:
 
 
 @contextlib.contextmanager
+def scoped_filters() -> Generator[None, None, None]:
+    """Run the block with warning filters it changes restored afterwards, one
+    capture at a time process-wide. Warnings still show under the filters."""
+    with _CAPTURE_LOCK, warnings.catch_warnings():
+        yield
+
+
+@contextlib.contextmanager
 def watch_all_warnings() -> Generator[list[warnings.WarningMessage], None, None]:
     """Record every warning raised in the block instead of showing it.
 

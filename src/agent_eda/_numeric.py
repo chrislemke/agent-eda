@@ -388,8 +388,8 @@ _NULL_REASONS: dict[NullReason, str] = {
         "excess_kurtosis 4."
     ),
     "zero_variance": (
-        "Every finite value is equal in {columns}, so skewness and excess_kurtosis "
-        "are undefined and null: {names}."
+        "Every finite value is equal as a float64 number in {columns}, so skewness "
+        "and excess_kurtosis are undefined and null: {names}."
     ),
     "numerical_warning": (
         "Some statistics overflowed float64 or failed numerically, so they are "

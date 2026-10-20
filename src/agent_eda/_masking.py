@@ -42,6 +42,7 @@ from agent_eda.project import Project
 __all__ = [
     "MaskedLevels",
     "MaskingDecision",
+    "mask_groups",
     "mask_levels",
     "mask_values",
     "placeholder",
@@ -253,3 +254,25 @@ def mask_values(
                 numbered[code] = placeholder(first + len(numbered))
             placeholders.append(numbered[code])
     return placeholders
+
+
+def mask_groups(
+    *groups: Sequence[Sequence[object]],
+    first: int = 1,
+    known: Sequence[tuple[object, str]] = (),
+) -> list[list[list[object]]]:
+    """Placeholders for groups of entries, numbered group by group.
+
+    Each group is a list of entries, each entry a list of values, such as the
+    row IDs of each finding. The values are numbered in one pass, as mask_values()
+    does, in the order of the groups, then of the entries in each group, so
+    equal values share a placeholder. The result has the shape of the groups.
+    Pass the row IDs each entry shows as the first group and the rest as the
+    second, so the shown ones keep the first numbers. `first` and `known` are
+    those of mask_values().
+    """
+    flat = [value for group in groups for entry in group for value in entry]
+    placeholders = iter(mask_values(flat, first=first, known=known))
+    return [
+        [[next(placeholders) for _ in entry] for entry in group] for group in groups
+    ]

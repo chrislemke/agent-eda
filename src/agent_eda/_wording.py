@@ -396,7 +396,7 @@ def json_words_in(schema: Any) -> Any:
 
 def os_cause(error: BaseException) -> str:
     """Why the operating system refused a path, in words that say what to
-    change: for an error in PATH_ERRORS."""
+    change: for an OSError, ValueError or RuntimeError raised by resolving a path."""
     code = error.errno if isinstance(error, OSError) else None
     if isinstance(error, ValueError):
         return "it holds a NUL character, which no file name can"

@@ -109,16 +109,13 @@ def test_python_callers_keep_the_text_that_mcp_callers_read_in_json_words(served
     )
 
 
-def test_the_mcp_instructions_map_a_descriptions_record_and_table_in_one_line(served):
+def test_the_mcp_instructions_name_the_structured_content_and_the_table_file(served):
     instructions, _ = served
 
-    [line] = [
-        line
-        for line in instructions.splitlines()
-        if "to_dict" in line and "to_frame" in line
-    ]
-    assert "structured content" in line
-    assert "table_path" in line
+    assert "The structured content is the whole record" in instructions
+    assert "table_path" in instructions
+    assert "to_dict" not in instructions
+    assert "to_frame" not in instructions
 
 
 def test_the_guard_finds_each_kind_of_python_syntax():
@@ -132,6 +129,9 @@ def test_the_guard_finds_each_kind_of_python_syntax():
         "such as pd.Timestamp('2024-01-01')",
         "np.nan stands for it",
         "such as task='regression'",
+        "`to_frame` has every level",
+        "the record from to_dict",
+        "`model_dump` writes it",
     ):
         assert python_in(text), text
     for text in (
