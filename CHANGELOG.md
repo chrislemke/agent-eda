@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+What changed for a caller, newest first. Until 0.1.0 is released, the lines collect under Unreleased and become the 0.1.0 section. A release takes its notes from the section headed with its version, and a pre-release without one takes Unreleased.
+
+## [Unreleased]
 
 ### Renamed, with no old name kept
 

@@ -1,5 +1,7 @@
-# Every push and pull request runs the checks AgentCore users depend on. The
-# benchmark runs only when started by hand: Actions > CI > Run workflow.
+# Every push to a branch and every pull request runs the checks AgentCore users
+# depend on. The benchmark runs only when started by hand (Actions > CI > Run
+# workflow) or when release.yml calls this workflow with full: true. A tag push
+# doesn't start this workflow: release.yml calls it for the tag.
 #
 # Each job installs uv 0.13.1, the version the uv-lock pre-commit hook runs;
 # bump the two together. The jobs skip the GitHub Actions cache. They install
@@ -9,11 +11,26 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      full:
+        description: Also run the checks that take long, the benchmark.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+# A newer push to a pull request supersedes the run of the older one. A branch
+# push and a release keep every run: the release tests the commit it publishes.
+# github.workflow is the caller's name in a called workflow, so a release's group
+# differs from release.yml's own.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -162,7 +179,8 @@ jobs:
 
   benchmark:
     name: benchmark, ${{ matrix.versions }} versions (Python 3.12, ARM64, 2 CPUs)
-    if: github.event_name == 'workflow_dispatch'
+    # A called workflow sees the caller's event, so a release asks through the input.
+    if: github.event_name == 'workflow_dispatch' || inputs.full
     # An AgentCore session has 2 vCPUs, and AgentCore Runtime runs on ARM64.
     # taskset keeps the run on 2 of the runner's CPUs, which on ARM64 are
     # whole cores, as Graviton vCPUs are.
