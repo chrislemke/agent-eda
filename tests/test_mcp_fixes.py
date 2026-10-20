@@ -269,7 +269,7 @@ def test_a_mistake_over_mcp_gives_the_python_message_with_an_mcp_fix(tmp_path, m
         expected = expected.replace(python_fix, mcp_fix)
     # A key of a mapping is written as a JSON pointer, schema/score.
     expected = expected.replace("schema['score']", "schema/score")
-    shown = repr(str(project_path))
+    shown = f"'{project_path}'"
     if shown in expected:
         # The MCP server reads the file project_path leads to, not Project.load.
         expected = expected.replace("Project.load", "The MCP server").replace(

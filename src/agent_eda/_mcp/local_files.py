@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from agent_eda._text import ELLIPSIS, join_alternatives, join_items
+from agent_eda._text import ELLIPSIS, join_alternatives, join_items, quoted_path
 from agent_eda.errors import InvalidArgumentError
 
 
@@ -83,7 +83,7 @@ def resolve(path: str) -> Path:
 
 def shown(path: str) -> str:
     """The path as text for a message, cut in the middle when it is long."""
-    text = repr(path)
+    text = quoted_path(path)
     if len(text) <= _SHOWN:
         return text
     half = (_SHOWN - len(ELLIPSIS)) // 2

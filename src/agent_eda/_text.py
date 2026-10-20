@@ -230,6 +230,16 @@ def wrap(text: str, *, indent: str = "", first: str | None = None) -> list[str]:
     return [line.rstrip() for line in lines] or [lead.rstrip()]
 
 
+def quoted_path(path: str) -> str:
+    """A path in single quotes as a message shows it, with each backslash of a
+    Windows path left as one: repr doubles it, and a caller who copies the path
+    back would pass the doubled one. A path that holds a quote or a character
+    that can't be printed, which has to be escaped, is written with repr."""
+    if "\\" in path and "'" not in path and path.isprintable():
+        return f"'{path}'"
+    return repr(path)
+
+
 def plural(count: int, singular: str, plural_form: str) -> str:
     """Return "1 column" or "3 columns" with thousands separators."""
     return f"{count:,} {singular if count == 1 else plural_form}"

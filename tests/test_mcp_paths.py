@@ -115,6 +115,55 @@ def test_a_path_the_os_refuses_is_a_coded_tool_error_naming_the_cause(
     assert cause in response.structured_content["message"]
 
 
+def windows_refusal(monkeypatch):
+    """Make every Path.stat refuse as Windows does a name it can't use: with
+    error 123, which has the errno of any invalid argument."""
+
+    def refuse(self, **kwargs):
+        error = OSError(
+            errno.EINVAL,
+            "The filename, directory name, or volume label syntax is incorrect",
+            str(self),
+        )
+        error.winerror = 123  # ty: ignore[unresolved-attribute] # set as Windows does
+        raise error
+
+    monkeypatch.setattr(Path, "stat", refuse)
+
+
+def test_a_data_path_with_a_character_windows_refuses_in_a_name_has_no_file(
+    tmp_path, monkeypatch
+):
+    windows_refusal(monkeypatch)
+
+    response = anyio.run(
+        call, "describe_dataset", {"data_path": str(tmp_path / "http:" / "orders.csv")}
+    )
+
+    assert response.is_error
+    assert response.structured_content["code"] == "data_file_not_found"
+    assert "There is no file at " in response.structured_content["message"]
+
+
+def test_a_data_path_with_a_name_of_300_characters_that_windows_refuses_says_so(
+    tmp_path, monkeypatch
+):
+    windows_refusal(monkeypatch)
+
+    response = anyio.run(
+        call, "describe_dataset", {"data_path": str(tmp_path / ("x" * 300 + ".csv"))}
+    )
+
+    assert response.is_error
+    assert response.structured_content["code"] == "unreadable_data_file"
+    assert "longer than 255 characters" in response.structured_content["message"]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="os.statvfs and os.ST_RDONLY don't exist on Windows, so the server's "
+    "read-only volume check, which asks them, doesn't run there",
+)
 def test_a_table_path_on_a_read_only_volume_is_refused_before_the_analysis_runs(
     tmp_path, monkeypatch
 ):
@@ -501,7 +550,11 @@ def test_a_text_that_is_already_full_loses_a_line_to_the_table_path_line(tmp_pat
 
     assert len(plain.content[0].text.splitlines()) <= 40
     assert len(with_table.content[0].text.splitlines()) <= 40
-    assert with_table.content[0].text.splitlines()[-1].startswith("Full table written")
+    # The line is "Full table written to <path> (...)." when it fits, and a
+    # second line holds the path when only the path overflows, as the path of a
+    # long temporary directory does.
+    last_two = with_table.content[0].text.splitlines()[-2:]
+    assert any(line.startswith("Full table written") for line in last_two)
 
 
 def break_on_run(data: pd.DataFrame) -> SummarizeNumericResult:

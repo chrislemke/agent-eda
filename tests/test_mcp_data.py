@@ -220,7 +220,7 @@ def test_an_unknown_extension_lists_the_supported_ones(tmp_path, file_name):
 
     assert error.code == "unsupported_data_format"
     assert ".csv, .tsv, .csv.gz, .tsv.gz, .parquet and .pq" in error.message
-    assert error.message.startswith(f"data_path {str(path)!r} has ")
+    assert error.message.startswith(f"data_path '{path}' has ")
 
 
 def test_a_missing_file_names_the_path_tried_and_the_closest_files(tmp_path):
@@ -301,7 +301,7 @@ def test_a_file_the_parser_cannot_read_quotes_the_parser(
 
 def test_a_second_call_on_the_same_file_does_not_read_it_again(tmp_path):
     path = tmp_path / "a.csv"
-    path.write_text("x\n1\n1\n", encoding="utf-8")
+    path.write_text("x\n1\n1\n", encoding="utf-8", newline="\n")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
@@ -315,7 +315,7 @@ def test_a_second_call_on_the_same_file_does_not_read_it_again(tmp_path):
 
 def test_a_file_whose_modification_time_changed_is_read_again(tmp_path):
     path = tmp_path / "a.csv"
-    path.write_text("x\n1\n1\n", encoding="utf-8")
+    path.write_text("x\n1\n1\n", encoding="utf-8", newline="\n")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
@@ -330,13 +330,13 @@ def test_a_file_whose_modification_time_changed_is_read_again(tmp_path):
 
 def test_a_file_whose_size_changed_is_read_again(tmp_path):
     path = tmp_path / "a.csv"
-    path.write_text("x\n1\n1\n", encoding="utf-8")
+    path.write_text("x\n1\n1\n", encoding="utf-8", newline="\n")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
             first = await distinct_count(client, path)
             status = path.stat()
-            path.write_text("x\n1\n2\n3\n", encoding="utf-8")
+            path.write_text("x\n1\n2\n3\n", encoding="utf-8", newline="\n")
             os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
             return first, await distinct_count(client, path)
 
@@ -346,7 +346,7 @@ def test_a_file_whose_size_changed_is_read_again(tmp_path):
 def test_a_third_file_evicts_the_least_recently_used_one(tmp_path):
     paths = {name: tmp_path / f"{name}.csv" for name in "abc"}
     for path in paths.values():
-        path.write_text("x\n1\n1\n", encoding="utf-8")
+        path.write_text("x\n1\n1\n", encoding="utf-8", newline="\n")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
@@ -368,10 +368,12 @@ async def distinct_count(client, path):
 
 
 def rewrite_unnoticed(path, text):
-    """Write text, of the file's size, and keep the modification time."""
+    """Write text, of the file's size, and keep the modification time. These
+    files end their lines with a line feed on every operating system, so that a
+    text's size is the file's size: Windows would write a carriage return too."""
     status = path.stat()
     assert len(text.encode()) == status.st_size
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
     os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
 
 

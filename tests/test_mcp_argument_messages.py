@@ -352,7 +352,7 @@ MISTAKES = {
     ),
     "project-path-without-a-file": (
         "summarize_categorical",
-        {"project_path": "{directory}/missing.toml"},
+        {"project_path": "{missing}"},
         "csv",
         "project_file_not_found",
         ["project_path"],
@@ -480,14 +480,15 @@ def test_an_unknown_mcp_tool_is_a_json_rpc_invalid_params_error():
 def arguments_of(tmp_path, arguments, kind):
     """A mistake's arguments with the data file as data_path, unless it gives
     one, and each path written as {directory}, {folder} (a directory named like a
-    CSV file), {data} or the name of a project file filled in for the test's
-    own."""
+    CSV file), {data}, {missing} (a project file that isn't there) or the name of
+    a project file filled in for the test's own."""
     data = data_file(tmp_path, kind)
     (tmp_path / "folder.csv").mkdir()
     names = {
         "directory": tmp_path,
         "folder": tmp_path / "folder.csv",
         "data": data,
+        "missing": tmp_path / "missing.toml",
     }
     for name, text in PROJECT_FILES.items():
         names[name] = tmp_path / f"{name}.toml"

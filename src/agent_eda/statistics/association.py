@@ -686,10 +686,21 @@ def _pairs(
     return pairs
 
 
+# Decimal places at which two absolute values count as tied when pairs are
+# ordered. The sums behind a value run through the BLAS of the machine, whose
+# kernels add in different orders and so differ in the last bits: a relation
+# that holds exactly gives 1.0 on one machine and 0.9999999999999996 on another,
+# and ordering by those bits would order such pairs differently on each.
+TIE_DECIMALS = 12
+
+
 def _strongest_first(pairs: list[AssociationPair]) -> list[AssociationPair]:
     """By absolute value, descending, null values last; stable, so ties keep the
-    selected column order."""
-    return sorted(pairs, key=lambda p: (p.value is None, -abs(p.value or 0.0)))
+    selected column order. Values within rounding error of each other are ties."""
+    return sorted(
+        pairs,
+        key=lambda p: (p.value is None, -round(abs(p.value or 0.0), TIE_DECIMALS)),
+    )
 
 
 def _pair_label(pair: AssociationPair) -> str:

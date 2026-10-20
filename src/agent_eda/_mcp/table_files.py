@@ -30,7 +30,7 @@ from agent_eda._mcp.local_files import (
     path_argument,
     shown,
 )
-from agent_eda._text import MAX_WIDTH, plural
+from agent_eda._text import MAX_WIDTH, plural, quoted_path
 from agent_eda._wording import os_cause
 from agent_eda._written_form import row_id_json
 from agent_eda.errors import InvalidArgumentError, TableFileExistsError
@@ -244,7 +244,7 @@ def _format_of(table_path: str) -> FileFormat:
     if file_format is not None:
         return file_format
     raise InvalidArgumentError(
-        f"table_path {table_path!r} has {extension_text(table_path)}, which the MCP "
+        f"table_path {quoted_path(table_path)} has {extension_text(table_path)}, which the MCP "
         f"server can't write. It writes {extensions(WRITABLE)} files, in upper or "
         "lower case: CSV for any reader, Parquet to keep the dtypes. Pass a path "
         "that ends in one of them."

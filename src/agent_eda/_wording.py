@@ -14,6 +14,7 @@ message, and message(error, "mcp") the MCP one, which the MCP server sends.
 
 import errno
 import json
+import os
 import re
 from collections.abc import Iterable, Mapping
 from typing import Any
@@ -394,6 +395,34 @@ def json_words_in(schema: Any) -> Any:
     return schema
 
 
+# What Windows reports, as OSError.winerror, for a name it can't use. Error 123
+# covers a name that holds a character a file name can't, as the ":" of
+# "http://host/file.csv" does, and one with a part of more than 255 characters;
+# 206 is a whole path that is too long. The errno is the same as for any other
+# invalid argument, so errno alone doesn't tell them apart.
+ERROR_INVALID_NAME = 123
+ERROR_FILENAME_EXCED_RANGE = 206
+# The most characters in one part of a path, on Windows as on Linux and macOS.
+MAX_NAME_LENGTH = 255
+
+
+def _name_too_long(error: BaseException) -> bool:
+    """Whether a part of the path the operating system refused is too long."""
+    path = getattr(error, "filename", None)
+    if not isinstance(path, str | bytes | os.PathLike):
+        return False
+    parts = re.split(r"[\\/]", os.fsdecode(path))
+    return any(len(part) > MAX_NAME_LENGTH for part in parts)
+
+
+def names_nothing(error: BaseException) -> bool:
+    """Whether the operating system refused a path because it holds a character
+    no file name can, which means no file is there to find."""
+    return getattr(
+        error, "winerror", None
+    ) == ERROR_INVALID_NAME and not _name_too_long(error)
+
+
 def os_cause(error: BaseException) -> str:
     """Why the operating system refused a path, in words that say what to
     change: for an OSError, ValueError or RuntimeError raised by resolving a path."""
@@ -404,10 +433,20 @@ def os_cause(error: BaseException) -> str:
         if "home directory" in str(error):
             return "its ~ can't be expanded because no home directory is known for it"
         return "it leads through symbolic links that loop back on themselves"
-    if code == errno.ENAMETOOLONG:
+    winerror = getattr(error, "winerror", None)
+    if (
+        code == errno.ENAMETOOLONG
+        or winerror == ERROR_FILENAME_EXCED_RANGE
+        or (winerror == ERROR_INVALID_NAME and _name_too_long(error))
+    ):
         return (
             "a name in it is longer than 255 characters, or the whole path is "
             "longer than the operating system allows"
+        )
+    if names_nothing(error):
+        return (
+            "it holds a character that a Windows file name can't, such as : * ? "
+            '" < > or |'
         )
     if code == errno.ELOOP:
         return "it leads through symbolic links that loop back on themselves"

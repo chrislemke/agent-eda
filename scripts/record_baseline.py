@@ -14,7 +14,10 @@ major versions allow. Every record names the versions it ran on
 (execution.versions), so `without_environment` blanks their values before a
 digest is taken; a table is written with "\n" line ends, which the operating
 system doesn't choose; and a message names the temporary directory in a form
-that `_stable` replaces on every operating system.
+that `_stable` replaces on every operating system. One analysis needs more: the
+numbers of compute_association_matrix's records are rounded to 10 significant
+digits before a digest is taken (`_rounded`), since the last bits of what BLAS
+sums depend on the CPU.
 
 Refresh it, only when a change is meant to alter a record or a message:
 
@@ -88,6 +91,22 @@ def _digest(text: str) -> str:
     return hashlib.sha256(
         without_environment(text).encode("utf-8", "surrogatepass")
     ).hexdigest()
+
+
+# The records whose numbers hold only so many significant digits: they come from
+# sums that run through the machine's BLAS, which adds in a different order on
+# each CPU and so differs in the last bits, as 0.9999999999999996 from 1.0.
+_BLAS_RECORDS = ("compute_association_matrix | ",)
+_SIGNIFICANT_DIGITS = 10
+_NUMBER = re.compile(r"-?\d+\.\d+(?:[eE][+-]?\d+)?")
+
+
+def _rounded(key: str, text: str) -> str:
+    """The text of a record, with each decimal number of a BLAS record rounded
+    to _SIGNIFICANT_DIGITS digits; any other record whole."""
+    if not key.startswith(_BLAS_RECORDS):
+        return text
+    return _NUMBER.sub(lambda found: f"{float(found[0]):.{_SIGNIFICANT_DIGITS}g}", text)
 
 
 def _table(frame: pd.DataFrame) -> str:
@@ -302,7 +321,7 @@ def _message_records() -> dict[str, Entry]:
             except Exception as error:  # the baseline records any failure
                 records[f"python: {name}"] = {
                     "code": str(getattr(error, "code", type(error).__name__)),
-                    "message": str(error),
+                    "message": str(error).replace("WindowsPath", "PosixPath"),
                     "expected_code": code,
                 }
     try:
@@ -385,7 +404,7 @@ def collect(*, full: bool = False) -> dict[str, Entry]:
     return {
         key: value
         if key.startswith(("python:", "mcp:", "mcp fixes:"))
-        else {part: _digest(text) for part, text in value.items()}
+        else {part: _digest(_rounded(key, text)) for part, text in value.items()}
         for key, value in records.items()
     }
 

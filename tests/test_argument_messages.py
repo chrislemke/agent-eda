@@ -167,7 +167,10 @@ MISTAKES = {
     "project-given-as-a-path-object": (
         lambda: wrong.summarize_categorical(DF, project=pathlib.Path("project.toml")),
         "invalid_argument",
-        ["got a PosixPath for project", "project=ae.Project.load('project.toml')"],
+        [
+            f"got a {type(pathlib.Path()).__name__} for project",
+            "project=ae.Project.load('project.toml')",
+        ],
     ),
     "project-field-misspelled-in-case-only": (
         lambda: wrong.Project(NAME="x"),

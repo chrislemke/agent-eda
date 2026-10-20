@@ -175,9 +175,12 @@ import sys
 import agent_eda as ae
 network = []
 def record(event, args):
-    # An audit hook records every attempt to open a socket or a URL.
+    # An audit hook records every attempt to open a socket or a URL. Reading this
+    # machine's own name reaches no network: pandas' import does it on Windows,
+    # where platform.machine() asks socket.gethostname for the node name.
     if event.split(".")[0] in ("socket", "urllib", "http"):
-        network.append(event)
+        if event != "socket.gethostname":
+            network.append(event)
 sys.addaudithook(record)
 def is_mcp(name):
     # mcp, its submodules, mcp_types, and the package's own MCP modules.
