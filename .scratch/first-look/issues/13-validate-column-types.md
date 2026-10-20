@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: the validate_column_types 
 
 **Blocked by:** 08-project-and-masking, 12-infer-column-semantics
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `schema` is required and maps column names to a logical type or a `ColumnSpec`. `id_column`, `project` and `mask_sensitive` work as in find_duplicate_rows.
 - [x] Per declared column, the result gives the expected logical type, the observed dtype, whether the column is present, and four counts: compatible values, already stored as that type; convertible values, which convert exactly without changing meaning, such as "42" or 42.0 for integer, or text in ISO 8601 or the declared `datetime_format` for datetime; invalid values; and missing values.
@@ -62,3 +62,5 @@ Checks:
 - `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass, and so does `uv run --isolated --resolution lowest-direct --python 3.12 pytest` (numpy 1.26.0, pandas 2.2.0, pydantic 2.7.0, pyarrow 14.0.1), 1441 tests each.
 - The `thorough` profile passed this analysis's properties and both agreement properties on both version sets. Random runs outside the derandomized suite, with frames of up to 30 rows and 8 columns, passed 1,500 examples per seed for the contract checks together with the agreement with infer_column_semantics, and for the no-leak property: seeds 1 to 3 on the latest versions, 4 to 6 on the minimum ones.
 - Not run locally: Linux x86_64 and ARM64, which ticket 05's CI covers, and the 2-vCPU target machine.
+
+Box 14 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

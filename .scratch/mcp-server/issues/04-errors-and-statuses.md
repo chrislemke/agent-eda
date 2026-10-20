@@ -6,7 +6,7 @@ Read these sections of `.scratch/mcp-server/spec.md`: Errors, and test group 4. 
 
 **Blocked by:** 02-every-analysis-as-an-mcp-tool
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] An `AgentEDAError` from an analysis, such as a misspelled column, returns `isError: true` with the exception's message as text and `{"code", "message"}` as structured content, equal to what the Python call raises.
 - [x] The errors from ticket 03 arrive the same way, with their codes.

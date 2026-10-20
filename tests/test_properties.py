@@ -4,23 +4,32 @@ The checks loop over ae.list_analyses() and call each analysis with its recipe
 from tests/recipes.py, so a new analysis is held to them without new tests.
 """
 
+import ast
+import contextlib
 import copy
+import datetime as dt
+import functools
 import json
+import re
 import typing
 import warnings
 from collections.abc import Callable
 from typing import Any
 
+import jsonschema
 import numpy as np
 import pandas as pd
+import pydantic
 import pytest
 from hypothesis import Phase, assume, find, given, settings
 from hypothesis import strategies as st
 from hypothesis.errors import NoSuchExample
+from IPython.core.formatters import DisplayFormatter
 from recipes import RECIPES, Arguments, recipe_for
 from strategies import (
     EDGE_FRAMES,
     LABEL_EDGE_FRAMES,
+    PYTHON_STR,
     STR,
     data_frames,
     frames_with_secrets,
@@ -76,26 +85,65 @@ def test_every_analysis_keeps_the_contract_on_edge_cases(name, frame):
 @pytest.mark.parametrize("name", MASKING)
 @given(data=st.data())
 def test_with_masking_on_no_value_of_a_sensitive_column_reaches_the_result(name, data):
-    recipe = recipe_for(name)
-    df, markers = data.draw(frames_with_secrets(), "data")
-    arguments = recipe.required(df)
-    assume(arguments is not None)  # the data allows no valid call
-    arguments |= data.draw(recipe.options(df), "arguments")
-    arguments |= data.draw(recipe.sensitive_options(df, list(markers)), "showing")
-    arguments |= data.draw(masking_on(list(markers)), "masking")
+    df, markers, arguments = masking_example(name, data)
 
     check_contract(name, df, arguments)
     res = getattr(ae, name)(df, **arguments)
 
     assert res.masking.applied
-    outputs = {"the text": str(res), "to_json()": res.to_json(), **frames_as_text(res)}
-    leaks = [
+    assert leaks_in(res, markers) == [], "raw values of sensitive columns reached it"
+
+
+@pytest.mark.parametrize("name", MASKING)
+def test_most_examples_of_the_no_leak_property_would_leak_with_masking_off(name):
+    """The property can only fail where the result shows sensitive values."""
+    leaked = []
+
+    @settings(max_examples=60)
+    @given(data=st.data())
+    def collect(data):
+        df, markers, arguments = masking_example(name, data)
+        res = getattr(ae, name)(df, **{**arguments, "mask_sensitive": False})
+        leaked.append(bool(leaks_in(res, markers)))
+
+    collect()
+
+    assert len(leaked) >= 20, "too few examples allowed a valid call"
+    assert sum(leaked) * 2 >= len(leaked), (
+        f"only {sum(leaked)} of {len(leaked)} examples of {name} show a sensitive "
+        "value with masking off, so most of them can't catch a leak: fix the "
+        "recipe's sensitive_options"
+    )
+
+
+def masking_example(name: str, data: st.DataObject):
+    """A frame with sensitive columns, its markers and the arguments of a call
+    that masks them and shows their values."""
+    recipe = recipe_for(name)
+    df, markers = data.draw(frames_with_secrets(), "data")
+    required = recipe.required(df)
+    assume(required is not None)  # the data allows no valid call
+    arguments = dict(required or {})
+    arguments |= data.draw(recipe.options(df), "arguments")
+    arguments |= data.draw(recipe.sensitive_options(df, list(markers)), "showing")
+    arguments |= data.draw(masking_on(list(markers)), "masking")
+    return df, markers, arguments
+
+
+def leaks_in(res: Any, markers: dict[str, str]) -> list[str]:
+    """Where a marker of a sensitive value shows in a result's text, record or
+    tables."""
+    renderings = {
+        "the text": str(res),
+        "to_json()": res.to_json(),
+        **frames_as_text(res),
+    }
+    return [
         f"{marker!r} in {where}"
-        for where, text in outputs.items()
+        for where, text in renderings.items()
         for marker in sorted(set(markers.values()))
         if marker in text.lower()
     ]
-    assert leaks == [], "raw values of sensitive columns reached the result"
 
 
 def masking_on(columns: list[str]) -> st.SearchStrategy[Arguments]:
@@ -151,6 +199,16 @@ COLUMN_FEATURES: dict[str, Callable[[pd.Series], bool]] = {
     "pandas 3 strings": lambda s: (
         isinstance(s.dtype, pd.StringDtype) and s.dtype == STR
     ),
+    "strings stored as Python objects": lambda s: (
+        isinstance(s.dtype, pd.StringDtype) and s.dtype.storage == "python"
+    ),
+    "period columns": lambda s: isinstance(s.dtype, pd.PeriodDtype),
+    "interval columns": lambda s: isinstance(s.dtype, pd.IntervalDtype),
+    "ties": lambda s: 2 <= distinct_count(s) < s.count(),
+    "mixed types": lambda s: (
+        str(s.dtype) == "object"
+        and len({type(v) for v in s.tolist() if not is_missing(v)}) >= 2
+    ),
     "categoricals with unused categories": lambda s: (
         isinstance(s.dtype, pd.CategoricalDtype) and s.nunique() < len(s.cat.categories)
     ),
@@ -165,6 +223,23 @@ COLUMN_FEATURES: dict[str, Callable[[pd.Series], bool]] = {
     ),
     "all-missing columns": lambda s: len(s) >= 1 and bool(s.isna().all()),
 }
+
+
+def distinct_count(column: pd.Series) -> int:
+    """How many different values a column holds, told apart by repr so that
+    values that can't be hashed count too."""
+    return len({repr(v) for v in column.tolist() if not is_missing(v)})
+
+
+def is_missing(value: object) -> bool:
+    return (
+        value is None
+        or value is pd.NA
+        or value is pd.NaT
+        or (isinstance(value, float) and value != value)  # NaN
+    )
+
+
 FRAME_FEATURES: dict[str, Callable[[pd.DataFrame], bool]] = {
     "zero rows": lambda df: len(df) == 0,
     "one row": lambda df: len(df) == 1,
@@ -175,9 +250,7 @@ FRAME_FEATURES: dict[str, Callable[[pd.DataFrame], bool]] = {
 def test_generated_frames_cover_every_dtype_family_and_shape():
     seen = set()
 
-    # Hypothesis also draws constants it finds in the package's own modules, so
-    # any new module changes which frames come up, derandomized or not. In 500
-    # frames the rarest feature comes up about a dozen times.
+    # 500 frames cover most features: the rarest comes up about a dozen times.
     @settings(max_examples=500)
     @given(data_frames())
     def collect(df):
@@ -185,9 +258,10 @@ def test_generated_frames_cover_every_dtype_family_and_shape():
 
     collect()
 
-    # Hypothesis also draws literals from the package's own code, so the frames
-    # it draws shift whenever the code gains a constant. Search on for a frame
-    # with each feature the 200 missed before calling it uncovered.
+    # Hypothesis also draws literals it finds in the package's own code, so the
+    # frames it draws shift whenever the code gains a constant. A feature the 500
+    # frames missed gets a search for a frame with it, of up to 1,000 frames,
+    # before it counts as uncovered.
     uncovered = []
     for name in [*FRAME_FEATURES, *COLUMN_FEATURES]:
         if name in seen:
@@ -201,6 +275,35 @@ def test_generated_frames_cover_every_dtype_family_and_shape():
         except NoSuchExample:
             uncovered.append(name)
     assert uncovered == []
+
+
+@pytest.mark.parametrize(
+    ("feature", "column"),
+    [
+        ("ties", pd.Series(["a", "b", "a"])),
+        ("mixed types", pd.Series([1, "a", None], dtype=object)),
+        ("strings stored as Python objects", pd.Series(["a"], dtype=PYTHON_STR)),
+        ("period columns", pd.Series(pd.period_range("2020-01", periods=2, freq="M"))),
+        ("interval columns", pd.Series(pd.interval_range(0.0, 2.0, periods=2))),
+    ],
+)
+def test_the_feature_checks_find_what_their_names_say(feature, column):
+    assert COLUMN_FEATURES[feature](column)
+
+
+@pytest.mark.parametrize(
+    ("feature", "column"),
+    [
+        ("ties", pd.Series(["a", "a", "a"])),  # one value, constant
+        ("ties", pd.Series(["a", "b", "c"])),  # no value repeats
+        ("ties", pd.Series(["a", None, "b"])),  # missing values don't tie
+        ("mixed types", pd.Series([1, 2, None], dtype=object)),
+        ("mixed types", pd.Series([1, "a"], dtype=object)[:1]),
+        ("period columns", pd.Series(["2020-01"])),
+    ],
+)
+def test_the_feature_checks_leave_out_what_their_names_dont_say(feature, column):
+    assert not COLUMN_FEATURES[feature](column)
 
 
 def features_of(df: pd.DataFrame) -> set[str]:
@@ -239,6 +342,7 @@ def check_contract(name: str, df: pd.DataFrame, arguments: Arguments) -> None:
     lines = text.splitlines()
     assert len(lines) <= 40, f"the text has {len(lines)} lines"
     assert max(len(line) for line in lines) <= 120, "a line of the text is too wide"
+    check_record(name, res, record)
 
 
 class Snapshot:
@@ -268,3 +372,294 @@ class Snapshot:
 
 def reject_constant(name):
     raise AssertionError(f"to_json() isn't strict JSON: it holds {name}")
+
+
+def record_classes(
+    base: type[ae.results.ResultModel] = ae.results.ResultModel,
+) -> list[type[ae.results.ResultModel]]:
+    """Every record class of the package, found after the analyses are loaded."""
+    ae.list_analyses()
+    found = []
+    for subclass in base.__subclasses__():
+        found += [subclass, *record_classes(subclass)]
+    return found
+
+
+@functools.cache
+def record_caps() -> dict[str, int]:
+    """The most entries the record keeps of each capped field, by field name.
+
+    Every number comes from the marker on the result class, which `limit_of`
+    reads. A name that two classes cap differently has no one cap.
+    """
+    caps: dict[str, set[int]] = {}
+    for cls in record_classes():
+        for field in cls.model_fields:
+            with contextlib.suppress(ValueError):
+                limit = cls.limit_of(field)
+                caps.setdefault(field, set()).add(limit)
+    assert all(len(found) == 1 for found in caps.values()), caps
+    return {field: found.pop() for field, found in caps.items()}
+
+
+def cap_of(field: str) -> int:
+    """How many entries the record keeps of a list or mapping with this name: its
+    marker's limit, or the limit of entries of anything else."""
+    caps = record_caps()
+    return caps.get(field, caps["findings"])
+
+
+def check_record(name: str, res: Any, text: str) -> None:
+    """What every record promises, beyond being strict JSON."""
+    record = res.to_dict()
+    assert record == json.loads(text), "to_dict() differs from json.loads(to_json())"
+    jsonschema.validate(record, type(res).record_schema())
+    problems = [
+        *capping_problems(record, "record"),
+        *path_problems(res),
+        *support_problems(res),
+        *assessment_problems(name, res),
+        *time_and_html_problems(res, record),
+    ]
+    assert problems == []
+
+
+def pointed_at(record: dict[str, Any]) -> set[str]:
+    """The entries, such as "columns['age']", that the record's paths point at."""
+    entry = re.compile(rf"[A-Za-z_]\w*\[(?:{QUOTED}|[^\]'\"]*)(?:, (?:{QUOTED}))*\]")
+    return {
+        found.group(0)
+        for kind in ("findings", "limitations")
+        for item in record.get(kind, [])
+        for path in item["fields"]
+        if (found := entry.match(path))
+    }
+
+
+def capping_problems(
+    node: object,
+    path: str,
+    pointed: set[str] | None = None,
+    top_n: int | None = None,
+) -> list[str]:
+    """Each list or mapping that exceeds its cap, or whose total doesn't fit.
+
+    A capped list or mapping sits next to `<name>_total` with the full count.
+    Whatever is at its cap is a cut or a coincidence, so it needs its total. A
+    list the caller's top_n cut is short of its total by their choice, which the
+    record's parameters state, so it may hold as few as top_n entries.
+    """
+    problems = []
+    if pointed is None and isinstance(node, dict):
+        pointed = pointed_at(node)
+        parameters = node.get("parameters")
+        if isinstance(parameters, dict):
+            top_n = parameters.get("top_n")
+    if isinstance(node, list):
+        for position, item in enumerate(node):
+            problems += capping_problems(item, f"{path}[{position}]", set(), top_n)
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            where = f"{path}.{key}"
+            if isinstance(value, list | dict):
+                # The record keeps every entry that a finding or limitation points
+                # at, so a top-level list or mapping may hold more than its cap.
+                cap = max(
+                    cap_of(key),
+                    sum(1 for entry in pointed or () if entry.startswith(f"{key}[")),
+                )
+                total = node.get(f"{key}_total")
+                if len(value) > cap:
+                    problems.append(f"{where} has {len(value)} entries, over {cap}")
+                if len(value) == cap and total is None:
+                    problems.append(f"{where} is at its cap of {cap} without a total")
+                floor = cap if top_n is None else min(cap, top_n)
+                if total is not None and len(value) < min(floor, total):
+                    problems.append(
+                        f"{where} holds {len(value)} of {total} entries, short of "
+                        f"min(cap, total) = {min(floor, total)}"
+                    )
+            if key.endswith("_total") and isinstance(value, int):
+                shown = node.get(key.removesuffix("_total"))
+                if isinstance(shown, list | dict) and value < len(shown):
+                    problems.append(f"{where} is {value}, below the {len(shown)} shown")
+            problems += capping_problems(value, where, set(), top_n)
+    return problems
+
+
+# One step of a path: a field after a dot or at the start, or an index, a
+# column's name or a mapping key in brackets, written as repr() writes it.
+QUOTED = r"""'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*\""""
+PATH_STEP = re.compile(
+    r"""\.?(?P<field>[A-Za-z_][A-Za-z0-9_]*)"""
+    rf"""|\[(?P<key>(?:{QUOTED})(?:, (?:{QUOTED}))*|-?[0-9][0-9.e+-]*)\]"""
+)
+
+
+def support_problems(res: Any) -> list[str]:
+    """Where a column's support doesn't add up: its excluded values are the
+    eligible ones the analysis didn't evaluate, and its reasons give their count."""
+    support = res.support
+    problems = []
+    if len(support.columns) > support.column_count:
+        problems.append("support lists more columns than it counts")
+    for column in support.columns:
+        reasons = sum(column.excluded_by_reason.values())
+        if (
+            not 0
+            <= column.evaluated_count
+            <= column.eligible_count
+            <= support.row_count
+        ):
+            problems.append(f"support of {column.column!r}: counts out of order")
+        if column.excluded_count != column.eligible_count - column.evaluated_count:
+            problems.append(f"support of {column.column!r}: excluded isn't the rest")
+        if column.excluded_count != reasons:
+            problems.append(f"support of {column.column!r}: reasons give {reasons}")
+    return problems
+
+
+def path_problems(res: Any) -> list[str]:
+    """The field paths of findings and limitations that don't resolve."""
+    problems = []
+    for kind in ("findings", "limitations"):
+        for item in getattr(res, kind):
+            problems += [
+                f"{kind} {item.code}: {path}"
+                for path in item.fields
+                if not resolves_on(res, path)
+            ]
+    return problems
+
+
+def resolves_on(res: Any, path: str) -> bool:
+    """Whether a path such as "columns['age'].missing_count" finds a field of res."""
+    current = res
+    position = 0
+    while position < len(path):
+        step = PATH_STEP.match(path, position)
+        if step is None:
+            return False
+        position = step.end()
+        found = step_into(current, step["field"], step["key"])
+        if found is MISSING:
+            return False
+        current = found
+    return position > 0
+
+
+MISSING = object()
+
+
+def step_into(current: Any, field: str | None, key: str | None) -> Any:
+    """What a field or a bracketed key of a path finds in `current`, or MISSING."""
+    if field is not None:
+        if isinstance(current, dict):
+            return current.get(field, MISSING)
+        return (
+            getattr(current, field) if field in type(current).model_fields else MISSING
+        )
+    value = ast.literal_eval(key or "")
+    if isinstance(current, dict):
+        return current.get(value, MISSING)
+    if isinstance(value, tuple):
+        # An association pair is read by its two columns.
+        pairs = [
+            entry
+            for entry in current
+            if (getattr(entry, "x_column", None), getattr(entry, "y_column", None))
+            == value
+        ]
+        return pairs[0] if len(pairs) == 1 else MISSING
+    if isinstance(value, int) and not isinstance(value, bool):
+        return current[value] if 0 <= value < len(current) else MISSING
+    # A list of one entry per column is read by the column's name.
+    named = [entry for entry in current if getattr(entry, "column", None) == value]
+    return named[0] if len(named) == 1 else MISSING
+
+
+def assessment_problems(name: str, res: Any) -> list[str]:
+    """Each finding whose code or assessment isn't the one the docstring gives."""
+    documented = {
+        code.code: (code.description or "").partition("; ")[0]
+        for code in ae.describe_analysis(name).finding_codes
+    }
+    problems = []
+    for finding in res.findings:
+        if finding.code not in documented:
+            problems.append(f"{finding.code} isn't a declared finding code")
+        elif finding.assessment != documented[finding.code]:
+            problems.append(
+                f"{finding.code} is {finding.assessment}, the docstring says "
+                f"{documented[finding.code]}"
+            )
+    return problems
+
+
+# Words in a field's name that say it holds a moment or how long a run took.
+TIME_WORDS = {
+    "timestamp",
+    "time",
+    "created",
+    "generated",
+    "started",
+    "finished",
+    "duration",
+    "elapsed",
+    "runtime",
+    "seconds",
+    "at",
+}
+VERSION = re.compile(r"[0-9][0-9A-Za-z.+!_-]*")
+
+
+def time_and_html_problems(res: Any, record: dict[str, Any]) -> list[str]:
+    """Timestamps, durations and HTML, which a result never holds."""
+    problems = []
+    for model in models_of(type(res)):
+        for field_name, field in model.model_fields.items():
+            if TIME_WORDS & set(field_name.lower().split("_")):
+                problems.append(f"{model.__name__}.{field_name} reads as a time")
+            if any(
+                isinstance(part, type) and issubclass(part, datetime_types)
+                for part in annotation_parts(field.annotation)
+            ):
+                problems.append(f"{model.__name__}.{field_name} is a time type")
+    problems += [
+        f"versions of {library!r} is {version!r}"
+        for library, version in record["execution"]["versions"].items()
+        if not VERSION.fullmatch(version)
+    ]
+    shown, _ = DisplayFormatter().format(res)
+    if shown != {"text/plain": str(res)}:
+        problems.append(f"it displays as {sorted(shown)}, not as plain text alone")
+    for display in ("_repr_html_", "_repr_mimebundle_", "to_html"):
+        if hasattr(res, display):
+            problems.append(f"it has {display}")
+    return problems
+
+
+datetime_types = (dt.date, dt.time, dt.timedelta, pd.Timestamp, pd.Timedelta)
+
+
+def models_of(model: type[pydantic.BaseModel]) -> list[type[pydantic.BaseModel]]:
+    """Every pydantic model class reachable from the fields of `model`."""
+    found = [model]
+    for candidate in found:
+        for field in candidate.model_fields.values():
+            for part in annotation_parts(field.annotation):
+                if (
+                    isinstance(part, type)
+                    and issubclass(part, pydantic.BaseModel)
+                    and part not in found
+                ):
+                    found.append(part)
+    return found
+
+
+def annotation_parts(annotation: object) -> list[object]:
+    """An annotation and every type inside it."""
+    parts = [annotation]
+    for argument in typing.get_args(annotation):
+        parts += annotation_parts(argument)
+    return parts

@@ -3,6 +3,7 @@
 import collections.abc
 import doctest
 import inspect
+import itertools
 import re
 import types
 import typing
@@ -23,10 +24,30 @@ SECTIONS = ["When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See 
 NOT_COLUMN_NAMES = {"source", "source_version", "expected_labels"}
 # Parameters that map column names to a setting for each column, named after
 # the setting as the spec names them. They must take a mapping keyed by str.
-KEYED_BY_COLUMN = {"declared_schema", "schema", "sentinel_values"}
+KEYED_BY_COLUMN = {"schema", "sentinel_values"}
+# The most analyses a docstring names as alternatives, in When to use: and in See Also:.
+MOST_ALTERNATIVES = 3
+# Discovery functions, which are no analyses and so no alternatives (STD-21).
+DISCOVERY = {"guide", "list_analyses", "search_analyses", "describe_analysis"}
 ENTRY = re.compile(r"^    ([A-Za-z_][A-Za-z0-9_]*)(?: \([^)]*\))?:(?: |$)")
 REFERENCE = re.compile(r"`([A-Za-z_][A-Za-z0-9_.]*)(?:\(\))?`")
 SNAKE_CASE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+# The footer of a printed result: one "More:" line, wrapped lines indented.
+FOOTER = re.compile(r"^More:.*(?:\n    .*)*", flags=re.MULTILINE)
+
+
+class FooterBlindChecker(doctest.OutputChecker):
+    """Compares printed results in docstring examples without their footer.
+
+    The footer's wording is pinned once, by the golden test of the text template
+    in tests/test_result_text.py, so rewording it fails that test and not the
+    example of every analysis.
+    """
+
+    def check_output(self, want, got, optionflags):
+        return super().check_output(
+            FOOTER.sub("More: ...", want), FOOTER.sub("More: ...", got), optionflags
+        )
 
 
 @pytest.fixture(params=ANALYSES)
@@ -79,11 +100,93 @@ def test_args_document_every_parameter_and_nothing_else(name):
     assert documented == list(inspect.signature(getattr(ae, name)).parameters)
 
 
+def args_of(name):
+    """Each parameter's Args entry as (type, text), by name: the entry
+    `name (type): text`, wrapped lines joined."""
+    found = {}
+    entry = None
+    for line in sections(name)["Args:"].splitlines():
+        if re.match(r"^    [A-Za-z_]", line):
+            entry = found.setdefault(line.strip().split(" ")[0].rstrip(":"), [])
+        if entry is not None and line.strip():
+            entry.append(line.strip())
+    return {
+        parameter: split_type(" ".join(lines)) for parameter, lines in found.items()
+    }
+
+
+def split_type(entry):
+    """The type in the parentheses after the name, even when it holds brackets
+    and parentheses, and the text after the colon; None for an entry without a type."""
+    rest = entry.partition(" ")[2]
+    if not rest.startswith("("):
+        return None, rest
+    depth = 0
+    for position, char in enumerate(rest):
+        depth += (char == "(") - (char == ")")
+        if depth == 0:
+            if rest[position + 1 : position + 2] != ":":
+                break
+            return rest[1:position], rest[position + 2 :].strip()
+    return None, rest
+
+
+def annotation_text(parameter):
+    """The type an agent reads in describe_analysis, as the docstring writes it."""
+    return parameter.type.replace("pd.", "")
+
+
+def test_args_give_each_parameter_its_type_as_the_signature_declares_it(name):
+    described = {p.name: p for p in ae.describe_analysis(name).parameters}
+
+    written = {
+        parameter: (given or "").replace("pd.", "")
+        for parameter, (given, _) in args_of(name).items()
+    }
+
+    assert written == {p: annotation_text(d) for p, d in described.items()}
+
+
+def test_args_list_every_choice_of_a_parameter_that_takes_fixed_choices(name):
+    missing = []
+    for parameter in ae.describe_analysis(name).parameters:
+        _, text = args_of(name)[parameter.name]
+        for choice in parameter.allowed_values or []:
+            if f"'{choice}'" not in text and f"{choice!r}" not in text:
+                missing.append(f"{parameter.name}: {choice}")
+
+    assert missing == []
+
+
+def test_args_say_what_none_means_for_a_parameter_that_takes_it(name):
+    silent = []
+    for parameter in ae.describe_analysis(name).parameters:
+        given, text = args_of(name)[parameter.name]
+        if "None" in (given or "") and "None" not in text and "null" not in text:
+            silent.append(parameter.name)
+
+    assert silent == []
+
+
 def test_returns_names_every_declared_finding_code(name):
     body = sections(name)["Returns:"]
 
     missing = [code for code in INFO[name].finding_codes if code not in body]
     assert missing == []
+
+
+def test_returns_gives_each_finding_code_its_assessment_before_a_semicolon(name):
+    # The README's Reference copies the assessment from the bullet, as in
+    # "- `constant_columns`: suspected; a column holds one distinct value".
+    assessments = {"descriptive", "suspected", "violation", "passed", "unknown"}
+
+    for code in ae.describe_analysis(name).finding_codes:
+        assessment, _, claim = (code.description or "").partition("; ")
+        assert assessment in assessments, (
+            f"{name}: start the Returns: bullet of `{code.code}` with its assessment, "
+            f"one of {sorted(assessments)}, then a semicolon and the claim."
+        )
+        assert claim, f"{name}: `{code.code}` has an assessment but no claim."
 
 
 def test_statuses_list_exactly_the_declared_statuses(name):
@@ -102,6 +205,59 @@ def test_see_also_and_when_to_use_name_only_what_exists(name):
     assert see_also
     unknown = [ref for ref in see_also + references + words if not resolves(ref)]
     assert unknown == []
+    # See Also lists alternatives, so each entry is another analysis, never a
+    # discovery function such as list_analyses (STD-21).
+    not_analyses = [ref for ref in see_also if ref not in ANALYSES or ref == name]
+    assert not_analyses == []
+    assert DISCOVERY.isdisjoint(references + words)
+
+
+def named_analyses(name, text):
+    """The other analyses a docstring section names, each once, in order."""
+    found = REFERENCE.findall(text) + SNAKE_CASE.findall(text)
+    return list(dict.fromkeys(ref for ref in found if ref in ANALYSES and ref != name))
+
+
+def test_when_to_use_names_its_trigger_and_at_most_three_alternatives(name):
+    named = named_analyses(name, sections(name)["When to use:"])
+
+    assert len(named) <= MOST_ALTERNATIVES, (
+        f"{name}: When to use: names {len(named)} other analyses, {named}. Name the "
+        f"trigger and the {MOST_ALTERNATIVES} alternatives an agent most needs, and "
+        "let search_analyses find the rest."
+    )
+
+
+def test_see_also_lists_at_most_three_analyses(name):
+    listed = entries(sections(name)["See Also:"])
+
+    assert 1 <= len(listed) <= MOST_ALTERNATIVES, f"{name}: See Also: lists {listed}"
+
+
+def first_look_steps(capsys):
+    """The analyses of ae.guide()'s first-look order, in order."""
+    ae.guide()
+    lines = capsys.readouterr().out.splitlines()
+    start = lines.index("A first look at a new dataset, in this order:") + 1
+    steps = []
+    for line in lines[start:]:
+        step = re.fullmatch(r"  \d+\. ([a-z_ ]+): .+", line)
+        if not step:
+            break
+        steps.extend(step[1].split(" and "))
+    return steps
+
+
+def test_each_first_look_analysis_points_to_the_next_step_in_see_also(capsys):
+    steps = first_look_steps(capsys)
+
+    assert len(steps) == 11
+    missing = [
+        f"{current} -> {following}"
+        for current, following in itertools.pairwise(steps)
+        if following not in entries(sections(current)["See Also:"])
+    ]
+    assert missing == []
 
 
 def test_every_result_field_has_a_description(name):
@@ -159,7 +315,9 @@ def test_searching_for_its_name_finds_it_first(name):
 
 def test_examples_run_and_print_a_result(name):
     func = getattr(ae, name)
-    runner = doctest.DocTestRunner(optionflags=doctest.ELLIPSIS)
+    runner = doctest.DocTestRunner(
+        checker=FooterBlindChecker(), optionflags=doctest.ELLIPSIS
+    )
     report = []
     tests = doctest.DocTestFinder(recurse=False).find(func, name=name, globs={})
     for test in tests:
@@ -189,6 +347,8 @@ def test_parameters_that_take_names_end_in_column_or_columns(name):
 
 def keyed_by_str(annotation):
     """Whether an annotation takes a mapping keyed by str, alone or with None."""
+    if typing.get_origin(annotation) is typing.Annotated:
+        annotation = typing.get_args(annotation)[0]
     union = typing.get_origin(annotation) in (typing.Union, types.UnionType)
     return any(
         typing.get_origin(member) in (collections.abc.Mapping, dict)

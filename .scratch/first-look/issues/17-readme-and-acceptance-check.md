@@ -6,7 +6,7 @@ Read these sections of `.scratch/first-look/spec.md`: Docs and records, plus the
 
 **Blocked by:** 05-ci-workflow, 09-project-files, 11-detect-missing-sentinels, 13-validate-column-types, 14-find-candidate-keys, 15-profile-target, 16-compute-association-matrix
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The README's planned usage becomes real usage that runs as written, and its status line says what 0.1 contains.
 - [x] The README shows the first-look order and how to switch on masking, and calls masking a guardrail, not anonymization or access control.
@@ -79,3 +79,7 @@ Not checked locally, or still open:
 
 - Linux x86_64 and ARM64, which ticket 05's CI covers once the repo is on GitHub. The 2-vCPU, 8 GB target, whose per-core speed against an M3 Max core nobody has measured. The benchmark's peak memory of 2.24 GiB fits in 8 GB.
 - Two open points from earlier tickets, outside this one. pandas' factorize stops text at a NUL character, so summarize_categorical, describe_dataset and find_duplicate_rows still count '' and '\x00a' as one value (ticket 11). And the glossary gaps that tickets 06, 10, 13, 14 and 15 left for /domain-modeling remain: level, native missing value, compatible and convertible values, key and primary key, and target, class and label.
+
+Box 1 is superseded in part: commit 2e5abfc rewrote the README as a classic project README, which has no status line saying what 0.1 contains.
+
+Box 7 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

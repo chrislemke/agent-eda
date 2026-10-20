@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pytest
 from hypothesis import strategies as st
 
@@ -159,6 +160,13 @@ def hashable_names(data: pd.DataFrame) -> list[str]:
     return found
 
 
+def is_dictionary(dtype: Any) -> bool:
+    """pyarrow's dictionary type: the Arrow form of a categorical."""
+    return isinstance(dtype, pd.ArrowDtype) and pa.types.is_dictionary(
+        dtype.pyarrow_dtype
+    )
+
+
 def is_number_or_boolean(dtype: Any) -> bool:
     """Integers, floats and booleans, nullable and pyarrow-backed ones included."""
     if isinstance(dtype, pd.CategoricalDtype):
@@ -171,7 +179,7 @@ def is_number_or_boolean(dtype: Any) -> bool:
 
 def is_pairable(dtype: Any) -> bool:
     """Numbers, booleans, text, objects and categoricals, whatever their storage."""
-    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype):
+    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype) or is_dictionary(dtype):
         return True
     if is_number_or_boolean(dtype):
         return True
@@ -194,6 +202,9 @@ def association_options(data: pd.DataFrame) -> st.SearchStrategy[Arguments]:
             categorical_method=st.sampled_from(
                 choices("compute_association_matrix", "categorical_method")
             ),
+            mixed_method=st.sampled_from(
+                choices("compute_association_matrix", "mixed_method")
+            ),
             max_categories=st.integers(2, 60),
             max_pairs=st.integers(1, 6_000),
         )
@@ -201,11 +212,19 @@ def association_options(data: pd.DataFrame) -> st.SearchStrategy[Arguments]:
 
 
 def has_countable_values(dtype: Any) -> bool:
-    """Text, object, categorical, boolean and numeric columns, pyarrow ones too."""
-    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype):
+    """Text, object, categorical, boolean and numeric columns, pyarrow ones too.
+
+    Period and interval columns aren't among them: summarize_categorical raises
+    for one that is named, and leaves it out by default.
+    """
+    if isinstance(dtype, pd.PeriodDtype | pd.IntervalDtype):
+        return False
+    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype) or is_dictionary(dtype):
         return True
     if isinstance(dtype, pd.ArrowDtype):
         return dtype.kind in "biufU" or pd.api.types.is_numeric_dtype(dtype)
+    if isinstance(dtype, pd.SparseDtype):  # only sparse numbers and booleans
+        return dtype.kind in "biuf"
     return dtype.kind in "biufO"
 
 
@@ -227,7 +246,9 @@ def sentinel_candidates(column: pd.Series) -> list[Any]:
     kept = [
         value for value in (_sentinel(v) for v in values.tolist()) if value is not None
     ]
-    kinds = {type(value) for value in kept}
+    # Sorted by name: a set of types iterates in an order that depends on their
+    # addresses, which differ from one process to the next.
+    kinds = sorted({type(value) for value in kept}, key=lambda kind: kind.__name__)
     stand_ins = {str: "N/A", int: 0, float: -999.0}
     kept.extend(stand_ins[kind] for kind in kinds if kind in stand_ins)
     return list(dict.fromkeys(kept))
@@ -324,6 +345,23 @@ def sentinels_of_sensitive_columns(
         "columns": columns,
         "sentinel_values": declared or None,
     }
+
+
+@st.composite
+def declared_values_of_sensitive_columns(
+    draw: st.DrawFn, data: pd.DataFrame, sensitive: list[str]
+) -> Arguments:
+    """Arguments that make profile_missing_values show sensitive values: every
+    column selected, and some of each sensitive column's own values declared."""
+    labels = {str(label): label for label in data.columns}
+    declared = {
+        name: draw(
+            st.lists(st.sampled_from(values), min_size=1, max_size=3, unique=True)
+        )
+        for name in sensitive
+        if (values := sentinel_candidates(data[labels[name]]))
+    }
+    return {"columns": None, "sentinel_values": declared or None}
 
 
 @st.composite
@@ -531,12 +569,17 @@ RECIPES: dict[str, Recipe] = {
                 id_column=column_names(hashable_names(data)),
             )
         ),
-        # Row IDs from a sensitive id_column.
-        sensitive_options=lambda data, sensitive: optional(
-            id_column=st.sampled_from(sensitive)
+        # Every column compared, so the rows that frames_with_secrets repeats
+        # always form groups, and row IDs from a sensitive id_column.
+        sensitive_options=lambda data, sensitive: st.fixed_dictionaries(
+            {"columns": st.none(), "id_column": st.sampled_from(sensitive)}
         ),
     ),
-    "profile_missing_values": Recipe(options=missing_value_arguments),
+    "profile_missing_values": Recipe(
+        options=with_masking(missing_value_arguments),
+        # Declared values among the sensitive columns' own values.
+        sensitive_options=declared_values_of_sensitive_columns,
+    ),
     "profile_target": Recipe(
         required=first_label_target,
         options=with_masking(target_arguments),
@@ -570,8 +613,8 @@ RECIPES: dict[str, Recipe] = {
     "infer_column_semantics": Recipe(
         options=lambda data: optional(
             columns=column_lists(names(data, any_dtype)),
-            declared_schema=st.none()
-            | declared_schemas(data, "infer_column_semantics", "declared_schema"),
+            schema=st.none()
+            | declared_schemas(data, "infer_column_semantics", "schema"),
         ),
     ),
     "validate_column_types": Recipe(

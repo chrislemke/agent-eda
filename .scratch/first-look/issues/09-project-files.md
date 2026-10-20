@@ -6,7 +6,7 @@ Read these sections of `.scratch/first-look/spec.md`: Project, data policy and m
 
 **Blocked by:** 08-project-and-masking
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `Project.load(path)` reads TOML with the standard library. The file has `name` at the top level and a `data_policy` table that mirrors the DataPolicy fields.
 - [x] `project.save(path, overwrite=False)` writes the same format deterministically, without a TOML-writing dependency, and refuses to overwrite an existing file unless `overwrite=True`.

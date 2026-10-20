@@ -1,6 +1,8 @@
 """Packaging checks, each in a fresh interpreter, as a sandboxed agent would run."""
 
+import json
 import os
+import py_compile
 import subprocess
 import sys
 import zipfile
@@ -112,56 +114,107 @@ print(ae.describe_analysis("summarize_numeric"))
     assert "  trim_fraction: float = 0.1; 0 <= trim_fraction < 0.5" in lines
 
 
-# Each discovery function as an agent calls it, its text printed.
-DISCOVERY_CALLS = [
-    "print(ae.list_analyses())",
-    "ae.guide()",
-    "print(ae.search_analyses('nulls per column').to_json())",
-    "[print(ae.describe_analysis(i.name).to_json()) for i in ae.list_analyses().analyses]",
-]
-
-
-@pytest.mark.parametrize(
-    "call", DISCOVERY_CALLS, ids=["list", "guide", "search", "describe"]
-)
-def test_discovery_leaves_scipy_statsmodels_sklearn_and_the_network_alone(call):
-    # An audit hook records every attempt to open a socket or a URL.
+def test_a_zip_without_source_files_still_gives_every_code_its_meaning(tmp_path):
+    # Only bytecode, so nothing can read the source of a module back.
+    package = Path(ae.__file__).parent
+    archive = tmp_path / "agent_eda_bytecode.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for path in sorted(package.rglob("*")):
+            if "__pycache__" in path.parts or not path.is_file():
+                continue
+            name = path.relative_to(package.parent)
+            if path.suffix == ".py":
+                compiled = tmp_path / "compiled.pyc"
+                py_compile.compile(str(path), cfile=str(compiled), doraise=True)
+                bundle.write(compiled, str(name.with_suffix(".pyc")))
+            else:
+                bundle.write(path, str(name))
     code = f"""
+import sys
+sys.path.insert(0, {str(archive)!r})
+import agent_eda as ae
+assert ae.__file__.startswith({str(archive)!r}), ae.__file__
+description = ae.describe_analysis("describe_dataset")
+codes = [*description.limitation_codes]
+for status in description.statuses:
+    codes += status.reason_codes
+assert codes and all(entry.meaning for entry in codes), codes
+print(len(codes))
+"""
+
+    out = run_python(code, args=("-I",), cwd=tmp_path)
+
+    assert int(out) > 10
+
+
+# The steps an agent takes first, in order: import the package, then call each
+# discovery function and print its text.
+IMPORT_STEPS = {
+    "import": "pass",
+    "list": "print(ae.list_analyses())",
+    "guide": "ae.guide()",
+    "search": "print(ae.search_analyses('nulls per column').to_json())",
+    "describe": (
+        "[print(ae.describe_analysis(i.name).to_json()) "
+        "for i in ae.list_analyses().analyses]"
+    ),
+}
+
+
+@pytest.fixture(scope="module")
+def imports():
+    """What each step of IMPORT_STEPS newly loads or reaches, from one interpreter.
+
+    Starting an interpreter and importing pandas costs most of a second, so the
+    steps run in one, in order, and each step reports what appeared since the
+    step before it.
+    """
+    code = f"""
+import json
 import sys
 import agent_eda as ae
 network = []
 def record(event, args):
+    # An audit hook records every attempt to open a socket or a URL. Reading this
+    # machine's own name reaches no network: pandas' import does it on Windows,
+    # where platform.machine() asks socket.gethostname for the node name.
     if event.split(".")[0] in ("socket", "urllib", "http"):
-        network.append(event)
+        if event != "socket.gethostname":
+            network.append(event)
 sys.addaudithook(record)
-{call}
+def is_mcp(name):
+    # mcp, its submodules, mcp_types, and the package's own MCP modules.
+    return any(part.lstrip("_").startswith("mcp") for part in name.split("."))
 heavy = {{"scipy", "statsmodels", "sklearn"}}
-print("heavy:", sorted(name for name in sys.modules if name.split(".")[0] in heavy))
-print("network:", sorted(set(network)))
+seen = {{"heavy": set(), "mcp": set(), "network": set()}}
+report = {{}}
+for step, call in {IMPORT_STEPS!r}.items():
+    exec(call)
+    now = {{
+        "heavy": {{n for n in sys.modules if n.split(".")[0] in heavy}},
+        "mcp": {{n for n in sys.modules if is_mcp(n)}},
+        "network": set(network),
+    }}
+    report[step] = {{kind: sorted(now[kind] - seen[kind]) for kind in now}}
+    for kind in now:
+        seen[kind] |= now[kind]
+print("report:", json.dumps(report))
 """
-
-    lines = run_python(code, args=("-I", *STRICT_WARNINGS)).splitlines()
-
-    assert lines[-2:] == ["heavy: []", "network: []"]
+    last = run_python(code, args=("-I", *STRICT_WARNINGS)).splitlines()[-1]
+    return json.loads(last.removeprefix("report: "))
 
 
-@pytest.mark.parametrize(
-    "call",
-    ["pass", *DISCOVERY_CALLS],
-    ids=["import", "list", "guide", "search", "describe"],
-)
-def test_the_package_and_discovery_import_no_mcp_module(call):
-    code = f"""
-import sys
-import agent_eda as ae
-{call}
-mcp = {{"mcp", "mcp_types", "agent_eda.mcp", "agent_eda._mcp_server"}}
-print("mcp:", sorted(n for n in sys.modules if n in mcp or n.startswith("mcp.")))
-"""
+@pytest.mark.parametrize("step", list(IMPORT_STEPS))
+def test_discovery_leaves_scipy_statsmodels_sklearn_and_the_network_alone(
+    imports, step
+):
+    assert imports[step]["heavy"] == []
+    assert imports[step]["network"] == []
 
-    lines = run_python(code, args=("-I", *STRICT_WARNINGS)).splitlines()
 
-    assert lines[-1] == "mcp: []"
+@pytest.mark.parametrize("step", list(IMPORT_STEPS))
+def test_the_package_and_discovery_import_no_mcp_module(imports, step):
+    assert imports[step]["mcp"] == []
 
 
 def test_identical_calls_give_identical_json_under_different_hash_seeds():
@@ -177,12 +230,12 @@ df["tier"] = pd.Categorical(["gold", "silver", "gold", "bronze"])
 print(ae.describe_dataset(df, source="shop.csv").to_json())
 """
 
-    outputs = {
+    printed = {
         run_python(code, env={**os.environ, "PYTHONHASHSEED": seed})
         for seed in ("1", "2", "3")
     }
 
-    assert len(outputs) == 1
+    assert len(printed) == 1
 
 
 def test_search_and_descriptions_are_identical_under_different_hash_seeds():
@@ -194,12 +247,12 @@ for info in ae.list_analyses().analyses:
     print(ae.describe_analysis(info.name).to_json())
 """
 
-    outputs = {
+    printed = {
         run_python(code, env={**os.environ, "PYTHONHASHSEED": seed})
         for seed in ("1", "2", "3")
     }
 
-    assert len(outputs) == 1
+    assert len(printed) == 1
 
 
 def test_the_mcp_server_without_the_extra_names_the_install_commands():
@@ -242,7 +295,9 @@ def test_package_code_never_reads_files_through_dunder_file():
     sources = sorted((ROOT / "src" / "agent_eda").rglob("*.py"))
 
     assert sources
-    assert [p.name for p in sources if "__file__" in p.read_text()] == []
+    assert [
+        p.name for p in sources if "__file__" in p.read_text(encoding="utf-8")
+    ] == []
 
 
 def run_python(code, *, args=(), env=None, cwd=None):

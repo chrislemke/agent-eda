@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: the find_candidate_keys en
 
 **Blocked by:** 03-property-tests-and-benchmark, 04-discovery
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `max_key_size` defaults to 2 and `max_combinations` to 10,000, and the result records both.
 - [x] The search covers single columns, then combinations in increasing size, and keeps only minimal keys. It skips supersets of any key it has found.
@@ -65,3 +65,5 @@ Checks:
 - A scratch script compared keys and rankings with brute force (pandas counts of every set) on 340 random frames, 280 of 300 to 40,000 rows and 60 of 70,000 to 100,000, where the every-4th-row check runs. Keys always agreed, and every proven ranking matched the brute-force top 10.
 - Checking the 40-column frame against an exact count of every pair caught a bug: when the work limit stopped the ranking, sets it had already counted could miss the list. They now enter the list as soon as they are counted, and the work-limit test checks that all 10 listed sets are pairs.
 - Not run locally: Linux x86_64 and ARM64, and the 2-vCPU target machine. Ticket 05's CI covers the first two.
+
+Box 16 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

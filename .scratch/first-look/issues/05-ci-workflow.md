@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: CI and test group 8 under 
 
 **Blocked by:** 03-property-tests-and-benchmark
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] A GitHub Actions workflow has these jobs:
   - lint: `ruff check`, `ruff format --check` and `ty`

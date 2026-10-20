@@ -6,7 +6,7 @@ Read these sections of `.scratch/mcp-server/spec.md`: Project and masking, and t
 
 **Blocked by:** 04-errors-and-statuses
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] MCP tools of analyses that take `project` have `project_path` (string or null) in place of `project` and keep `mask_sensitive`; the other MCP tools have neither.
 - [x] `project_path` loads with `Project.load`; a missing or invalid file returns its `ProjectFileError` code and message as a tool error.

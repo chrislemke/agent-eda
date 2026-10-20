@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: the profile_target entry u
 
 **Blocked by:** 08-project-and-masking
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `target_column` and `task` are required. `task` is a literal of `binary_classification`, `multiclass_classification` and `regression`. `expected_labels` and `rare_share` are optional with no defaults, and `rare_share` lies between 0 and 1. `id_column`, `project` and `mask_sensitive` work as in find_duplicate_rows.
 - [x] For classification, the result gives the class counts and shares over valid labels, the number of classes, the majority and minority shares, the imbalance ratio, the missing labels, the labels outside `expected_labels` with counts and example row IDs, and the rare classes when `rare_share` is given.
@@ -67,3 +67,5 @@ Checks:
 - The `thorough` profile passed for profile_target's contract, no-leak, value_counts and regression properties on both version sets. Random runs outside the derandomized suite, with frames of up to 30 rows and 8 columns, passed 1,000 examples per seed and property: seeds 1 to 3 with the latest versions and 4 to 6 with the minimum ones.
 - A probe found no raw value in the text, the record, `to_frame()` or a pickled copy for a masked categorical target with unused categories and an expected label that never occurs, or for a masked target that is its own id_column, and checked MultiIndex and datetime row IDs, mixed object labels, integers beyond 2^53 and column labels that aren't strings.
 - Not run locally: Linux x86_64 and ARM64, which ticket 05's CI covers, and the 2-vCPU target machine.
+
+Box 13 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

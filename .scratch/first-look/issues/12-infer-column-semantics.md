@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: the infer_column_semantics
 
 **Blocked by:** 03-property-tests-and-benchmark, 04-discovery
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `ae.LogicalType` is a literal with the values `boolean`, `integer`, `float`, `categorical`, `text`, `datetime` and `timedelta`. The spec left the values open, and this set was agreed when the tickets were cut. GLOSSARY.md's Logical type entry lists them.
 - [x] `ae.ColumnSpec` holds a logical type, `nullable` and an optional `datetime_format`. An invalid spec raises `InvalidArgumentError` in the package's message format, never a raw pydantic error.
@@ -71,3 +71,5 @@ Checks:
 
 - `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass. `uv run --isolated --resolution lowest-direct --python 3.12 pytest` passed with numpy 1.26.0, pandas 2.2.0 and pydantic 2.7.0 and left `uv.lock` unchanged. The `thorough` Hypothesis profile passed, and random runs of the property checks passed 4,500 examples each on pandas 3.0.6 and on pandas 2.2.0, with frames of up to 30 rows and 8 columns.
 - Not run locally: Linux and the 2-vCPU target machine; ticket 05's CI covers them.
+
+Box 15 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

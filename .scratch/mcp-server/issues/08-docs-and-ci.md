@@ -6,7 +6,7 @@ Read these sections of `.scratch/mcp-server/spec.md`: Docs and records, CI. Cove
 
 **Blocked by:** 06-table-path, 07-discovery
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The README has an "Use over MCP" section: install, `claude mcp add agent-eda -- agent-eda-mcp` with and without `--project`, a generic `mcpServers` JSON snippet, the data path rules, `table_path`, and the masking caveat. The Development table and the CLAUDE.md commands cover running the MCP tests.
 - [x] The repo's `.mcp.json` runs `uv run --extra mcp agent-eda-mcp`, and a manual session in Claude Code lists and calls the analyses (recorded in the comments).
@@ -33,6 +33,6 @@ claude -p "Using only the agent-eda MCP server: 1) list the names of all MCP too
 
 `shop.csv` held `city,score,note` with an `N/A`, an empty field and a `-999`. Claude Code started the MCP server through `.mcp.json` (`uv run --extra mcp agent-eda-mcp`), listed all 13 MCP tools (the 11 analyses, `search_analyses` and `list_analyses`) and called both. `describe_dataset` completed on 4 rows x 3 columns. `detect_missing_sentinels` found `-999` in `score` and `N/A` in `note` as suspected sentinel values.
 
-**Open point for the orchestrator:** the model in that session saw only the structured content (the JSON record), not the text content (the printed result). The MCP server sends both: `tests/smoke_mcp.py` and the stdio tests read the text from the same response. So Claude Code 2.1.302 shows the model `structuredContent` alone when a result has both. Over Claude Code, an agent then gets the full record but not the at-most-40-line text, which goes against what the instructions and user story 19 promise. Possible responses: leave it, since the record is complete; say in the instructions that some clients show only the record; or drop the output schema and structured content for Claude Code, at the cost of user story 20. Not changed here.
+**Open point for the orchestrator (settled in ADR 0006: the server keeps both parts, text and record, and its instructions don't promise that the caller sees the text):** the model in that session saw only the structured content (the JSON record), not the text content (the printed result). The MCP server sends both: `tests/smoke_mcp.py` and the stdio tests read the text from the same response. So Claude Code 2.1.302 shows the model `structuredContent` alone when a result has both. Over Claude Code, an agent then gets the full record but not the at-most-40-line text, which goes against what the instructions and user story 19 promise. Possible responses: leave it, since the record is complete; say in the instructions that some clients show only the record; or drop the output schema and structured content for Claude Code, at the cost of user story 20. Not changed here.
 
 Checks: `ruff check`, `ruff format`, `ty check` and `pytest` pass on the latest versions (with `--extra mcp`, local uv 0.10.11; 2083 passed), and in both minimum-versions runs (core: 1840 passed, MCP modules skipped; with the extra: 2083 passed). `tests/smoke_mcp.py` passes on Python 3.12 and 3.14. CI itself wasn't run: `actionlint` 1.7.12 (via `uvx --from actionlint-py`) reports no problems in `ci.yml`, and `tests/test_ci_workflow.py` passes.

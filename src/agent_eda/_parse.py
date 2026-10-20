@@ -12,8 +12,11 @@ stripping surrounding whitespace, and only ASCII text parses:
 
 - A number is a decimal number such as 42, -3.5, .5, 1e-3 or +4.2E1. Thousands
   separators (1,000), decimal commas (3,5), hexadecimal, inf and nan don't
-  parse, and neither do whole numbers written with a leading zero, such as 007
-  or 01234: they are codes, which a number would change by dropping the zeros.
+  parse, and neither do numbers that float64 can't hold, such as 1e400. A number
+  written as digits alone with a leading zero, such as 007, -007 or 01234, is a
+  code, which a number would change by dropping the zeros, so it doesn't parse
+  either. Numbers with a decimal point or an exponent, such as 05.50 or 01e2,
+  are numbers.
 - A whole number is a number without a fractional part, such as 42, 42.0 or
   4.2e1, decided on the digits, not on a float.
 - An ISO 8601 date is a calendar date YYYY-MM-DD, alone or followed by T or a
@@ -45,6 +48,7 @@ from fractions import Fraction
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 
 # What a value is by its Python type.
 ValueKind = Literal["boolean", "number", "text", "datetime", "timedelta", "other"]
@@ -158,6 +162,20 @@ def read_texts(texts: np.ndarray) -> TextReading:
     )
 
 
+def number_texts(texts: np.ndarray) -> np.ndarray:
+    """Which strings of an object array parse as numbers, as read_texts decides.
+
+    Strings that can't parse, judged by their first character, cost one
+    vectorized check; the rest are read one by one.
+    """
+    found = np.zeros(len(texts), dtype=bool)
+    if len(texts):
+        firsts = texts.astype("U1").view(np.uint32)
+        for position in np.flatnonzero(np.isin(firsts, _STARTS)).tolist():
+            found[position] = bool(_read(texts[position]) & _NUMBER_BIT)
+    return found
+
+
 def _read(text: str) -> int:
     """What one string parses as, as bits."""
     stripped = text.strip()
@@ -166,6 +184,8 @@ def _read(text: str) -> int:
     if stripped.isdigit():
         if len(stripped) > 1 and stripped[0] == "0":
             return _LEADING_ZERO_BIT
+        if len(stripped) >= _OVERFLOW_DIGITS and math.isinf(float(stripped)):
+            return 0
         bits = _NUMBER_BIT | _WHOLE_BIT
         return bits | _BOOLEAN_BIT if stripped in ("0", "1") else bits
     if stripped.lower() in BOOLEAN_WORDS:
@@ -182,21 +202,46 @@ def _read(text: str) -> int:
 
 
 def _number_bits(match: re.Match[str]) -> int:
-    """Whether a matched number is whole and equal to 0 or 1, from its digits."""
+    """Whether a matched number is whole and equal to 0 or 1, from its digits.
+
+    Only a number written as digits alone, with a leading zero, is a code, such
+    as 007 or -007; 05.50 and 01e2 are numbers. A number that float64 can't
+    hold, such as 1e400, isn't one either.
+    """
     integer = match["integer"] or ""
-    if len(integer) > 1 and integer[0] == "0":
+    if (
+        len(integer) > 1
+        and integer[0] == "0"
+        and match["fraction"] is None
+        and match["exponent"] is None
+    ):
         return _LEADING_ZERO_BIT
     fraction = match["fraction"] or match["point_fraction"] or ""
     digits = integer + fraction
     significant = digits.rstrip("0")
     if not significant.strip("0"):  # the value is zero
         return _NUMBER_BIT | _WHOLE_BIT | _BOOLEAN_BIT
+    if _overflows(match, integer):
+        return 0
     # The power of ten of the last significant digit.
     scale = int(match["exponent"] or 0) - len(fraction) + len(digits) - len(significant)
     if scale < 0:
         return _NUMBER_BIT
     one = scale == 0 and significant.lstrip("0") == "1" and match["sign"] != "-"
     return _NUMBER_BIT | _WHOLE_BIT | (_BOOLEAN_BIT if one else 0)
+
+
+def _overflows(match: re.Match[str], integer: str) -> bool:
+    """Whether a matched number is too large for float64, which reads it as inf."""
+    # Short numbers with a short exponent always fit.
+    if len(integer) < _OVERFLOW_DIGITS and len(match["exponent"] or "") < 3:
+        return False
+    return math.isinf(float(match.string))
+
+
+# A float64 holds numbers up to about 1.8e308: no shorter integer part, and no
+# exponent of fewer than three digits, can overflow.
+_OVERFLOW_DIGITS = 308
 
 
 def _exists(match: re.Match[str]) -> bool:
@@ -274,3 +319,103 @@ def is_zero_or_one(number: object) -> bool:
     if isinstance(number, Decimal) and not number.is_finite():
         return False
     return bool(number == 0 or number == 1)
+
+
+# The families a piece of text can be read as, for a suggestion: what it reads
+# as under the rules above, or as a duration.
+ReadFamily = Literal["number", "boolean", "date", "datetime", "timedelta"]
+
+# A whole number written with more digits than this is no integer any column
+# holds, and building it would cost memory for nothing.
+_MAX_WHOLE_DIGITS = 40
+
+
+def read_as(
+    text: str, family: ReadFamily, *, whole: bool = False
+) -> bool | int | float | dt.date | pd.Timestamp | pd.Timedelta | None:
+    """The value a piece of text reads as in the family, or None if it doesn't.
+
+    The rules are the ones above, so a value read here is one that
+    infer_column_semantics and validate_column_types accept as the same kind:
+    text such as 1_000, 007 or non-ASCII digits reads as nothing. A number is
+    an int when it is whole, and a float otherwise; with whole=True only a whole
+    number reads. A date is a calendar date without a time, and a datetime an
+    ISO 8601 date with or without one. A duration is read as pandas reads it,
+    for ASCII text only: no rule of the analyses reads text as a duration.
+    """
+    stripped = text.strip()
+    if family == "timedelta":
+        return _duration(stripped)
+    bits = _read(text)
+    if family == "number":
+        return _number(stripped, bits, whole)
+    if family == "boolean":
+        if not bits & _BOOLEAN_BIT:
+            return None
+        if stripped.lower() in BOOLEAN_WORDS:
+            return stripped.lower() in _TRUE_WORDS
+        return float(stripped) == 1  # the digits are exactly 0 or 1
+    if not bits & _ISO_DATE_BIT:
+        return None
+    if family == "date":
+        match = _ISO_DATE.fullmatch(stripped)
+        if match is None or match["hour"] is not None:
+            return None
+        return dt.date(int(match["year"]), int(match["month"]), int(match["day"]))
+    try:
+        stamp = pd.Timestamp(stripped)
+    except (ValueError, OverflowError):
+        return None
+    return stamp if isinstance(stamp, pd.Timestamp) else None
+
+
+_TRUE_WORDS = frozenset(("true", "t", "yes", "y"))
+
+# A decimal written with an exponent beyond this reads as nothing.
+_MAX_DECIMAL_EXPONENT = 1000
+
+
+def read_decimal(text: str) -> Decimal | None:
+    """The exact decimal a piece of text writes, or None if it isn't a number.
+
+    The text is a number as the rules above read it (42, -3.5, .5, 1e-3,
+    +4.2E1), without surrounding whitespace, and the decimal keeps every digit
+    as written: '12345678901234567.25' is that decimal, not a float. Leading
+    zeros are fine, since no value is a code here.
+    """
+    if _NUMBER.fullmatch(text) is None or not text.isascii():
+        return None
+    try:
+        value = Decimal(text)
+    except ArithmeticError:
+        return None
+    return value if abs(value.adjusted()) < _MAX_DECIMAL_EXPONENT else None
+
+
+def _number(stripped: str, bits: int, whole: bool) -> int | float | None:
+    """The number a piece of text that parses as one reads as."""
+    if not bits & _NUMBER_BIT or (whole and not bits & _WHOLE_BIT):
+        return None
+    if bits & _WHOLE_BIT:
+        try:
+            digits = Decimal(stripped)
+        except ArithmeticError:  # an exponent beyond Decimal's range
+            return None
+        if digits == 0:
+            return 0
+        if digits.adjusted() < _MAX_WHOLE_DIGITS:
+            return int(digits)
+        if whole:
+            return None
+    value = float(stripped)
+    return value if math.isfinite(value) else None
+
+
+def _duration(stripped: str) -> pd.Timedelta | None:
+    if not stripped.isascii():
+        return None
+    try:
+        duration = pd.Timedelta(stripped)
+    except (ValueError, OverflowError):
+        return None
+    return duration if isinstance(duration, pd.Timedelta) else None

@@ -6,7 +6,7 @@ Read these sections of `.scratch/mcp-server/spec.md`: Reading data, and test gro
 
 **Blocked by:** 02-every-analysis-as-an-mcp-tool
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `.csv`, `.tsv`, `.csv.gz`, `.tsv.gz`, `.parquet` and `.pq` are read, case-insensitively. Parquet keeps its dtypes, nullable and pyarrow-backed ones included.
 - [x] CSV and TSV count only empty fields as missing; `"NA"`, `"N/A"`, `"NULL"` and `"-999"` reach the analyses as values, and `detect_missing_sentinels` over MCP finds them.

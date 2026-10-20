@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: the profile_missing_values
 
 **Blocked by:** 03-property-tests-and-benchmark, 04-discovery
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `sentinel_values` maps column names to declared sentinel values and has no default.
 - [x] Per column, the result gives the native missing count, which covers None, NaN, NaT and pd.NA; the sentinel count; the combined missing count without double counting; and the missing share over all rows.
@@ -63,3 +63,5 @@ Checks:
 - `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass. The minimum-versions run passed with numpy 1.26.0, pandas 2.2.0 and pyarrow 14.0.1 and left `uv.lock` unchanged. `uv run --isolated --python 3.13 pytest` and the same on 3.14 passed.
 - The `thorough` profile passed for this analysis on both version sets. Random fuzzing with 3 seeds and 2,500 examples each ran the contract checks and the count property on both version sets. It found the decimal comparison above, which `test_a_decimal_matches_a_declared_number_as_written` now covers; after the fix all 7,500 examples passed on each version set.
 - Linux and the 2-vCPU target weren't run locally; ticket 05's CI covers them.
+
+Box 15 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

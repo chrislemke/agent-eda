@@ -1,35 +1,48 @@
 """Analyses of the target: the column a model learns to predict."""
 
+import datetime as dt
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, NamedTuple, cast
 
 import numpy as np
 import pandas as pd
 from annotated_types import Gt, Lt
+from pydantic.json_schema import SkipJsonSchema
 
+from agent_eda._arguments import check_distinct
 from agent_eda._columns import (
-    ALL_KINDS,
+    TO_LABELS,
+    TO_NUMBERS,
     Column,
     ColumnKind,
     ColumnRule,
     select_columns,
 )
+from agent_eda._declared_values import (
+    Declared,
+    Family,
+    SentinelValue,
+    family,
+    holds,
+    likely_value,
+)
+from agent_eda._findings import ASSESSMENTS, infinite_values
 from agent_eda._levels import (
-    LEVEL_ORDER,
     Levels,
     count_levels_by_row,
     ordered_among,
     record_label,
     stored_label,
+    variant_groups,
 )
 from agent_eda._levels import type_name as label_type_name
 from agent_eda._masking import (
     MaskedLevels,
     MaskingDecision,
+    mask_groups,
     mask_levels,
-    mask_values,
     resolve_masking,
 )
 from agent_eda._numeric import (
@@ -42,62 +55,160 @@ from agent_eda._numeric import (
     numeric_support,
     read_limitations,
     read_numeric,
+    stored_nan_count,
+    stored_nan_limitations,
     summarize_values,
 )
 from agent_eda._registry import analysis
-from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
-from agent_eda._run import NO_ROWS, check_distinct, data_shape, execution
-from agent_eda._sentinels import Family, SentinelValue, holds, likely_value, literal
-from agent_eda._text import Surface, format_number, join_items, placeholder, plural
-from agent_eda._wording import as_written, worded
-from agent_eda.errors import ColumnTypeError, InvalidArgumentError
-from agent_eda.project import Project
-from agent_eda.results import (
+from agent_eda._result_base import (
     Assessment,
     ColumnSupport,
     Finding,
     Limitation,
-    ProfileTargetClass,
-    ProfileTargetResult,
-    ProfileTargetStatistics,
-    ProfileTargetUnexpectedLabel,
     Status,
     StatusReason,
     Support,
 )
+from agent_eda._row_ids import RowIds, ambiguous_row_ids, read_row_ids
+from agent_eda._status import NO_ROWS
+from agent_eda._text import (
+    format_number,
+    join_items,
+    placeholder,
+    plural,
+    shown_value,
+)
+from agent_eda._wording import Listed, Pass, PythonOnly, Say, Wording, Words, mistake
+from agent_eda._written_form import row_id_list
+from agent_eda.data._targets_results import (
+    ProfileTargetClass,
+    ProfileTargetResult,
+    ProfileTargetStatistics,
+    ProfileTargetUnexpectedLabel,
+)
+from agent_eda.errors import ColumnTypeError, InvalidArgumentError
+from agent_eda.project import Project
 
 # The tasks a target can be profiled for.
 Task = Literal["binary_classification", "multiclass_classification", "regression"]
-# A class label as expected_labels declares it.
-Label = str | bool | int | float
+# A class label as expected_labels declares it: the values of text, number,
+# boolean, datetime, date and period targets. A period has no JSON form, so the
+# JSON Schema leaves it out.
+Label = str | bool | int | float | dt.datetime | dt.date | SkipJsonSchema[pd.Period]
 
-# target_column may name a column of any dtype; the task decides which it takes.
-_ANY_COLUMN = ColumnRule(
-    default=frozenset(),
-    default_text="no column",
-    accepted=ALL_KINDS,
-    accepted_text="a column of any dtype",
-    fixes={},
+# The kinds of column whose values can be class labels.
+_LABEL_KINDS: frozenset[ColumnKind] = frozenset(
+    {"numeric", "boolean", "text", "object", "categorical"}
 )
-# The classes and unexpected labels each result keeps; to_frame() has every label.
-_KEPT_LABELS = 100
-# The row IDs each unexpected label keeps.
-_KEPT_ROW_IDS = 10
+_CLASSIFY_BINARY = Say(
+    "If its values are class labels, pass ", Pass(task="binary_classification")
+)
+_CLASSIFY = Say(
+    _CLASSIFY_BINARY,
+    " or ",
+    Pass(task="multiclass_classification"),
+)
+# An MCP caller can't convert a column, so it picks another column.
+_NUMBERS_INSTEAD = "Pass a column of numbers instead"
+_LABELS_INSTEAD = "Pass a column of labels instead"
+
+
+def _to_numbers(kind: ColumnKind) -> PythonOnly:
+    """The conversion to numbers of the shared ones, and for an MCP caller
+    another column."""
+    return PythonOnly(TO_NUMBERS[kind].code, otherwise=_NUMBERS_INSTEAD)
+
+
+def _to_labels(kind: ColumnKind) -> PythonOnly:
+    return PythonOnly(TO_LABELS[kind].code, otherwise=_LABELS_INSTEAD)
+
+
+# What a target may hold depends on the task, so each task has its own rule: a
+# regression target holds numbers; class labels can be text, numbers, booleans
+# or categories. The task is never inferred from the dtype, so numbers can be
+# class labels. The target is named in the call, so columns=None selects none.
+_TASK_RULES: dict[str, ColumnRule] = {
+    "regression": ColumnRule(
+        default=frozenset(),
+        default_text="no column",
+        accepted=frozenset({"numeric"}),
+        accepted_text=(
+            "numbers: integer or float columns, nullable and pyarrow-backed ones of "
+            "those kinds included"
+        ),
+        rejection="{analysis} can't use {what} as a regression target, which must "
+        "hold {accepted}.",
+        fixes={
+            "text": (_CLASSIFY, TO_NUMBERS["text"]),
+            "object": (_CLASSIFY, TO_NUMBERS["object"]),
+            "categorical": (_CLASSIFY, TO_NUMBERS["categorical"]),
+            "boolean": (_CLASSIFY_BINARY, TO_NUMBERS["boolean"]),
+            "timedelta": (_to_numbers("timedelta"),),
+            "datetime": (_to_numbers("datetime"),),
+            "other": (Say(_NUMBERS_INSTEAD),),
+        },
+        leave_out=False,
+    ),
+    "classification": ColumnRule(
+        default=frozenset(),
+        default_text="no column",
+        accepted=_LABEL_KINDS,
+        accepted_text=(
+            "text, numbers, booleans or categories, nullable and pyarrow-backed "
+            "ones of those kinds included"
+        ),
+        rejection="{analysis} can't use {what} as a classification target, whose "
+        "labels must be {accepted}.",
+        fixes={
+            "datetime": (_to_labels("datetime"),),
+            "timedelta": (_to_labels("timedelta"),),
+            "other": (_to_labels("other"),),
+        },
+        leave_out=False,
+    ),
+}
+
+
+class _FindingKind(NamedTuple):
+    """What a finding code always carries: its assessment, and the result fields
+    that back it unless the call names others."""
+
+    assessment: Assessment
+    fields: tuple[str, ...]
+
+
+# The findings profile_target can report, in the order its docstring lists them.
+_FINDINGS: dict[str, _FindingKind] = {
+    "single_class": _FindingKind("violation", ("class_count", "classes")),
+    "more_than_two_classes": _FindingKind("violation", ("class_count", "classes")),
+    "unexpected_labels": _FindingKind(
+        "violation", ("unexpected_label_count", "unexpected_labels")
+    ),
+    "no_unexpected_labels": _FindingKind("passed", ("unexpected_label_count",)),
+    "all_labels_distinct": _FindingKind(
+        "suspected", ("class_count", "non_missing_count")
+    ),
+    "constant_target": _FindingKind("violation", ("statistics.min", "statistics.max")),
+    "infinite_values": _FindingKind(
+        ASSESSMENTS["infinite_values"],
+        ("statistics.infinite_count", "non_finite_count"),
+    ),
+    "missing_labels": _FindingKind("descriptive", ("missing_count", "missing_share")),
+    "rare_classes": _FindingKind("descriptive", ("rare_class_count", "rare_classes")),
+    "missing_expected_classes": _FindingKind("violation", ("class_count", "classes")),
+    "case_or_space_variants": _FindingKind("suspected", ("class_count", "classes")),
+    "two_value_target": _FindingKind("suspected", ("statistics.min", "statistics.max")),
+}
+
+# What the record keeps of each list; to_frame() has every label. The result
+# classes hold the numbers.
+_CLASSES_KEPT = ProfileTargetResult.limit_of("classes")
+_RARE_CLASSES_KEPT = ProfileTargetResult.limit_of("rare_classes")
+_UNEXPECTED_KEPT = ProfileTargetResult.limit_of("unexpected_labels")
+_ROW_IDS_KEPT = ProfileTargetUnexpectedLabel.limit_of("row_ids")
 
 
 @analysis(
-    statuses=("completed", "insufficient_data", "failed"),
-    finding_codes=(
-        "single_class",
-        "more_than_two_classes",
-        "unexpected_labels",
-        "no_unexpected_labels",
-        "all_labels_distinct",
-        "constant_target",
-        "infinite_values",
-        "missing_labels",
-        "rare_classes",
-    ),
     tags=(
         "target",
         "label",
@@ -124,27 +235,22 @@ def profile_target(
     """What does the target look like for this task?
 
     When to use:
-        Call it once you know the column a model should learn to predict and
-        the task: binary or multiclass classification, or regression. The task
-        is never inferred from the dtype, so numbers can be class labels and a
-        numeric label isn't mistaken for a regression target. For
-        classification it counts each class and its share of the valid labels,
-        gives the majority and minority shares and the imbalance ratio, and
-        counts missing labels; with expected_labels it lists the labels outside
-        that set with the IDs of their first rows, and with rare_share the
-        classes whose share lies below it. For regression it gives the
-        statistics `summarize_numeric` gives, from the same implementation,
-        and counts the values that aren't finite. It flags a target that
-        doesn't fit the task, such as a single class or a constant regression
-        target, before you train anything. Class labels and row IDs are raw
-        values, so when the target holds personal data, such as a diagnosis,
-        declare it sensitive in a project and switch masking on; index labels
-        are never masked, so pass a non-sensitive id_column when the index
-        holds sensitive values. For the values of other categorical columns,
-        call `summarize_categorical`; for other numeric columns,
-        `summarize_numeric`; for how the target goes with other columns,
-        `compute_association_matrix`. `list_analyses` lists the other
-        analyses.
+        Call it once you know the column a model should learn to predict and the task:
+        binary or multiclass classification, or regression. The task is never inferred
+        from the dtype, so numbers can be class labels. For classification it counts
+        each class and its share of the valid labels, gives the majority and minority
+        shares and the imbalance ratio, and counts missing labels; with expected_labels
+        it lists the labels outside that set and the declared classes no row holds, and
+        with rare_share the classes below that share. For regression it gives the
+        statistics `summarize_numeric` gives and counts the values that aren't finite.
+        It flags a target that doesn't fit the task, such as a single class or a
+        constant regression target, before you train anything. Class labels and row IDs
+        are raw values, so when the target holds personal data, declare it sensitive in
+        a project and switch masking on; index labels are never masked, so pass a
+        non-sensitive id_column when the index holds sensitive values. For the values of
+        other categorical columns, call `summarize_categorical`; for other numeric
+        columns, `summarize_numeric`; for how the target goes with other columns,
+        `compute_association_matrix`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
@@ -158,17 +264,17 @@ def profile_target(
             'multiclass_classification' for two or more, or 'regression' for a
             number. Class labels can be text, numbers, booleans or categories;
             a regression target must hold integers or floats, and another dtype
-            raises errors.ColumnTypeError that suggests a classification task or
-            a conversion.
-        expected_labels (Sequence[str | bool | int | float] | None): The labels
+            is rejected, with a suggestion of what to pass instead.
+        expected_labels (Sequence[str | bool | int | float | datetime | date | Period] | None): The labels
             the task allows, such as ['no', 'yes'] or [0, 1]: exactly 2 for
-            binary_classification and at least 2 for
-            multiclass_classification, each listed once; regression takes
-            none. A value matches a label equal to it, as Python's == decides,
-            so 1 matches 1.0 and True, and text matches with its case and
-            surrounding spaces. A label of a type the target never holds, such
-            as '1' for an integer column, raises errors.InvalidArgumentError
-            naming the label you likely meant. None, the default, leaves the
+            binary_classification and at least 2 for multiclass_classification, each
+            listed once; regression takes none. A value matches a label equal to it,
+            so 1 matches 1.0 and true, and text matches with its case and
+            surrounding spaces. A target of datetimes, dates or periods, such as a
+            categorical column of them, takes labels of that type, which an MCP call
+            writes as ISO 8601 text; NaN, NaT and infinity can't be labels. A label of a
+            type the target never holds, such as '1' for an integer column, is
+            rejected, naming the label you likely meant. None, the default, leaves the
             check out: unexpected_labels is null, and a limitation says so.
         rare_share (float | None): For classification, the share of the valid
             labels below which a class counts as rare, such as 0.05; greater
@@ -194,39 +300,29 @@ def profile_target(
             against accidental exposure, not anonymization or access control.
 
     Returns:
-        ProfileTargetResult: For classification, `classes` lists the first 100
-        classes, the distinct valid labels, by count, descending, then by
-        label, as `level_order` states, each with its `label`, `label_type`,
-        `count` and `share`. `class_count` counts every class, and
-        `valid_label_count` counts the labels the shares divide by: those that
-        aren't missing, or with expected_labels, those in it. `majority_share`
-        and `minority_share` are the shares of the most and least common
-        classes, and `imbalance_ratio` is the majority count over the minority
-        count: 1 for balanced classes, higher the more imbalanced. With
-        expected_labels, `unexpected_labels` lists the first 100 labels outside
-        it, each with its `count` and the `row_ids` of its first 10 rows, and
-        `unexpected_label_count` counts them. With rare_share, `rare_classes`
-        lists the classes whose share lies below it, and `rare_class_count`
-        counts them. A check that didn't run leaves its fields null, with an
-        `expected_labels_not_declared` or `rare_share_not_declared`
-        limitation. `to_frame` returns every label with its count, its
-        share, whether expected_labels holds it and whether it is rare.
+        ProfileTargetResult: For classification, read `classes` (the first {entries_kept} of
+        `class_count`, by count, with `count` and `share`), `majority_share`,
+        `minority_share` and `imbalance_ratio` (1 for balanced classes, null with a
+        `too_few_values` limitation when a class has no rows). A class declared in
+        expected_labels that no row holds has count 0. With expected_labels,
+        `unexpected_labels` lists the labels outside it with the `row_ids` of their
+        first {row_ids_kept} rows; with rare_share, `rare_classes` lists the classes whose share
+        lies below it. A check that didn't run leaves its fields null, with an
+        `expected_labels_not_declared` or `rare_share_not_declared` limitation.
 
         For regression, `statistics` holds summarize_numeric's fields for the
-        target, from the same implementation with summarize_numeric's default
-        quantiles, quantile method and trimmed mean, and `non_finite_count`
-        counts the values that are missing, inf or -inf. `to_frame` returns
-        the statistics in one row.
+        target at its default quantiles, quantile method and trimmed mean, and
+        `non_finite_count` counts the values that are missing, inf or -inf.
 
-        For both tasks, `missing_count` and `missing_share` count the rows
-        without a label, and a share without rows is null, with a
-        `too_few_values` limitation. Labels are kept exactly as stored. With
-        index labels as row IDs, df.loc[row_ids] shows the rows, and an
-        `ambiguous_row_ids` limitation flags row IDs that repeat. `masking`
-        says whether masking was on and names the sensitive columns whose
-        values the result shows; with masking on, their labels and row IDs
-        are placeholders in the printed text, `to_dict`, `to_json` and
-        `to_frame` alike, while counts and shares stay.
+        For both tasks, `missing_count` and `missing_share` count the rows without a
+        label, and a share without rows is null, with a `too_few_values` limitation.
+        Labels are kept exactly as stored. Row IDs are index labels, or id_column values
+        when given; an `ambiguous_row_ids` limitation flags row IDs that repeat. NaN
+        is a missing label, also NaN that a pyarrow-backed or nullable float column
+        stores as a value, which pandas' `isna` doesn't count: the
+        `nan_counted_as_missing` limitation names such a target. With masking on,
+        a sensitive target's labels and row IDs are placeholders in every output;
+        counts and shares stay.
 
         The findings:
 
@@ -241,23 +337,24 @@ def profile_target(
           target that aren't missing are all distinct, as an identifier's or a
           measurement's are, not class labels'.
         - `constant_target`: violation; at least two values of a regression
-          target aren't missing and all of them are equal, as describe_dataset
-          decides it.
+          target aren't missing and all of them are equal; NaN is missing.
         - `infinite_values`: suspected; a regression target holds inf or -inf,
           which every statistic leaves out.
         - `missing_labels`: descriptive; rows have no target value.
         - `rare_classes`: descriptive; classes have a share below rare_share.
+        - `missing_expected_classes`: violation; declared classes have no
+          rows.
+        - `case_or_space_variants`: suspected; labels differ only by case or
+          surrounding spaces.
+        - `two_value_target`: suspected; a regression target has two
+          distinct values, so it may be binary labels.
 
     Statuses:
         completed: The target has a valid label, or for regression a finite
             value, whether or not it fits the task.
         insufficient_data: The data has no rows, every target value is
             missing, no label is in expected_labels, or a regression target has
-            no finite value.
-        failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. None is known today: a
-            statistic that can't be computed is null, with a limitation,
-            instead.
+            no finite value. Reason codes: `no_rows` and `no_values`.
 
     Examples:
         >>> import pandas as pd
@@ -279,7 +376,7 @@ def profile_target(
         ... )
         >>> print(res)
         profile_target: completed on 8 rows x 3 columns
-        Target 'churned' for binary_classification: 2 classes in 6 valid labels; 1 missing (12.5%).
+        Target 'churned' for binary_classification: 2 classes in 6 valid labels; 1 missing (missing_share 0.125).
         Majority share 0.6667, minority share 0.3333; imbalance ratio 2, the majority count over the minority count.
         Outside expected_labels: 1 label in 1 row: 'No' in row 'c5'.
         Rare classes, with a share below rare_share 0.05: 0 of 2.
@@ -287,10 +384,12 @@ def profile_target(
         label  count   share  rare
         'no'       4  0.6667    no
         'yes'      2  0.3333    no
-        Findings (2 of 2 shown):
+        Findings (3 of 3 shown):
         - violation unexpected_labels: 1 label in 1 row is outside expected_labels.
-        - descriptive missing_labels: 1 of 8 rows (12.5%) has no label: its target value is missing.
-        Limitations: none
+        - suspected case_or_space_variants: 1 group of labels differs only by case or surrounding spaces: 'no' and 'No'.
+        - descriptive missing_labels: 1 of 8 rows has no label: its target value is missing (missing_share 0.125).
+        Limitations (1 of 1 shown):
+        - not_applicable_to_task: The task is binary_classification, so the regression fields are null.
         More: res.to_frame() has all 3 labels; res.findings, res.limitations and res.to_json() have the rest.
         >>> res.imbalance_ratio
         2.0
@@ -301,23 +400,23 @@ def profile_target(
         26.5
 
     See Also:
-        summarize_categorical: Each level's count and share of every text,
-            categorical and boolean column, for columns besides the target.
-        summarize_numeric: Counts, mean, spread, quantiles and shape of every
-            numeric column, the statistics a regression target gets.
-        infer_column_semantics: Which columns hold identifiers, codes or
-            numbers stored as text rather than measurements or labels.
-        compute_association_matrix: How strongly pairs of columns are
-            associated, the target with the others included.
-        list_analyses: Every analysis, with the question each one answers.
+        compute_association_matrix: How strongly pairs of columns are associated, the
+            target with the others included.
+        summarize_categorical: Each level's count and share of every text, categorical
+            and boolean column, for columns besides the target.
+        summarize_numeric: Counts, mean, spread, quantiles and shape of every numeric
+            column, the statistics a regression target gets.
     """
     masking = resolve_masking("profile_target", project, mask_sensitive)
     labels = None if expected_labels is None else list(expected_labels)
-    _check_options(task, labels, rare_share)
+    _check_options(task, labels, rare_share, hide=masking.masks(target_column))
     [target] = select_columns(
-        "profile_target", data, [target_column], _ANY_COLUMN, parameter="target_column"
+        "profile_target",
+        data,
+        [target_column],
+        _TASK_RULES["regression" if task == "regression" else "classification"],
+        parameter="target_column",
     ).columns
-    _check_target(target, task)
     row_ids = read_row_ids("profile_target", data, id_column)
     if task == "regression":
         profile = _regression(data, target)
@@ -327,36 +426,24 @@ def profile_target(
         )
     # The other task's fields are null.
     fields: dict[str, Any] = {**dict.fromkeys(_TASK_FIELDS), **profile.fields}
-    result = ProfileTargetResult(
-        analysis="profile_target",
-        method=None,
+    result = ProfileTargetResult.for_call(
+        parameters={"expected_labels": profile.expected_labels},
         status=profile.status,
         status_reason=profile.status_reason,
-        parameters={
-            "data": data_shape(data),
-            "target_column": target.name,
-            "task": task,
-            "expected_labels": profile.expected_labels,
-            "rare_share": rare_share,
-            "id_column": row_ids.id_column,
-            "project": project.model_dump(mode="json") if project else None,
-            "mask_sensitive": mask_sensitive,
-        },
         support=Support(row_count=len(data), column_count=1, columns=[profile.support]),
         findings=profile.findings,
-        limitations=profile.limitations,
-        execution=execution(("numpy", "pandas")),
+        limitations=[*profile.limitations, _other_task_limitation(task)],
         masking=masking.record(profile.shown, data),
-        level_order=LEVEL_ORDER,
         **fields,
     )
     result._labels = profile.labels
+    result._row_ids = profile.row_ids
     result._expected = profile.expected
     return result
 
 
 # The result fields that only one of the tasks fills.
-_TASK_FIELDS = (
+_CLASSIFICATION_FIELDS = (
     "valid_label_count",
     "class_count",
     "classes",
@@ -367,15 +454,34 @@ _TASK_FIELDS = (
     "unexpected_labels",
     "rare_class_count",
     "rare_classes",
-    "statistics",
-    "non_finite_count",
 )
+_REGRESSION_FIELDS = ("statistics", "non_finite_count")
+_TASK_FIELDS = (*_CLASSIFICATION_FIELDS, *_REGRESSION_FIELDS)
+
+
+def _other_task_limitation(task: Task) -> Limitation:
+    """Why the fields of the task that wasn't profiled are null."""
+    regression = task == "regression"
+    other = "classification" if regression else "regression"
+    return Limitation(
+        code="not_applicable_to_task",
+        reason=f"The task is {task}, so the {other} fields are null.",
+        fields=list(_CLASSIFICATION_FIELDS if regression else _REGRESSION_FIELDS),
+    )
 
 
 def _check_options(
-    task: Task, labels: Sequence[Label] | None, rare_share: float | None
+    task: Task,
+    labels: Sequence[Label] | None,
+    rare_share: float | None,
+    *,
+    hide: bool,
 ) -> None:
-    """Raise when expected_labels or rare_share can't serve the task."""
+    """Raise when expected_labels or rare_share can't serve the task.
+
+    With `hide`, the target is a masked sensitive column and no message quotes
+    its labels.
+    """
     if task == "regression":
         given = [
             name
@@ -384,49 +490,50 @@ def _check_options(
         ]
         if given:
             them = "it" if len(given) == 1 else "them"
-            raise worded(
+            raise mistake(
                 InvalidArgumentError,
-                lambda surface: (
-                    f"profile_target got {join_items(given)} for a "
-                    f"regression task, which has no class labels to check. Leave {them} "
-                    f"out, or pass {_classification_tasks(surface)} if the target holds "
-                    "class labels."
-                ),
+                f"profile_target got {join_items(given)} for a "
+                f"regression task, which has no class labels to check. Leave {them} "
+                "out, or pass ",
+                Pass(task="binary_classification"),
+                " or ",
+                Pass(task="multiclass_classification"),
+                " if the target holds class labels.",
             )
         return
     if labels is None:
         return
     if not labels:
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                "profile_target got an empty list for expected_labels. "
-                "List the labels the task allows, or "
-                + (
-                    "pass expected_labels=None to leave the check out."
-                    if surface == "python"
-                    else "leave expected_labels out to skip the check."
-                )
+            "profile_target got an empty list for expected_labels. "
+            "List the labels the task allows, or ",
+            Words(
+                "pass expected_labels=None to leave the check out.",
+                "leave expected_labels out to skip the check.",
             ),
         )
-    check_distinct("profile_target", "expected_labels", labels, "label")
     not_finite = [
         repr(label)
         for label in labels
-        if isinstance(label, float) and not math.isfinite(label)
+        if label is pd.NaT or (isinstance(label, float) and not math.isfinite(label))
     ]
     if not_finite:
         raise InvalidArgumentError(
             f"profile_target got {join_items(not_finite)} in expected_labels, but "
-            "NaN and infinity can't be class labels; missing labels are counted "
-            "apart, in missing_count. Leave them out of expected_labels."
+            "NaN, NaT and infinity can't be class labels; missing labels are "
+            "counted apart, in missing_count. Leave them out of expected_labels."
         )
+    check_distinct("profile_target", "expected_labels", labels, "label", hide=hide)
     given = plural(len(labels), "label", "labels")
     if task == "binary_classification" and len(labels) != 2:
-        raise InvalidArgumentError(
+        raise mistake(
+            InvalidArgumentError,
             f"profile_target got {given} in expected_labels for a "
-            "binary_classification task, which has 2 classes. List its 2 labels, or "
-            "pass task='multiclass_classification'."
+            "binary_classification task, which has 2 classes. List its 2 "
+            "labels, or pass ",
+            Pass(task="multiclass_classification"),
+            ".",
         )
     if len(labels) < 2:
         raise InvalidArgumentError(
@@ -437,149 +544,81 @@ def _check_options(
 
 
 def _check_label_types(
-    target: Column, series: pd.Series, labels: Sequence[Label]
+    target: Column,
+    series: pd.Series,
+    levels: Levels,
+    labels: Sequence[Label],
+    *,
+    hide: bool,
 ) -> None:
     """Raise when an expected label can never equal a value of the target.
 
+    With `hide`, the target is a masked sensitive column: the message counts the
+    labels without quoting them or the labels they likely meant.
+
     Labels compare as Python's == does, so numbers and booleans can equal each
-    other, while text only equals text. An object column without values can
-    hold anything.
+    other, while text only equals text, datetimes datetimes, dates dates and
+    periods periods. An object column without values can hold anything.
     """
     column = holds(series)
     if column.families is None:
         return
-    unusable = [
-        label
-        for label in labels
-        if not (({"text"} if isinstance(label, str) else _NUMBERS) & column.families)
-    ]
+    allowed = column.families
+    unusable = [label for label in labels if not _label_families(label) & allowed]
     if not unusable:
         return
     likely = [likely_value(cast("SentinelValue", label), column) for label in unusable]
-    hint = (
-        f" Did you mean {join_items([literal(value) for value in likely])}?"
-        if all(value is not None for value in likely)
-        else ""
+    hint_values = None if any(value is None for value in likely) or hide else likely
+    holding = (
+        f"{target.name!r} holds {_what(column.what, allowed, levels)} "
+        f"(dtype {column.dtype})"
     )
-    holding = f"{target.name!r} holds {column.what} (dtype {column.dtype})"
+
+    problem: tuple[Wording, ...]
     if len(unusable) == 1:
+        shown: Wording = "a label" if hide else Declared(unusable[0])
         problem = (
-            f"got {literal(unusable[0])} in expected_labels, but {holding}, so it "
-            "can never equal a label."
+            "got ",
+            shown,
+            f" in expected_labels, but {holding}, so it can never equal a label.",
         )
     else:
-        listed = join_items([literal(label) for label in unusable])
+        listed: Wording = (
+            "" if hide else (": ", Listed(Declared(label) for label in unusable))
+        )
         problem = (
-            f"can't use {len(unusable):,} labels in expected_labels: {listed}, since "
-            f"{holding}, so they can never equal a label."
+            f"can't use {len(unusable):,} labels in expected_labels",
+            listed,
+            f", since {holding}, so they can never equal a label.",
         )
-    raise InvalidArgumentError(
-        f"profile_target {problem}{hint} Declare each label as the type the target "
-        "holds."
+    hint: Wording = (
+        ""
+        if hint_values is None
+        else (" Did you mean ", Listed(Declared(value) for value in hint_values), "?")
+    )
+    raise mistake(
+        InvalidArgumentError,
+        "profile_target ",
+        *problem,
+        hint,
+        " Declare each label as the type the target holds.",
     )
 
 
-# The value families a number or boolean label can equal, as Python's == decides.
-_NUMBERS: frozenset[Family] = frozenset({"number", "boolean"})
+def _label_families(label: object) -> set[Family]:
+    """The families of values a label can equal: numbers and booleans equal each
+    other, as Python's == has it."""
+    kind = family(label)
+    return {"number", "boolean"} if kind in ("number", "boolean") else {kind}
 
 
-# The kinds of column whose values can be class labels.
-_LABEL_KINDS: frozenset[ColumnKind] = frozenset(
-    {"numeric", "boolean", "text", "object", "categorical"}
-)
-_CLASSIFY = (
-    "If its values are class labels, pass task='binary_classification' or "
-    "task='multiclass_classification'"
-)
-_TEXT_FIX = (
-    f"{_CLASSIFY}; if they are numbers stored as text, convert them with "
-    "pd.to_numeric({column}, errors='coerce')"
-)
-# How to fix a regression task on a column of each kind that isn't numeric;
-# {column} becomes the code for the column.
-_REGRESSION_FIXES: dict[ColumnKind, str] = {
-    "text": _TEXT_FIX,
-    "object": _TEXT_FIX,
-    "categorical": (
-        f"{_CLASSIFY}; if its categories are numbers, convert them with "
-        "{column}.astype(float)"
-    ),
-    "boolean": (
-        "If its values are class labels, pass task='binary_classification'; to read "
-        "False and True as 0 and 1, convert them with {column}.astype(float)"
-    ),
-    "timedelta": (
-        "Convert durations to numbers first, such as {column}.dt.total_seconds()"
-    ),
-    "datetime": (
-        "Convert datetimes to numbers first, such as the seconds since the "
-        "earliest: ({column} - {column}.min()).dt.total_seconds()"
-    ),
-    "other": "Pass a column of numbers instead",
-}
-
-
-def _classification_tasks(surface: Surface) -> str:
-    """The two classification tasks as the caller passes them."""
-    return " or ".join(
-        as_written(surface, task=task)
-        for task in ("binary_classification", "multiclass_classification")
-    )
-
-
-# How an MCP caller fixes a regression task on a column of each kind that
-# isn't numeric: converting the column is Python, so it picks another task or
-# another column.
-_MCP_CLASSIFY = f"If its values are class labels, pass {_classification_tasks('mcp')}"
-_MCP_REGRESSION_FIXES: dict[ColumnKind, str] = {
-    "text": _MCP_CLASSIFY,
-    "object": _MCP_CLASSIFY,
-    "categorical": _MCP_CLASSIFY,
-    "boolean": (
-        "If its values are class labels, pass "
-        f"{as_written('mcp', task='binary_classification')}"
-    ),
-    "timedelta": "Pass a column of numbers instead",
-    "datetime": "Pass a column of numbers instead",
-    "other": "Pass a column of numbers instead",
-}
-
-
-def _check_target(target: Column, task: Task) -> None:
-    """Raise unless the task can take the target column's dtype.
-
-    A regression target holds numbers; class labels can be text, numbers,
-    booleans or categories. The task is never inferred from the dtype, so
-    numbers can be class labels.
-    """
-    code = f"df[{target.label!r}]"
-    what = f"column {target.name!r} with dtype {target.dtype}"
-    if task == "regression" and target.kind != "numeric":
-        fixes = {
-            "python": _REGRESSION_FIXES[target.kind].format(column=code),
-            "mcp": _MCP_REGRESSION_FIXES[target.kind],
-        }
-        raise worded(
-            ColumnTypeError,
-            lambda surface: (
-                f"profile_target can't use {what} as a regression "
-                "target, which must hold numbers: integer or float columns, nullable "
-                f"and pyarrow-backed ones included. {fixes[surface]}."
-            ),
-        )
-    if task != "regression" and target.kind not in _LABEL_KINDS:
-        fixes = {
-            "python": f"Convert its values to labels first, such as {code}.astype(str)",
-            "mcp": "Pass a column of labels instead",
-        }
-        raise worded(
-            ColumnTypeError,
-            lambda surface: (
-                f"profile_target can't use {what} as a classification "
-                "target, whose labels must be text, numbers, booleans or categories, "
-                f"nullable and pyarrow-backed ones included. {fixes[surface]}."
-            ),
-        )
+def _what(what: str, allowed: frozenset[Family], levels: Levels) -> str:
+    """How a message names what the target holds: the types of its labels when no
+    family of declared values describes them, as for periods."""
+    if allowed != {"other"}:
+        return what
+    names = sorted({label_type_name(label) for label in levels.objects()})
+    return f"{join_items(names)} values" if names else "values of another type"
 
 
 @dataclass
@@ -599,8 +638,11 @@ class _Profile:
     # expected_labels holds it; None without expected_labels.
     labels: Levels | None = None
     expected: np.ndarray | None = None
+    # The ID of every row that holds a label outside expected_labels, by the
+    # label's position in `labels`: pandas labels, or lists when masked.
+    row_ids: dict[int, Any] = field(default_factory=dict)
     # expected_labels as the parameters record them, placeholders when masked.
-    expected_labels: list[Label] | list[str] | None = None
+    expected_labels: list[str | bool | int | float] | None = None
 
 
 @dataclass(frozen=True)
@@ -633,16 +675,22 @@ def _classification(
 ) -> _Profile:
     series = data.iloc[:, target.position]
     row_count = len(data)
-    levels, row_levels = _count_labels(target, series)
+    observed, row_levels = _count_labels(target, series)
     if labels is not None:
-        _check_label_types(target, series, labels)
+        _check_label_types(
+            target, series, observed, labels, hide=masking.masks(target.name)
+        )
+    valid_count = int(observed.counts[_valid_levels(observed, labels)].sum())
+    # Declared classes no row holds are classes of count 0, unless no label is
+    # valid at all and there are no shares to give them.
+    without_rows = _without_rows(observed, labels) if valid_count else []
+    levels = observed.with_empty(without_rows)
     valid = _valid_levels(levels, labels)
     view = _Labels(levels, mask_levels(levels) if masking.masks(target.name) else None)
     counts = levels.counts[valid]
-    valid_count = int(counts.sum())
     classes = [
         _class(view, position, valid_count)
-        for position in ordered_among(levels, valid, _KEPT_LABELS)
+        for position in ordered_among(levels, valid, _CLASSES_KEPT)
     ]
     rare = below = None
     if rare_share is not None:
@@ -650,17 +698,19 @@ def _classification(
         below = valid & (levels.counts / max(valid_count, 1) < rare_share)
         rare = [
             _class(view, position, valid_count)
-            for position in ordered_among(levels, below, _KEPT_LABELS)
+            for position in ordered_among(levels, below, _RARE_CLASSES_KEPT)
         ]
     unexpected = None
     # Row IDs show only when labels are checked; then repeated ones limit them.
     ambiguous: list[Limitation] = []
+    every_id: dict[int, Any] = {}
     if labels is not None:
-        unexpected, ambiguous = _unexpected_labels(
+        unexpected, ambiguous, every_id = _unexpected_labels(
             view, ~valid, row_levels, row_ids, masking, target
         )
     missing = levels.missing_count
     non_missing = row_count - missing
+    empty_positions = np.arange(len(observed.counts), len(levels.counts))
     unexpected_count = None if labels is None else int((~valid).sum())
     status, status_reason = _classification_status(row_count, non_missing, valid_count)
     shown: list[str | None] = [target.name] if len(levels.counts) else []
@@ -673,11 +723,14 @@ def _classification(
             *_classification_findings(
                 target,
                 task,
-                class_count=len(counts),
+                view,
+                class_count=int((counts > 0).sum()),
+                empty=empty_positions,
+                variants=variant_groups(observed),
                 unexpected_count=unexpected_count,
                 unexpected_rows=non_missing - valid_count,
                 # Each label that isn't missing occurs once.
-                distinct=non_missing if len(levels.counts) == non_missing else 0,
+                distinct=non_missing if len(observed.counts) == non_missing else 0,
             ),
             *_missing_labels(target, missing, row_count),
             *_rare_classes(
@@ -689,16 +742,19 @@ def _classification(
         ],
         limitations=[
             *ambiguous,
+            *stored_nan_limitations(
+                [target.name] if stored_nan_count(series) else [],
+                ["missing_count"],
+                "missing_count counts it",
+            ),
             *([_NO_EXPECTED_LABELS] if labels is None else []),
             *([_NO_RARE_SHARE] if rare_share is None else []),
-            *_null_shares(row_count, valid_count),
+            *_null_shares(row_count, valid_count, len(empty_positions)),
         ],
-        support=ColumnSupport(
-            column=target.name,
-            eligible_count=row_count,
-            evaluated_count=valid_count,
-            excluded_count=row_count - valid_count,
-            excluded_by_reason={
+        support=ColumnSupport.of(
+            target.name,
+            row_count,
+            {
                 reason: count
                 for reason, count in (
                     ("missing", missing),
@@ -722,6 +778,7 @@ def _classification(
         },
         shown=shown,
         **_table(view, valid if labels is not None else None),
+        row_ids=_table_positions(view, every_id),
         expected_labels=_recorded_labels(view, labels, valid),
     )
 
@@ -746,28 +803,50 @@ def _unexpected_labels(
     row_ids: RowIds,
     masking: MaskingDecision,
     target: Column,
-) -> tuple[list[ProfileTargetUnexpectedLabel], list[Limitation]]:
+) -> tuple[list[ProfileTargetUnexpectedLabel], list[Limitation], dict[int, Any]]:
     """The first labels outside expected_labels with the IDs of their first rows.
 
-    Also gives the ambiguous_row_ids limitation when row IDs repeat. Row IDs
-    from a sensitive id_column become placeholders, numbered in the order the
-    labels show them; when id_column is the target itself, a row ID is its
-    label, so it shows the label's placeholder.
+    Also gives the ambiguous_row_ids limitation when row IDs repeat, and the IDs
+    of every row that holds any label outside expected_labels, by the label's
+    level position. Row IDs from a sensitive id_column become placeholders,
+    numbered in the order the labels show them, the shown IDs first; when
+    id_column is the target itself, a row ID is its label, so it shows the
+    label's placeholder.
     """
     levels = view.levels
-    kept = ordered_among(levels, outside, _KEPT_LABELS).tolist()
-    rows = _first_rows(row_levels, np.asarray(kept, dtype=np.intp), len(levels.counts))
-    ids: list[list[object]] = [row_ids.at(positions) for positions in rows]
+    outside_order = ordered_among(levels, outside).tolist()
+    kept = outside_order[:_UNEXPECTED_KEPT]
+    rows = _rows_of(
+        row_levels, np.asarray(outside_order, dtype=np.intp), len(levels.counts)
+    )
+    every: dict[int, Any] = {
+        position: row_ids.labels.take(found)
+        for position, found in zip(outside_order, rows, strict=True)
+    }
+    ids: list[list[object]] = [row_ids.at(found[:_ROW_IDS_KEPT]) for found in rows]
     if masking.masks(row_ids.id_column):
         if row_ids.id_column == target.name and view.masked is not None:
             masked = view.masked
-            ids = [
-                [masked.label(position)] * len(entry)
-                for position, entry in zip(kept, ids, strict=True)
-            ]
+            every = {
+                position: [masked.label(position)] * len(found)
+                for position, found in zip(outside_order, rows, strict=True)
+            }
+            ids = [every[position][:_ROW_IDS_KEPT] for position in kept]
         else:
-            placeholders = iter(mask_values([i for entry in ids for i in entry]))
-            ids = [[next(placeholders) for _ in entry] for entry in ids]
+            shown = [
+                entry[:_ROW_IDS_KEPT] for entry in map(row_id_list, every.values())
+            ]
+            later = [
+                entry[_ROW_IDS_KEPT:] for entry in map(row_id_list, every.values())
+            ]
+            masked_shown, masked_later = mask_groups(shown, later)
+            every = {
+                position: [*entry, *rest]
+                for position, entry, rest in zip(
+                    outside_order, masked_shown, masked_later, strict=True
+                )
+            }
+            ids = masked_shown[: len(kept)]
     entries = []
     for position, entry_ids in zip(kept, ids, strict=True):
         label, label_type = view.entry(position)
@@ -783,11 +862,11 @@ def _unexpected_labels(
         row_ids,
         [
             f"unexpected_labels[{number}].row_ids"
-            for number, positions in enumerate(rows)
+            for number, positions in enumerate(rows[: len(kept)])
             if row_ids.repeated[positions].any()
         ],
     )
-    return entries, ambiguous
+    return entries, ambiguous, every
 
 
 def _table(view: _Labels, expected: np.ndarray | None) -> dict[str, Any]:
@@ -805,9 +884,15 @@ def _table(view: _Labels, expected: np.ndarray | None) -> dict[str, Any]:
     return {"labels": view.masked.levels, "expected": masked_expected}
 
 
+def _json_label(label: Label) -> str | bool | int | float:
+    """A declared label as the record holds it: datetimes, dates and periods as
+    text, as a class's label is."""
+    return record_label(label)
+
+
 def _recorded_labels(
     view: _Labels, labels: Sequence[Label] | None, valid: np.ndarray
-) -> list[Label] | list[str] | None:
+) -> list[str | bool | int | float] | None:
     """expected_labels as the result's parameters record them.
 
     With masking on, each label shows as the placeholder of the class it
@@ -815,7 +900,7 @@ def _recorded_labels(
     from the target's labels in the order given.
     """
     if labels is None or view.masked is None:
-        return None if labels is None else list(labels)
+        return None if labels is None else [_json_label(label) for label in labels]
     # Python's == decides which label a class matches, as in _valid_levels.
     index: dict[object, int] = {label: number for number, label in enumerate(labels)}
     found: dict[int, int] = {}
@@ -848,11 +933,11 @@ def _classification_status(
 
 
 _NO_LABELS = StatusReason(
-    code="no_labels",
+    code="no_values",
     message="Every target value is missing, so there are no labels to count.",
 )
 _NO_VALID_LABELS = StatusReason(
-    code="no_valid_labels",
+    code="no_values",
     message=(
         "No target value is in expected_labels; unexpected_labels lists the labels "
         "found."
@@ -870,12 +955,17 @@ def _balance(counts: np.ndarray, valid_count: int) -> dict[str, float | None]:
     return {
         "majority_share": majority / valid_count,
         "minority_share": minority / valid_count,
-        "imbalance_ratio": majority / minority,
+        # A class without rows makes the ratio infinite, which the record
+        # doesn't hold: _null_shares says so.
+        "imbalance_ratio": majority / minority if minority else None,
     }
 
 
-def _null_shares(row_count: int, valid_count: int) -> list[Limitation]:
-    """The too_few_values limitation for the shares that don't exist, if any."""
+def _null_shares(row_count: int, valid_count: int, empty: int) -> list[Limitation]:
+    """The too_few_values limitation for the shares that don't exist, if any.
+
+    `empty` counts the declared classes without rows.
+    """
     if not row_count:
         return [
             Limitation(
@@ -898,22 +988,38 @@ def _null_shares(row_count: int, valid_count: int) -> list[Limitation]:
                 fields=list(_BALANCE_FIELDS),
             )
         ]
+    if empty:
+        has = plural(empty, "class has", "classes have")
+        return [
+            Limitation(
+                code="too_few_values",
+                reason=(
+                    f"{has} no rows, so imbalance_ratio, the majority "
+                    "count over the minority count, would divide by 0 and is null."
+                ),
+                fields=["imbalance_ratio"],
+            )
+        ]
     return []
 
 
 def _classification_findings(
     target: Column,
     task: Task,
+    view: _Labels,
     *,
     class_count: int,
+    empty: np.ndarray,
+    variants: list[list[int]],
     unexpected_count: int | None,
     unexpected_rows: int,
     distinct: int,
 ) -> list[Finding]:
     """The findings about a classification target, violations first.
 
-    `distinct` counts the labels that aren't missing when each occurs once, and
-    is 0 otherwise.
+    `class_count` counts the classes with rows, and `empty` gives the level
+    positions of the declared classes without any. `distinct` counts the labels
+    that aren't missing when each occurs once, and is 0 otherwise.
     """
     findings = []
     if class_count == 1:
@@ -924,6 +1030,8 @@ def _classification_findings(
             "binary_classification."
         )
         findings.append(_finding("more_than_two_classes", target, claim))
+    if len(empty):
+        findings.append(_missing_expected_classes(target, view, empty))
     if unexpected_count:
         are = "is" if unexpected_count == 1 else "are"
         claim = (
@@ -941,20 +1049,81 @@ def _classification_findings(
             "an identifier or a measurement rather than class labels."
         )
         findings.append(_finding("all_labels_distinct", target, claim))
+    if variants:
+        findings.append(
+            _case_or_space_variants(
+                target, view, variants, unexpected_count is not None
+            )
+        )
     return findings
+
+
+# The labels a claim lists before it counts the rest.
+_LISTED_LABELS = 5
+_LISTED_GROUPS = 3
+
+
+def _shown(view: _Labels, position: int) -> str:
+    """A label as a claim writes it: text quoted, a placeholder as it is."""
+    label, label_type = view.entry(position)
+    return shown_value(label, label_type, masked=view.masked is not None)
+
+
+def _missing_expected_classes(
+    target: Column, view: _Labels, positions: np.ndarray
+) -> Finding:
+    """The violation for declared classes without rows, in level order."""
+    ordered = ordered_among(
+        view.levels, np.isin(np.arange(len(view.levels.counts)), positions)
+    )
+    shown = [_shown(view, int(position)) for position in ordered]
+    if len(shown) > _LISTED_LABELS:
+        rest = len(shown) - _LISTED_LABELS
+        shown = [*shown[:_LISTED_LABELS], f"{rest:,} more"]
+    claim = (
+        f"{plural(len(positions), 'class', 'classes')} declared in expected_labels "
+        f"{'has' if len(positions) == 1 else 'have'} no rows: {join_items(shown)}."
+    )
+    return _finding("missing_expected_classes", target, claim)
+
+
+def _case_or_space_variants(
+    target: Column, view: _Labels, groups: list[list[int]], checked: bool
+) -> Finding:
+    """The suspected finding for labels that differ only by case or surrounding
+    spaces, as summarize_categorical finds them; `checked` says the result holds
+    labels outside expected_labels too."""
+    listed = [
+        join_items([_shown(view, position) for position in group[:_LISTED_LABELS]])
+        for group in groups[:_LISTED_GROUPS]
+    ]
+    if len(groups) > _LISTED_GROUPS:
+        listed.append(f"{len(groups) - _LISTED_GROUPS:,} more")
+    differ = "differs" if len(groups) == 1 else "differ"
+    claim = (
+        f"{plural(len(groups), 'group', 'groups')} of labels {differ} only by case "
+        f"or surrounding spaces: {'; '.join(listed)}."
+    )
+    fields = [*_FINDINGS["case_or_space_variants"].fields]
+    if checked:
+        fields.append("unexpected_labels")
+    return _finding("case_or_space_variants", target, claim, fields)
 
 
 def _missing_labels(target: Column, missing: int, row_count: int) -> list[Finding]:
     """The missing_labels finding, when target values are missing."""
     if not missing:
         return []
-    percent = format_number(missing / row_count * 100)
+    share = format_number(missing / row_count)
     has = (
         "has no label: its target value is missing"
         if missing == 1
         else "have no label: their target values are missing"
     )
-    claim = f"{missing:,} of {plural(row_count, 'row', 'rows')} ({percent}%) {has}."
+    claim = (
+        f"{missing:,} of {plural(row_count, 'row', 'rows')} {has} "
+        f"(missing_share {share})."
+    )
     return [_finding("missing_labels", target, claim)]
 
 
@@ -973,9 +1142,16 @@ def _rare_classes(
 
 
 def _regression_findings(
-    target: Column, summary: NumericSummary, row_count: int
+    target: Column,
+    summary: NumericSummary,
+    row_count: int,
+    two_values: tuple[float, float] | None,
 ) -> list[Finding]:
-    """The findings about a regression target, as summarize_numeric decides them."""
+    """The findings about a regression target, as summarize_numeric decides them.
+
+    `two_values` gives the two distinct finite values the target holds, if it
+    holds exactly two.
+    """
     findings = []
     if summary.constant:
         claim = (
@@ -998,7 +1174,19 @@ def _regression_findings(
             f"{plural(summary.infinite_count, 'target value', 'target values')} {are} "
             "infinite, which every statistic leaves out."
         )
-        findings.append(_finding("infinite_values", target, claim))
+        findings.extend(
+            infinite_values(
+                [target.name], _FINDINGS["infinite_values"].fields, claim=claim
+            )
+        )
+    if two_values is not None:
+        low, high = two_values
+        claim = (
+            f"The target holds exactly 2 distinct values, {format_number(low)} and "
+            f"{format_number(high)}, as a binary label does; if they are classes, "
+            "use binary_classification instead of regression."
+        )
+        findings.append(_finding("two_value_target", target, claim))
     findings.extend(_missing_labels(target, summary.missing_count, row_count))
     return findings
 
@@ -1006,17 +1194,6 @@ def _regression_findings(
 _SINGLE_CLASS = (
     "Every valid label is the same class, so a classifier has nothing to tell apart."
 )
-# The fields behind each finding.
-_FINDING_FIELDS = {
-    "single_class": ["class_count", "classes"],
-    "more_than_two_classes": ["class_count", "classes"],
-    "unexpected_labels": ["unexpected_label_count", "unexpected_labels"],
-    "no_unexpected_labels": ["unexpected_label_count"],
-    "all_labels_distinct": ["class_count", "non_missing_count"],
-    "missing_labels": ["missing_count", "missing_share"],
-    "rare_classes": ["rare_class_count", "rare_classes"],
-    "infinite_values": ["statistics.infinite_count", "non_finite_count"],
-}
 
 
 def _finding(
@@ -1029,23 +1206,10 @@ def _finding(
     return Finding(
         code=code,
         claim=claim,
-        assessment=_ASSESSMENTS[code],
+        assessment=_FINDINGS[code].assessment,
         columns=[target.name],
-        fields=_FINDING_FIELDS[code] if fields is None else fields,
+        fields=list(_FINDINGS[code].fields if fields is None else fields),
     )
-
-
-_ASSESSMENTS: dict[str, Assessment] = {
-    "single_class": "violation",
-    "more_than_two_classes": "violation",
-    "unexpected_labels": "violation",
-    "no_unexpected_labels": "passed",
-    "all_labels_distinct": "suspected",
-    "constant_target": "violation",
-    "infinite_values": "suspected",
-    "missing_labels": "descriptive",
-    "rare_classes": "descriptive",
-}
 
 
 _NO_EXPECTED_LABELS = Limitation(
@@ -1070,7 +1234,7 @@ def _regression(data: pd.DataFrame, target: Column) -> _Profile:
     """summarize_numeric's entry for the target, with its defaults."""
     column = read_numeric(data.iloc[:, target.position])
     summary = summarize_values(
-        column.values,
+        column,
         quantiles=list(DEFAULT_QUANTILES),
         quantile_method=DEFAULT_QUANTILE_METHOD,
         trim_fraction=DEFAULT_TRIM_FRACTION,
@@ -1098,10 +1262,17 @@ def _regression(data: pd.DataFrame, target: Column) -> _Profile:
     return _Profile(
         status="insufficient_data" if not row_count else statistics.status,
         status_reason=NO_ROWS if not row_count else statistics.status_reason,
-        findings=_regression_findings(target, summary, row_count),
+        findings=_regression_findings(
+            target,
+            summary,
+            row_count,
+            _two_values(
+                column.values, beyond_exact_integers=column.beyond_exact_integers
+            ),
+        ),
         support=numeric_support(target.name, summary),
         fields={
-            "non_missing_count": summary.count,
+            "non_missing_count": summary.non_missing_count,
             "missing_count": missing,
             "missing_share": missing / row_count if row_count else None,
             "statistics": statistics,
@@ -1111,8 +1282,26 @@ def _regression(data: pd.DataFrame, target: Column) -> _Profile:
     )
 
 
-def _statistics_path(name: str) -> str:
-    """The result path of a regression target's statistics."""
+def _two_values(
+    values: np.ndarray, *, beyond_exact_integers: bool
+) -> tuple[float, float] | None:
+    """The two distinct finite values the float64 `values` hold, or None when
+    they hold another number of them. Integers beyond ±2^53 read as float64
+    may be told apart wrongly, so such values give None."""
+    if beyond_exact_integers:
+        return None
+    finite = values[np.isfinite(values)]
+    if not finite.size:
+        return None
+    low, high = float(finite.min()), float(finite.max())
+    if low == high or not bool(np.all((finite == low) | (finite == high))):
+        return None
+    return low, high
+
+
+def _statistics_path(_name: str) -> str:
+    """The result path of a regression target's statistics, whatever the name:
+    the target is the only column."""
     return "statistics"
 
 
@@ -1133,10 +1322,31 @@ def _valid_levels(levels: Levels, labels: Sequence[Label] | None) -> np.ndarray:
     )
 
 
-def _first_rows(
+def _without_rows(levels: Levels, labels: Sequence[Label] | None) -> list[Label]:
+    """The declared labels that no level equals, in the order declared.
+
+    A label equals a level as Python's == says, so 1 equals 1.0 and True.
+    """
+    if labels is None:
+        return []
+    held = {stored_label(label) for label in levels.objects()}
+    return [label for label in labels if label not in held]
+
+
+def _table_positions(view: _Labels, found: dict[int, Any]) -> dict[int, Any]:
+    """`found`, keyed by level position, keyed by position in the labels
+    to_frame() lists: with masking on, the placeholder's number less 1."""
+    if view.masked is None:
+        return found
+    return {
+        int(view.masked.numbers[position]) - 1: ids for position, ids in found.items()
+    }
+
+
+def _rows_of(
     row_levels: np.ndarray, kept: np.ndarray, level_count: int
 ) -> list[np.ndarray]:
-    """For each kept level, the positions of the first rows holding it."""
+    """For each kept level, the positions of the rows holding it, in row order."""
     slots = np.full(level_count + 1, -1, dtype=np.intp)
     slots[kept] = np.arange(len(kept))
     # Missing values have level -1, which picks the extra slot at the end.
@@ -1145,7 +1355,7 @@ def _first_rows(
     rows = rows[np.argsort(row_slots[rows], kind="stable")]
     starts = np.searchsorted(row_slots[rows], np.arange(len(kept) + 1))
     return [
-        rows[start : min(start + _KEPT_ROW_IDS, end)]
+        rows[start:end]
         for start, end in zip(starts[:-1].tolist(), starts[1:].tolist(), strict=True)
     ]
 

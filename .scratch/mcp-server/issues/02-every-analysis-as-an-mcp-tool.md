@@ -6,7 +6,7 @@ Read these sections of `.scratch/mcp-server/spec.md`: MCP tools for analyses, an
 
 **Blocked by:** 01-server-skeleton-end-to-end
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The server lists one MCP tool per entry in `ae.list_analyses()`, named like the analysis, built from the registry at start with no per-analysis server code.
 - [x] Each description holds the docstring's summary, `When to use:`, `Returns:` with the finding codes, `Statuses:` and `See Also:`, in that order, and no `Examples:` or Python call syntax.

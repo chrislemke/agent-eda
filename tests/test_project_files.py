@@ -4,6 +4,7 @@ import codecs
 import doctest
 import inspect
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,9 @@ EMAIL_MASKED = ae.Project(
     name="churn",
     data_policy=ae.DataPolicy(sensitive_columns=["email"], mask_sensitive=True),
 )
-HEADER = "# An agent-eda Project. Load it with ae.Project.load(path).\n"
+HEADER = (
+    "# An agent-eda Project. Load it with ae.Project.load(path).\nformat_version = 1\n"
+)
 
 
 def write(path, text):
@@ -298,7 +301,9 @@ def test_save_and_load_use_no_toml_library_but_the_standard_one(tmp_path):
         "import agent_eda as ae\n"
         "project = ae.Project(name='churn')\n"
         f"assert ae.Project.load(project.save({str(path)!r})) == project\n"
-        "print(' '.join(sorted(name for name in sys.modules if 'toml' in name)))\n"
+        # coverage's subprocess patch loads its own copy of the config reader
+        "print(' '.join(sorted(name for name in sys.modules\n"
+        "    if 'toml' in name and not name.startswith('coverage'))))\n"
     )
 
     completed = subprocess.run(
@@ -813,7 +818,7 @@ def test_a_directory_for_the_path_raises_with_a_file_path_in_it(
     assert str(caught.value) == (
         f"Project.{call} got the directory 'config' ({tmp_path / 'config'}) for "
         "path, but path must name a file in it, such as "
-        f"'{Path('config', 'project.toml')}'."
+        f"{str(Path('config', 'project.toml'))!r}."
     )
 
 
@@ -866,20 +871,34 @@ def test_load_from_a_file_as_if_it_were_a_directory_finds_no_file(
 
 
 @pytest.mark.parametrize("call", ["load", "save"])
+@pytest.mark.parametrize(
+    "separator",
+    [
+        os.sep,
+        pytest.param(
+            os.altsep,
+            marks=pytest.mark.skipif(
+                os.altsep is None, reason="only Windows has a second separator, /"
+            ),
+        ),
+    ],
+)
 def test_a_path_ending_in_a_separator_raises_as_it_names_a_directory(
-    tmp_path, monkeypatch, call
+    tmp_path, monkeypatch, call, separator
 ):
     monkeypatch.chdir(tmp_path)
     method = ae.Project.load if call == "load" else ae.Project().save
-    path = "config" + os.sep
+    path = "config" + separator
 
     with pytest.raises(InvalidArgumentError) as caught:
         method(path)
 
     assert caught.value.code == "invalid_argument"
+    # The path as the caller wrote it, and the file to name instead as code that
+    # writes it.
     assert str(caught.value) == (
-        f"Project.{call} got {path!r} for path, whose last {os.sep!r} makes it name "
-        "a directory, but path must name a file, such as "
+        f"Project.{call} got '{path}' for path, whose last '{separator}' makes it "
+        "name a directory, but path must name a file, such as "
         f"{os.path.join(path, 'project.toml')!r}."
     )
     assert list(tmp_path.iterdir()) == []
@@ -927,7 +946,9 @@ def test_overwrite_takes_only_true_or_false(tmp_path, overwrite):
 
 
 def test_a_path_starting_with_a_tilde_means_the_home_directory(tmp_path, monkeypatch):
+    # os.path.expanduser reads HOME on POSIX and USERPROFILE on Windows.
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     path = EMAIL_MASKED.save("~/project.toml")
 
@@ -1045,3 +1066,178 @@ def test_a_file_too_large_for_a_project_raises_without_reading_it_all(
 EMAIL_MASKED_TEXT = (
     '[data_policy]\nsensitive_columns = ["email"]\nmask_sensitive = true\n'
 )
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_save_refuses_a_named_pipe_instead_of_waiting_for_a_reader(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    os.mkfifo(tmp_path / "project.toml")
+
+    with pytest.raises(AgentEDAError) as caught:
+        EMAIL_MASKED.save("project.toml", overwrite=True)
+
+    assert "isn't a regular file" in str(caught.value)
+    assert "project.toml" in str(caught.value)
+    assert stat.S_ISFIFO(os.stat(tmp_path / "project.toml").st_mode)
+    assert stands_alone(caught.value)
+
+
+@pytest.mark.skipif(not os.path.exists("/dev/null"), reason="needs /dev/null")
+def test_save_refuses_a_device_and_leaves_it_alone():
+    with pytest.raises(AgentEDAError) as caught:
+        EMAIL_MASKED.save("/dev/null", overwrite=True)
+
+    assert "isn't a regular file" in str(caught.value)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_save_through_a_link_to_a_named_pipe_refuses_too(tmp_path):
+    os.mkfifo(tmp_path / "pipe")
+    (tmp_path / "project.toml").symlink_to(tmp_path / "pipe")
+
+    with pytest.raises(AgentEDAError, match="isn't a regular file"):
+        EMAIL_MASKED.save(tmp_path / "project.toml", overwrite=True)
+
+
+def test_save_replaces_a_file_whole_and_leaves_no_temporary_file(tmp_path):
+    path = write(tmp_path / "project.toml", "old content\n")
+    inode = path.stat().st_ino
+
+    saved = EMAIL_MASKED.save(path, overwrite=True)
+
+    assert ae.Project.load(saved) == EMAIL_MASKED
+    assert os.listdir(tmp_path) == ["project.toml"]
+    # A rename puts a new file in place of the old one, which truncating would not.
+    assert path.stat().st_ino != inode
+
+
+def test_an_interrupted_save_keeps_the_old_file(tmp_path, monkeypatch):
+    path = write(tmp_path / "project.toml", EMAIL_MASKED_TEXT)
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "replace", interrupted)
+    monkeypatch.setattr(os, "rename", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        ae.Project(name="other").save(path, overwrite=True)
+
+    assert path.read_text(encoding="utf-8") == EMAIL_MASKED_TEXT
+    assert os.listdir(tmp_path) == ["project.toml"]
+
+
+def test_save_through_a_symlink_replaces_the_file_it_points_to(tmp_path):
+    target = write(tmp_path / "real.toml", "old\n")
+    (tmp_path / "project.toml").symlink_to(target)
+
+    EMAIL_MASKED.save(tmp_path / "project.toml", overwrite=True)
+
+    assert (tmp_path / "project.toml").is_symlink()
+    assert ae.Project.load(target) == EMAIL_MASKED
+
+
+def test_save_without_overwrite_still_never_replaces_a_file(tmp_path):
+    path = write(tmp_path / "project.toml", "keep me\n")
+
+    with pytest.raises(ProjectFileExistsError):
+        EMAIL_MASKED.save(path)
+
+    assert path.read_text(encoding="utf-8") == "keep me\n"
+    assert os.listdir(tmp_path) == ["project.toml"]
+
+
+def test_save_refuses_a_project_that_load_would_refuse_for_its_size(tmp_path):
+    columns = [f"column_{number:07d}" for number in range(100_000)]
+    big = ae.Project(data_policy=ae.DataPolicy(sensitive_columns=columns))
+
+    with pytest.raises(ProjectFileError) as caught:
+        big.save(tmp_path / "project.toml", overwrite=True)
+
+    assert caught.value.code == "invalid_project_file"
+    assert "1 MiB" in str(caught.value)
+    assert "Project.load" in str(caught.value)
+    assert os.listdir(tmp_path) == []
+
+
+def test_a_saved_project_names_its_format_version(tmp_path):
+    path = EMAIL_MASKED.save(tmp_path / "project.toml")
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+
+    assert lines[:3] == [*HEADER.splitlines(), 'name = "churn"']
+    assert ae.Project.load(path) == EMAIL_MASKED
+
+
+def test_a_file_without_a_format_version_loads_as_version_1(tmp_path):
+    path = write(tmp_path / "project.toml", EMAIL_MASKED_TEXT)
+
+    assert ae.Project.load(path).data_policy.sensitive_columns == ("email",)
+
+
+def test_a_file_of_a_newer_format_is_refused_with_its_version(tmp_path):
+    path = write(tmp_path / "project.toml", "format_version = 2\n" + EMAIL_MASKED_TEXT)
+
+    with pytest.raises(ProjectFileError) as caught:
+        ae.Project.load(path)
+
+    assert caught.value.code == "invalid_project_file"
+    message = str(caught.value)
+    assert "format_version = 2" in message
+    assert "reads format_version 1" in message
+    assert "Upgrade agent-eda" in message
+    assert stands_alone(caught.value)
+
+
+@pytest.mark.parametrize("version", ["0", '"1"', "1.0", "true", "-1"])
+def test_a_format_version_that_is_not_a_positive_integer_raises(tmp_path, version):
+    path = write(
+        tmp_path / "project.toml", f"format_version = {version}\n" + EMAIL_MASKED_TEXT
+    )
+
+    with pytest.raises(ProjectFileError, match="format_version"):
+        ae.Project.load(path)
+
+
+def test_save_without_overwrite_refuses_a_dangling_link_and_creates_nothing(tmp_path):
+    (tmp_path / "project.toml").symlink_to(tmp_path / "elsewhere.toml")
+
+    with pytest.raises(ProjectFileExistsError):
+        EMAIL_MASKED.save(tmp_path / "project.toml")
+
+    assert not (tmp_path / "elsewhere.toml").exists()
+    assert sorted(os.listdir(tmp_path)) == ["project.toml"]
+
+
+def test_save_with_overwrite_replaces_a_dangling_link_instead_of_writing_through(
+    tmp_path,
+):
+    link = tmp_path / "project.toml"
+    link.symlink_to(tmp_path / "elsewhere.toml")
+
+    EMAIL_MASKED.save(link, overwrite=True)
+
+    assert not link.is_symlink()
+    assert not (tmp_path / "elsewhere.toml").exists()
+    assert ae.Project.load(link) == EMAIL_MASKED
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permissions")
+def test_save_keeps_the_permissions_of_the_file_it_replaces(tmp_path):
+    path = write(tmp_path / "project.toml", "old\n")
+    path.chmod(0o640)
+
+    EMAIL_MASKED.save(path, overwrite=True)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX permissions")
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_save_makes_a_new_file_readable_by_its_owner_only(tmp_path, overwrite):
+    path = tmp_path / "project.toml"
+
+    EMAIL_MASKED.save(path, overwrite=overwrite)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600

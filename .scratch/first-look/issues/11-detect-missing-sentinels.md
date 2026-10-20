@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: the detect_missing_sentine
 
 **Blocked by:** 08-project-and-masking, 10-profile-missing-values
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Candidates come only from fixed, documented rules with no tunable thresholds: values from the built-in list, and repeated numeric values at the column's minimum or maximum whose distance to the nearest other value exceeds the range of all other values.
 - [x] The built-in list covers:
@@ -64,3 +64,5 @@ Checks:
 - `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass. `uv run --isolated --resolution lowest-direct --python 3.12 pytest` passes with numpy 1.26.0, pandas 2.2.0 and pyarrow 14.0.1 and leaves `uv.lock` unchanged. `uv run --isolated --python 3.13 pytest` and the same on 3.14 pass.
 - The `thorough` profile passed for this analysis's tests and properties on both version sets. Random fuzzing with 1,000 examples per seed ran the generated-data contract, the no-leak property, the comparison with profile_missing_values and the four rule properties: seeds 1, 2, 6 and 7 on the latest versions and 3, 4 and 5 on the minimum ones. It found the NUL problem above.
 - Not run locally: Linux and the 2-vCPU target machine, which ticket 05's CI covers.
+
+Box 14 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

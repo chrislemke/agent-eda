@@ -1,6 +1,7 @@
 import datetime as dt
 import inspect
 import json
+import pickle
 from decimal import Decimal
 from typing import Any
 
@@ -12,7 +13,7 @@ import pytest
 import agent_eda as ae
 from agent_eda.errors import ColumnNotFoundError, InvalidArgumentError
 
-STATUSES = ["completed", "partial", "insufficient_data", "not_applicable", "failed"]
+STATUSES = ["completed", "partial", "insufficient_data", "not_applicable"]
 
 
 def infer(values, **arguments):
@@ -117,7 +118,8 @@ def test_a_few_labels_repeated_over_many_rows_rank_categorical_first():
     entry = infer(["red", "green", "blue", "green"] * 25)
 
     assert entry.inferred_logical_type == "categorical"
-    assert entry.candidates[0].score == 0.97
+    # 1 - 3 / 100, within floating-point rounding.
+    assert entry.candidates[0].score == pytest.approx(0.97, abs=1e-15)
 
 
 def test_an_all_distinct_integer_sequence_is_flagged_identifier_like():
@@ -145,11 +147,10 @@ def test_distinct_whole_numbers_that_arent_a_sequence_are_no_identifiers():
 def test_ranks_candidates_by_score_with_reasons_from_fixed_templates():
     entry = infer(["1", "2", "2", "x"])
 
-    # "1" reads as a boolean too; ties go to the more specific type.
+    # "x" isn't a boolean, so the column has no boolean candidate.
     assert [(c.logical_type, c.score) for c in entry.candidates] == [
         ("integer", 0.75),
         ("float", 0.75),
-        ("boolean", 0.25),
         ("categorical", 0.25),
         ("text", 0.09375),
     ]
@@ -164,7 +165,8 @@ def test_ranks_candidates_by_score_with_reasons_from_fixed_templates():
 
 
 def test_scores_follow_the_documented_rules():
-    # 6 values: 4 distinct, 2 plain text of several words, 1 date, 1 boolean.
+    # 6 values: 4 distinct, 2 plain text of several words, 1 date, 1 boolean word,
+    # which doesn't make a boolean candidate while other values aren't booleans.
     entry = infer(["a b", "a b", "x", "2024-01-05", "yes", "x"])
 
     scores = {c.logical_type: c.score for c in entry.candidates}
@@ -177,7 +179,6 @@ def test_scores_follow_the_documented_rules():
             "categorical": 1 - 4 / 6,
             "text": (4 / 6 * 4 / 6 + 2 / 6) / 2,
             "datetime": 1 / 6,
-            "boolean": 1 / 6,
         },
         abs=1e-15,
     )
@@ -201,6 +202,8 @@ def test_lists_the_evidence_behind_the_candidates():
     entry = infer(["1", "2", "2", None, "1.5", "0", "x", "01"])
 
     evidence = entry.evidence
+    # A share is one integer over another, correctly rounded, so each equals
+    # Python's quotient exactly.
     assert evidence.non_missing_count == 7
     assert evidence.distinct_count == 6
     assert evidence.uniqueness_share == 6 / 7
@@ -338,13 +341,43 @@ def test_flags_a_constant_column():
 
 
 def test_flags_an_all_missing_column_and_gives_it_no_candidates():
-    entry = infer([None, None], declared_schema={"x": "integer"})
+    entry = infer([None, None], schema={"x": "integer"})
 
     assert entry.flags == ["all_missing"]
     assert entry.candidates == []
     assert entry.inferred_logical_type is None
     assert entry.status == "insufficient_data"
     assert entry.evidence.uniqueness_share is None
+
+
+def test_constant_and_all_missing_columns_are_findings_that_point_at_their_evidence():
+    df = pd.DataFrame(
+        {
+            "same": ["a", "a", None, "a"],
+            "empty": [None, None, None, None],
+            "varied": ["a", "b", "c", "a"],
+        }
+    )
+
+    res = ae.infer_column_semantics(df)
+
+    findings = {finding.code: finding for finding in res.findings}
+    constant = findings["constant_columns"]
+    assert constant.assessment == "suspected"
+    assert constant.columns == ["same"]
+    assert constant.claim == (
+        "1 column holds a single distinct non-missing value: 'same'."
+    )
+    assert constant.fields == ["columns['same'].evidence.distinct_count"]
+    assert res.columns["same"].evidence.distinct_count == 1
+    all_missing = findings["all_missing_columns"]
+    assert all_missing.assessment == "suspected"
+    assert all_missing.columns == ["empty"]
+    assert all_missing.claim == "1 column contains only missing values: 'empty'."
+    assert all_missing.fields == ["columns['empty'].evidence.non_missing_count"]
+    assert res.columns["empty"].evidence.non_missing_count == 0
+    # A column that varies is in neither finding.
+    assert "varied" not in constant.columns + all_missing.columns
 
 
 def test_flags_numbers_stored_as_text():
@@ -449,9 +482,22 @@ def test_nan_a_float_column_stores_as_a_value_counts_as_missing():
     )
 
     assert res.columns["x"].evidence.non_missing_count == 2
-    [limitation] = res.limitations
-    assert limitation.code == "nan_counted_as_missing"
+    [limitation] = [
+        lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
+    ]
     assert limitation.fields == ["columns['x'].evidence.non_missing_count"]
+
+
+def test_text_that_differs_by_a_nul_character_stays_apart_in_unpickled_data():
+    # An unpickled object dtype is equal to, not the same instance as, np.dtype(object).
+    text = pd.Series(["\x00", "", "a", "a"], dtype=object)
+    data = pickle.loads(pickle.dumps(pd.DataFrame({"x": text})))  # our own bytes
+
+    entry = ae.infer_column_semantics(data).columns["x"]
+    invalid = ae.validate_column_types(data, schema={"x": "integer"}).columns["x"]
+
+    assert entry.evidence.distinct_count == 3
+    assert invalid.invalid_distinct_count == 3
 
 
 def test_values_that_cant_be_hashed_leave_the_distinct_count_null():
@@ -465,7 +511,10 @@ def test_values_that_cant_be_hashed_leave_the_distinct_count_null():
     assert entry.evidence.value_type_counts.other == 3
     assert entry.evidence.number_share == 0.4
     assert "mixed_value_types" in entry.flags
-    assert [lim.code for lim in res.limitations] == ["unhashable_values"]
+    assert [lim.code for lim in res.limitations] == [
+        "schema_not_declared",
+        "unhashable_values",
+    ]
 
 
 def test_a_column_whose_values_fit_no_logical_type_is_not_applicable():
@@ -520,7 +569,7 @@ def test_declared_schema_takes_logical_types_and_column_specs():
         "when": {"logical_type": "datetime", "nullable": False},
     }
 
-    res = ae.infer_column_semantics(frame(), declared_schema=schema)
+    res = ae.infer_column_semantics(frame(), schema=schema)
 
     declared = {
         name: entry.declared_logical_type for name, entry in res.columns.items()
@@ -531,7 +580,7 @@ def test_declared_schema_takes_logical_types_and_column_specs():
         "when": "datetime",
         "member": None,
     }
-    assert res.parameters["declared_schema"] == {
+    assert res.parameters["schema"] == {
         "zip": {"logical_type": "text", "nullable": None, "datetime_format": None},
         "amount": {"logical_type": "float", "nullable": True, "datetime_format": None},
         "when": {
@@ -544,7 +593,7 @@ def test_declared_schema_takes_logical_types_and_column_specs():
 
 def test_never_overwrites_a_declared_type_and_says_where_it_differs():
     res = ae.infer_column_semantics(
-        frame(), declared_schema={"zip": "integer", "when": "datetime"}
+        frame(), schema={"zip": "integer", "when": "datetime"}
     )
 
     zip_code = res.columns["zip"]
@@ -570,7 +619,7 @@ def test_never_overwrites_a_declared_type_and_says_where_it_differs():
 def test_a_declared_column_without_values_cant_be_compared():
     df = pd.DataFrame({"x": [None, None], "y": [1, 2]})
 
-    res = ae.infer_column_semantics(df, declared_schema={"x": "integer"})
+    res = ae.infer_column_semantics(df, schema={"x": "integer"})
 
     [unchecked] = [f for f in res.findings if f.code == "declared_type_unchecked"]
     assert unchecked.assessment == "unknown"
@@ -579,12 +628,10 @@ def test_a_declared_column_without_values_cant_be_compared():
 
 
 def test_a_declared_column_the_data_lacks_is_a_violation_with_the_closest_name():
-    res = ae.infer_column_semantics(
-        frame(), declared_schema={"amout": "float", "zip": "text"}
-    )
+    res = ae.infer_column_semantics(frame(), schema={"amout": "float", "zip": "text"})
 
     assert res.missing_declared_columns == ["amout"]
-    [missing] = [f for f in res.findings if f.code == "declared_columns_missing"]
+    [missing] = [f for f in res.findings if f.code == "missing_declared_columns"]
     assert missing.assessment == "violation"
     assert missing.claim == (
         "1 declared column is not in the data: 'amout' (did you mean 'amount'?)."
@@ -599,8 +646,7 @@ def test_without_declared_schema_no_comparison_runs():
     assert all(e.matches_declared is None for e in res.columns.values())
     assert not [f for f in res.findings if f.code.startswith("declared_")]
     assert (
-        "No declared_schema was given, so no column was compared with a declared "
-        "logical type."
+        "No schema was given, so no column was compared with a declared logical type."
     ) in str(res).splitlines()
 
 
@@ -609,23 +655,23 @@ def test_declared_schema_takes_labels_that_are_not_strings():
     # A label that isn't a string is accepted at runtime.
     schema: dict[Any, Any] = {0: "categorical", "1": "float"}
 
-    res = ae.infer_column_semantics(df, declared_schema=schema)
+    res = ae.infer_column_semantics(df, schema=schema)
 
     assert res.columns["0"].declared_logical_type == "categorical"
     assert res.columns["1"].declared_logical_type == "float"
-    recorded = res.parameters["declared_schema"]
+    recorded = res.parameters["schema"]
     assert isinstance(recorded, dict)
     assert list(recorded) == ["0", "1"]
 
 
 def test_an_unknown_declared_logical_type_raises_with_the_closest():
     with pytest.raises(InvalidArgumentError) as caught:
-        ae.infer_column_semantics(frame(), declared_schema={"zip": "int"})  # ty: ignore[invalid-argument-type]  # the typo is the test
+        ae.infer_column_semantics(frame(), schema={"zip": "int"})  # ty: ignore[invalid-argument-type]  # the typo is the test
 
     assert caught.value.code == "invalid_argument"
     assert str(caught.value) == (
-        "infer_column_semantics got 'int' at declared_schema['zip'], but each "
-        "value in declared_schema must be one of 'boolean', 'integer', 'float', "
+        "infer_column_semantics got 'int' at schema['zip'], but each "
+        "value in schema must be one of 'boolean', 'integer', 'float', "
         "'categorical', 'text', 'datetime' or 'timedelta', or a ColumnSpec. Did "
         "you mean 'integer'? See help(ae.infer_column_semantics) for every "
         "argument."
@@ -636,10 +682,10 @@ def test_an_invalid_column_spec_in_declared_schema_raises_in_the_package_format(
     schema: dict[str, Any] = {"zip": {"logical_type": "txt"}}
 
     with pytest.raises(InvalidArgumentError) as caught:
-        ae.infer_column_semantics(frame(), declared_schema=schema)
+        ae.infer_column_semantics(frame(), schema=schema)
 
     assert str(caught.value) == (
-        "infer_column_semantics got an invalid value at declared_schema['zip']: "
+        "infer_column_semantics got an invalid value at schema['zip']: "
         "ColumnSpec got 'txt' for logical_type, but logical_type must be one of "
         "'boolean', 'integer', 'float', 'categorical', 'text', 'datetime' or "
         "'timedelta'. Did you mean 'text'? See help(ae.ColumnSpec) for every field."
@@ -651,11 +697,11 @@ def test_a_column_named_twice_in_declared_schema_raises():
     df = pd.DataFrame({1: [1, 2]})
 
     with pytest.raises(InvalidArgumentError) as caught:
-        ae.infer_column_semantics(df, declared_schema={1: "integer", "1": "float"})  # ty: ignore[invalid-argument-type]  # labels that aren't strings are accepted at runtime
+        ae.infer_column_semantics(df, schema={1: "integer", "1": "float"})  # ty: ignore[invalid-argument-type]  # labels that aren't strings are accepted at runtime
 
     assert str(caught.value) == (
         "infer_column_semantics got column '1' more than once in "
-        "declared_schema, as 1 and '1'. Name each column once."
+        "schema, as 1 and '1'. Name each column once."
     )
 
 
@@ -697,7 +743,7 @@ def test_the_result_shows_no_raw_data_values():
         }
     )
 
-    res = ae.infer_column_semantics(df, declared_schema={"code": "text"})
+    res = ae.infer_column_semantics(df, schema={"code": "text"})
 
     shown = [
         str(res),
@@ -712,7 +758,7 @@ def test_the_result_shows_no_raw_data_values():
 
 
 def test_prints_each_column_with_its_top_candidates_and_flags():
-    res = ae.infer_column_semantics(frame(), declared_schema={"zip": "integer"})
+    res = ae.infer_column_semantics(frame(), schema={"zip": "integer"})
 
     lines = str(res).splitlines()
     assert lines[0] == "infer_column_semantics: completed on 4 rows x 4 columns"
@@ -721,8 +767,8 @@ def test_prints_each_column_with_its_top_candidates_and_flags():
         "parse as ISO 8601 only."
     )
     assert lines[2] == (
-        "declared_schema: 1 column declared in the data, 0 with that top "
-        "candidate, 1 with another; 0 not in the data."
+        "schema: 1 column declared: 0 matching (ties with the top "
+        "count), 1 not, 0 not inferred, 0 not in the data."
     )
     assert lines[3] == "Columns (4 of 4 shown):"
     header = lines[4].split()
@@ -793,21 +839,21 @@ def test_the_record_caps_a_long_declared_schema_and_gives_its_total():
     df = pd.DataFrame({f"c{i}": [i, i + 1] for i in range(150)})
     schema: dict[str, Any] = {f"c{i}": "integer" for i in range(150)}
 
-    res = ae.infer_column_semantics(df, declared_schema=schema)
+    res = ae.infer_column_semantics(df, schema=schema)
 
     record = res.to_dict()
-    assert len(record["parameters"]["declared_schema"]) == 100
-    assert record["parameters"]["declared_schema_total"] == 150
+    assert len(record["parameters"]["schema"]) == 100
+    assert record["parameters"]["schema_total"] == 150
     assert record["parameters"]["data"] == {"row_count": 2, "column_count": 150}
     assert "data_total" not in record["parameters"]
-    recorded = res.parameters["declared_schema"]
+    recorded = res.parameters["schema"]
     assert isinstance(recorded, dict)
     assert len(recorded) == 150
 
 
 def test_identical_calls_give_identical_json():
-    first = ae.infer_column_semantics(frame(), declared_schema={"zip": "text"})
-    second = ae.infer_column_semantics(frame(), declared_schema={"zip": "text"})
+    first = ae.infer_column_semantics(frame(), schema={"zip": "text"})
+    second = ae.infer_column_semantics(frame(), schema={"zip": "text"})
 
     assert first.to_json() == second.to_json()
     json.loads(first.to_json())

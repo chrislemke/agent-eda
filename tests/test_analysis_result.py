@@ -33,17 +33,17 @@ def test_result_names_its_analysis_and_how_the_run_ended(result):
 
 def test_a_failed_result_carries_an_error_code_and_a_message(result):
     record = result.model_dump()
-    reason = {"code": "overflow", "message": "The memory total overflowed."}
+    reason = {"code": "numerical_failure", "message": "The memory total overflowed."}
 
     failed = type(result).model_validate(
         {**record, "status": "failed", "status_reason": reason}
     )
 
     assert failed.status_reason is not None
-    assert failed.status_reason.code == "overflow"
+    assert failed.status_reason.code == "numerical_failure"
     assert str(failed).splitlines()[:2] == [
         "describe_dataset: failed on 3 rows x 2 columns",
-        "Reason: overflow: The memory total overflowed.",
+        "Reason: numerical_failure: The memory total overflowed.",
     ]
 
 
@@ -62,7 +62,7 @@ def test_an_unexpected_exception_propagates_instead_of_becoming_a_result():
     ("status", "reason"),
     [
         ("failed", None),
-        ("completed", {"code": "overflow", "message": "Overflowed."}),
+        ("completed", {"code": "numerical_failure", "message": "Overflowed."}),
         ("cancelled", None),
     ],
     ids=["failed-without-reason", "completed-with-reason", "unknown-status"],
@@ -82,8 +82,10 @@ def test_parameters_record_every_argument_and_only_the_shape_of_the_data(result)
     }
 
 
-def test_support_records_rows_columns_and_per_column_counts(result):
-    support = result.support
+def test_support_records_rows_columns_and_the_counts_of_columns_with_exclusions():
+    support = ae.summarize_numeric(
+        pd.DataFrame({"x": [1.0, 2.0, None], "y": [1.0, 2.0, 3.0]})
+    ).support
     assert support.row_count == 3
     assert support.column_count == 2
     assert [
@@ -95,7 +97,7 @@ def test_support_records_rows_columns_and_per_column_counts(result):
             c.excluded_by_reason,
         )
         for c in support.columns
-    ] == [("x", 3, 3, 0, {}), ("y", 3, 3, 0, {})]
+    ] == [("x", 3, 2, 1, {"missing": 1})]
 
 
 def test_execution_records_library_versions_and_no_timing(result):
@@ -147,8 +149,8 @@ def test_record_keeps_the_first_100_columns_and_their_total():
 
     assert [c["column"] for c in record["columns"]] == [f"c{i}" for i in range(100)]
     assert record["columns_total"] == 250
-    assert len(record["support"]["columns"]) == 100
-    assert record["support"]["columns_total"] == 250
+    assert record["support"]["columns"] == []
+    assert record["support"]["columns_total"] == 0
     finding = record["findings"][0]
     assert finding["code"] == "all_missing_columns"
     assert (len(finding["columns"]), finding["columns_total"]) == (100, 250)

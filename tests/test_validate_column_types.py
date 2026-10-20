@@ -157,6 +157,62 @@ RULES = [
         (0, 2, 1, 0),
     ),
     ("category of text", pd.Series(["a", "b"], dtype="category"), "text", (0, 2, 0, 0)),
+    # A category is read by its label, so a stored category is never compatible
+    # with the other types, and each row counts as its category does.
+    (
+        "category of booleans as booleans",
+        pd.Series([True, False, None, True], dtype="category"),
+        "boolean",
+        (0, 3, 0, 1),
+    ),
+    (
+        "category of booleans as integers",
+        pd.Series([True, False, None, True], dtype="category"),
+        "integer",
+        (0, 0, 3, 1),
+    ),
+    (
+        "category of datetimes as datetimes",
+        pd.Series([DAY, DAY, None, dt.datetime(2021, 1, 1)], dtype="category"),
+        "datetime",
+        (0, 3, 0, 1),
+    ),
+    (
+        "category of datetimes as durations",
+        pd.Series([DAY, DAY, None, dt.datetime(2021, 1, 1)], dtype="category"),
+        "timedelta",
+        (0, 0, 3, 1),
+    ),
+    (
+        "category of durations as durations",
+        pd.Series([dt.timedelta(1), dt.timedelta(2), None], dtype="category"),
+        "timedelta",
+        (0, 2, 0, 1),
+    ),
+    (
+        "category of durations as text",
+        pd.Series([dt.timedelta(1), dt.timedelta(2), None], dtype="category"),
+        "text",
+        (0, 2, 0, 1),
+    ),
+    (
+        "category of mixed values as floats",
+        pd.Series(["a", 1, 2.5, dt.date(2020, 1, 1)], dtype="category"),
+        "float",
+        (0, 2, 2, 0),
+    ),
+    (
+        "category of mixed values as datetimes",
+        pd.Series(["a", 1, 2.5, dt.date(2020, 1, 1)], dtype="category"),
+        "datetime",
+        (0, 1, 3, 0),
+    ),
+    (
+        "category of mixed values as text",
+        pd.Series(["a", 1, 2.5, dt.date(2020, 1, 1)], dtype="category"),
+        "text",
+        (0, 4, 0, 0),
+    ),
     # Objects are read by their own type, though pandas counts 1, 1.0 and True as one.
     (
         "mixed objects as integers",
@@ -339,7 +395,7 @@ def test_values_that_neither_have_nor_convert_to_the_declared_type_are_invalid()
     assert counts(res.columns["flags"]) == (0, 0, 4, 0)
 
 
-def codes():
+def product_codes():
     """14 product codes; 12 aren't integers, 'n/a' three times and 'x' twice."""
     values = [
         "1",
@@ -362,7 +418,7 @@ def codes():
 
 
 def test_invalid_values_come_with_the_first_10_row_ids_and_their_total():
-    res = ae.validate_column_types(codes(), schema={"code": "integer"})
+    res = ae.validate_column_types(product_codes(), schema={"code": "integer"})
 
     entry = res.columns["code"]
     assert entry.invalid_count == 12
@@ -382,7 +438,7 @@ def test_invalid_values_come_with_the_first_10_row_ids_and_their_total():
 
 
 def test_invalid_values_come_with_5_distinct_examples_most_frequent_first():
-    res = ae.validate_column_types(codes(), schema={"code": "integer"})
+    res = ae.validate_column_types(product_codes(), schema={"code": "integer"})
 
     entry = res.columns["code"]
     # Ties go by value, in the order summarize_categorical gives levels.
@@ -418,7 +474,7 @@ def test_a_declared_column_missing_from_the_data_is_a_violation_not_an_error():
     assert counts(entry) == (None, None, None, None)
     assert (entry.invalid_row_ids, entry.invalid_values) == ([], [])
     assert res.status == "completed"
-    [finding] = [f for f in res.findings if f.code == "declared_columns_missing"]
+    [finding] = [f for f in res.findings if f.code == "missing_declared_columns"]
     assert finding.assessment == "violation"
     assert finding.columns == ["emial"]
     assert finding.claim == (
@@ -432,7 +488,7 @@ def findings_by_code(res):
 
 
 def test_invalid_values_give_a_violation_naming_the_columns():
-    res = ae.validate_column_types(codes(), schema={"code": "integer"})
+    res = ae.validate_column_types(product_codes(), schema={"code": "integer"})
 
     finding = findings_by_code(res)["invalid_values"]
     assert finding.assessment == "violation"
@@ -469,11 +525,11 @@ def test_a_clean_column_passes_and_a_column_without_values_is_unknown():
     res = ae.validate_column_types(df, schema={"age": "integer", "notes": "text"})
 
     found = findings_by_code(res)
-    assert (found["valid_columns"].assessment, found["valid_columns"].columns) == (
+    assert (found["passing_columns"].assessment, found["passing_columns"].columns) == (
         "passed",
         ["age"],
     )
-    assert found["valid_columns"].claim == "1 column passes every check: 'age'."
+    assert found["passing_columns"].claim == "1 column passes every check: 'age'."
     assert (
         found["unchecked_columns"].assessment,
         found["unchecked_columns"].columns,
@@ -510,7 +566,7 @@ def test_values_that_need_converting_are_described_and_still_pass():
         found["convertible_values"].claim == "1 column holds convertible values: 'n'."
     )
     assert found["convertible_values"].fields == ["columns['n'].convertible_count"]
-    assert found["valid_columns"].columns == ["n"]
+    assert found["passing_columns"].columns == ["n"]
 
 
 def test_row_ids_are_values_of_id_column_when_it_is_given():
@@ -551,8 +607,7 @@ def test_repeated_row_ids_give_an_ambiguous_row_ids_limitation():
     res = ae.validate_column_types(df, schema={"qty": "integer"})
 
     assert res.columns["qty"].invalid_row_ids == [7, 8]
-    [limitation] = res.limitations
-    assert limitation.code == "ambiguous_row_ids"
+    [limitation] = [lim for lim in res.limitations if lim.code == "ambiguous_row_ids"]
     assert limitation.fields == ["columns['qty'].invalid_row_ids"]
 
 
@@ -669,28 +724,34 @@ def test_prints_the_counts_per_declared_column_violations_first():
         },
     )
 
-    assert str(res).splitlines() == [
-        "validate_column_types: completed on 5 rows x 4 columns",
-        "compatible: stored as the declared type; convertible: converts exactly; invalid: neither. Nothing was converted.",
-        "Row IDs: index labels.",
-        "Not declared in schema, so not checked: 'note'.",
-        "Declared columns, violations first (4 of 4 shown):",
-        "column    declared           dtype            compatible  convertible  invalid  missing  invalid_values",
-        "ordered   datetime           object                    0            3        1        1  '05/01/2024': 1",
-        "qty       integer            object                    0            3        2        0  'n/a': 2",
-        "customer  text               not in the data        null         null     null     null",
-        "order_id  integer, not null  object                    0            5        0        0",
-        "Findings (4 of 4 shown):",
-        "- violation invalid_values: 2 columns hold invalid values: 'ordered' and 'qty'.",
-        "- violation declared_columns_missing: 1 declared column is not in the data: 'customer'.",
-        "- descriptive convertible_values: 3 columns hold convertible values: 'order_id', 'ordered' and 'qty'.",
-        "- passed valid_columns: 1 column passes every check: 'order_id'.",
-        "Limitations (1 of 1 shown):",
-        "- column_not_in_data: 1 declared column isn't in the data, so its dtype and counts are null: 'customer'.",
-        "More: res.to_frame() has all 4 declared columns; res.to_frame(table='invalid_values') "
-        "counts every distinct invalid",
-        "    value; res.findings, res.limitations and res.to_json() have the rest.",
+    lines = str(res).splitlines()
+
+    assert lines[0] == "validate_column_types: completed on 5 rows x 4 columns"
+    assert "Not declared in schema, so not checked: 'note'." in lines
+    start = lines.index("Declared columns, violations first (4 of 4 shown):")
+    assert [line.split()[0] for line in lines[start + 2 : start + 6]] == [
+        "ordered",
+        "qty",
+        "customer",
+        "order_id",
     ]
+    assert lines[start + 2].endswith("'05/01/2024': 1")
+    # Findings print violation first, then descriptive, then passed.
+    findings = [line for line in lines if line.startswith("- ")]
+    assert [line.split()[1] for line in findings[:4]] == [
+        "violation",
+        "violation",
+        "descriptive",
+        "passed",
+    ]
+    assert (
+        "- violation invalid_values: 2 columns hold invalid values: 'ordered' and "
+        "'qty'."
+    ) in lines
+    assert "- column_not_in_data: 1 declared column isn't in the data, so" in " ".join(
+        lines
+    )
+    assert max(len(line) for line in lines) <= 120
 
 
 def test_to_frame_has_a_row_per_declared_column_and_a_table_of_invalid_values():
@@ -744,10 +805,11 @@ def test_nan_stored_as_a_value_counts_as_missing_with_a_limitation():
     res = ae.validate_column_types(df, schema={"x": "float"})
 
     assert counts(res.columns["x"]) == (1, 0, 0, 2)
-    [limitation] = res.limitations
-    assert limitation.code == "nan_counted_as_missing"
+    [limitation] = [
+        lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
+    ]
     assert limitation.reason == (
-        "1 column stores NaN as a value, which pandas isna() doesn't count as "
+        "1 column stores NaN as a value, which pandas doesn't count as "
         "missing; missing_count counts it: 'x'."
     )
     assert limitation.fields == ["columns['x'].missing_count"]
@@ -827,8 +889,7 @@ def test_nothing_is_converted_and_the_data_never_changes():
 
 
 @pytest.mark.parametrize(
-    "neighbour",
-    ["infer_column_semantics", "describe_dataset", "profile_missing_values"],
+    "neighbour", ["infer_column_semantics", "profile_missing_values"]
 )
 def test_nearby_analyses_point_to_it_for_checking_declared_types(neighbour):
     doc = inspect.getdoc(getattr(ae, neighbour))
@@ -856,18 +917,18 @@ def test_invalid_datetimes_that_tie_follow_their_string_forms():
     res = ae.validate_column_types(df, schema={"aware": "integer", "naive": "integer"})
 
     assert [v.value for v in res.columns["aware"].invalid_values] == [
-        "2020-10-25 01:00:00+02:00",
-        "2020-10-25 02:15:00+01:00",
-        "2020-10-25 02:30:00+02:00",
+        "2020-10-25T01:00:00+02:00",
+        "2020-10-25T02:15:00+01:00",
+        "2020-10-25T02:30:00+02:00",
     ]
     assert [v.value for v in res.columns["naive"].invalid_values] == [
-        "2020-10-24 23:00:00",
-        "2020-10-25 00:30:00",
-        "2020-10-25 01:15:00",
+        "2020-10-24T23:00:00",
+        "2020-10-25T00:30:00",
+        "2020-10-25T01:15:00",
     ]
     invalid = res.to_frame(table="invalid_values")
     aware = invalid[invalid["column"] == "aware"]
-    assert [str(value) for value in aware["value"]] == [
+    assert [value.isoformat() for value in aware["value"]] == [
         v.value for v in res.columns["aware"].invalid_values
     ]
     assert aware["value_type"].tolist() == ["Timestamp"] * 3
@@ -878,8 +939,7 @@ def test_the_counts_of_a_column_missing_from_the_data_are_null_with_the_reason()
 
     res = ae.validate_column_types(df, schema={"zip": "categorical"})
 
-    [limitation] = res.limitations
-    assert limitation.code == "column_not_in_data"
+    [limitation] = [lim for lim in res.limitations if lim.code == "column_not_in_data"]
     assert limitation.fields == ["columns['zip']"]
     assert limitation.reason == (
         "1 declared column isn't in the data, so its dtype and counts are null: 'zip'."

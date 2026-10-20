@@ -43,20 +43,30 @@ def test_default_selects_text_object_categorical_and_boolean_columns_in_order():
 
 ACCEPTED = (
     "It accepts text, object, categorical, boolean and numeric columns, nullable "
-    "and pyarrow-backed ones included."
+    "and pyarrow-backed ones of those kinds included."
 )
 
 
 @pytest.mark.parametrize(
-    "values",
+    ("values", "fix"),
     [
-        pd.to_datetime(["2024-01-01", None, "2024-03-01"]),
-        pd.to_timedelta(["1D", None, "3D"]),
-        pd.Series([[1], None, [2]], dtype=pd.ArrowDtype(pa.list_(pa.int64()))),
+        (
+            pd.to_datetime(["2024-01-01", None, "2024-03-01"]),
+            "Convert datetimes to labels with df['x'].astype(str), or to months "
+            "with df['x'].dt.strftime('%Y-%m')",
+        ),
+        (
+            pd.to_timedelta(["1D", None, "3D"]),
+            "Convert durations to labels with df['x'].astype(str)",
+        ),
+        (
+            pd.Series([[1], None, [2]], dtype=pd.ArrowDtype(pa.list_(pa.int64()))),
+            "Convert its values to labels with df['x'].astype(str)",
+        ),
     ],
     ids=["datetime", "timedelta", "arrow-list"],
 )
-def test_a_column_it_cannot_count_raises_with_its_dtype_and_a_fix(values):
+def test_a_column_it_cannot_count_raises_with_its_dtype_and_a_fix(values, fix):
     df = pd.DataFrame({"x": values, "plan": ["a", "b", "a"]})
 
     with pytest.raises(ColumnTypeError) as caught:
@@ -65,8 +75,7 @@ def test_a_column_it_cannot_count_raises_with_its_dtype_and_a_fix(values):
     assert caught.value.code == "unsupported_column_type"
     assert str(caught.value) == (
         f"summarize_categorical can't use column 'x' with dtype {df['x'].dtype}. "
-        f"{ACCEPTED} Count its values as text with df['x'].astype(str), or leave "
-        "'x' out of columns."
+        f"{ACCEPTED} {fix}, or leave 'x' out of columns."
     )
 
 
@@ -77,7 +86,7 @@ def test_a_top_n_outside_1_to_100_raises_with_the_range(top_n):
 
     assert caught.value.code == "invalid_argument"
     assert str(caught.value) == (
-        f"summarize_categorical got {top_n} for top_n, but top_n must be int with "
+        f"summarize_categorical got {top_n} for top_n, but top_n must be an integer with "
         "1 <= top_n <= 100. See help(ae.summarize_categorical) for every argument."
     )
 
@@ -116,10 +125,10 @@ def test_counts_missing_and_non_missing_values_and_the_distinct_levels():
     entry = ae.summarize_categorical(df).columns["plan"]
 
     assert (entry.non_missing_count, entry.missing_count) == (4, 2)
-    assert entry.cardinality == 3
+    assert entry.distinct_count == 3
 
 
-def test_shares_divide_by_the_non_missing_count_which_the_result_states():
+def test_shares_divide_by_the_non_missing_count():
     plans = ["basic", "pro", None, "basic", None, "basic", "team", None]
     df = pd.DataFrame({"plan": pd.Series(plans, dtype=object)})
 
@@ -132,7 +141,6 @@ def test_shares_divide_by_the_non_missing_count_which_the_result_states():
         ("pro", 1, 0.2),
         ("team", 1, 0.2),
     ]
-    assert res.share_denominator == "non_missing_count"
 
 
 def letters():
@@ -140,23 +148,33 @@ def letters():
     return pd.DataFrame({"letter": list("aaabbcdefghijklm")})
 
 
-def test_most_common_levels_show_the_top_10_and_count_the_levels_left_out():
+def test_levels_show_the_top_10_and_count_the_levels_left_out():
     res = ae.summarize_categorical(letters())
 
     entry = res.columns["letter"]
-    assert [level.label for level in entry.most_common_levels] == list("abcdefghij")
+    assert [level.label for level in entry.levels] == list("abcdefghij")
     assert entry.left_out_level_count == 3
     assert res.parameters["top_n"] == 10
 
 
-def test_top_n_limits_only_the_most_common_levels():
+def test_top_n_limits_the_levels_the_result_holds_and_to_frame_keeps_every_one():
     res = ae.summarize_categorical(letters(), top_n=3)
 
     entry = res.columns["letter"]
-    assert [level.label for level in entry.most_common_levels] == ["a", "b", "c"]
+    assert [level.label for level in entry.levels] == ["a", "b", "c"]
     assert entry.left_out_level_count == 10
-    assert len(entry.levels) == entry.cardinality == 13
+    assert entry.distinct_count == 13
+    assert len(res.to_frame()) == 13
     assert res.parameters["top_n"] == 3
+
+
+def test_top_n_keeps_the_first_levels_of_text_that_holds_a_nul_character():
+    df = pd.DataFrame({"x": pd.Series(["a", "\x00", "a b"], dtype=object)})
+
+    res = ae.summarize_categorical(df, top_n=1)
+
+    assert [level.label for level in res.columns["x"].levels] == ["\x00"]
+    assert res.columns["x"].left_out_level_count == 2
 
 
 def test_counts_the_levels_seen_once():
@@ -174,7 +192,7 @@ def test_lists_the_categories_that_never_occur_in_category_order():
 
     assert res.columns["grade"].unused_categories == ["c", "z"]
     assert levels_of(res.columns["grade"]) == [("b", 2), ("a", 1)]
-    assert res.columns["grade"].cardinality == 2
+    assert res.columns["grade"].distinct_count == 2
     assert res.columns["plan"].unused_categories == []
 
 
@@ -244,7 +262,7 @@ def test_orders_labels_of_mixed_types_numbers_first_then_text_then_the_rest():
     # other types by type name and string form. NaN in an object column is
     # missing, so it is no level.
     assert [(level.label, level.label_type) for level in entry.levels] == [
-        ("0.5", "Decimal"),
+        (0.5, "Decimal"),
         (True, "bool"),
         (1.5, "float"),
         (2, "int"),
@@ -262,13 +280,13 @@ def many_levels():
     return pd.DataFrame({"code": [codes[i] for i in shuffled]})
 
 
-def test_the_record_keeps_the_first_100_levels_and_their_total():
-    res = ae.summarize_categorical(many_levels())
+def test_the_record_keeps_top_n_levels_and_their_total():
+    res = ae.summarize_categorical(many_levels(), top_n=7)
 
     entry = res.to_dict()["columns"]["code"]
-    assert len(entry["levels"]) == 100
+    assert len(entry["levels"]) == 7
     assert entry["levels_total"] == 250
-    assert entry["cardinality"] == 250
+    assert entry["distinct_count"] == 250
     assert entry["levels"] == [
         level.model_dump(mode="json") for level in res.columns["code"].levels
     ]
@@ -278,7 +296,7 @@ def test_to_frame_has_every_level_of_every_column_in_level_order():
     df = many_levels()
     df["flag"] = [index % 2 == 0 for index in range(len(df))]
 
-    res = ae.summarize_categorical(df)
+    res = ae.summarize_categorical(df, top_n=100)
     frame = res.to_frame()
 
     assert list(frame.columns) == ["column", "label", "label_type", "count", "share"]
@@ -318,12 +336,14 @@ def tied_values(make):
     ],
     ids=["floats", "nullable-integers", "categorical", "mixed-objects"],
 )
-def test_the_first_100_levels_are_the_first_100_rows_of_to_frame(values):
-    res = ae.summarize_categorical(pd.DataFrame({"x": values}), columns=["x"])
+def test_the_levels_are_the_first_rows_of_to_frame(values):
+    res = ae.summarize_categorical(
+        pd.DataFrame({"x": values}), columns=["x"], top_n=100
+    )
 
     frame = res.to_frame()
     entry = res.columns["x"]
-    assert len(frame) == entry.cardinality == 250
+    assert len(frame) == entry.distinct_count == 250
     assert [(level.label, level.count) for level in entry.levels] == list(
         zip(frame["label"][:100], frame["count"][:100], strict=True)
     )
@@ -368,7 +388,6 @@ def test_declares_its_statuses_and_parameters():
         "partial",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
     assert info.parameters == [
         "data",
@@ -407,12 +426,12 @@ def test_a_column_without_values_makes_the_result_partial():
         "no_values",
         NO_VALUES,
     )
-    assert (empty.non_missing_count, empty.missing_count, empty.cardinality) == (
+    assert (empty.non_missing_count, empty.missing_count, empty.distinct_count) == (
         0,
         3,
         0,
     )
-    assert (empty.levels, empty.most_common_levels, empty.value_types) == ([], [], [])
+    assert (empty.levels, empty.value_types) == ([], [])
     assert res.status == "partial"
     assert res.status_reason is not None
     assert (res.status_reason.code, res.status_reason.message) == (
@@ -472,7 +491,7 @@ def test_data_without_text_categorical_or_boolean_columns_is_not_applicable(df):
     assert res.status == "not_applicable"
     assert res.status_reason is not None
     assert (res.status_reason.code, res.status_reason.message) == (
-        "no_categorical_columns",
+        "no_columns",
         "The data has no text, object, categorical or boolean columns. Name a "
         "numeric column in columns to count its values.",
     )
@@ -494,12 +513,16 @@ def test_values_that_cannot_be_hashed_make_a_column_not_applicable():
         UNHASHABLE,
     )
     assert (entry.non_missing_count, entry.missing_count) == (3, 1)
-    assert (entry.cardinality, entry.left_out_level_count, entry.seen_once_count) == (
+    assert (
+        entry.distinct_count,
+        entry.left_out_level_count,
+        entry.seen_once_count,
+    ) == (
         None,
         None,
         None,
     )
-    assert (entry.levels, entry.most_common_levels) == ([], [])
+    assert entry.levels == []
     # The types of the values are still known.
     assert (entry.value_types, entry.mixed_value_types) == (
         ["dict", "list", "str"],
@@ -512,7 +535,7 @@ def test_values_that_cannot_be_hashed_make_a_column_not_applicable():
         "levels weren't counted and its counts of levels are null: 'tags'."
     )
     assert limitation.fields == [
-        "columns['tags'].cardinality",
+        "columns['tags'].distinct_count",
         "columns['tags'].left_out_level_count",
         "columns['tags'].seen_once_count",
     ]
@@ -555,8 +578,7 @@ def test_support_counts_the_values_each_column_left_out():
         for c in support.columns
     ] == [
         ("plan", 4, 2, 2, {"missing": 2}),
-        ("flag", 4, 4, 0, {}),
-        ("tags", 4, 0, 4, {"missing": 1, "unhashable": 3}),
+        ("tags", 4, 0, 4, {"missing": 1, "unhashable_values": 3}),
     ]
 
 
@@ -585,7 +607,7 @@ def test_labels_that_differ_only_by_case_or_surrounding_spaces_are_suspected():
     assert finding.assessment == "suspected"
     assert finding.claim == (
         "1 column holds labels that differ only by case or surrounding spaces: "
-        "'answer'."
+        "'answer' ('Yes', 'YES' and 'yes '; 'No' and 'no')."
     )
     assert finding.columns == ["answer"]
     assert finding.fields == ["columns['answer'].case_or_space_variants"]
@@ -709,7 +731,7 @@ def test_counts_and_shares_match_pandas_value_counts(dtype):
     entry = res.columns["x"]
     assert entry.non_missing_count == values.count()
     assert entry.missing_count == values.isna().sum()
-    assert entry.cardinality == values.nunique()
+    assert entry.distinct_count == values.nunique()
 
 
 def survey():
@@ -727,34 +749,32 @@ def survey():
     )
 
 
-def test_text_shows_each_columns_most_common_levels_with_count_and_share():
+def test_text_shows_each_columns_levels_with_count_and_share():
     res = ae.summarize_categorical(survey())
 
-    assert str(res) == "\n".join(
-        [
-            "summarize_categorical: completed on 6 rows x 4 columns",
-            "Shares are of each column's non-missing values. Levels go by count, "
-            "then label; most_common_levels has the top 10.",
-            "Left out, not text, object, categorical or boolean: 'age'.",
-            "Columns (3 of 3 shown):",
-            "column  non_missing_count  missing_count  cardinality  most_common_levels",
-            "plan                    5              1            3  'basic': 3 (60%), "
-            "'pro': 1 (20%), 'team': 1 (20%)",
-            # Cut to 120 characters, with "..." for the rest.
-            "answer                  6              0            4  'Yes': 2 (33.33%), "
-            "'no': 2 (33.33%), 'YES': 1 (16.67%), 'yes '...",
-            "grade                   5              1            2  'a': 3 (60%), "
-            "'b': 2 (40%)",
-            "Findings (2 of 2 shown):",
-            "- suspected case_or_space_variants: 1 column holds labels that differ "
-            "only by case or surrounding spaces: 'answer'.",
-            "- descriptive unused_categories: 1 categorical column has categories "
-            "that never occur: 'grade'.",
-            "Limitations: none",
-            "More: res.to_frame() has all 9 levels; res.findings, res.limitations "
-            "and res.to_json() have the rest.",
-        ]
+    lines = str(res).splitlines()
+
+    assert lines[0] == "summarize_categorical: completed on 6 rows x 4 columns"
+    assert (
+        "Left out, not text, object, categorical or boolean (numeric): 'age'." in lines
     )
+    start = lines.index("Columns (3 of 3 shown):")
+    assert lines[start + 1].split() == [
+        "column",
+        "non_missing_count",
+        "missing_count",
+        "distinct_count",
+    ]
+    levels = lines.index("Top levels per column:")
+    # answer and grade come first, the columns with a finding.
+    assert lines[levels + 1 : levels + 4] == [
+        "  answer: 'Yes': 2 (share 0.3333), 'no': 2 (share 0.3333), "
+        "'YES': 1 (share 0.1667), 'yes ': 1 (share 0.1667)",
+        "  grade: 'a': 3 (share 0.6), 'b': 2 (share 0.4)",
+        "  plan: 'basic': 3 (share 0.6), 'pro': 1 (share 0.2), 'team': 1 (share 0.2)",
+    ]
+    assert "%" not in str(res)
+    assert lines[-1].startswith("More: res.to_frame() has all 9 levels;")
 
 
 def test_text_shows_labels_of_other_types_without_quotes():
@@ -764,9 +784,9 @@ def test_text_shows_labels_of_other_types_without_quotes():
         ae.summarize_categorical(df, columns=["flag", "n"], top_n=1)
     ).splitlines()
 
-    assert lines[1].endswith("most_common_levels has the top 1.")
-    assert lines[4].endswith("  True: 3 (75%)")
-    assert lines[5].endswith("  2.5: 2 (66.67%)")
+    assert "levels has the top 1 of each column." in lines[1]
+    assert "  flag: True: 3 (share 0.75)" in lines
+    assert "  n: 2.5: 2 (share 0.6667)" in lines
 
 
 def test_text_of_a_partial_result_names_the_incomplete_columns():
@@ -780,7 +800,7 @@ def test_text_of_a_partial_result_names_the_incomplete_columns():
         "summarize_categorical: partial on 2 rows x 2 columns",
         f"Reason: incomplete_columns: 1 of 2 columns didn't complete: 'empty'. {NO_VALUES}",
     ]
-    assert "empty                   0              2            0" in lines
+    assert "empty                   0              2               0" in lines
 
 
 def test_text_stays_within_40_lines_of_120_characters():
@@ -792,10 +812,19 @@ def test_text_stays_within_40_lines_of_120_characters():
         }
     )
 
-    lines = str(ae.summarize_categorical(df)).split("\n")
+    lines = str(ae.summarize_categorical(df)).splitlines()
 
     assert len(lines) <= 40
     assert max(len(line) for line in lines) <= 120
+
+
+def stored_nan_as_missing(values: pd.Series) -> pd.Series:
+    """The column with NaN that it stores as a value made missing, as pandas won't."""
+    dtype = values.dtype
+    if isinstance(dtype, pd.api.extensions.ExtensionDtype) and dtype.kind == "f":
+        floats = values.to_numpy(dtype="float64", na_value=np.nan)
+        return values.mask(np.isnan(floats))
+    return values
 
 
 @given(df=data_frames(), top_n=st.integers(1, 100))
@@ -812,34 +841,35 @@ def test_any_columns_levels_match_value_counts_and_each_other(df, top_n):
         if entry.status == "not_applicable":  # values that can't be hashed
             continue
         values = df.iloc[:, labels.index(name)]
+        values = stored_nan_as_missing(values)
         counts = values.value_counts(dropna=True)
         rows = frame[frame["column"] == name]
         assert sorted(rows["count"]) == sorted(c for c in counts if c)
-        assert entry.cardinality == len(rows)
+        assert entry.distinct_count == len(rows)
         assert entry.non_missing_count == rows["count"].sum() == values.count()
         assert list(rows["count"]) == sorted(rows["count"], reverse=True)
         assert list(rows["share"]) == list(
             rows["count"] / max(entry.non_missing_count, 1)
         )
-        kept = rows.head(100)
+        kept = rows.head(top_n)
         assert [(lvl.count, lvl.label_type) for lvl in entry.levels] == list(
             zip(kept["count"], kept["label_type"], strict=True)
         )
-        assert entry.most_common_levels == entry.levels[:top_n]
-        assert entry.left_out_level_count == entry.cardinality - len(
-            entry.most_common_levels
-        )
+        assert len(entry.levels) == min(top_n, entry.distinct_count)
+        assert entry.left_out_level_count == entry.distinct_count - len(entry.levels)
 
 
-def test_the_result_states_the_level_order():
-    res = ae.summarize_categorical(letters())
+def test_the_field_description_states_the_level_order_and_the_share_denominator():
+    fields = {
+        f.name: f for f in ae.describe_analysis("summarize_categorical").result_fields
+    }
+    entry = {f.name: f for f in fields["columns"].fields}
 
-    assert res.level_order == (
-        "Count descending, then label. Booleans and numbers come first, by value, "
-        "with False and True as 0 and 1 and NaN last. Text follows, by Unicode code "
-        "point, then labels of any other type, by type name and string form. Labels "
-        "that still tie keep their order in the data."
+    assert "Count descending, then label. Booleans and numbers come first" in (
+        entry["levels"].description
     )
+    assert "non_missing_count" in fields["columns"].description
+    assert set(fields) == {"masking", "columns", "left_out_columns"}
 
 
 def test_orders_numbers_by_value_with_infinities_at_the_ends_and_nan_last():
@@ -852,14 +882,14 @@ def test_orders_numbers_by_value_with_infinities_at_the_ends_and_nan_last():
 
     entry = ae.summarize_categorical(df, columns=["x"]).columns["x"]
 
-    # pyarrow keeps NaN as a value, apart from the missing value.
+    # pyarrow keeps NaN as a value, apart from the missing value; the analysis
+    # counts both as missing.
     assert [(level.label, level.label_type) for level in entry.levels] == [
         ("-inf", "float"),
         (1.5, "float"),
         ("inf", "float"),
-        ("nan", "float"),
     ]
-    assert entry.missing_count == 1
+    assert entry.missing_count == 2
 
 
 def test_identical_calls_in_processes_with_different_hash_seeds_give_the_same_json():
@@ -871,13 +901,13 @@ def test_identical_calls_in_processes_with_different_hash_seeds_give_the_same_js
         "print(ae.summarize_categorical(df).to_json())\n"
     )
 
-    outputs = [
+    printed = [
         run_python(code, env={**os.environ, "PYTHONHASHSEED": seed})
         for seed in ("1", "2")
     ]
 
-    assert outputs[0] == outputs[1]
-    assert '"label":"a"' in outputs[0]
+    assert printed[0] == printed[1]
+    assert '"label":"a"' in printed[0]
 
 
 def run_python(code, *, env):

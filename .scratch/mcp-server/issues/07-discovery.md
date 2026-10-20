@@ -6,7 +6,7 @@ Read these sections of `.scratch/mcp-server/spec.md`: Discovery, and test group 
 
 **Blocked by:** 05-project-and-masking
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The server's `instructions` cover what the package does, data paths (formats, the empty-field rule, relative paths, row IDs), results and statuses, masking with `project_path` and `--project`, and the first-look order from `discovery.FIRST_LOOK` limited to registered analyses.
 - [x] The instructions name every registered analysis, contain no Python call syntax, and keep within 60 lines of 120 characters.
@@ -29,3 +29,5 @@ Read these sections of `.scratch/mcp-server/spec.md`: Discovery, and test group 
 - The user decided on 2026-10-18 to override "text equal to the Python call". Over MCP, printed results and the `search_analyses` text use MCP wording, and records stay equal to Python's. One rendering path takes a surface switch: `AnalysisResult._render(surface)` and `_DiscoveryRecord._render(surface)` with `"python"` or `"mcp"`, and `str()` stays Python. Over MCP the footer names the full table that `table_path` writes and the structured content. Tables only Python can ask for by name are left out, record fields lose `res.`, and masking settings read `mask_sensitive: true` and `data_policy.mask_sensitive = false`. The search text points to `search_analyses with limit N`, the MCP tool's description and input schema, and `list_analyses`. Error messages and the record's own text, such as status reasons, still carry Python fixes. Changing them would break the equal records.
 - The instructions no longer promise that the caller sees the text. They say an MCP client may show the text, the structured content or both, and that the record's `table_file` gives the written table's path.
 - Line limits, a follow-up: the instructions are at 59 of 60 lines and the guide at 60 of 60. The next registered analysis adds a line to each listing, so both need trimming then, for example by dropping the module headers from the listing or by shortening the response section. No code changed for this, by the user's decision.
+
+Box 3 is superseded in part: commit ea01363 (code review follow-up, 2026-10-18) overrode "text equal to the Python call": the `search_analyses` text uses MCP wording over MCP, and only the record equals the Python call.

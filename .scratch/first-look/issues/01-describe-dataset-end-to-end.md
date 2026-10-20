@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: Package and build, Public 
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 Package and imports:
 
@@ -86,3 +86,5 @@ Checks:
 
 - Minimum versions: `uv run --isolated --resolution lowest-direct --python 3.12 pytest` installed numpy 1.26.0, pandas 2.2.0, pydantic 2.7.0, scipy 1.11.2, pyarrow 14.0.1, polars 1.0.0 and IPython 9.0.0, and the suite passed. The `uv.lock` checksum was the same before and after.
 - The suite also passes on Python 3.13 and 3.14 with `uv run --isolated --python 3.1x pytest`. Linux x86_64 and ARM64 weren't run locally; ticket 05's CI covers them.
+
+Box 25 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

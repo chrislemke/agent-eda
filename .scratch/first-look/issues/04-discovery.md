@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: Discovery, Docstrings, and
 
 **Blocked by:** 02-summarize-numeric-and-column-rules
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `ae.describe_analysis(name)` accepts the short or the fully qualified name and returns a typed description that prints compactly. It shows the signature; each parameter's type, default, allowed values and description from the docstring's `Args:`; the declared statuses with their reasons from `Statuses:`; the finding codes; the result fields and their meanings; masking support; the work-limit parameters; and the example. Its record includes a JSON Schema of the parameters other than `data`.
 - [x] For summarize_numeric, the description lists the allowed `quantile_method` values and the valid range of `trim_fraction`.

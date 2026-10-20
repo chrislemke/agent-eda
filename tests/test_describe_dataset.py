@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+from hypothesis import given
+from strategies import data_frames, nan_as_missing
 
 import agent_eda as ae
 
@@ -358,7 +360,7 @@ def test_column_labels_are_duplicated_exactly_when_pandas_says_so(labels, duplic
 
     res = ae.describe_dataset(df)
 
-    assert ("duplicated_column_labels" in codes(res)) is duplicated
+    assert ("duplicated_column_labels" in finding_codes(res)) is duplicated
     assert columns.duplicated().any() == duplicated
 
 
@@ -379,7 +381,7 @@ def test_flags_labels_whose_string_forms_collide():
         "2 different column labels share a string form with another label: 1 and '1'."
     )
     assert [c.label_type for c in res.columns] == ["int", "str", "str"]
-    assert "duplicated_column_labels" not in codes(res)
+    assert "duplicated_column_labels" not in finding_codes(res)
 
 
 def test_flags_multiindex_columns():
@@ -443,7 +445,7 @@ def test_unhashable_values_give_a_null_distinct_count_and_a_limitation(values):
         "1 column holds values that can't be hashed, such as lists or dicts, so "
         "its distinct values weren't counted: 'tags'."
     )
-    assert "constant_columns" not in codes(res)
+    assert "constant_columns" not in finding_codes(res)
 
 
 @pytest.mark.parametrize(
@@ -463,23 +465,69 @@ def test_results_use_only_declared_statuses_and_finding_codes(df):
     res = ae.describe_dataset(df)
 
     assert res.status in info.statuses
-    assert set(codes(res)) <= set(info.finding_codes)
+    assert set(finding_codes(res)) <= set(info.finding_codes)
 
 
-def test_docstring_points_to_the_numeric_summary_for_distributions():
+def test_docstring_points_to_the_next_steps_and_no_further():
+    # DES-12: it names its next steps, not every analysis.
     doc = inspect.getdoc(ae.describe_dataset) or ""
     when_to_use = doc.split("When to use:")[1].split("Args:")[0]
     see_also = doc.split("See Also:")[1]
 
-    assert "`summarize_numeric`" in when_to_use
-    assert "\n    summarize_numeric: " in see_also
+    for next_step in [
+        "infer_column_semantics",
+        "profile_missing_values",
+        "summarize_numeric",
+    ]:
+        assert f"`{next_step}`" in when_to_use
+        assert f"\n    {next_step}: " in see_also
 
 
-def codes(res):
+def finding_codes(res):
     return [f.code for f in res.findings]
 
 
 def only_finding(res, code):
     matches = [f for f in res.findings if f.code == code]
-    assert len(matches) == 1, f"expected one {code!r} finding, got {codes(res)}"
+    assert len(matches) == 1, f"expected one {code!r} finding, got {finding_codes(res)}"
     return matches[0]
+
+
+def compares_as_pandas_does(dtype):
+    """Numbers, booleans, dates and durations, whose values pandas compares as
+    describe_dataset does; text and objects hold values that differ only here,
+    such as True and 1, or a text with a NUL."""
+    return (
+        pd.api.types.is_numeric_dtype(dtype)
+        or pd.api.types.is_bool_dtype(dtype)
+        or pd.api.types.is_datetime64_any_dtype(dtype)
+        or pd.api.types.is_timedelta64_dtype(dtype)
+    )
+
+
+@given(df=data_frames())
+def test_counts_and_memory_agree_with_pandas_on_any_frame(df):
+    reference = nan_as_missing(df)
+    # What pandas measures for NumPy numbers, booleans, dates and durations,
+    # taken first so that nothing describe_dataset does can change it. Other
+    # dtypes differ on purpose, such as text, whose cached UTF-8 copies it
+    # ignores, and categoricals, whose lookup tables it ignores.
+    numpy_memory = {
+        position: reference.iloc[:, position].memory_usage(deep=True, index=False)
+        for position in range(df.shape[1])
+        if isinstance(df.dtypes.iloc[position], np.dtype)
+        and df.dtypes.iloc[position].kind in "biufmM"
+    }
+
+    res = ae.describe_dataset(df)
+
+    assert (res.row_count, res.column_count) == df.shape
+    assert len(res.columns) == df.shape[1]
+    for position, entry in enumerate(res.columns):
+        column = reference.iloc[:, position]
+        assert entry.missing_count == int(column.isna().sum())
+        assert entry.non_missing_count == int(column.count())
+        if entry.distinct_count is not None and compares_as_pandas_does(column.dtype):
+            assert entry.distinct_count == column.nunique(dropna=True)
+        if position in numpy_memory:
+            assert entry.memory_bytes == numpy_memory[position]

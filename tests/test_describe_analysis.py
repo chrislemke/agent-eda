@@ -24,10 +24,10 @@ def test_describes_an_analysis_named_by_its_short_name():
 
 
 def test_describes_an_analysis_named_by_its_fully_qualified_name():
-    description = ae.describe_analysis("agent_eda.data.provenance.describe_dataset")
+    description = ae.describe_analysis("agent_eda.data.structure.describe_dataset")
 
     assert description.name == "describe_dataset"
-    assert description.module == "agent_eda.data.provenance"
+    assert description.module == "agent_eda.data.structure"
 
 
 @pytest.mark.parametrize(
@@ -89,15 +89,15 @@ def test_an_unknown_name_raises_with_the_closest_analysis_names(name, closest):
 
 @given(name=st.text() | st.sampled_from(ANALYSES))
 def test_any_name_gives_a_description_or_an_unknown_analysis_error(name):
-    outcome = description_or_error(name)
+    described = description_or_error(name)
 
-    if isinstance(outcome, UnknownAnalysisError):
-        assert outcome.code == "unknown_analysis"
-        assert str(outcome).startswith(
+    if isinstance(described, UnknownAnalysisError):
+        assert described.code == "unknown_analysis"
+        assert str(described).startswith(
             f"describe_analysis got an unknown analysis {name!r}."
         )
     else:
-        assert outcome.name in ANALYSES
+        assert described.name in ANALYSES
 
 
 def description_or_error(name):
@@ -193,19 +193,33 @@ def test_lists_the_allowed_quantile_methods_and_the_trim_fraction_range():
 def test_lists_the_declared_statuses_with_their_reasons():
     description = ae.describe_analysis("describe_dataset")
 
-    assert [(s.status, s.reason) for s in description.statuses] == [
+    assert [(s.status, s.reason, s.reason_codes) for s in description.statuses] == [
         (
             "completed",
             "The description finished, also for data with no rows, no columns or "
-            "neither.",
-        ),
-        (
-            "failed",
-            "An anticipated computation failure stopped the description, and "
-            "`status_reason` gives its code and message. None is known today: a "
-            "count that can't be computed is null, with a limitation, instead.",
+            "neither; a count that can't be computed is null, with a limitation.",
+            [],
         ),
     ]
+
+
+def test_lists_the_reason_codes_of_each_status_with_their_meanings():
+    description = ae.describe_analysis("summarize_numeric")
+
+    assert [
+        (s.status, [c.code for c in s.reason_codes]) for s in description.statuses
+    ] == [
+        ("completed", []),
+        ("partial", ["incomplete_columns"]),
+        ("insufficient_data", ["no_rows", "no_values"]),
+        ("not_applicable", ["no_columns"]),
+    ]
+    [no_rows] = [
+        c for s in description.statuses for c in s.reason_codes if c.code == "no_rows"
+    ]
+    assert no_rows.meaning == "The data has no rows."
+    printed = str(description).splitlines()
+    assert "    no_rows: The data has no rows." in printed
 
 
 def test_lists_the_finding_codes_with_their_meanings():
@@ -214,12 +228,12 @@ def test_lists_the_finding_codes_with_their_meanings():
     assert [(f.code, f.description) for f in description.finding_codes] == [
         (
             "constant_columns",
-            "a column holds a single distinct non-missing value in at least two "
-            "rows, as describe_dataset decides it.",
+            "suspected; a column holds a single distinct non-missing value in at "
+            "least two rows, on stored values; NaN is missing.",
         ),
         (
             "infinite_values",
-            "a column holds inf or -inf, which every statistic leaves out.",
+            "suspected; a column holds inf or -inf, which every statistic leaves out.",
         ),
     ]
 
@@ -229,11 +243,11 @@ def test_lists_the_result_fields_with_their_meanings():
 
     assert description.result_class == "SummarizeNumericResult"
     fields = {f.name: f for f in description.result_fields}
-    assert list(fields) == ["columns", "left_out_columns", "definitions"]
+    assert list(fields) == ["columns", "left_out_columns"]
     assert fields["left_out_columns"].type == "list[str]"
     assert fields["left_out_columns"].description.startswith(
-        "Columns that columns=None left out because they aren't numeric or are "
-        "boolean, in DataFrame order;"
+        "Columns that the default column selection left out because they aren't "
+        "numeric or are boolean, in DataFrame order;"
     )
     assert fields["columns"].type == "dict[str, SummarizeNumericColumn]"
     entry = {f.name: f for f in fields["columns"].fields}
@@ -291,21 +305,16 @@ def test_agrees_with_what_list_analyses_records(name):
 
 
 @pytest.mark.parametrize("name", ANALYSES)
-def test_the_example_is_the_docstring_doctest_and_runs(name):
+def test_the_example_is_the_docstring_doctest(name):
+    # tests/test_contract.py runs each docstring's doctest, once.
     doc = inspect.getdoc(getattr(ae, name))
     assert doc
     section = doc.split("\nExamples:\n")[1].split("\nSee Also:\n")[0]
 
     example = ae.describe_analysis(name).example
 
-    parser = doctest.DocTestParser()
-    test = parser.get_doctest(example, {}, name, None, 0)
-    runner = doctest.DocTestRunner(optionflags=doctest.ELLIPSIS)
-    report = []
-    runner.run(test, out=report.append)
     assert example == textwrap.dedent(section).strip("\n")
-    assert runner.tries > 0
-    assert runner.failures == 0, "".join(report)
+    assert doctest.DocTestParser().get_examples(example)
 
 
 def test_the_record_has_a_json_schema_of_the_parameters_other_than_data():
@@ -378,8 +387,8 @@ def test_prints_each_part_compactly_in_plain_text():
     )
     assert "  completed: Every selected column has a finite value." in lines
     assert (
-        "  infinite_values: a column holds inf or -inf, which every statistic "
-        "leaves out."
+        "  infinite_values: suspected; a column holds inf or -inf, which every "
+        "statistic leaves out."
     ) in lines
     assert "  left_out_columns: list[str]" in lines
     example = lines.index("Example:")
@@ -401,7 +410,7 @@ def test_prints_each_part_compactly_in_plain_text():
 def test_printed_lines_stay_within_120_characters(name):
     description = ae.describe_analysis(name)
 
-    lines = str(description).split("\n")
+    lines = str(description).splitlines()
 
     assert max(len(line) for line in lines) <= 120
     assert lines == [line.rstrip() for line in lines]

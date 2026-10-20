@@ -1,6 +1,6 @@
 # Spec: agent-eda foundation and first-look analyses
 
-Status: ready-for-agent
+Status: done
 
 ## Problem Statement
 

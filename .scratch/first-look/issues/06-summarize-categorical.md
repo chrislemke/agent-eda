@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: the summarize_categorical 
 
 **Blocked by:** 03-property-tests-and-benchmark, 04-discovery
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `columns=None` selects object, string, categorical and boolean columns. A numeric column requested by name is summarized by its values.
 - [x] Per column, the result gives the non-missing and missing counts, the cardinality, each level with its count and share, the most common levels, the number of levels left out of the display, the number of levels seen once, the unused categories of a categorical dtype, and whether values of different Python types are mixed.
@@ -62,3 +62,5 @@ Checks:
 - `uv run ruff check .`, `uv run ruff format .`, `uv run ty check` and `uv run pytest` pass. So does `uv run --isolated --resolution lowest-direct --python 3.12 pytest`, with numpy 1.26.0, pandas 2.2.0, pydantic 2.7.0 and pyarrow 14.0.1, and `uv run --isolated --python 3.1x pytest` on Python 3.13 and 3.14.
 - The `thorough` profile passed. Random fuzzing passed too, with seeds 1 to 6, 1,500 examples each and frames of up to 30 rows and 8 columns, half on each version set. It checked the contract properties and a new property: counts match `value_counts`, and the entry's levels, the most common levels and `to_frame()` agree.
 - Linux x86_64 and ARM64 didn't run locally; ticket 05's CI covers them. The target machine, a 2-vCPU AgentCore session, is still unmeasured.
+
+Box 14 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

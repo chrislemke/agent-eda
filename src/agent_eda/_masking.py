@@ -23,7 +23,7 @@ Masking is a guardrail against accidental exposure, not anonymization and not
 access control (ADR 0001).
 """
 
-import itertools
+import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -32,16 +32,17 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._levels import Levels, label_types, ordered
-from agent_eda._project_file import TOML_EXAMPLE
+from agent_eda._result_base import Masking
 from agent_eda._text import placeholder
-from agent_eda._wording import as_written, worded
+from agent_eda._values import value_codes
+from agent_eda._wording import DeclareSensitive, Pass, Words, mistake
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.project import Project
-from agent_eda.results import Masking
 
 __all__ = [
     "MaskedLevels",
     "MaskingDecision",
+    "mask_groups",
     "mask_levels",
     "mask_values",
     "placeholder",
@@ -49,7 +50,7 @@ __all__ = [
 ]
 
 # A call that declares sensitive columns, for messages that show how.
-_EXAMPLE = "project=ae.Project(data_policy=ae.DataPolicy(sensitive_columns=['email']))"
+_EXAMPLE = DeclareSensitive(["email"])
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,15 @@ class MaskingDecision:
         """Whether the result shows this column's values as placeholders."""
         return self.applied and column is not None and column in self.sensitive_columns
 
+    def hidden(self, names: Iterable[str] | None) -> set[str]:
+        """The columns among `names` whose values no message may quote.
+
+        Error messages that would quote a value the caller declared for a
+        column, such as a sentinel value or an expected label, leave it out
+        when the call masks that column.
+        """
+        return {name for name in names or () if self.masks(name)}
+
     def record(self, shown: Iterable[str | None], data: pd.DataFrame) -> Masking:
         """The result's masking field.
 
@@ -77,7 +87,19 @@ class MaskingDecision:
         columns = [c for c in dict.fromkeys(shown) if c is not None and c in sensitive]
         # The index's level names; an unnamed level has none.
         index = [str(name) for name in data.index.names if name is not None]
-        present = {str(label) for label in data.columns} | set(index)
+        names = [str(label) for label in data.columns] + index
+        present = set(names)
+        absent = [c for c in self.sensitive_columns if c not in present]
+        # A name the data spells with other case or Unicode form is no match, as
+        # masking matches exactly, but it is likely meant: report it.
+        spelled: dict[str, str] = {}
+        for name in names:
+            spelled.setdefault(_loosely(name), name)
+        near_misses = {
+            c: spelled[_loosely(c)]
+            for c in absent
+            if _loosely(c) in spelled and spelled[_loosely(c)] not in sensitive
+        }
         return Masking(
             applied=self.applied,
             decided_by=self.decided_by,
@@ -87,8 +109,14 @@ class MaskingDecision:
                 if None in shown
                 else []
             ),
-            absent_columns=[c for c in self.sensitive_columns if c not in present],
+            absent_columns=absent,
+            near_miss_columns=near_misses,
         )
+
+
+def _loosely(name: str) -> str:
+    """The name with case and Unicode form ignored, to find a near miss."""
+    return unicodedata.normalize("NFC", name.casefold())
 
 
 def resolve_masking(
@@ -111,34 +139,34 @@ def resolve_masking(
         decision = MaskingDecision(False, "default", sensitive)
     if decision.applied and not sensitive:
         if project is None:
-            fixes = {
-                "python": "Pass a project that names the sensitive columns, such as "
-                f"{_EXAMPLE}.",
-                "mcp": "Pass a project_path whose [data_policy] table names the "
-                f"sensitive columns, such as {TOML_EXAMPLE}.",
-            }
-            raise worded(
+            raise mistake(
                 InvalidArgumentError,
-                lambda surface: (
-                    f"{analysis} got "
-                    f"{as_written(surface, mask_sensitive=True)} without a project, so "
-                    "no column is declared sensitive and there would be nothing to "
-                    f"mask. {fixes[surface]}"
+                f"{analysis} got ",
+                Pass(mask_sensitive=True),
+                " without a project, so no column is declared sensitive and there "
+                "would be nothing to mask. ",
+                Words(
+                    "Pass a project that names the sensitive columns",
+                    "Pass a project_path whose [data_policy] table names the "
+                    "sensitive columns",
                 ),
+                ", such as ",
+                _EXAMPLE,
+                ".",
             )
-        fixes = {
-            "python": f"Name them in its data policy, such as {_EXAMPLE}.",
-            "mcp": "Name them in the [data_policy] table of its project file, such "
-            f"as {TOML_EXAMPLE}.",
-        }
-        raise worded(
+        raise mistake(
             InvalidArgumentError,
-            lambda surface: (
-                f"{analysis} got "
-                f"{as_written(surface, mask_sensitive=True)}, but the project declares "
-                "no sensitive columns, so there would be nothing to mask. "
-                f"{fixes[surface]}"
+            f"{analysis} got ",
+            Pass(mask_sensitive=True),
+            ", but the project declares no sensitive columns, so there would be "
+            "nothing to mask. ",
+            Words(
+                "Name them in its data policy",
+                "Name them in the [data_policy] table of its project file",
             ),
+            ", such as ",
+            _EXAMPLE,
+            ".",
         )
     return decision
 
@@ -184,28 +212,67 @@ def mask_levels(levels: Levels) -> MaskedLevels:
         sort_values=None,
         text=False,
         unused_categories=[placeholder(size + n) for n in range(1, unused + 1)],
-        masked_types=label_types(levels, order),
+        placeholder_types=label_types(levels, order),
     )
     return MaskedLevels(levels=masked, numbers=numbers)
 
 
-def mask_values(values: Sequence[object]) -> list[str | None]:
+def mask_values(
+    values: Sequence[object],
+    *,
+    first: int = 1,
+    known: Sequence[tuple[object, str]] = (),
+) -> list[str | None]:
     """Numbered placeholders for values in the order given, such as row IDs.
 
     Equal values share a placeholder, numbered in order of first appearance,
     so values that repeat still show as repeating. Missing values (None, NaN,
     NaT, pd.NA) stay None. Pass the values of one column in result order.
+
+    `first` is the number of the first new placeholder, for values that
+    continue the numbering of another call. `known` pairs values that already
+    have a placeholder with it: a value equal to one of them takes that
+    placeholder and uses no number.
     """
-    # A value that isn't text keeps pandas off its hash table for text, which
-    # reads '\x00' as the end of the text, so '' and '\x00a' would be equal.
     # fromiter keeps tuples whole, where np.array would make them a dimension.
-    marked = np.fromiter(
-        itertools.chain(values, [_NOT_TEXT]), dtype=object, count=len(values) + 1
+    objects = np.fromiter(
+        [*(value for value, _ in known), *values],
+        dtype=object,
+        count=len(known) + len(values),
     )
-    codes, _ = pd.factorize(marked)
-    return [placeholder(int(code) + 1) if code >= 0 else None for code in codes[:-1]]
+    codes = value_codes(objects, unhashable="by_content").codes
+    fixed = {int(code): text for code, (_, text) in zip(codes, known, strict=False)}
+    numbered: dict[int, str] = {}
+    placeholders: list[str | None] = []
+    for code in codes[len(known) :].tolist():
+        if code < 0:
+            placeholders.append(None)
+        elif code in fixed:
+            placeholders.append(fixed[code])
+        else:
+            if code not in numbered:
+                numbered[code] = placeholder(first + len(numbered))
+            placeholders.append(numbered[code])
+    return placeholders
 
 
-# mask_values appends this to the values it numbers, so they are never all
-# text. It comes last, so no value gets its code.
-_NOT_TEXT = object()
+def mask_groups(
+    *groups: Sequence[Sequence[object]],
+    first: int = 1,
+    known: Sequence[tuple[object, str]] = (),
+) -> list[list[list[object]]]:
+    """Placeholders for groups of entries, numbered group by group.
+
+    Each group is a list of entries, each entry a list of values, such as the
+    row IDs of each finding. The values are numbered in one pass, as mask_values()
+    does, in the order of the groups, then of the entries in each group, so
+    equal values share a placeholder. The result has the shape of the groups.
+    Pass the row IDs each entry shows as the first group and the rest as the
+    second, so the shown ones keep the first numbers. `first` and `known` are
+    those of mask_values().
+    """
+    flat = [value for group in groups for entry in group for value in entry]
+    placeholders = iter(mask_values(flat, first=first, known=known))
+    return [
+        [[next(placeholders) for _ in entry] for entry in group] for group in groups
+    ]

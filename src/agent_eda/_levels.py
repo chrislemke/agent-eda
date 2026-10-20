@@ -4,7 +4,8 @@ summarize_categorical reports the levels of each column, and profile_target can
 count a target's classes with the same implementation, so the two can't
 disagree. Values count as the same level exactly when pandas' factorize and
 value_counts treat them as equal, so 1, 1.0 and True are one level, while 'Yes'
-and 'yes ' are two. Missing values, None, NaN, NaT and pd.NA, are no level.
+and 'yes ' are two. Text that holds a NUL character stays apart from text equal
+up to it, as _values.value_codes keeps it. Missing values, None, NaN, NaT and pd.NA, are no level.
 
 Levels are ordered by count, descending, then by label, as LEVEL_ORDER states.
 The order never follows hash or set iteration order.
@@ -12,7 +13,7 @@ The order never follows hash or set iteration order.
 
 import heapq
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
@@ -22,6 +23,8 @@ import numpy as np
 import pandas as pd
 
 from agent_eda._text import placeholder
+from agent_eda._values import categorical_array, value_codes
+from agent_eda._written_form import canonical_text, record_scalar
 
 if TYPE_CHECKING:
     # Result classes build their tables here, so this module imports nothing
@@ -31,7 +34,7 @@ if TYPE_CHECKING:
 # How levels are ordered, as results state it.
 LEVEL_ORDER = (
     "Count descending, then label. Booleans and numbers come first, by value, "
-    "with False and True as 0 and 1 and NaN last. Text follows, by Unicode code "
+    "with false and true as 0 and 1 and NaN last. Text follows, by Unicode code "
     "point, then labels of any other type, by type name and string form. Labels "
     "that still tie keep their order in the data."
 )
@@ -65,7 +68,7 @@ class Levels:
     # names the type of the value each placeholder stands for, in that order,
     # or once for all of them when they share it. The placeholders themselves
     # are written only when to_frame() asks for them.
-    masked_types: str | tuple[str, ...] | None = None
+    placeholder_types: str | tuple[str, ...] | None = None
 
     def label(self, position: int) -> object:
         """One label as Python holds it."""
@@ -82,6 +85,25 @@ class Levels:
         """The labels, or those at the given positions, as Python objects."""
         values = self.values if positions is None else self.values[positions]
         return np.asarray(values, dtype=object)
+
+    def with_empty(self, labels: Sequence[object]) -> "Levels":
+        """These levels followed by one level of count 0 for each of the labels.
+
+        The labels are values no row holds, such as declared classes without
+        rows. They take part in the level order like any other level, after
+        the levels with rows.
+        """
+        if not labels:
+            return self
+        values = self.values.append(pd.Index(list(labels)))
+        return replace(
+            self,
+            values=values,
+            counts=np.concatenate([self.counts, np.zeros(len(labels), np.int64)]),
+            sort_values=_numpy_values(values),
+            text=_all_text(values),
+            unused_categories=[],
+        )
 
     def subset(self, positions: np.ndarray) -> "Levels":
         """The levels at the given positions, in that order, without categories."""
@@ -118,6 +140,8 @@ def count_levels_by_row(
         return levels, codes
     # A category code becomes the category's position among the used ones.
     positions = np.cumsum(used) - 1
+    if not positions.size:  # no categories, so every value is missing
+        return levels, np.full(len(codes), -1, dtype=np.intp)
     return levels, np.where(codes >= 0, positions[codes], -1)
 
 
@@ -131,12 +155,10 @@ def _count(
     """
     if kind == "categorical":
         return _count_categories(series)
-    try:
-        codes, uniques = pd.factorize(series)
-    # Lists and dicts raise TypeError; nested pyarrow types raise
-    # ArrowNotImplementedError, a NotImplementedError.
-    except (TypeError, NotImplementedError):
+    found = value_codes(series, unhashable="unsupported")
+    if found is None:
         return None
+    codes, uniques = found.codes, found.uniques
     # A Series gives an Index; an array would be wrapped without inferring a
     # dtype, which on pandas 3 would turn object text into str.
     values = (
@@ -172,7 +194,7 @@ def levels_of(values: pd.Index, counts: np.ndarray) -> Levels:
 
 
 def _count_categories(series: pd.Series) -> tuple[Levels, np.ndarray, np.ndarray]:
-    categorical = cast("pd.Categorical", series.array)
+    categorical = categorical_array(series)
     categories = categorical.categories
     codes = np.asarray(categorical.codes, dtype=np.intp)
     counts = np.bincount(codes + 1, minlength=len(categories) + 1)
@@ -213,7 +235,7 @@ def ordered(levels: Levels, limit: int | None = None) -> np.ndarray:
     """
     counts = levels.counts
     size = len(counts)
-    if levels.masked_types is not None:
+    if levels.placeholder_types is not None:
         return np.arange(size if limit is None else min(limit, size), dtype=np.intp)
     if limit is None or limit >= size:
         return _full_order(levels)
@@ -317,8 +339,13 @@ def _first_labels(levels: Levels, positions: np.ndarray, count: int) -> list[int
     if count < len(positions):
         # A column's labels are distinct, so exactly `count` labels are at most
         # the count-th smallest. Comparing strings without a key is faster.
-        last = heapq.nsmallest(count, candidates.tolist())[-1]
-        keep = candidates <= last
+        texts = candidates.tolist()
+        last = heapq.nsmallest(count, texts)[-1]
+        # Python compares each label: numpy would coerce `last` to a fixed-width
+        # string and drop a trailing NUL character.
+        keep = np.fromiter(
+            (text <= last for text in texts), dtype=bool, count=len(texts)
+        )
         positions, candidates = positions[keep], candidates[keep]
     order = np.argsort(candidates, kind="stable")
     return positions[order].tolist()
@@ -345,7 +372,7 @@ def variant_groups(levels: Levels) -> list[list[int]]:
     # needs no further work.
     if not (keys != texts).any():
         return []
-    codes, _ = pd.factorize(keys)
+    codes = value_codes(keys, unhashable="by_content").codes
     shared = np.bincount(codes)[codes] >= 2
     groups: dict[int, list[int]] = {}
     for code, position in zip(
@@ -368,7 +395,7 @@ def label_key(label: object) -> tuple:
         return (0, 0, value)
     if isinstance(value, str):
         return (1, value)
-    return (2, type(value).__name__, str(value))
+    return (2, type(value).__name__, canonical_text(value))
 
 
 def _is_nan(value: object) -> bool:
@@ -391,17 +418,12 @@ def stored_label(label: object) -> object:
 
 
 def record_label(label: object) -> str | bool | int | float:
-    """A label as the record holds it: a JSON scalar, or else its string form."""
-    value = stored_label(label)
-    if isinstance(value, bool):
-        return bool(value)
-    if isinstance(value, int):
-        return int(value)
-    if isinstance(value, str):
-        return str(value)
-    if isinstance(value, float) and math.isfinite(value):
-        return float(value)
-    return str(value)
+    """A label as the record holds it: a JSON scalar, or else its canonical text.
+
+    Datetimes are ISO 8601 text and decimals numbers or exact text, as
+    record_scalar writes them.
+    """
+    return record_scalar(label)
 
 
 def type_name(label: object) -> str:
@@ -448,12 +470,12 @@ def level_rows(levels: Levels) -> tuple[np.ndarray, list[object], list[str]]:
     name of each label.
     """
     order = ordered(levels)
-    if levels.masked_types is None:
+    if levels.placeholder_types is None:
         labels = [stored_label(label) for label in levels.objects(order)]
         return order, labels, _type_names(levels, labels)
     # The values are the placeholders' numbers.
     placeholders: list[object] = [placeholder(int(n)) for n in levels.objects(order)]
-    masked = levels.masked_types
+    masked = levels.placeholder_types
     types = [masked] * len(order) if isinstance(masked, str) else list(masked)
     return order, placeholders, types
 

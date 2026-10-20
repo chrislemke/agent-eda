@@ -12,9 +12,15 @@ from agent_eda.errors import InvalidArgumentError
 SUMMARIES = {info.name: info.summary for info in ae.list_analyses().analyses}
 TAGS = {info.name: info.tags for info in ae.list_analyses().analyses}
 
-# The spec's search acceptance cases: a query in an agent's words, not the
-# package's, and the analysis it must find first. Each analysis ticket adds its
-# rows when the analysis ships, and every earlier row keeps passing.
+# The analyses that can show raw values, so a query on privacy leads to any of them.
+MASKING = tuple(
+    info.name for info in ae.list_analyses().analyses if info.supports_masking
+)
+
+# The search acceptance cases: a query in an agent's words, not the package's, and
+# the analysis it must find first: one name, any of a tuple of names, or None for a
+# query no analysis answers, which finds nothing. Each analysis ticket adds its rows
+# when the analysis ships, and every earlier row keeps passing.
 SEARCH_ACCEPTANCE = [
     ("missing values", "profile_missing_values"),
     ("nulls per column", "profile_missing_values"),
@@ -28,7 +34,54 @@ SEARCH_ACCEPTANCE = [
     ("correlation", "compute_association_matrix"),
     ("class imbalance", "profile_target"),
     ("check data types against a schema", "validate_column_types"),
+    # AX-10: generic words used to dominate, and one-letter words matched.
+    ("how many rows", "describe_dataset"),
+    ("zero variance", "describe_dataset"),
+    ("typos in category labels", "summarize_categorical"),
+    ("multicollinearity", "compute_association_matrix"),
+    ("percentiles", "summarize_numeric"),
+    ("capitalization", "summarize_categorical"),
+    ("first look", None),
+    ("eda", None),
+    ("n", None),
+    ("leakage", None),
+    # CORE-16 and STD-34: privacy words lead to the analyses that mask.
+    ("PII", MASKING),
+    ("privacy", MASKING),
+    ("anonymize", MASKING),
+    ("hide sensitive values", MASKING),
+    ("redact email addresses", MASKING),
+    # SPEC-11: missing values lead to the profile, not to the sentinels.
+    ("nulls", "profile_missing_values"),
+    ("NaN", "profile_missing_values"),
+    ("missing", "profile_missing_values"),
+    ("null counts", "profile_missing_values"),
+    ("na counts", "profile_missing_values"),
+    ("missingness", "profile_missing_values"),
+    # The spec's table of synonyms and tags.
+    ("rows", "describe_dataset"),
+    ("row count", "describe_dataset"),
+    ("constant", "describe_dataset"),
+    ("skewed", "summarize_numeric"),
+    ("outliers", "summarize_numeric"),
+    ("whitespace", "summarize_categorical"),
 ]
+
+
+def accepted(expected):
+    """The names a query may lead with: none, one, or any of several."""
+    return (
+        ()
+        if expected is None
+        else (expected,)
+        if isinstance(expected, str)
+        else expected
+    )
+
+
+def first_match(query):
+    matches = ae.search_analyses(query).matches
+    return matches[0].name if matches else None
 
 
 @pytest.mark.parametrize(
@@ -37,7 +90,12 @@ SEARCH_ACCEPTANCE = [
     ids=[query for query, _ in SEARCH_ACCEPTANCE],
 )
 def test_an_agents_wording_finds_the_right_analysis_first(query, expected):
-    assert ae.search_analyses(query).matches[0].name == expected
+    found = ae.search_analyses(query)
+
+    if expected is None:
+        assert found.matches == []
+    else:
+        assert found.matches[0].name in accepted(expected)
 
 
 @given(query=st.text() | st.text(min_size=100), limit=st.integers(1, 10))
@@ -63,9 +121,10 @@ def test_any_query_gives_the_same_strict_listing_within_the_text_caps(query, lim
     record = found.to_json()
     assert ae.search_analyses(query, limit=limit).to_json() == record
     json.loads(record, parse_constant=reject_constant)
-    lines = str(found).split("\n")
+    lines = str(found).splitlines()
     assert max(len(line) for line in lines) <= 120
     assert lines == [line.rstrip() for line in lines]
+    assert len(lines) <= 40
     assert len(found.matches) <= min(limit, found.match_count)
     searched = [term.term for term in found.terms]
     for match in found.matches:
@@ -95,6 +154,108 @@ def test_an_agents_word_also_searches_for_the_package_word(query, synonym):
     [term] = found.terms
     assert term.term == query.lower()
     assert term.synonyms == [synonym]
+
+
+def test_one_letter_words_are_dropped_from_the_query():
+    found = ae.search_analyses("n x a matrix")
+
+    assert [term.term for term in found.terms] == ["matrix"]
+
+
+def test_generic_words_alone_give_only_weak_matches():
+    found = ae.search_analyses("values per column", limit=100)
+
+    assert found.matches
+    assert all(match.weak for match in found.matches)
+    lines = str(found).splitlines()
+    assert lines[1].startswith("  ")
+    assert "(weak match)" in lines[1]
+    assert any("weak" in line and not line.startswith("  ") for line in lines)
+
+
+def test_a_match_on_a_specific_word_is_not_weak():
+    found = ae.search_analyses("mean and standard deviation")
+
+    best = found.matches[0]
+    assert best.name == "summarize_numeric"
+    assert not best.weak
+    assert "weak" not in str(found)
+
+
+def test_a_match_only_in_the_when_to_use_text_is_weak():
+    found = ae.search_analyses("trimmed", limit=100)
+
+    [match] = [m for m in found.matches if m.name == "summarize_numeric"]
+    assert match.weak
+
+
+def test_generic_words_weigh_less_than_specific_ones():
+    # 'rows' is in find_duplicate_rows' name, yet describe_dataset answers the
+    # question; and 'values' and 'columns' never decide a ranking.
+    assert first_match("how many rows") == "describe_dataset"
+    assert first_match("duplicate values in columns") == "find_duplicate_rows"
+    scores = [m.score for m in ae.search_analyses("column", limit=100).matches]
+    assert scores == [1] * len(scores)
+
+
+@pytest.mark.parametrize("query", ["first look", "eda", "First look at my data"])
+def test_a_first_look_query_finds_no_analysis_and_points_to_the_first_look_order(query):
+    found = ae.search_analyses(query)
+
+    assert found.matches == []
+    assert found.first_look is True
+    assert "ae.guide()" in str(found)
+    assert "first look" in str(found)
+
+
+def test_other_queries_are_no_first_look():
+    assert ae.search_analyses("missing values").first_look is False
+    assert ae.search_analyses("xylophone").first_look is False
+
+
+def test_a_long_query_is_cut_to_forty_characters_in_the_text():
+    query = "missing " * 1000
+
+    found = ae.search_analyses(query)
+
+    lines = str(found).splitlines()
+    assert len(lines) <= 40
+    assert found.query == query
+    assert lines[0].startswith(
+        "Analyses matching 'missing missing missing missing missing"
+    )
+    assert lines[0].count("missing") <= 6
+    assert "…" in lines[0]
+
+
+def test_the_words_listed_are_capped_with_their_count():
+    query = " ".join(f"word{number}" for number in range(8000 // 8))
+
+    found = ae.search_analyses(query)
+
+    assert len(found.terms) == 20
+    assert found.term_count == 1000
+    text = str(found)
+    assert len(text.splitlines()) <= 40
+    assert "first 20 of 1,000 words" in text
+
+
+def test_an_eight_thousand_character_query_prints_within_the_line_cap():
+    for query in ["missing " * 1000, "x" * 8000, "a1 " * 2700, "nulls dupes " * 700]:
+        for limit in (1, 5, 100):
+            text = str(ae.search_analyses(query, limit=limit))
+            lines = text.splitlines()
+            assert len(lines) <= 40
+            assert max(len(line) for line in lines) <= 120
+
+
+def test_the_text_shows_the_matches_that_fit_and_counts_the_rest():
+    found = ae.search_analyses("column", limit=100)
+
+    text = str(found)
+    assert len(text.splitlines()) <= 40
+    shown = text.splitlines()[0]
+    assert f"({len(found.matches)} of {found.match_count} shown" in shown
 
 
 @pytest.mark.parametrize("word", ["missing", "duplicate", "association", "target"])
@@ -215,14 +376,15 @@ def test_prints_the_matches_best_first_with_what_matched():
     assert max(len(line) for line in lines) <= 120
 
 
-def test_a_query_without_matches_says_so_and_points_to_the_guide():
+def test_a_query_without_matches_says_so_and_points_to_the_list_and_the_guide():
     found = ae.search_analyses("xylophone")
 
     assert found.matches == []
     assert found.match_count == 0
     assert str(found) == (
         "No analysis matches 'xylophone'. Searched for: xylophone.\n"
-        "Try other words, or call ae.guide() for every analysis and where to start."
+        "Try other words, or call ae.list_analyses() for every analysis; ae.guide() "
+        "says where to start."
     )
 
 
@@ -232,10 +394,12 @@ def test_a_query_without_searchable_words_searches_for_nothing(query):
 
     assert found.terms == []
     assert found.matches == []
-    assert str(found).splitlines()[0] == (
+    # The sentence wraps at 120 characters, its continuation indented.
+    expected = (
         f"No analysis matches {query!r}. Searched for: no words, since common ones "
-        "such as 'the' and 'of' don't count."
+        "such as 'the' and 'of' and single letters don't count."
     )
+    assert " ".join(str(found).split()).startswith(" ".join(expected.split()))
 
 
 def test_words_with_letters_beyond_ascii_stay_whole():
@@ -257,7 +421,7 @@ def test_says_how_to_see_the_matches_beyond_the_limit():
 
 @pytest.mark.parametrize(
     ("word", "name"),
-    [("outliers", "summarize_numeric"), ("structural", "describe_dataset")],
+    [("trimmed", "summarize_numeric"), ("structural", "describe_dataset")],
 )
 def test_finds_words_from_the_when_to_use_text_of_the_docstring(word, name):
     # The word occurs in the docstring's When to use: text and nowhere else that

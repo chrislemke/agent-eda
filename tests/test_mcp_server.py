@@ -13,12 +13,18 @@ import pytest
 
 pytest.importorskip(
     "mcp",
-    reason="the MCP server tests need the mcp extra: pip install 'agent-eda[mcp]'",
+    reason=(
+        "the MCP server tests need the mcp extra: run `uv sync` (uv 0.13 or later) or "
+        "uv run --extra mcp pytest in this repository, or "
+        "pip install 'agent-eda[mcp]' for an installed package"
+    ),
 )
 
 import anyio
 import pandas as pd
 from mcp import Client, StdioServerParameters
+from mcp_helpers import call, list_tools
+from stdio import stdio_environment
 
 import agent_eda as ae
 from agent_eda.mcp import create_server
@@ -49,10 +55,16 @@ def test_describe_dataset_is_an_mcp_tool_that_requires_a_data_path():
 
 def test_a_call_returns_the_printed_result_in_mcp_wording_and_the_record(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text(CSV)
+    path.write_text(CSV, encoding="utf-8")
     # The server reads a CSV counting only an empty field as missing.
     expected = ae.describe_dataset(
-        pd.read_csv(path, keep_default_na=False, na_values=[""])
+        pd.DataFrame(
+            {
+                "city": ["Oslo", "Lyon", "Oslo"],
+                "score": [1.5, None, 2.5],
+                "note": ["N/A", "ok", float("nan")],
+            }
+        )
     )
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
@@ -71,7 +83,7 @@ def test_a_call_returns_the_printed_result_in_mcp_wording_and_the_record(tmp_pat
 
 def test_the_printed_result_names_what_an_mcp_caller_can_reach(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text(CSV)
+    path.write_text(CSV, encoding="utf-8")
 
     response = anyio.run(call, "summarize_numeric", {"data_path": str(path)})
 
@@ -100,7 +112,7 @@ def test_the_printed_result_names_record_fields_without_python(tmp_path):
     response = anyio.run(call, "compute_association_matrix", {"data_path": str(path)})
 
     text = response.content[0].text
-    assert "Skipped 1 column, see skipped_columns: 'joined' (" in text
+    assert "Left out 1 column, see left_out_columns: 'joined' (" in text
     # Over MCP, table_path writes only the default table, so the footer names no
     # other one.
     assert text.splitlines()[-1] == (
@@ -111,10 +123,13 @@ def test_the_printed_result_names_record_fields_without_python(tmp_path):
 
 def test_the_masking_line_says_how_to_mask_in_json(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text("customer,plan\nann@example.org,pro\nbo@example.org,team\n")
+    path.write_text(
+        "customer,plan\nann@example.org,pro\nbo@example.org,team\n", encoding="utf-8"
+    )
     project_path = tmp_path / "project.toml"
     project_path.write_text(
-        '[data_policy]\nsensitive_columns = ["customer"]\nmask_sensitive = false\n'
+        '[data_policy]\nsensitive_columns = ["customer"]\nmask_sensitive = false\n',
+        encoding="utf-8",
     )
 
     response = anyio.run(
@@ -132,7 +147,7 @@ def test_the_masking_line_says_how_to_mask_in_json(tmp_path):
 
 def test_a_stand_in_such_as_n_a_reaches_the_analysis_as_a_value(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text(CSV)
+    path.write_text(CSV, encoding="utf-8")
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
@@ -145,7 +160,7 @@ def test_a_stand_in_such_as_n_a_reaches_the_analysis_as_a_value(tmp_path):
 
 
 def test_agent_eda_mcp_answers_a_call_over_stdio(tmp_path):
-    (tmp_path / "shop.csv").write_text(CSV)
+    (tmp_path / "shop.csv").write_text(CSV, encoding="utf-8")
 
     # A relative path, which the server resolves against its working directory.
     response = anyio.run(call_over_stdio, tmp_path, "1", "shop.csv")
@@ -155,10 +170,10 @@ def test_agent_eda_mcp_answers_a_call_over_stdio(tmp_path):
     assert response.content[0].text.startswith("describe_dataset: completed on 3 rows")
 
 
-def test_two_server_processes_with_different_hash_seeds_return_the_same_record(
+def test_two_mcp_server_processes_with_different_hash_seeds_return_the_same_record(
     tmp_path,
 ):
-    (tmp_path / "shop.csv").write_text(CSV)
+    (tmp_path / "shop.csv").write_text(CSV, encoding="utf-8")
 
     records = [
         json.dumps(
@@ -170,24 +185,36 @@ def test_two_server_processes_with_different_hash_seeds_return_the_same_record(
     assert records[0] == records[1]
 
 
-async def list_tools():
-    async with Client(create_server(), mode="legacy") as client:
-        return (await client.list_tools()).tools
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
-
-
 async def call_over_stdio(cwd, hash_seed, data_path):
     """Start agent-eda-mcp as an MCP client does and call describe_dataset."""
     server = StdioServerParameters(
         # The console script installed next to this interpreter, since the
         # client passes the subprocess only a few environment variables.
         command=str(Path(sys.executable).parent / "agent-eda-mcp"),
-        env={"PYTHONHASHSEED": hash_seed},
+        env=stdio_environment(PYTHONHASHSEED=hash_seed),
         cwd=str(cwd),
     )
     async with Client(server, mode="legacy") as client:
         return await client.call_tool("describe_dataset", {"data_path": data_path})
+
+
+# send_ping is the one way the client checks that the server still answers, and
+# legacy mode, which these tests use, supports it.
+@pytest.mark.filterwarnings("ignore:ping is removed")
+def test_a_huge_max_key_size_returns_and_the_mcp_server_still_answers_a_ping(tmp_path):
+    (tmp_path / "keys.csv").write_text("a,b\n1,1\n2,1\n3,2\n", encoding="utf-8")
+
+    async def scenario():
+        async with Client(create_server(), mode="legacy") as client:
+            with anyio.fail_after(10):
+                response = await client.call_tool(
+                    "find_candidate_keys",
+                    {"data_path": str(tmp_path / "keys.csv"), "max_key_size": 10**20},
+                )
+                await client.send_ping()  # ty: ignore[deprecated]  # legacy mode, which this test runs, answers pings
+            return response
+
+    response = anyio.run(scenario)
+
+    assert not response.is_error
+    assert (response.structured_content or {})["status"] == "completed"

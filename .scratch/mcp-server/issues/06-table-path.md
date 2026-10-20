@@ -6,7 +6,7 @@ Read these sections of `.scratch/mcp-server/spec.md`: Responses, and test group 
 
 **Blocked by:** 05-project-and-masking
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Every analysis MCP tool has an optional `table_path` (string or null) with fixed server text as its description, and the contract test checks it.
 - [x] `table_path` ending in `.csv`, `.parquet` or `.pq` writes `res.to_frame()`; reading the file back gives the same rows and columns, with the index written as a column unless it is a default `RangeIndex`.
@@ -32,3 +32,5 @@ Read these sections of `.scratch/mcp-server/spec.md`: Responses, and test group 
 Checks: `ruff check`, `ruff format`, `ty check` and `pytest` pass on the latest versions (with `--extra mcp`, local uv 0.10.11; 2042 passed), and in both minimum-versions runs (core: 1835 passed, MCP modules skipped; with the extra: 2042 passed). CI wasn't run.
 
 **Code review follow-up (2026-10-18).** The `table_path` description, the README and the spec now say that only the main table is written, the one `to_frame()` gives without arguments. By the user's decision, the record of a call with `table_path` gains `table_file` with the file's absolute `path` and `row_count`, so clients that show only the structured content, such as Claude Code, see where the table went. The output schema allows `table_file` without requiring it. Without `table_path`, the structured content still equals `to_dict()`. The format table is now shared with the reader (`_local_files`).
+
+Box 3 is superseded: commit ea01363 (code review follow-up, 2026-10-18) added `table_file` (path and row_count) to the record of a call with `table_path`, so the response changes beyond the text line.

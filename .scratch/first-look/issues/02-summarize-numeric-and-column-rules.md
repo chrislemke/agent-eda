@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: Calling convention, Analys
 
 **Blocked by:** 01-describe-dataset-end-to-end
 
-**Status:** ready-for-agent
+**Status:** done
 
 Column rules and errors:
 
@@ -69,3 +69,5 @@ Checks:
 - Minimum versions: `uv run --isolated --resolution lowest-direct --python 3.12 pytest` passed with numpy 1.26.0, pandas 2.2.0, scipy 1.11.2, pydantic 2.7.0 and pyarrow 14.0.1, and left `uv.lock` unchanged. Python 3.13 and 3.14 passed with `uv run --isolated --python 3.1x pytest`.
 - A sweep of 504 edge cases found no exception, no escaping warning and no non-strict JSON. It covered empty and single-value columns, all-NaN and inf-only columns, values near ±1.7e308, subnormals, int64 and uint64 extremes, sparse and pyarrow columns, three quantile methods and three trim fractions. Ticket 03's property tests should cover the same ground.
 - Linux x86_64 and ARM64 didn't run locally; ticket 05's CI covers them.
+
+Box 22 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

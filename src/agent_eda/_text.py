@@ -1,10 +1,15 @@
 """The fixed plain-text template every result prints with.
 
 A result prints as: a first line with the analysis, status and data size; an
-optional status reason; a few fact lines; the key table (at most 10 rows); the
-findings (at most 5); the limitations (at most 5); and a footer that says where
-the rest is. The text never exceeds 40 lines or 120 characters per line, and
-every section counts what it leaves out.
+optional status reason; a few fact lines; the key table (at most 10 rows) with
+optional detail lines under it; the findings (at most 5); the limitations (at
+most 5); and a footer that says where the rest is. The text never exceeds 40
+lines or 120 characters per line, and every section counts what it leaves out.
+
+A line that is too long wraps with a hanging indent and is never cut: only a
+table cell too wide for its column is shortened, with "...", and the record
+keeps the whole value. The detail lines are the only lines that give way to the
+others when the 40 lines run short.
 
 The text names what the caller can reach on its surface: a Python caller reads
 res.to_frame() and res.to_json(), an MCP caller the full table that table_path
@@ -12,11 +17,15 @@ writes and the structured content. Only those phrases differ; the rest of the
 text is the same on both surfaces.
 """
 
+import difflib
+import reprlib
 import textwrap
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
+
+from agent_eda._written_form import canonical_text
 
 MAX_LINES = 40
 MAX_WIDTH = 120
@@ -25,8 +34,20 @@ MAX_FINDINGS = 5
 MAX_LIMITATIONS = 5
 # Claims name at most this many columns or labels and count the rest.
 MAX_NAMED = 5
+# Suggestions for a misspelled name, and the shortest start of a name that
+# suggests it.
+MAX_SUGGESTIONS = 3
+MIN_PREFIX = 3
+
+# A message names at most this many names it didn't find, each cut to
+# MAX_NAME_LENGTH characters, so that a column's values passed for names can't
+# put more than a glimpse of the data into it.
+MAX_UNKNOWN_NAMED = 3
+MAX_NAME_LENGTH = 40
 
 ELLIPSIS = "..."
+# What a line that wraps continues with.
+HANGING = "    "
 COLUMN_GAP = "  "
 # Text cells never shrink below this width to make a table fit.
 MIN_TEXT_WIDTH = 8
@@ -58,6 +79,11 @@ class Table:
     # such as "all 5 rows in groups"; it wins over frame_rows and frame_unit.
     # None means the count of the table's rows or of frame_rows.
     frame: str | None = None
+    # Lines under the table, one per shown row, such as a column's top levels,
+    # which the text shows as far as the line cap leaves room, under the title
+    # `details_title`.
+    details: Sequence[str] = ()
+    details_title: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,31 +103,44 @@ def render(
     limitations: Sequence[Item],
     other_tables: Sequence[str] = (),
     surface: Surface = "python",
+    reserve: int = 0,
 ) -> str:
     """Render a result with the fixed template, within the line and width caps.
+
+    `reserve` lines are kept free below the cap, for lines the caller adds.
 
     `other_tables` names the tables besides the key table that to_frame()
     returns, each as a clause for the footer, such as "res.to_frame(table='x')
     has ...". Only Python can ask for them, so the MCP text leaves them out.
     """
-    lines = [heading, *facts]
+    lines = [
+        line
+        for text in [heading, *facts]
+        for line in _wrapped(_printable(text), indent=HANGING)
+    ]
     if table is not None:
-        lines.extend(_table_lines(table))
-    lines.extend(_item_lines("Findings", findings, MAX_FINDINGS))
-    lines.extend(_item_lines("Limitations", limitations, MAX_LIMITATIONS))
-    lines.extend(_footer(table, other_tables if surface == "python" else (), surface))
-    lines = [_fit(_printable(line)) for line in lines]
-    if len(lines) > MAX_LINES:
-        hidden = len(lines) - MAX_LINES + 1
+        lines.extend(_fit(_printable(line)) for line in _table_lines(table))
+    after_table = [
+        *_item_lines("Findings", findings, MAX_FINDINGS),
+        *_item_lines("Limitations", limitations, MAX_LIMITATIONS),
+        *_footer(table, other_tables if surface == "python" else (), surface),
+    ]
+    if table is not None and table.details:
+        room = MAX_LINES - reserve - len(lines) - len(after_table)
+        lines.extend(_detail_lines(table, room))
+    lines.extend(after_table)
+    limit = MAX_LINES - reserve
+    if len(lines) > limit:
+        hidden = len(lines) - limit + 1
         lines = [
-            *lines[: MAX_LINES - 1],
-            f"... {hidden:,} more lines; see {_RECORD[surface]}.",
+            *lines[: limit - 1],
+            f"... {hidden:,} more lines; see {_FOOTER_RECORD[surface]}.",
         ]
     return "\n".join(lines)
 
 
 # Where the whole record is, on each surface.
-_RECORD: dict[Surface, str] = {
+_FOOTER_RECORD: dict[Surface, str] = {
     "python": "res.to_json()",
     "mcp": "the structured content",
 }
@@ -150,11 +189,17 @@ def format_bytes(count: int) -> str:
     return f"{format_number(size)} {unit} ({count:,} bytes)"
 
 
-def join_items(items: Sequence[str], *, limit: int = MAX_NAMED) -> str:
-    """Join items as "a, b and c", naming at most `limit` and counting the rest."""
-    if len(items) > limit:
+def join_items(
+    items: Sequence[str], *, limit: int = MAX_NAMED, total: int | None = None
+) -> str:
+    """Join items as "a, b and c", naming at most `limit` and counting the rest.
+
+    `total` is how many items there are when `items` holds only the first ones.
+    """
+    count = len(items) if total is None else total
+    if count > limit:
         shown = list(items[:limit])
-        return ", ".join(shown) + f" and {len(items) - limit:,} more"
+        return ", ".join(shown) + f" and {count - limit:,} more"
     if len(items) <= 1:
         return "".join(items)
     return ", ".join(items[:-1]) + " and " + items[-1]
@@ -185,9 +230,53 @@ def wrap(text: str, *, indent: str = "", first: str | None = None) -> list[str]:
     return [line.rstrip() for line in lines] or [lead.rstrip()]
 
 
+def quoted_path(path: str) -> str:
+    """A path in single quotes as a message shows it, with each backslash of a
+    Windows path left as one: repr doubles it, and a caller who copies the path
+    back would pass the doubled one. A path that holds a quote or a character
+    that can't be printed, which has to be escaped, is written with repr."""
+    if "\\" in path and "'" not in path and path.isprintable():
+        return f"'{path}'"
+    return repr(path)
+
+
 def plural(count: int, singular: str, plural_form: str) -> str:
     """Return "1 column" or "3 columns" with thousands separators."""
     return f"{count:,} {singular if count == 1 else plural_form}"
+
+
+def closest_names(name: str, names: Sequence[str]) -> list[str]:
+    """The names closest to `name`, at most MAX_SUGGESTIONS of them.
+
+    Names equal to it apart from case and surrounding spaces come first, then
+    names that start with it, such as 'binary_classification' for 'binary',
+    then close spellings, ranked by difflib's similarity.
+    """
+    by_key: dict[str, list[str]] = {}
+    for candidate in names:
+        by_key.setdefault(_fold(candidate), []).append(candidate)
+    key = _fold(name)
+    starting = (
+        [k for k in by_key if k != key and k.startswith(key)]
+        if len(key) >= MIN_PREFIX
+        else []
+    )
+    similar = difflib.get_close_matches(key, list(by_key), n=MAX_SUGGESTIONS)
+    found = [
+        *by_key.get(key, []),
+        *(c for k in starting for c in by_key[k]),
+        *(c for k in similar for c in by_key[k]),
+    ]
+    return list(dict.fromkeys(found))[:MAX_SUGGESTIONS]
+
+
+def _fold(name: str) -> str:
+    return name.strip().casefold()
+
+
+def a_or_an(noun: str) -> str:
+    """The noun with its article: "an object", "an Interval", "a str"."""
+    return f"{'an' if noun[:1] in 'AEIOUaeiou' else 'a'} {noun}"
 
 
 def placeholder(number: int) -> str:
@@ -198,9 +287,34 @@ def placeholder(number: int) -> str:
     return f"<masked {number}>"
 
 
+_SHORT = reprlib.Repr(maxstring=MAX_NAME_LENGTH, maxother=MAX_NAME_LENGTH)
+
+
+def short_repr(value: object) -> str:
+    """A scalar as repr() shows it, cut to MAX_NAME_LENGTH characters.
+
+    A long string keeps its start and end around '...'.
+    """
+    return _SHORT.repr(value)
+
+
 def label_text(label: object) -> str:
-    """Show a column or index label: strings quoted, everything else as str()."""
-    return repr(label) if isinstance(label, str) else str(label)
+    """Show a column or index label: strings quoted, everything else as str().
+
+    Sets list their items in a fixed order and objects show no memory address,
+    so the text is the same in every process.
+    """
+    return repr(label) if isinstance(label, str) else canonical_text(label)
+
+
+def shown_value(value: object, value_type: str, *, masked: bool) -> str:
+    """A stored value as the text shows it: text quoted, so that surrounding
+    spaces stay visible; other types, and a masked value, which is a placeholder
+    such as <masked 1>, as str() writes them.
+
+    `value_type` is the Python type name of the stored value, as results record it.
+    """
+    return repr(value) if value_type == "str" and not masked else str(value)
 
 
 def join_labels(labels: Sequence[object], *, quote: bool = True) -> str:
@@ -270,7 +384,39 @@ def _item_lines(title: str, items: Sequence[Item], limit: int) -> list[str]:
         return [f"{title}: none"]
     shown = items[:limit]
     lines = [f"{title} ({len(shown):,} of {len(items):,} shown):"]
-    lines.extend(f"- {item.label}: {item.text}" for item in shown)
+    for item in shown:
+        lines.extend(
+            wrap(_printable(f"- {item.label}: {item.text}"), first="", indent="  ")
+        )
+    return lines
+
+
+def _detail_lines(table: Table, room: int) -> list[str]:
+    """The table's detail lines that fit in `room` lines, and a count of the rest."""
+    entries = [
+        wrap(_printable(text), first="  ", indent="    ")
+        for text in table.details[:MAX_TABLE_ROWS]
+    ]
+    if room < 1:
+        return []
+    if room < 3:
+        return [f"{table.details_title}: {len(entries):,} not shown for lack of room."]
+    budget = room - 1
+    if sum(len(entry) for entry in entries) <= budget:
+        shown = len(entries)
+    else:
+        used = 0
+        shown = 0
+        for entry in entries:
+            if used + len(entry) > budget - 1:
+                break
+            used += len(entry)
+            shown += 1
+    lines = [f"{table.details_title}:"]
+    for entry in entries[:shown]:
+        lines.extend(entry)
+    if shown < len(entries):
+        lines.append(f"  and {len(entries) - shown:,} more not shown.")
     return lines
 
 
@@ -295,23 +441,43 @@ def _footer(
         else:
             count = len(table.rows)
         rows = plural(count, *(table.frame_unit or table.unit))
-        frame = f"{full_table} has {'the' if count == 1 else 'all'} {rows}"
+        frame = f"{full_table} has " + (
+            "no rows" if count == 0 else f"{'the' if count == 1 else 'all'} {rows}"
+        )
     return wrap(
         f"More: {'; '.join([frame, *other_tables])}; {rest}", first="", indent="    "
     )
 
 
+# The categories of characters the text writes as escapes: controls such as
+# newlines, line and paragraph separators, lone surrogates, which no output can
+# encode, and format characters such as the right-to-left override, which
+# reorder or hide what is around them.
+_ESCAPED_CATEGORIES = ("Cc", "Zl", "Zp", "Cs", "Cf")
+
+
 def _printable(text: str) -> str:
-    """Escape characters that would break or hide lines, such as newlines."""
+    """Escape characters that would break, hide or reorder text, such as newlines
+    and bidirectional controls, and lone surrogates, which can't be encoded."""
     return "".join(
         ch.encode("unicode_escape").decode("ascii")
-        if unicodedata.category(ch) in ("Cc", "Zl", "Zp")
+        if unicodedata.category(ch) in _ESCAPED_CATEGORIES
         else ch
         for ch in text
     )
 
 
+def _wrapped(text: str, *, indent: str) -> list[str]:
+    """The text as lines within MAX_WIDTH. A line that is too long wraps, with
+    the indent it starts with, or `indent` when it starts at the margin."""
+    if len(text) <= MAX_WIDTH:
+        return [text]
+    lead = text[: len(text) - len(text.lstrip())]
+    return wrap(text.strip(), first=lead, indent=lead or indent)
+
+
 def _fit(line: str) -> str:
+    """A table line within MAX_WIDTH; only a table too wide to shrink is cut."""
     if len(line) <= MAX_WIDTH:
         return line
     return line[: MAX_WIDTH - len(ELLIPSIS)] + ELLIPSIS

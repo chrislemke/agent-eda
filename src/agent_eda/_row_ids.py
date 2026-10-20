@@ -14,20 +14,14 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from agent_eda._columns import ALL_KINDS, ColumnRule, select_columns
-from agent_eda._values import column_values, hashable_values
-from agent_eda._wording import worded
+from agent_eda._columns import any_column, select_columns
+from agent_eda._result_base import Limitation
+from agent_eda._values import hashable_values, value_codes
+from agent_eda._wording import Words, mistake
 from agent_eda.errors import ColumnTypeError
-from agent_eda.results import Limitation
 
 # id_column may name a column of any dtype.
-_ID_COLUMN = ColumnRule(
-    default=ALL_KINDS,
-    default_text="the index labels",
-    accepted=ALL_KINDS,
-    accepted_text="a column of any dtype",
-    fixes={},
-)
+_ID_COLUMN = any_column("the index labels")
 
 
 @dataclass(frozen=True)
@@ -64,23 +58,16 @@ def read_row_ids(analysis: str, data: pd.DataFrame, id_column: str | None) -> Ro
         analysis, data, [id_column], _ID_COLUMN, parameter="id_column"
     ).columns
     labels = data.iloc[:, column.position]
-    try:
-        pd.factorize(column_values(labels))
-    # Lists and dicts raise TypeError; nested pyarrow types raise
-    # ArrowNotImplementedError, a NotImplementedError.
-    except (TypeError, NotImplementedError):
-        raise worded(
+    if value_codes(labels, unhashable="unsupported") is None:
+        raise mistake(
             ColumnTypeError,
-            lambda surface: (
-                f"{analysis} can't use column {column.name!r} with dtype "
-                f"{column.dtype} as id_column: it holds values that can't be hashed, "
-                "such as lists or dicts, and so can't identify rows. Pass a column of IDs "
-                "such as numbers or strings, or "
-                + (
-                    "leave id_column=None to use the index labels."
-                    if surface == "python"
-                    else "leave id_column out to use the default row IDs."
-                )
+            f"{analysis} can't use column {column.name!r} with dtype "
+            f"{column.dtype} as id_column: it holds values that can't be hashed, "
+            "such as lists or dicts, and so can't identify rows. Pass a column of "
+            "IDs such as numbers or strings, or ",
+            Words(
+                "leave id_column=None to use the index labels.",
+                "leave id_column out to use the default row IDs.",
             ),
         ) from None
     repeated = duplicated_labels(labels, keep=False)
@@ -131,12 +118,12 @@ def ambiguous_row_ids(row_ids: RowIds, fields: Sequence[str]) -> list[Limitation
         return []
     if row_ids.id_column is None:
         what = "an index label"
-        more = " Or make the index unique, such as with df.reset_index(drop=True)."
+        more = " Or make the index unique."
     else:
         what = "an id_column value"
         more = ""
     if not fields:
-        more += " None of the row IDs in this result repeats."
+        more += " No row ID in this result repeats."
     return [
         Limitation(
             code="ambiguous_row_ids",

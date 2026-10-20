@@ -9,20 +9,34 @@ import pytest
 
 pytest.importorskip(
     "mcp",
-    reason="the MCP server tests need the mcp extra: pip install 'agent-eda[mcp]'",
+    reason=(
+        "the MCP server tests need the mcp extra: run `uv sync` (uv 0.13 or later) or "
+        "uv run --extra mcp pytest in this repository, or "
+        "pip install 'agent-eda[mcp]' for an installed package"
+    ),
 )
 
 import json
-import warnings
+import math
+import numbers
+from typing import Literal
 
 import anyio
+import numpy as np
 import pandas as pd
-from mcp import Client
+from mcp_helpers import (
+    call,
+    list_tools,
+    read_parquet,
+    read_table,
+    reference_read,
+    write,
+)
 from recipes import recipe_for
+from serving import serving
 
 import agent_eda as ae
 from agent_eda.errors import AgentEDAError, TableFileExistsError
-from agent_eda.mcp import create_server
 from agent_eda.results import SummarizeNumericResult
 
 ANALYSES = [info.name for info in ae.list_analyses().analyses]
@@ -89,8 +103,8 @@ def test_the_text_gains_one_line_with_the_absolute_path_and_nothing_else_changes
 
     assert not response.is_error
     assert [block.text for block in response.content] == [
-        f"{without.content[0].text}\nFull table written to "
-        f"{tmp_path.resolve() / 'levels.csv'} (3 rows)."
+        f"{without.content[0].text}\n"
+        + written_lines(tmp_path.resolve() / "levels.csv", "3 rows")
     ]
 
 
@@ -117,6 +131,25 @@ def test_the_record_gains_the_written_tables_path_and_row_count(tmp_path, monkey
     }
 
 
+def test_table_path_keeps_every_level_though_the_record_keeps_top_n(tmp_path):
+    letters = "\n".join(f"v{i:02d}" for i in range(40) for _ in range(1 + i % 3))
+    data_path = write(tmp_path / "codes.csv", f"code\n{letters}\n")
+    table_path = tmp_path / "levels.csv"
+
+    response = anyio.run(
+        call,
+        "summarize_categorical",
+        {"data_path": str(data_path), "table_path": str(table_path), "top_n": 5},
+    )
+
+    assert not response.is_error
+    entry = response.structured_content["columns"]["code"]
+    assert len(entry["levels"]) == 5
+    assert entry["levels_total"] == entry["distinct_count"] == 40
+    assert response.structured_content["table_file"]["row_count"] == 40
+    assert len(pd.read_csv(table_path, keep_default_na=False)) == 40
+
+
 def test_the_output_schema_allows_table_file_without_requiring_it():
     tools = anyio.run(list_tools)
 
@@ -138,7 +171,7 @@ def test_a_table_of_one_row_says_1_row(tmp_path):
     )
 
     assert response.content[0].text.endswith(
-        f"\nFull table written to {table_path.resolve()} (1 row)."
+        "\n" + written_lines(table_path.resolve(), "1 row")
     )
 
 
@@ -176,9 +209,10 @@ def test_every_analysis_writes_its_full_table_in_either_format(
     )
 
     assert not response.is_error, response.content[0].text
-    written = read_back(table_path)
-    assert list(written.columns) == list(expected.columns)
+    written = read_table(table_path)
+    assert list(written.columns) == list(documented_cells(expected).columns)
     assert len(written) == len(expected)
+    assert different_cells(written, documented_cells(expected)) == []
 
 
 @pytest.mark.parametrize("extension", [".csv", ".parquet"])
@@ -194,7 +228,7 @@ def test_lists_become_json_text_and_parquet_writes_mixed_values_as_text(
         {"data_path": str(data_path), "table_path": str(table_path)},
     )
 
-    written = read_back(table_path)
+    written = read_table(table_path)
     # The text "N/A" and the number -999 share the value column, which
     # value_type tells apart.
     shown = written[["column", "value", "value_type"]].astype(str)
@@ -215,7 +249,7 @@ def test_an_index_that_holds_more_than_row_numbers_is_written_first(
 ):
     data_path = write(tmp_path / "shop.csv", CSV)
     table_path = tmp_path / f"by-column{extension}"
-    server = create_server(analyses=[summarize_by_column])
+    server = serving(summarize_by_column)
 
     anyio.run(
         call,
@@ -224,10 +258,10 @@ def test_an_index_that_holds_more_than_row_numbers_is_written_first(
         server,
     )
 
-    written = read_back(table_path)
+    written = read_table(table_path)
     assert list(written.columns[:2]) == ["column", "status"]
     assert written["column"].tolist() == ["score", "visits"]
-    assert written["count"].tolist() == [3, 4]
+    assert written["non_missing_count"].tolist() == [3, 4]
 
 
 def test_an_existing_file_is_refused_before_the_analysis_runs_and_left_alone(
@@ -246,7 +280,7 @@ def test_an_existing_file_is_refused_before_the_analysis_runs_and_left_alone(
         f"file exists yet, such as {tmp_path / 'summary-3.csv'}, or read the file "
         "that is there.",
     }
-    assert table_path.read_text() == "keep me\n"
+    assert table_path.read_text(encoding="utf-8") == "keep me\n"
 
 
 def test_table_file_exists_error_is_a_file_exists_error():
@@ -324,7 +358,7 @@ def test_a_table_path_that_is_not_a_string_is_an_invalid_argument(tmp_path, tabl
 async def table_error(data_path, table_path):
     """The tool error a table_path gets from a stand-in analysis that fails if
     it runs, so a tool error shows the check came first."""
-    server = create_server(analyses=[break_on_run])
+    server = serving(break_on_run)
     response = await call(
         "break_on_run",
         {"data_path": str(data_path), "table_path": table_path},
@@ -349,8 +383,8 @@ def break_on_run(data: pd.DataFrame) -> SummarizeNumericResult:
 class IndexedSummary(SummarizeNumericResult):
     """A summary whose table has the column names as its index."""
 
-    def to_frame(self) -> pd.DataFrame:
-        return super().to_frame().set_index("column")
+    def to_frame(self, table: Literal["columns"] = "columns") -> pd.DataFrame:
+        return super().to_frame(table).set_index("column")
 
 
 def summarize_by_column(data: pd.DataFrame) -> IndexedSummary:
@@ -372,45 +406,103 @@ def assert_same_table(written, expected):
     pd.testing.assert_frame_equal(cells(written), cells(expected))
 
 
+def documented_cells(table):
+    """The table as the file holds it: the index first when it holds more than
+    the row numbers, and lists and mappings as JSON text."""
+    if table.index.equals(pd.RangeIndex(len(table))) and table.index.name is None:
+        table = table.reset_index(drop=True)
+    else:
+        table = table.reset_index()
+    return table.map(
+        lambda value: (
+            json.dumps(value, ensure_ascii=False, default=str)
+            if isinstance(value, list | tuple | dict | set | frozenset)
+            else value
+        )
+    )
+
+
+def different_cells(written, expected):
+    """Each cell of the file that differs from the table's, as 'row, column'.
+
+    A missing value and an empty string both read back as missing; numbers
+    agree within a relative 1e-12, and anything else as text.
+    """
+    return [
+        f"row {row}, {column!r}: {got!r} is not {want!r}"
+        for column in expected.columns
+        for row, (got, want) in enumerate(
+            zip(written[column].tolist(), expected[column].tolist(), strict=True)
+        )
+        if not same_cell(got, want)
+    ]
+
+
+def same_cell(got, want):
+    if is_missing(want) or is_missing(got):
+        return is_missing(want) and is_missing(got)
+    if isinstance(got, bool | np.bool_) or isinstance(want, bool | np.bool_):
+        return str(got).lower() == str(want).lower()
+    if isinstance(got, numbers.Real) and isinstance(want, numbers.Real):
+        return math.isclose(float(got), float(want), rel_tol=1e-12, abs_tol=0.0)
+    return str(got) == str(want)
+
+
+def is_missing(value):
+    return (
+        value is None
+        or bool(pd.isna(value))
+        or (isinstance(value, str) and value == "")
+    )
+
+
 def cells(frame):
     values = frame.astype(object)
     return values.where(values.notna(), None)
 
 
-def write(path, text):
-    path.write_text(text)
-    return path
-
-
 def read(path):
-    """The DataFrame as the server reads the file: only an empty field is missing."""
-    return pd.read_csv(path, keep_default_na=False, na_values=[""])
+    """The DataFrame the server reads from this file's CSV text, built by hand.
+    Only an empty field is missing."""
+    frames = {
+        CSV: pd.DataFrame(
+            {
+                "city": ["Oslo", "Lyon", "Oslo", "Rome"],
+                "score": [1.5, None, 4.0, 2.5],
+                "visits": [3, 7, 2, 5],
+            }
+        ),
+        MIXED_CSV: pd.DataFrame(
+            {
+                "order_id": [1, 2, 3, 4, 5],
+                "city": ["Oslo", "Lyon", "Oslo", "N/A", "Lyon"],
+                "score": [1.5, None, 2.5, -999.0, 4.0],
+                "joined": [
+                    "2024-01-03",
+                    "2024-02-11",
+                    "2024-03-07",
+                    "2024-04-21",
+                    float("nan"),
+                ],
+                "member": [True, False, True, False, True],
+                "plan": ["basic", "pro", "basic", "pro", "basic"],
+            }
+        ),
+        "score\n1.5\n2.5\n": pd.DataFrame({"score": [1.5, 2.5]}),
+    }
+    return reference_read(path, frames)
 
 
-def read_back(path):
-    """A written table, read as CSV or Parquet by its extension."""
-    if path.suffix == ".csv":
-        return pd.read_csv(path, keep_default_na=False, na_values=[""])
-    return read_parquet(path)
-
-
-def read_parquet(path):
-    with warnings.catch_warnings():
-        # pandas 2.2 deprecates the internals pyarrow 14 builds DataFrames from.
-        warnings.filterwarnings(
-            "ignore",
-            message="(Passing a BlockManager to DataFrame|DatetimeTZBlock) is "
-            "deprecated",
-            category=DeprecationWarning,
-        )
-        return pd.read_parquet(path)
-
-
-async def list_tools():
-    async with Client(create_server(), mode="legacy") as client:
-        return (await client.list_tools()).tools
-
-
-async def call(name, arguments, server=None):
-    async with Client(server or create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
+def written_lines(path, rows):
+    """The lines the text gains: one when it fits in 120 characters, otherwise
+    the path on a line of its own, otherwise a pointer to the record (a
+    temporary directory's path can be long)."""
+    line = f"Full table written to {path} ({rows})."
+    if len(line) <= 120:
+        return line
+    if len(str(path)) <= 120:
+        return f"Full table written ({rows}) to:\n{path}"
+    return (
+        f"Full table written ({rows}); its path is table_file.path in the "
+        "structured content."
+    )

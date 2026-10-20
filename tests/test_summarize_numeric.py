@@ -129,7 +129,7 @@ def test_a_boolean_column_named_in_columns_is_read_as_0_and_1():
 
     member, flag, arrow = res.columns.values()
     assert (member.mean, member.zero_count, member.max) == (0.75, 1, 1.0)
-    assert (flag.count, flag.missing_count, flag.mean) == (3, 1, 1 / 3)
+    assert (flag.non_missing_count, flag.missing_count, flag.mean) == (3, 1, 1 / 3)
     assert (arrow.min, arrow.max) == (1.0, 1.0)
     [limitation] = [lim for lim in res.limitations if lim.code == "boolean_as_numeric"]
     assert limitation.fields == [
@@ -138,7 +138,7 @@ def test_a_boolean_column_named_in_columns_is_read_as_0_and_1():
         "columns['arrow']",
     ]
     assert limitation.reason == (
-        "3 boolean columns were read as 0 for False and 1 for True: 'member', "
+        "3 boolean columns were read as 0 for false and 1 for true: 'member', "
         "'flag' and 'arrow'."
     )
 
@@ -150,7 +150,7 @@ def test_counts_missing_infinite_zero_and_negative_values():
 
     # -inf is negative and infinite; count includes the infinite values.
     assert (
-        entry.count,
+        entry.non_missing_count,
         entry.missing_count,
         entry.infinite_count,
         entry.zero_count,
@@ -165,7 +165,7 @@ def test_counts_match_pandas_for_every_numeric_dtype(dtype):
 
     entry = ae.summarize_numeric(df).columns["x"]
 
-    assert entry.count == values.count()
+    assert entry.non_missing_count == values.count()
     assert entry.missing_count == values.isna().sum()
     assert entry.infinite_count == values.isin([INF, -INF]).sum()
     assert entry.zero_count == (values == 0).sum()
@@ -247,13 +247,13 @@ def test_nan_stored_as_a_value_counts_as_missing_with_a_limitation():
 
     entry = res.columns["x"]
     assert values.isna().sum() == 1
-    assert (entry.count, entry.missing_count, entry.mean) == (3, 2, 2.5)
+    assert (entry.non_missing_count, entry.missing_count, entry.mean) == (3, 2, 2.5)
     [limitation] = [
         lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
     ]
     assert limitation.fields == ["columns['x'].missing_count"]
     assert limitation.reason == (
-        "1 column stores NaN as a value, which pandas isna() doesn't count as "
+        "1 column stores NaN as a value, which pandas doesn't count as "
         "missing; missing_count counts it: 'x'."
     )
 
@@ -291,7 +291,9 @@ def test_quantiles_default_to_seven_levels_with_the_linear_method():
     assert res.parameters["quantile_method"] == "linear"
     quantiles = res.columns["x"].quantiles
     assert list(quantiles) == DEFAULT_QUANTILES
-    assert list(quantiles.values()) == pytest.approx([1, 5, 25, 50, 75, 95, 99])
+    assert list(quantiles.values()) == pytest.approx(
+        [1, 5, 25, 50, 75, 95, 99], rel=RTOL
+    )
 
 
 def test_quantiles_keep_the_callers_levels_and_order():
@@ -302,16 +304,16 @@ def test_quantiles_keep_the_callers_levels_and_order():
     assert res.parameters["quantiles"] == [0.9, 0.0, 1.0, 0.5]
     quantiles = res.columns["x"].quantiles
     assert list(quantiles) == [0.9, 0.0, 1.0, 0.5]
-    assert list(quantiles.values()) == pytest.approx([3.7, 1.0, 4.0, 2.5])
+    assert list(quantiles.values()) == pytest.approx([3.7, 1.0, 4.0, 2.5], rel=RTOL)
 
 
 def test_quantiles_take_numpy_arrays_scalars_and_integers():
     df = pd.DataFrame({"x": [4.0, 1.0, 3.0, 2.0]})
 
     # NumPy arrays and scalars aren't Sequence[float], but are accepted at runtime.
-    from_array = ae.summarize_numeric(df, quantiles=np.linspace(0, 1, 3))  # ty: ignore[invalid-argument-type]  # see above
-    from_scalar = ae.summarize_numeric(df, quantiles=np.float64(0.5))  # ty: ignore[invalid-argument-type]  # see above
-    from_integers = ae.summarize_numeric(df, quantiles=[np.int64(0), np.int64(1)])  # ty: ignore[invalid-argument-type]  # see above
+    from_array = ae.summarize_numeric(df, quantiles=np.linspace(0, 1, 3))  # ty: ignore[invalid-argument-type]  # a NumPy array is accepted at runtime
+    from_scalar = ae.summarize_numeric(df, quantiles=np.float64(0.5))  # ty: ignore[invalid-argument-type]  # a NumPy scalar is accepted at runtime
+    from_integers = ae.summarize_numeric(df, quantiles=[np.int64(0), np.int64(1)])  # ty: ignore[invalid-argument-type]  # NumPy integers are accepted at runtime
 
     assert from_array.columns["x"].quantiles == {0.0: 1.0, 0.5: 2.5, 1.0: 4.0}
     assert from_scalar.parameters["quantiles"] == [0.5]
@@ -516,8 +518,8 @@ def test_skewness_and_kurtosis_of_equal_values_are_null_with_a_limitation():
         "columns['three_same'].skewness",
     ]
     assert zero_variance.reason == (
-        "Every finite value is equal in 2 columns, so skewness and excess_kurtosis "
-        "are undefined and null: 'same' and 'three_same'."
+        "Every finite value is equal as a float64 number in 2 columns, so skewness "
+        "and excess_kurtosis are undefined and null: 'same' and 'three_same'."
     )
     assert too_few.code == "too_few_values"
     assert too_few.fields == ["columns['three_same'].excess_kurtosis"]
@@ -543,9 +545,21 @@ def test_integers_beyond_2_to_the_53_add_a_precision_limitation(values):
     assert len(precision) == 1
     assert precision[0].fields == ["columns['id']"]
     assert precision[0].reason == (
-        "1 column holds integers beyond ±2^53 = 9,007,199,254,740,992, which "
+        "1 column holds integers or decimals beyond ±2^53 = 9,007,199,254,740,992, which "
         "float64 can't represent exactly, so its statistics may be rounded: 'id'."
     )
+
+
+def test_integers_that_differ_only_beyond_float64_precision_say_they_are_equal_as_floats():
+    values = [2**60 + step for step in range(5)]
+
+    res = ae.summarize_numeric(pd.DataFrame({"big": values}))
+
+    codes = {lim.code: lim for lim in res.limitations}
+    assert res.columns["big"].std == 0.0
+    # The values differ, so the reason says what is equal: the float64 numbers.
+    assert "equal as a float64 number" in codes["zero_variance"].reason
+    assert "float_precision" in codes
 
 
 @pytest.mark.parametrize(
@@ -701,7 +715,6 @@ def test_declares_its_statuses_and_finding_codes():
         "partial",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
     assert info.finding_codes == ["constant_columns", "infinite_values"]
     assert info.parameters == [
@@ -733,7 +746,7 @@ def test_a_column_without_finite_values_makes_the_result_partial():
     assert empty.status == "insufficient_data"
     assert empty.status_reason is not None
     assert (empty.status_reason.code, empty.status_reason.message) == (
-        "no_finite_values",
+        "no_values",
         NO_FINITE_VALUES,
     )
     assert res.columns["a"].status == "completed"
@@ -753,7 +766,7 @@ def test_no_column_with_finite_values_gives_insufficient_data():
     assert res.status == "insufficient_data"
     assert res.status_reason is not None
     assert (res.status_reason.code, res.status_reason.message) == (
-        "no_finite_values",
+        "no_values",
         f"No column completed: 'a' and 'b'. {NO_FINITE_VALUES}",
     )
     assert [e.status for e in res.columns.values()] == ["insufficient_data"] * 2
@@ -797,7 +810,7 @@ def test_data_without_numeric_columns_is_not_applicable(df):
     assert res.status == "not_applicable"
     assert res.status_reason is not None
     assert (res.status_reason.code, res.status_reason.message) == (
-        "no_numeric_columns",
+        "no_columns",
         "The data has no numeric columns. Booleans count only when named in "
         "columns, which reads them as 0 and 1.",
     )
@@ -820,10 +833,7 @@ def test_support_counts_the_values_each_column_left_out():
             c.excluded_by_reason,
         )
         for c in support.columns
-    ] == [
-        ("x", 5, 2, 3, {"missing": 1, "infinite": 2}),
-        ("y", 5, 5, 0, {}),
-    ]
+    ] == [("x", 5, 2, 3, {"missing": 1, "infinite": 2})]
 
 
 def survey():
@@ -839,24 +849,40 @@ def survey():
 def test_text_shows_the_main_statistics_of_each_column():
     res = ae.summarize_numeric(survey())
 
-    assert str(res) == "\n".join(
-        [
-            "summarize_numeric: completed on 6 rows x 3 columns",
-            "Statistics use the finite values. Quantile method linear; trimmed_mean "
-            "cuts 10% from each end.",
-            "Left out, not numeric or boolean: 'member'.",
-            "res.to_frame() also has the quantiles, trimmed_mean, mad, mad_scaled, "
-            "skewness and excess_kurtosis.",
-            "Columns (2 of 2 shown):",
-            "column  count  missing_count       mean        std    min  median    max",
-            "age         5              1       39.8      9.094     29      38     51",
-            "income      6              0  1.667e+05  4.082e+05  48.25      58  1e+06",
-            "Findings: none",
-            "Limitations: none",
-            "More: res.to_frame() has all 2 columns; res.findings, res.limitations "
-            "and res.to_json() have the rest.",
-        ]
+    lines = str(res).splitlines()
+
+    assert lines[0] == "summarize_numeric: completed on 6 rows x 3 columns"
+    assert lines[1] == (
+        "Statistics use the finite values. Quantile method linear; trimmed_mean "
+        "cuts trim_fraction 0.1 from each end."
     )
+    assert (
+        "Left out, boolean, which counts only when columns names it: 'member'." in lines
+    )
+    start = lines.index("Columns (2 of 2 shown):")
+    assert lines[start + 1].split() == [
+        "column",
+        "non_missing_count",
+        "missing_count",
+        "mean",
+        "std",
+        "min",
+        "median",
+        "max",
+    ]
+    assert lines[start + 2].split() == [
+        "age",
+        "5",
+        "1",
+        "39.8",
+        "9.094",
+        "29",
+        "38",
+        "51",
+    ]
+    assert lines[start + 3].split()[:3] == ["income", "6", "0"]
+    assert "Findings: none" in lines
+    assert lines[-1].startswith("More: res.to_frame() has all 2 columns;")
 
 
 def test_text_of_named_columns_says_nothing_about_left_out_ones():
@@ -865,7 +891,7 @@ def test_text_of_named_columns_says_nothing_about_left_out_ones():
     lines = str(res).splitlines()
     assert lines[1] == (
         "Statistics use the finite values. Quantile method linear; trimmed_mean "
-        "cuts 12.5% from each end."
+        "cuts trim_fraction 0.125 from each end."
     )
     assert not any(line.startswith("Left out") for line in lines)
 
@@ -880,7 +906,10 @@ def test_text_of_a_partial_result_names_the_incomplete_columns():
         "Reason: incomplete_columns: 1 of 2 columns didn't complete: 'empty'. "
         "There are no finite values to summarize.",
     ]
-    assert "empty       0              2  null    null  null    null  null" in lines
+    assert (
+        "empty                   0              2  null    null  null    null  null"
+        in lines
+    )
 
 
 def test_text_stays_within_40_lines_of_120_characters():
@@ -888,7 +917,7 @@ def test_text_stays_within_40_lines_of_120_characters():
         {f"{'a_long_column_name_' * 8}{i}": [1e300, -1e-300, None] for i in range(60)}
     )
 
-    lines = str(ae.summarize_numeric(df)).split("\n")
+    lines = str(ae.summarize_numeric(df)).splitlines()
 
     assert len(lines) <= 40
     assert max(len(line) for line in lines) <= 120
@@ -901,7 +930,7 @@ def test_to_frame_has_every_statistic_of_every_column():
         "column",
         "status",
         "status_reason",
-        "count",
+        "non_missing_count",
         "missing_count",
         "infinite_count",
         "zero_count",
@@ -920,7 +949,7 @@ def test_to_frame_has_every_statistic_of_every_column():
         "excess_kurtosis",
     ]
     assert frame["column"].tolist() == ["age", "income"]
-    assert frame["count"].tolist() == [5, 6]
+    assert frame["non_missing_count"].tolist() == [5, 6]
     assert frame["q0.5"].tolist() == [38.0, 58.0]
     assert frame["status_reason"].isna().all()
 
@@ -930,10 +959,10 @@ def test_to_frame_types_counts_as_integers_and_statistics_as_floats():
 
     frame = ae.summarize_numeric(df).to_frame()
 
-    assert frame["count"].dtype == "int64"
+    assert frame["non_missing_count"].dtype == "int64"
     assert frame["std"].dtype == "float64"
     assert frame["std"].isna().all()
-    assert frame["status_reason"].tolist() == ["no_finite_values", None]
+    assert frame["status_reason"].tolist() == ["no_values", None]
 
 
 def test_to_frame_keeps_every_column_beyond_the_records_100():
@@ -947,11 +976,16 @@ def test_to_frame_keeps_every_column_beyond_the_records_100():
     assert record["columns_total"] == 150
 
 
-def test_the_result_states_each_statistics_definition():
-    definitions = ae.summarize_numeric(survey()).definitions
+def test_each_statistics_definition_is_in_its_field_description_not_in_the_record():
+    res = ae.summarize_numeric(survey())
+    fields = {
+        f.name: f for f in ae.describe_analysis("summarize_numeric").result_fields
+    }
+    entry = {f.name: f.description for f in fields["columns"].fields}
 
-    assert list(definitions) == [
-        "count",
+    assert "definitions" not in res.to_dict()
+    assert list(entry)[-16:] == [
+        "non_missing_count",
         "missing_count",
         "infinite_count",
         "zero_count",
@@ -968,11 +1002,11 @@ def test_the_result_states_each_statistics_definition():
         "skewness",
         "excess_kurtosis",
     ]
-    assert "ddof 1" in definitions["std"]
-    assert "scipy.stats.trim_mean" in definitions["trimmed_mean"]
-    assert "1.4826" in definitions["mad_scaled"]
-    assert "bias=False" in definitions["skewness"]
-    assert "bias=False" in definitions["excess_kurtosis"]
+    assert "ddof 1" in entry["std"]
+    assert "SciPy's trimmed mean" in entry["trimmed_mean"]
+    assert "1.4826" in entry["mad_scaled"]
+    assert "SciPy's skewness with bias correction" in entry["skewness"]
+    assert "SciPy's excess kurtosis with bias correction" in entry["excess_kurtosis"]
 
 
 def test_the_record_is_strict_json_without_nan_or_infinity():

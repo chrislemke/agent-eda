@@ -16,9 +16,16 @@ SECTIONS = ("When to use:", "Args:", "Returns:", "Statuses:", "Examples:", "See 
 # An entry of Args:, Statuses: or See Also:, such as "columns (Sequence[str]): ...",
 # whose text continues on the more deeply indented lines below it.
 _ENTRY = re.compile(r"(?P<name>[A-Za-z_]\w*)(?: \([^)]*\))?:(?: (?P<text>.*))?")
+# The end of a Statuses: entry that names the status reason codes it returns,
+# such as "Reason codes: `no_rows`, `no_values`."
+_REASON_CODES = re.compile(
+    r"\s*Reason codes?: (?P<codes>(?:`[a-z]\w*`(?:, | and |, and )?)+)\.$"
+)
+_CODE = re.compile(r"`([a-z]\w*)`")
 # A bullet that defines a code, such as "- `constant_columns`: a column holds",
-# whose text continues on the lines below it indented by two spaces.
-_BULLET = re.compile(r"- `(?P<code>[a-z]\w*)`: (?P<text>.*)")
+# whose text continues on the lines below it indented by two spaces. Any text
+# between the backticks reads as a code, so registration can reject a malformed one.
+_BULLET = re.compile(r"- `(?P<code>[^`]+)`: (?P<text>.*)")
 
 
 @dataclass(frozen=True)
@@ -31,8 +38,12 @@ class Docstring:
     when_to_use: str
     # Each parameter's description from Args:, as one paragraph.
     args: dict[str, str]
-    # Why the analysis returns each status, from Statuses:.
+    # Why the analysis returns each status, from Statuses:, without the reason
+    # codes that end an entry.
     statuses: dict[str, str]
+    # The status reason codes each status returns, from the "Reason codes:"
+    # sentence that ends its Statuses: entry; empty when it names none.
+    status_codes: dict[str, tuple[str, ...]]
     # The meaning of each code defined in Returns: by a bullet such as
     # "- `constant_columns`: a column holds ...", finding codes among them.
     codes: dict[str, str]
@@ -48,13 +59,20 @@ def parse(doc: str) -> Docstring:
     """Read a docstring cleaned by inspect.getdoc; missing sections read empty."""
     lines = doc.splitlines()
     sections = _sections(lines)
+    statuses: dict[str, str] = {}
+    status_codes: dict[str, tuple[str, ...]] = {}
+    for status, text in _entries(sections.get("Statuses:", [])).items():
+        named = _REASON_CODES.search(text)
+        statuses[status] = text[: named.start()] if named else text
+        status_codes[status] = tuple(_CODE.findall(named["codes"])) if named else ()
     return Docstring(
         summary=lines[0].strip() if lines else "",
         when_to_use=_paragraph(
             [line.strip() for line in sections.get("When to use:", [])]
         ),
         args=_entries(sections.get("Args:", [])),
-        statuses=_entries(sections.get("Statuses:", [])),
+        statuses=statuses,
+        status_codes=status_codes,
         codes=_bullets(sections.get("Returns:", [])),
         returns="\n".join(sections.get("Returns:", [])),
         examples="\n".join(sections.get("Examples:", [])),

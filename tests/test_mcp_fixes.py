@@ -5,31 +5,25 @@ differs: an MCP caller passes JSON arguments and files, so its message points to
 them, and a Python caller's message keeps the Python fix.
 """
 
-import re
-import warnings
-
 import pytest
 
 pytest.importorskip(
     "mcp",
-    reason="the MCP server tests need the mcp extra: pip install 'agent-eda[mcp]'",
+    reason=(
+        "the MCP server tests need the mcp extra: run `uv sync` (uv 0.13 or later) or "
+        "uv run --extra mcp pytest in this repository, or "
+        "pip install 'agent-eda[mcp]' for an installed package"
+    ),
 )
 
 import anyio
 import pandas as pd
-from mcp import Client
+from mcp_helpers import call, call_in_python, read_parquet
+from python_syntax import python_in
 
-import agent_eda as ae
 from agent_eda.errors import AgentEDAError
-from agent_eda.mcp import create_server
 
 CSV = "order,city,score\nA1,Oslo,1.5\nA2,Lyon,2.5\nA3,Oslo,\nA4,Oslo,4.0\n"
-
-# What only a Python caller can do: call ae or help, build a value with keyword
-# syntax such as task='regression', or work on the DataFrame.
-PYTHON_FIX = re.compile(
-    r"\bae\.|\bhelp\(|\b\w+=(None|True|False|'|\{|\[)|\bdf\b|\bpd\.|\.astype\("
-)
 
 # Each mistake: the MCP tool, its arguments besides data_path and project_path,
 # and each fix the Python message gives with the MCP fix that takes its place.
@@ -114,7 +108,7 @@ MISTAKES = {
         {"target_column": "city", "task": "regression"},
         {
             "pass task='binary_classification' or task='multiclass_classification'; "
-            "if they are numbers stored as text, convert them with "
+            "or convert numbers stored as text with "
             "pd.to_numeric(df['city'], errors='coerce').": (
                 'pass {"task": "binary_classification"} or '
                 '{"task": "multiclass_classification"}.'
@@ -125,8 +119,8 @@ MISTAKES = {
         "profile_target",
         {"target_column": "joined", "task": "regression"},
         {
-            "Convert datetimes to numbers first, such as the seconds since the "
-            "earliest: (df['joined'] - df['joined'].min()).dt.total_seconds().": (
+            "Convert datetimes to numbers with "
+            "(df['joined'] - df['joined'].min()).dt.total_seconds().": (
                 "Pass a column of numbers instead."
             ),
         },
@@ -135,7 +129,8 @@ MISTAKES = {
         "profile_target",
         {"target_column": "joined", "task": "binary_classification"},
         {
-            "Convert its values to labels first, such as df['joined'].astype(str).": (
+            "Convert datetimes to labels with df['joined'].astype(str), or to months "
+            "with df['joined'].dt.strftime('%Y-%m').": (
                 "Pass a column of labels instead."
             ),
         },
@@ -263,7 +258,7 @@ def test_a_mistake_over_mcp_gives_the_python_message_with_an_mcp_fix(tmp_path, m
     arguments = {"data_path": str(path), **arguments}
     project_path = tmp_path / "project.toml"
     if mistake in PROJECT_FILES:
-        project_path.write_text(PROJECT_FILES[mistake])
+        project_path.write_text(PROJECT_FILES[mistake], encoding="utf-8")
         arguments["project_path"] = str(project_path)
     with pytest.raises(AgentEDAError) as raised:
         call_in_python(name, data, arguments)
@@ -272,6 +267,14 @@ def test_a_mistake_over_mcp_gives_the_python_message_with_an_mcp_fix(tmp_path, m
     for python_fix, mcp_fix in fixes.items():
         assert python_fix in expected
         expected = expected.replace(python_fix, mcp_fix)
+    # A key of a mapping is written as a JSON pointer, schema/score.
+    expected = expected.replace("schema['score']", "schema/score")
+    shown = f"'{project_path}'"
+    if shown in expected:
+        # The MCP server reads the file project_path leads to, not Project.load.
+        expected = expected.replace("Project.load", "The MCP server").replace(
+            shown, f"the project_path file {shown}"
+        )
 
     response = anyio.run(call, name, arguments)
 
@@ -280,16 +283,7 @@ def test_a_mistake_over_mcp_gives_the_python_message_with_an_mcp_fix(tmp_path, m
     assert [block.text for block in response.content] == [
         response.structured_content["message"]
     ]
-    assert PYTHON_FIX.findall(response.structured_content["message"]) == []
-
-
-def call_in_python(name, data, arguments):
-    """Make the Python call that matches the MCP call: the data read from
-    data_path, and the project loaded from project_path."""
-    options = {k: v for k, v in arguments.items() if not k.endswith("_path")}
-    if "project_path" in arguments:
-        options["project"] = ae.Project.load(arguments["project_path"])
-    return getattr(ae, name)(data, **options)
+    assert python_in(response.structured_content["message"]) == []
 
 
 def data_file(tmp_path, frame):
@@ -297,20 +291,14 @@ def data_file(tmp_path, frame):
     server reads from it."""
     if frame is None:
         path = tmp_path / "shop.csv"
-        path.write_text(CSV)
-        return path, pd.read_csv(path, keep_default_na=False, na_values=[""])
+        path.write_text(CSV, encoding="utf-8")
+        return path, pd.DataFrame(
+            {
+                "order": ["A1", "A2", "A3", "A4"],
+                "city": ["Oslo", "Lyon", "Oslo", "Oslo"],
+                "score": [1.5, 2.5, None, 4.0],
+            }
+        )
     path = tmp_path / "shop.parquet"
     frame.to_parquet(path)
-    with warnings.catch_warnings():
-        # pandas 2.2 deprecates the internals pyarrow 14 builds DataFrames from.
-        warnings.filterwarnings(
-            "ignore",
-            message="Passing a BlockManager to DataFrame is deprecated",
-            category=DeprecationWarning,
-        )
-        return path, pd.read_parquet(path)
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
+    return path, read_parquet(path)

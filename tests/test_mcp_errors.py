@@ -11,7 +11,11 @@ import pytest
 
 pytest.importorskip(
     "mcp",
-    reason="the MCP server tests need the mcp extra: pip install 'agent-eda[mcp]'",
+    reason=(
+        "the MCP server tests need the mcp extra: run `uv sync` (uv 0.13 or later) or "
+        "uv run --extra mcp pytest in this repository, or "
+        "pip install 'agent-eda[mcp]' for an installed package"
+    ),
 )
 
 import anyio
@@ -19,6 +23,8 @@ import jsonschema
 import pandas as pd
 from mcp import Client, MCPError
 from mcp.types import INTERNAL_ERROR
+from mcp_helpers import call, reference_read
+from serving import serving
 
 import agent_eda as ae
 from agent_eda.errors import AgentEDAError
@@ -93,10 +99,13 @@ def test_an_argument_against_the_schema_gets_the_python_message_with_an_mcp_fix(
     assert response.is_error
     assert response.structured_content == {
         "code": "invalid_argument",
-        "message": str(raised.value).replace(
+        "message": str(raised.value)
+        .replace(
             "See help(ae.summarize_numeric) for every argument.",
             "The MCP tool's input schema describes every argument.",
-        ),
+        )
+        # A position in a list is written as a JSON pointer, quantiles/0.
+        .replace("quantiles[0]", "quantiles/0"),
     }
     assert f" {name}" in response.structured_content["message"]
 
@@ -168,7 +177,7 @@ def test_a_data_path_that_is_not_a_string_is_an_invalid_argument():
 
 def test_a_run_that_does_not_complete_is_a_normal_result_with_its_status(tmp_path):
     path = tmp_path / "empty.csv"
-    path.write_text("city,score\n")  # a header and no rows
+    path.write_text("city,score\n", encoding="utf-8")  # a header and no rows
     expected = ae.summarize_numeric(read(path))
 
     response = anyio.run(call, "summarize_numeric", {"data_path": str(path)})
@@ -186,7 +195,7 @@ def test_a_bug_in_an_analysis_is_a_json_rpc_internal_error(tmp_path, caplog):
     path = shop_csv(tmp_path)
 
     async def scenario():
-        async with Client(create_server(analyses=[count_rows]), mode="legacy") as c:
+        async with Client(serving(count_rows), mode="legacy") as c:
             # Caught here, since leaving the client wraps it in an
             # ExceptionGroup.
             with pytest.raises(MCPError) as raised:
@@ -218,17 +227,21 @@ def count_rows(data: pd.DataFrame) -> AnalysisResult:
 
 def shop_csv(tmp_path):
     path = tmp_path / "shop.csv"
-    path.write_text(CSV)
+    path.write_text(CSV, encoding="utf-8")
     return path
 
 
 def read(path):
-    """The DataFrame as the server reads the file: only an empty field is missing."""
-    return pd.read_csv(path, keep_default_na=False, na_values=[""])
-
-
-async def call(name, arguments):
-    # The SDK client validates a result's structured content against the MCP
-    # tool's output schema unless isError is true.
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
+    """The DataFrame the server reads from the file, built by hand."""
+    return reference_read(
+        path,
+        {
+            CSV: pd.DataFrame(
+                {"city": ["Oslo", "Lyon", "Oslo"], "score": [1.5, 2.5, 4.0]}
+            ),
+            # A header and no rows: every column is object.
+            "city,score\n": pd.DataFrame(
+                {"city": pd.Series(dtype=object), "score": pd.Series(dtype=object)}
+            ),
+        },
+    )

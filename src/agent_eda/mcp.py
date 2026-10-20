@@ -36,17 +36,18 @@ agent-eda-mcp prints its install commands.
 
 import argparse
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 
-from agent_eda._mcp_instructions import GUARDRAIL, PRECEDENCE
+from agent_eda._mcp.instructions import GUARDRAIL, PRECEDENCE
 from agent_eda.errors import AgentEDAError, MissingDependencyError
 from agent_eda.project import Project
 
 if TYPE_CHECKING:
     from mcp.server import Server
 
-    from agent_eda.results import AnalysisResult
+    from agent_eda._result_base import AnalysisResult
 
 __all__ = ["create_server", "main"]
 
@@ -56,7 +57,6 @@ _EXTRA_MODULES = ("mcp", "mcp_types", "anyio")
 
 def create_server(
     *,
-    analyses: "Sequence[Callable[..., AnalysisResult]] | None" = None,
     project: Project | None = None,
 ) -> "Server":
     """Build the MCP server, ready to run over any MCP transport.
@@ -73,18 +73,6 @@ def create_server(
     order. describe_analysis and guide are not MCP tools.
 
     Args:
-        analyses: A test seam, not a way to serve a subset: leave it None,
-            the default, which serves every analysis that ae.list_analyses()
-            lists, as agent-eda-mcp does. Tests pass the analysis functions to
-            serve, such as [ae.summarize_numeric] or a stand-in the test
-            defines. An unregistered function is read the way the registry
-            reads an analysis (data first, options by keyword, a docstring
-            and an AnalysisResult subclass as the return type) and is called
-            as it is, without the registry's checks. The discovery MCP tools
-            and the instructions still cover every registered analysis, so
-            they name MCP tools a server built with a subset doesn't have.
-            Serving a subset or an unregistered function is unsupported
-            outside tests.
         project: The MCP server's Project, such as
             ae.Project.load('project.toml'), which agent-eda-mcp --project
             loads. Every call of an MCP tool that has project_path uses it. A
@@ -107,10 +95,41 @@ def create_server(
             parameter whose type has no JSON Schema. The message names the
             analysis and the parameter.
     """
+    return _create_server(project=project)
+
+
+def _create_server(
+    *,
+    analyses: "Sequence[Callable[..., AnalysisResult]] | None" = None,
+    project: Project | None = None,
+) -> "Server":
+    """create_server, with the test hook that serves other analyses.
+
+    `analyses` are the analysis functions to serve in place of every registered
+    one, such as [ae.summarize_numeric] or a stand-in a test defines. An
+    unregistered function is read the way the registry reads an analysis (data
+    first, options by keyword, a docstring and an AnalysisResult subclass as the
+    return type) and is called as it is, without the registry's checks. The
+    discovery MCP tools and the instructions still cover every registered
+    analysis. Only tests use it.
+    """
     _require_extra()
-    from agent_eda._mcp_server import create_server as create
+    from agent_eda._mcp.server import create_server as create
 
     return create(analyses, project)
+
+
+def _stand_ins(
+    analyses: "Iterable[Callable[..., AnalysisResult]]",
+) -> "AbstractContextManager[None]":
+    """The test hook that lists stand-in analyses as registered while it runs.
+
+    The guide and the instructions read the registry, so a test enters it to
+    see them with many more analyses. Only tests use it.
+    """
+    from agent_eda._registry import listed_as_registered
+
+    return listed_as_registered(analyses)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -134,7 +153,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     except AgentEDAError as error:
         print(error, file=sys.stderr)
         raise SystemExit(1) from None
-    from agent_eda._mcp_server import run_stdio
+    from agent_eda._mcp.server import run_stdio
 
     run_stdio(server)
 
@@ -161,7 +180,7 @@ def _parser() -> argparse.ArgumentParser:
 def _require_extra() -> None:
     """Import the MCP server's implementation, which needs the mcp extra."""
     try:
-        import agent_eda._mcp_server  # noqa: F401  # imported for the check
+        import agent_eda._mcp.server  # noqa: F401  # imported for the check
     except ImportError as error:
         if (error.name or "").split(".")[0] not in _EXTRA_MODULES:
             raise

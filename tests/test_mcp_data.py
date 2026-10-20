@@ -12,13 +12,18 @@ import pytest
 
 pytest.importorskip(
     "mcp",
-    reason="the MCP server tests need the mcp extra: pip install 'agent-eda[mcp]'",
+    reason=(
+        "the MCP server tests need the mcp extra: run `uv sync` (uv 0.13 or later) or "
+        "uv run --extra mcp pytest in this repository, or "
+        "pip install 'agent-eda[mcp]' for an installed package"
+    ),
 )
 
 import anyio
 import pandas as pd
 from mcp import Client
 from mcp.types import TextContent
+from mcp_helpers import call, write_frame
 
 import agent_eda as ae
 from agent_eda.errors import (
@@ -56,7 +61,7 @@ ORDERS = pd.DataFrame(
 )
 def test_each_supported_format_reaches_the_analysis_unchanged(tmp_path, file_name):
     path = tmp_path / file_name
-    write(ORDERS, path)
+    write_frame(ORDERS, path)
 
     response = anyio.run(call, "describe_dataset", {"data_path": str(path)})
 
@@ -89,7 +94,9 @@ def test_parquet_keeps_nullable_and_pyarrow_backed_dtypes(tmp_path):
 
 def test_only_an_empty_field_is_missing_so_stand_ins_reach_the_analysis(tmp_path):
     path = tmp_path / "survey.csv"
-    path.write_text("answer,age\nNA,31\nN/A,-999\nNULL,40\n,52\nyes,\n")
+    path.write_text(
+        "answer,age\nNA,31\nN/A,-999\nNULL,40\n,52\nyes,\n", encoding="utf-8"
+    )
 
     response = anyio.run(call, "detect_missing_sentinels", {"data_path": str(path)})
 
@@ -110,9 +117,38 @@ def test_only_an_empty_field_is_missing_so_stand_ins_reach_the_analysis(tmp_path
     ]
 
 
+def test_a_csv_column_holding_n_a_and_a_numeric_code_suggests_both(tmp_path):
+    # The column is read as text because of "N/A", so -999 is the text "-999".
+    path = tmp_path / "ages.csv"
+    path.write_text("age\n34\nN/A\n-999\n-999\n51\n29\n", encoding="utf-8")
+
+    response = anyio.run(call, "detect_missing_sentinels", {"data_path": str(path)})
+
+    found = [
+        (c["value"], c["evidence"], c["row_ids"])
+        for c in response.structured_content["candidates"]
+    ]
+    assert found == [
+        ("-999", ["builtin_list", "isolated_extreme"], [2, 3]),
+        ("N/A", ["builtin_list"], [1]),
+    ]
+    # The suggested value can be declared as it is shown.
+    declared = anyio.run(
+        call,
+        "detect_missing_sentinels",
+        {"data_path": str(path), "sentinel_values": {"age": ["-999", "N/A"]}},
+    )
+    assert [c["confirmation"] for c in declared.structured_content["candidates"]] == [
+        "declared",
+        "declared",
+    ]
+
+
 def test_row_ids_of_a_csv_are_0_based_data_row_numbers(tmp_path):
     path = tmp_path / "orders.csv"
-    path.write_text("order,city\nA1,Oslo\nA2,Lyon\nA3,Oslo\nA4,Oslo\n")
+    path.write_text(
+        "order,city\nA1,Oslo\nA2,Lyon\nA3,Oslo\nA4,Oslo\n", encoding="utf-8"
+    )
 
     response = anyio.run(
         call, "find_duplicate_rows", {"data_path": str(path), "columns": ["city"]}
@@ -140,7 +176,9 @@ def test_row_ids_of_a_parquet_file_follow_the_index_stored_in_it(tmp_path):
 
 def test_id_column_replaces_the_row_numbers_of_a_csv(tmp_path):
     path = tmp_path / "orders.csv"
-    path.write_text("order,city\nA1,Oslo\nA2,Lyon\nA3,Oslo\nA4,Oslo\n")
+    path.write_text(
+        "order,city\nA1,Oslo\nA2,Lyon\nA3,Oslo\nA4,Oslo\n", encoding="utf-8"
+    )
 
     response = anyio.run(
         call,
@@ -152,9 +190,11 @@ def test_id_column_replaces_the_row_numbers_of_a_csv(tmp_path):
     assert [group["row_ids"] for group in groups] == [["A1", "A3", "A4"]]
 
 
-def test_a_relative_path_starts_at_the_server_working_directory(tmp_path, monkeypatch):
+def test_a_relative_path_starts_at_the_mcp_server_working_directory(
+    tmp_path, monkeypatch
+):
     (tmp_path / "data").mkdir()
-    write(ORDERS, tmp_path / "data" / "orders.csv")
+    write_frame(ORDERS, tmp_path / "data" / "orders.csv")
     monkeypatch.chdir(tmp_path)
 
     response = anyio.run(call, "describe_dataset", {"data_path": "data/orders.csv"})
@@ -174,18 +214,18 @@ def test_data_file_errors_are_invalid_arguments_and_a_missing_file_is_not_found(
 @pytest.mark.parametrize("file_name", ["orders.xlsx", "orders.json.gz", "orders"])
 def test_an_unknown_extension_lists_the_supported_ones(tmp_path, file_name):
     path = tmp_path / file_name
-    path.write_text("order_id\n1\n")
+    path.write_text("order_id\n1\n", encoding="utf-8")
 
     error = anyio.run(data_error, {"data_path": str(path)})
 
     assert error.code == "unsupported_data_format"
     assert ".csv, .tsv, .csv.gz, .tsv.gz, .parquet and .pq" in error.message
-    assert error.message.startswith(f"data_path {str(path)!r} has ")
+    assert error.message.startswith(f"data_path '{path}' has ")
 
 
 def test_a_missing_file_names_the_path_tried_and_the_closest_files(tmp_path):
     for name in ["orders.csv", "orders_2024.csv", "notes.txt"]:
-        (tmp_path / name).write_text("order_id\n1\n")
+        (tmp_path / name).write_text("order_id\n1\n", encoding="utf-8")
     path = tmp_path / "order.csv"
 
     error = anyio.run(data_error, {"data_path": str(path)})
@@ -233,7 +273,7 @@ def test_a_path_that_looks_like_a_url_is_a_local_path(tmp_path, monkeypatch, dat
     error = anyio.run(data_error, {"data_path": data_path})
 
     assert error.code == "data_file_not_found"
-    assert f"There is no file at {tmp_path.resolve()}/" in error.message
+    assert f"There is no file at {tmp_path.resolve()}{os.sep}" in error.message
 
 
 @pytest.mark.parametrize(
@@ -241,7 +281,7 @@ def test_a_path_that_looks_like_a_url_is_a_local_path(tmp_path, monkeypatch, dat
     [
         ("latin1.csv", "city\nZürich\n".encode("latin-1"), "can't decode byte"),
         ("empty.csv", b"", "No columns to parse from file"),
-        ("ragged.tsv", b"a\tb\n1\t2\n3\t4\t5\t6\n", "Expected 2 fields in line 3"),
+        ("quoted.tsv", b'a\tb\n1\t"2\n', "EOF inside string"),
         ("plain.csv.gz", b"a,b\n1,2\n", "Not a gzipped file"),
         ("text.parquet", b"a,b\n1,2\n", "Parquet"),
     ],
@@ -261,7 +301,7 @@ def test_a_file_the_parser_cannot_read_quotes_the_parser(
 
 def test_a_second_call_on_the_same_file_does_not_read_it_again(tmp_path):
     path = tmp_path / "a.csv"
-    path.write_text("x\n1\n1\n")
+    path.write_text("x\n1\n1\n", encoding="utf-8", newline="\n")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
@@ -275,7 +315,7 @@ def test_a_second_call_on_the_same_file_does_not_read_it_again(tmp_path):
 
 def test_a_file_whose_modification_time_changed_is_read_again(tmp_path):
     path = tmp_path / "a.csv"
-    path.write_text("x\n1\n1\n")
+    path.write_text("x\n1\n1\n", encoding="utf-8", newline="\n")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
@@ -290,13 +330,13 @@ def test_a_file_whose_modification_time_changed_is_read_again(tmp_path):
 
 def test_a_file_whose_size_changed_is_read_again(tmp_path):
     path = tmp_path / "a.csv"
-    path.write_text("x\n1\n1\n")
+    path.write_text("x\n1\n1\n", encoding="utf-8", newline="\n")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
             first = await distinct_count(client, path)
             status = path.stat()
-            path.write_text("x\n1\n2\n3\n")
+            path.write_text("x\n1\n2\n3\n", encoding="utf-8", newline="\n")
             os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
             return first, await distinct_count(client, path)
 
@@ -306,7 +346,7 @@ def test_a_file_whose_size_changed_is_read_again(tmp_path):
 def test_a_third_file_evicts_the_least_recently_used_one(tmp_path):
     paths = {name: tmp_path / f"{name}.csv" for name in "abc"}
     for path in paths.values():
-        path.write_text("x\n1\n1\n")
+        path.write_text("x\n1\n1\n", encoding="utf-8", newline="\n")
 
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
@@ -328,27 +368,13 @@ async def distinct_count(client, path):
 
 
 def rewrite_unnoticed(path, text):
-    """Write text, of the file's size, and keep the modification time."""
+    """Write text, of the file's size, and keep the modification time. These
+    files end their lines with a line feed on every operating system, so that a
+    text's size is the file's size: Windows would write a carriage return too."""
     status = path.stat()
     assert len(text.encode()) == status.st_size
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8", newline="\n")
     os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
-
-
-def write(data, path):
-    """Write data to path in the format its extension names."""
-    name = path.name.lower()
-    if name.endswith((".parquet", ".pq")):
-        data.to_parquet(path)
-        return
-    sep = "\t" if ".tsv" in name else ","
-    compression = "gzip" if name.endswith(".gz") else None
-    data.to_csv(path, sep=sep, index=False, compression=compression)
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
 
 
 @dataclass(frozen=True)

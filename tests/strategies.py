@@ -13,6 +13,7 @@ LABEL_EDGE_FRAMES does the same for column labels that can't serve as names.
 Everything here works on pandas 2.2 and 3.x.
 """
 
+import copy
 import datetime as dt
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass
@@ -42,6 +43,19 @@ def _str_dtype() -> pd.StringDtype:
 
 STR = _str_dtype()
 
+
+def _python_str_dtype() -> pd.StringDtype:
+    """pandas 3's text dtype where pyarrow isn't installed: str stored as Python
+    objects, with NaN as missing. pandas 2.2 has no such dtype, and string[python]
+    is its closest twin."""
+    try:  # pandas 2.3 and later
+        return pd.StringDtype("python", na_value=np.nan)
+    except TypeError:  # pandas 2.2 has no na_value
+        return pd.StringDtype("python")
+
+
+PYTHON_STR = _python_str_dtype()
+
 # Text agents meet: empty and whitespace-only strings, case and space variants,
 # stand-ins for missing values, characters of 1, 2 and 4 bytes, and any other
 # short string. Each listed string is one object that columns and examples share.
@@ -68,6 +82,12 @@ DATETIMES = st.datetimes(dt.datetime(1900, 1, 1), dt.datetime(2200, 1, 1))
 DATES = st.dates(dt.date(1900, 1, 1), dt.date(2200, 1, 1))
 TIMEDELTAS = st.timedeltas(dt.timedelta(days=-1000), dt.timedelta(days=1000))
 DECIMALS = st.decimals(-(10**6), 10**6, places=2, allow_nan=False)
+PERIODS = st.integers(0, 1_200).map(
+    lambda months: pd.Period(year=1990 + months // 12, month=months % 12 + 1, freq="M")
+)
+INTERVALS = st.tuples(
+    st.floats(-1e6, 1e6, allow_nan=False), st.floats(0, 100, allow_nan=False)
+).map(lambda ends: pd.Interval(ends[0], ends[0] + ends[1]))
 
 
 def _series(dtype: str | type | ExtensionDtype) -> Callable[[list], pd.Series]:
@@ -94,6 +114,23 @@ def _arrow_floats(values: list) -> pd.Series:
 def _sparse(values: list) -> pd.Series:
     floats = np.array([NAN if v is None else v for v in values], dtype="float64")
     return pd.Series(pd.arrays.SparseArray(floats))
+
+
+def _sparse_objects(values: list) -> pd.Series:
+    return pd.Series(pd.arrays.SparseArray(np.array(values, dtype=object)))
+
+
+def _dictionary(
+    value_type: pa.DataType, indices: pa.DataType | None = None
+) -> Callable[[list], pd.Series]:
+    """An Arrow dictionary column, as Parquet read with dtype_backend="pyarrow"."""
+    dtype = pa.dictionary(indices or pa.int8(), value_type)
+
+    def build(values: list) -> pd.Series:
+        encoded = pa.array(values, type=value_type).dictionary_encode()
+        return pd.Series(pd.arrays.ArrowExtensionArray(encoded.cast(dtype)))
+
+    return build
 
 
 def _datetimes(values: list) -> pd.Series:
@@ -124,6 +161,7 @@ class Kind:
 
 _DAY = dt.datetime(2020, 1, 1)
 _OLD = dt.datetime(1900, 1, 1)
+_LATER = dt.datetime(2030, 6, 1)
 _TEXTS = ["a", None, "", "  "]
 _TIMES = [_DAY, None, _OLD, _DAY]
 
@@ -136,6 +174,9 @@ KINDS: dict[str, Kind] = {
     "Float64 with NaN as a value": Kind(FLOATS, _nan_as_value, [1.5, NAN, None, 1.5]),
     "double[pyarrow]": Kind(FLOATS, _arrow_floats, [1.5, NAN, None, INF]),
     "Sparse[float64]": Kind(FLOATS, _sparse, [0.0, None, 1.5, 0.0]),
+    "Sparse[object]": Kind(
+        TEXT | st.just(None), _sparse_objects, ["a", None, "a", "b"]
+    ),
     "int64": Kind(INTS, _series("int64"), [1, 3, -(2**63), 2**63 - 1], missing=False),
     "uint64": Kind(
         st.integers(0, 2**64 - 1),
@@ -157,9 +198,33 @@ KINDS: dict[str, Kind] = {
     # The dtype pandas infers for text: object on pandas 2, str on pandas 3.
     "inferred text": Kind(TEXT, pd.Series, ["a", None, " ", "a"]),
     "str": Kind(TEXT, _series(STR), _TEXTS),
+    "str (python storage)": Kind(TEXT, _series(PYTHON_STR), _TEXTS),
     "string": Kind(TEXT, _series("string"), _TEXTS),
     "string[pyarrow]": Kind(TEXT, _series("string[pyarrow]"), _TEXTS),
     "arrow string": Kind(TEXT, _arrow(pa.string()), _TEXTS),
+    # pandas' factorize reads '\x00' as the end of the text, so '' and '\x00a' are
+    # one value to it, but only in a column where every value is text.
+    "object text with NUL": Kind(
+        st.text(alphabet="ab\x00", max_size=3),
+        _series(object),
+        ["a\x00b", "", "\x00a", "a"],
+        missing=False,
+    ),
+    "object text with NUL and missing values": Kind(
+        st.text(alphabet="ab\x00", max_size=3) | st.just(NAN),
+        _series(object),
+        ["a\x00b", None, "", "\x00a"],
+    ),
+    # Integers, floats and lists in one column can't all be hashed, and
+    # infer_dtype calls such a column "mixed-integer" or "mixed".
+    "object of integers and lists": Kind(
+        st.integers(0, 2)
+        | st.lists(st.integers(0, 2), max_size=2)
+        | st.sampled_from([1.5, True, "x"])
+        | st.dictionaries(st.sampled_from("ab"), st.integers(0, 2), max_size=1),
+        _series(object),
+        [1, None, [2], 1.5],
+    ),
     "object of mixed types": Kind(
         TEXT
         | st.integers(-3, 3)
@@ -189,6 +254,32 @@ KINDS: dict[str, Kind] = {
         _categorical([1, 2, 3, 4], ordered=True),
         [3, None, 1, 3],
     ),
+    "category of booleans": Kind(
+        st.booleans(),
+        _categorical([False, True]),
+        [True, None, False, True],
+    ),
+    "category of datetimes": Kind(
+        st.sampled_from([_DAY, _OLD, _LATER]),
+        _categorical([_DAY, _OLD, _LATER, dt.datetime(2100, 1, 1)]),
+        _TIMES,
+    ),
+    # Text, integers, a float and a date in one set of categories.
+    "category of mixed values": Kind(
+        st.sampled_from(["a", 1, 2.5, dt.date(2020, 1, 1)]),
+        _categorical(["a", 1, 2.5, dt.date(2020, 1, 1), "unused"]),
+        ["a", None, 1, dt.date(2020, 1, 1)],
+    ),
+    "dictionary<string>[pyarrow]": Kind(
+        st.sampled_from(["a", "b", "N/A", " ", ""]),
+        _dictionary(pa.string()),
+        ["a", None, "N/A", "a"],
+    ),
+    "dictionary<int64>[pyarrow]": Kind(
+        st.sampled_from([1, 2, -999]),
+        _dictionary(pa.int64(), pa.int32()),
+        [1, None, -999, 1],
+    ),
     "datetime64[ns]": Kind(DATETIMES, _datetimes, _TIMES),
     # The unit pandas picks: ns on pandas 2, us on pandas 3, s when all missing.
     "inferred datetime": Kind(
@@ -208,6 +299,21 @@ KINDS: dict[str, Kind] = {
         _arrow(pa.date32()),
         [dt.date(2020, 1, 1), None, dt.date(1970, 1, 1), dt.date(2020, 1, 1)],
     ),
+    "period[M]": Kind(
+        PERIODS,
+        _series("period[M]"),
+        [
+            pd.Period("2020-01", "M"),
+            None,
+            pd.Period("1999-12", "M"),
+            pd.Period("2020-01", "M"),
+        ],
+    ),
+    "interval[float64]": Kind(
+        INTERVALS,
+        _series(pd.IntervalDtype("float64", "right")),
+        [pd.Interval(0.0, 1.5), None, pd.Interval(-2.0, 0.0), pd.Interval(0.0, 1.5)],
+    ),
     "timedelta64[ns]": Kind(
         TIMEDELTAS,
         _series("timedelta64[ns]"),
@@ -217,6 +323,16 @@ KINDS: dict[str, Kind] = {
         TIMEDELTAS,
         _arrow(pa.duration("us")),
         [dt.timedelta(days=1), None, dt.timedelta(0), dt.timedelta(days=1)],
+    ),
+    "time64[us][pyarrow]": Kind(
+        st.times(),
+        _arrow(pa.time64("us")),
+        [dt.time(12), None, dt.time(0), dt.time(12)],
+    ),
+    "binary[pyarrow]": Kind(
+        st.binary(max_size=3),
+        _arrow(pa.binary()),
+        [b"a", None, b"", b"a"],
     ),
     "decimal128[pyarrow]": Kind(
         DECIMALS,
@@ -268,8 +384,28 @@ def data_frames(draw: st.DrawFn, *, any_column_labels: bool = False) -> pd.DataF
         df.columns = draw(column_labels(column_count, any_column_labels))
     # Set afterwards: pd.DataFrame(columns, index=...) would align on the index.
     df.index = draw(indexes(row_count))
-    df.attrs = draw(st.sampled_from(ATTRS))
+    # A copy: examples share no dict or list.
+    df.attrs = copy.deepcopy(draw(st.sampled_from(ATTRS)))
     return df
+
+
+def nan_as_missing(frame: pd.DataFrame) -> pd.DataFrame:
+    """A copy of the frame in which a NaN that a float column stores as a value,
+    as `Float64 with NaN as a value` and double[pyarrow] can, is missing.
+
+    pandas' isna() and duplicated() tell such a NaN from a missing value, but
+    every analysis counts it as missing, so the reference values that tests
+    compute with pandas follow them.
+    """
+    frame = frame.copy()
+    for position in range(frame.shape[1]):
+        column = frame.iloc[:, position]
+        if pd.api.types.is_float_dtype(column.dtype) and not isinstance(
+            column.dtype, np.dtype
+        ):
+            is_nan = np.isnan(column.to_numpy(dtype="float64", na_value=0.0))
+            frame.isetitem(position, column.mask(is_nan))
+    return frame
 
 
 def _frame(columns: list[pd.Series], row_count: int) -> pd.DataFrame:
@@ -379,10 +515,14 @@ def _shared_strings() -> pd.DataFrame:
 
 def _every_kind(values: Callable[[Kind], list], copies: int = 1) -> pd.DataFrame:
     """A column of every kind, `copies` times; later copies get a number."""
+    # A copy of the values for each column: the sample lists and dicts of a kind
+    # are shared by every frame, so no column may hold them itself.
     return pd.DataFrame(
         {
-            f"{name} {copy}" if copy else name: kind.build(values(kind))
-            for copy in range(copies)
+            f"{name} {number}" if number else name: kind.build(
+                copy.deepcopy(values(kind))
+            )
+            for number in range(copies)
             for name, kind in KINDS.items()
         }
     )
@@ -397,6 +537,11 @@ EDGE_FRAMES: dict[str, Callable[[], pd.DataFrame]] = {
     "every kind": lambda: _every_kind(lambda kind: kind.sample),
     # More columns than a printed table shows (10) and a record keeps (100).
     "many columns": lambda: _every_kind(lambda kind: kind.sample, copies=4),
+    # More rows than a record keeps row IDs of (10): the first three samples
+    # again and again, so the same few rows repeat in groups of 13 or 14.
+    "many rows": lambda: _every_kind(
+        lambda kind: [kind.sample[i % 3] for i in range(40)]
+    ),
     "constant": lambda: _every_kind(lambda kind: [kind.sample[0]] * 3),
     "all missing": lambda: pd.DataFrame(
         {name: kind.build([None] * 3) for name, kind in KINDS.items() if kind.missing}
@@ -469,6 +614,10 @@ SECRETS: dict[str, Secret] = {
     "object of numbers": Secret(
         "918273645", Kind(_SECRET_NUMBERS, _series(object), [])
     ),
+    "dictionary<string>[pyarrow]": Secret(
+        "secret",
+        Kind(st.sampled_from(SECRET_LABELS), _dictionary(pa.string()), []),
+    ),
     "datetime64[ns]": Secret("2233-", Kind(_SECRET_DATES, _datetimes, [])),
 }
 
@@ -480,15 +629,75 @@ def frames_with_secrets(draw: st.DrawFn) -> tuple[pd.DataFrame, dict[str, str]]:
     Returns the DataFrame and each sensitive column's name with its marker.
     """
     df = draw(data_frames())
-    if len(df) and draw(st.booleans()):
-        # Repeat some rows, so that rows repeat apart from their sensitive values.
+    if len(df):
+        # Repeat up to 4 rows, each at least twice, so that rows always repeat
+        # whole, their sensitive values too, in as many groups as rows repeated.
         positions = st.integers(0, len(df) - 1)
-        df = df.iloc[draw(st.lists(positions, min_size=2, max_size=MAX_ROWS))].copy()
+        repeated = draw(st.lists(positions, min_size=1, max_size=4, unique=True))
+        extra = draw(st.lists(positions, max_size=MAX_ROWS - 2 * len(repeated)))
+        df = df.iloc[[*repeated, *repeated, *extra]].copy()
     markers: dict[str, str] = {}
     for position in range(draw(st.integers(1, 2))):
         name = f"sensitive {position}"
         secret = SECRETS[draw(st.sampled_from(list(SECRETS)))]
         values = draw(column_values(secret.kind, len(df)))
+        if len(df) and values.isna().all():
+            # A column with no value has nothing to leak: give it one.
+            values = secret.kind.build([draw(secret.kind.elements)] * len(df))
         df.insert(position, name, values.array)
         markers[name] = secret.marker
     return df, markers
+
+
+class Plain:
+    """An object whose repr shows its memory address, as '<Plain object at 0x...>'."""
+
+
+_WORDS = ["red", "blue", "green", "café", "日本", "x1", "y2"]
+_FROZENSETS = st.frozensets(st.sampled_from(_WORDS), min_size=2, max_size=4)
+_NP_TEXTS = st.sampled_from(["é0", "é1", "日本", "a"]).map(np.str_)
+# Values that Python writes in an order that depends on the process: sets of
+# text, alone or inside tuples, and objects whose repr holds a memory address.
+# Text and NumPy text are here for the UTF-8 copies Python caches inside them.
+SET_ELEMENTS: list[st.SearchStrategy] = [
+    _FROZENSETS,
+    st.tuples(_FROZENSETS, st.integers(0, 2)),
+    _NP_TEXTS,
+    st.builds(Plain),
+    _FROZENSETS | _NP_TEXTS | st.integers(0, 2) | TEXT,
+    # A set can't be hashed, so a column holding one can't be counted.
+    st.frozensets(st.sampled_from(_WORDS), min_size=2, max_size=3).map(set) | TEXT,
+]
+
+
+@st.composite
+def frames_with_sets(draw: st.DrawFn) -> pd.DataFrame:
+    """A DataFrame whose object columns hold set, frozenset and np.str_ values.
+
+    Some values repeat, so levels and duplicate rows tie, and the row index can
+    hold frozensets. Python orders a set by hash, and the hash of text differs
+    from one process to the next, so only a run in other processes shows
+    whether a result depends on that order.
+    """
+    row_count = draw(st.integers(1, 6))
+    columns = {}
+    for position in range(draw(st.integers(1, 3))):
+        elements = draw(st.sampled_from(SET_ELEMENTS))
+        pool = draw(st.lists(elements, min_size=1, max_size=3))
+        values = draw(
+            st.lists(st.sampled_from(pool), min_size=row_count, max_size=row_count)
+        )
+        columns[f"s{position}"] = pd.Series(values, dtype=object)
+    columns["x"] = pd.Series(
+        draw(st.lists(FLOATS, min_size=row_count, max_size=row_count))
+    )
+    df = pd.DataFrame(columns)
+    if draw(st.booleans()):
+        names = draw(st.lists(_FROZENSETS, min_size=1, max_size=3))
+        df.index = pd.Index(
+            draw(
+                st.lists(st.sampled_from(names), min_size=row_count, max_size=row_count)
+            ),
+            dtype=object,
+        )
+    return df

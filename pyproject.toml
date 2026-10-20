@@ -28,15 +28,21 @@ requires = ["uv_build>=0.10.11,<0.11.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
+# The tests import anyio, jsonschema and annotated_types directly. They come with
+# mcp or pydantic too, but a dependency that drops one must not break the tests.
 dev = [
+    "annotated-types>=0.6.0",
+    "anyio>=4.9",
     "hypothesis>=6.170.1",
     "ipython>=9.0",
+    "jsonschema>=4.20.0",
     "polars>=1.0",
     "pre-commit>=4.7.0",
     "pyarrow>=14.0.1",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pyyaml>=6.0.3",
+    "rich>=13.0",
     "ruff>=0.17.1",
     "threadpoolctl>=3.7.0",
     "ty>=0.0.89",
@@ -49,6 +55,8 @@ mcp = ["agent-eda[mcp]"]
 core = []
 
 [tool.uv]
+# uv 0.10 leaves the mcp extra out of `uv sync` and `uv run`; 0.13 installs it.
+required-version = ">=0.13"
 default-groups = ["dev", "mcp"]
 # Without these, uv resolves every extra and group together, and the mcp extra's
 # pydantic floor would lift the core's.
@@ -101,6 +109,8 @@ filterwarnings = ["error::DeprecationWarning", "error::FutureWarning"]
 
 [tool.coverage.run]
 branch = true
+# Measure the agent-eda-mcp process that the MCP tests start.
+patch = ["subprocess"]
 source = ["."]
 omit = ["tests/*", ".venv/*"]
 

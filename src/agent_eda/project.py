@@ -7,158 +7,23 @@ access control: the package runs in the caller's own process, which can read
 the data directly (ADR 0001).
 """
 
-import inspect
-import json
 import os
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import pandas as pd
-import pydantic
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from agent_eda import _project_file
-from agent_eda._registry import invalid_message, python_scalar, unknown_name_message
-from agent_eda._run import check_distinct
-from agent_eda._wording import worded
+from agent_eda._arguments import check_distinct, checked_keywords, python_scalar
+from agent_eda._declarations import Declaration, keyword_signature
+from agent_eda._text import a_or_an
+from agent_eda._wording import DeclareSensitive, Words, mistake
 from agent_eda.errors import AgentEDAError, InvalidArgumentError
 
 
-class _Declaration(BaseModel):
-    """Base of the models callers build to declare something, such as a Project.
-
-    Building one raises InvalidArgumentError in the package's format, never
-    pydantic's ValidationError: by calling it, with model_validate,
-    model_validate_json or model_validate_strings, or from a dict of its
-    fields inside another declaration or given to an analysis.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    # A call that builds one, for messages that show how.
-    _example: ClassVar[str]
-    # Each field's type as callers pass it, for messages and help().
-    _field_types: ClassVar[dict[str, object]]
-
-    if not TYPE_CHECKING:
-        # Type checkers read each subclass's own signature instead.
-
-        def __init__(self, *args: Any, **fields: Any) -> None:
-            if args:
-                raise InvalidArgumentError(
-                    f"{type(self).__name__} takes its fields by keyword, such as "
-                    f"{self._example}.",
-                    code="invalid_call",
-                )
-            try:
-                super().__init__(**fields)
-            except pydantic.ValidationError as error:
-                raise _declaration_error(type(self), fields, error.errors()) from None
-
-    @classmethod
-    def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> Self:
-        """Build one from a dict of its fields, as JSON gives it."""
-        if not isinstance(obj, (Mapping, cls)):
-            raise InvalidArgumentError(
-                f"{cls.__name__}.model_validate takes a dict of the fields, but got "
-                f"a {type(obj).__name__}. {cls._example} builds one in code."
-            )
-        try:
-            return super().model_validate(obj, *args, **kwargs)
-        except pydantic.ValidationError as error:
-            fields = dict(obj) if isinstance(obj, Mapping) else {}
-            raise _declaration_error(cls, fields, error.errors()) from None
-
-    @classmethod
-    def model_validate_json(
-        cls, json_data: str | bytes | bytearray, *args: Any, **kwargs: Any
-    ) -> Self:
-        """Build one from JSON text of its fields, as model_dump_json() writes it."""
-        try:
-            fields = json.loads(json_data)
-        except (TypeError, ValueError) as error:
-            raise InvalidArgumentError(
-                f"{cls.__name__}.model_validate_json got text that isn't valid JSON: "
-                f"{error}. Pass the text model_dump_json() writes, a JSON object of "
-                "the fields."
-            ) from None
-        return cls.model_validate(fields, *args, **kwargs)
-
-    @classmethod
-    def model_validate_strings(cls, obj: Any, *args: Any, **kwargs: Any) -> Self:
-        """Build one from a dict of its fields whose values are strings."""
-        if not isinstance(obj, Mapping):
-            raise InvalidArgumentError(
-                f"{cls.__name__}.model_validate_strings takes a dict of the fields, "
-                f"but got a {type(obj).__name__}. {cls._example} builds one in code."
-            )
-        try:
-            return super().model_validate_strings(obj, *args, **kwargs)
-        except pydantic.ValidationError as error:
-            raise _declaration_error(cls, dict(obj), error.errors()) from None
-
-    @model_validator(mode="wrap")
-    @classmethod
-    def _fields_named_by_strings(cls, value: Any, handler: Any) -> Any:
-        """A dict whose keys aren't all strings can't name fields; say so.
-
-        This runs before pydantic hands a dict of fields to __init__, where a
-        key that isn't a string would raise a bare TypeError.
-        """
-        if isinstance(value, Mapping):
-            keys = [key for key in value if not isinstance(key, str)]
-            if keys:
-                raise InvalidArgumentError(
-                    f"{cls.__name__} got the key {keys[0]!r}, but its fields are "
-                    f"named by strings: {', '.join(cls.model_fields)}.",
-                    code="invalid_call",
-                )
-        return handler(value)
-
-
-def _declaration_error(
-    model: type[_Declaration], fields: Mapping[str, Any], problems: list[Any]
-) -> AgentEDAError:
-    """The error to raise for a declaration that pydantic rejected.
-
-    A check of the package's own, such as a nested declaration's, raised an
-    error that says it best. Otherwise the first problem is shown in the
-    format of the analyses' argument errors, as ColumnSpec shows its own.
-    """
-    for problem in problems:
-        error = problem.get("ctx", {}).get("error")
-        if isinstance(error, AgentEDAError):
-            return error
-    first = problems[0]
-    if first["type"] == "extra_forbidden":
-        name = str(first["loc"][0])
-        return InvalidArgumentError(_unknown_field(model, name), code="invalid_call")
-    # As lists, which the message follows to the value at fault.
-    given = {
-        name: list(value) if isinstance(value, tuple) else value
-        for name, value in fields.items()
-    }
-    return InvalidArgumentError(
-        invalid_message(
-            model.__name__, model._field_types, given, problems, noun="field"
-        )
-    )
-
-
-def _unknown_field(model: type[_Declaration], name: str) -> str:
-    """Say that a declaration has no such field, naming the closest and the rest."""
-    allowed = list(model.model_fields)
-    if model is Project and name in DataPolicy.model_fields:
-        return (
-            f"Project has no field {name!r}. It is a field of the data policy: "
-            f"ae.Project(data_policy=ae.DataPolicy({name}=...)). "
-            f"Allowed: {', '.join(allowed)}."
-        )
-    return unknown_name_message(model.__name__, "field", name, allowed)
-
-
-class DataPolicy(_Declaration):
+class DataPolicy(Declaration):
     """Which columns hold sensitive values, and whether results mask them.
 
     A sensitive column holds values that should not appear in results when
@@ -205,8 +70,11 @@ class DataPolicy(_Declaration):
         }
     )
 
-    _example = "ae.DataPolicy(sensitive_columns=['email'], mask_sensitive=True)"
-    _field_types = {"sensitive_columns": Sequence[str] | None, "mask_sensitive": bool}
+    _example = DeclareSensitive(["email"], of="policy").render("python")
+    _field_types: ClassVar[dict[str, object]] = {
+        "sensitive_columns": Sequence[str] | None,
+        "mask_sensitive": bool,
+    }
 
     sensitive_columns: tuple[str, ...] = Field(
         default=(),
@@ -250,7 +118,7 @@ class DataPolicy(_Declaration):
             )
         if isinstance(value, Mapping):
             raise InvalidArgumentError(
-                f"DataPolicy got a {type(value).__name__} for sensitive_columns, but "
+                f"DataPolicy got {a_or_an(type(value).__name__)} for sensitive_columns, but "
                 "sensitive_columns must be a list of column names, such as "
                 f"{cls._example}."
             )
@@ -271,17 +139,14 @@ class DataPolicy(_Declaration):
         if self.mask_sensitive and not self.sensitive_columns:
             # An MCP caller's data policy comes from a project file, so its
             # message shows the TOML.
-            texts = {
-                "python": ("mask_sensitive=True", self._example),
-                "mcp": ("mask_sensitive = true", _project_file.TOML_EXAMPLE),
-            }
-            raise worded(
+            raise mistake(
                 InvalidArgumentError,
-                lambda surface: (
-                    f"DataPolicy got {texts[surface][0]} but no "
-                    "sensitive_columns, so there would be nothing to mask. Name the "
-                    f"sensitive columns, such as {texts[surface][1]}."
-                ),
+                "DataPolicy got ",
+                Words("mask_sensitive=True", "mask_sensitive = true"),
+                " but no sensitive_columns, so there would be nothing to mask. "
+                "Name the sensitive columns, such as ",
+                DeclareSensitive(["email"], of="policy"),
+                ".",
             )
         return self
 
@@ -294,7 +159,7 @@ def _name(item: object) -> object:
     return item  # validation rejects it, naming its type
 
 
-class Project(_Declaration):
+class Project(Declaration):
     """A data science project's declarations, given to the analyses that use them.
 
     A Project is optional, and every analysis runs without one. It holds a
@@ -312,10 +177,10 @@ class Project(_Declaration):
     Args:
         name (str | None): The project's name, such as 'churn'. None, the
             default, leaves it unnamed.
-        data_policy (DataPolicy): Which columns are sensitive and whether to
-            mask them: a DataPolicy, or a dict of its fields. Defaults to
-            DataPolicy(), which declares no sensitive column and leaves masking
-            off.
+        data_policy (DataPolicy | Mapping[str, Any] | None): Which columns are
+            sensitive and whether to mask them: a DataPolicy, a dict of its
+            fields, or None. Defaults to DataPolicy(), which declares no
+            sensitive column and leaves masking off.
 
     Examples:
         >>> import pandas as pd
@@ -351,7 +216,10 @@ class Project(_Declaration):
         "ae.Project(name='churn', "
         "data_policy=ae.DataPolicy(sensitive_columns=['email']))"
     )
-    _field_types = {"name": str | None, "data_policy": DataPolicy}
+    _field_types: ClassVar[dict[str, object]] = {
+        "name": str | None,
+        "data_policy": DataPolicy | Mapping[str, Any] | None,
+    }
 
     name: str | None = Field(
         default=None,
@@ -373,6 +241,17 @@ class Project(_Declaration):
         ) -> None: ...
 
     @classmethod
+    def _unknown_field(cls, name: str) -> str:
+        if name in DataPolicy.model_fields:
+            return (
+                f"Project has no field {name!r}. It is a field of the data policy: "
+                f"ae.Project(data_policy=ae.DataPolicy({name}=...)). "
+                f"Allowed: {', '.join(cls.model_fields)}."
+            )
+        return super()._unknown_field(name)
+
+    @classmethod
+    @checked_keywords
     def load(cls, path: str | os.PathLike[str]) -> Self:
         """Load a project from a TOML file, such as one that project.save() wrote.
 
@@ -381,6 +260,7 @@ class Project(_Declaration):
         project's name at the top level and its data policy in a [data_policy]
         table, as project.save() writes it:
 
+            format_version = 1
             name = "churn"
 
             [data_policy]
@@ -392,6 +272,9 @@ class Project(_Declaration):
         a file cut short raises instead of loading with masking off. A key
         that isn't one of these raises and names the closest one, so that a
         typo such as mask_sensitve can't leave masking off quietly either.
+        format_version is the layout version of the file: project.save() writes
+        1, and a file without the key loads as version 1. A file of a higher
+        version, which a newer agent-eda wrote, raises and names it.
 
         Args:
             path (str | os.PathLike[str]): The file to read, such as
@@ -410,7 +293,9 @@ class Project(_Declaration):
                 invalid_project_file). Or it can't be read: it isn't a regular
                 file, such as a named pipe or a device; the operating system
                 refuses it, such as without read permission; or it holds more
-                than 1 MiB (code invalid_project_file). Or it holds a key that
+                than 1 MiB (code invalid_project_file). Or its format_version
+                is newer than this agent-eda reads, and the message names the
+                version (code invalid_project_file). Or it holds a key that
                 isn't a field, and the message names the closest key (code
                 unknown_project_key).
             InvalidArgumentError: path isn't a str or a path, is empty, or
@@ -441,16 +326,22 @@ class Project(_Declaration):
         try:
             return cls.model_validate(fields)
         except AgentEDAError as error:
-            raise _project_file.invalid(path, error) from None
+            raise _project_file.invalid_project_error(path, error) from None
 
+    @checked_keywords
     def save(self, path: str | os.PathLike[str], *, overwrite: bool = False) -> Path:
         """Save the project to a TOML file that Project.load() reads.
 
         An agent that runs each script in a new process saves its project once
         and loads it with ae.Project.load(path) at the start of each later
-        script, instead of building it again. The file holds the name at the
-        top level, left out when there is none, and the data policy in a
-        [data_policy] table. It is laid out the same way every time, so equal
+        script, instead of building it again. The file holds format_version = 1
+        and the name at the top level, the name left out when there is none,
+        and the data policy in a [data_policy] table. The save is atomic: it
+        writes a temporary file next to the target and renames it into place,
+        so an interrupted save leaves the file that was there. A new file is
+        readable by its owner only, and a replaced file keeps its permissions.
+        It is laid out
+        the same way every time, so equal
         projects give identical files on the same Python version. Column names
         keep every character: quotes, backslashes and characters that print as
         nothing are escaped.
@@ -470,9 +361,12 @@ class Project(_Declaration):
             ProjectFileExistsError: A file is already at path and overwrite is
                 False (code project_file_exists). It is a FileExistsError too.
             ProjectFileError: The name or a column name holds a lone
-                surrogate, which TOML can't hold (code invalid_project_file).
+                surrogate, which TOML can't hold, or the file would hold more
+                than the 1 MiB that Project.load reads (code
+                invalid_project_file).
             InvalidArgumentError: path isn't a str or a path, is empty, names
-                a directory or lies in a directory that doesn't exist, or
+                a directory or a file that isn't a regular one, such as a
+                named pipe, or lies in a directory that doesn't exist, or
                 overwrite isn't a bool (code invalid_argument).
             OSError: The file can't be written, such as without permission.
 
@@ -491,6 +385,7 @@ class Project(_Declaration):
             ...     print(path.read_text(encoding="utf-8"))
             ...     loaded = ae.Project.load(path)
             # An agent-eda Project. Load it with ae.Project.load(path).
+            format_version = 1
             name = "churn"
             <BLANKLINE>
             [data_policy]
@@ -524,33 +419,8 @@ class Project(_Declaration):
         return value
 
 
-# help() and editors show the calls as they read, not as pydantic builds them.
-DataPolicy.__signature__ = inspect.Signature(
-    [
-        inspect.Parameter(
-            "sensitive_columns",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=(),
-            annotation=Sequence[str] | None,
-        ),
-        inspect.Parameter(
-            "mask_sensitive",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=False,
-            annotation=bool,
-        ),
-    ]
+# help() and editors show the calls as they read, not as pydantic builds it.
+DataPolicy.__signature__ = keyword_signature(
+    DataPolicy, {"sensitive_columns": (), "mask_sensitive": False}
 )
-Project.__signature__ = inspect.Signature(
-    [
-        inspect.Parameter(
-            "name", inspect.Parameter.KEYWORD_ONLY, default=None, annotation=str | None
-        ),
-        inspect.Parameter(
-            "data_policy",
-            inspect.Parameter.KEYWORD_ONLY,
-            default=None,
-            annotation=DataPolicy | None,
-        ),
-    ]
-)
+Project.__signature__ = keyword_signature(Project, {"name": None, "data_policy": None})

@@ -72,9 +72,10 @@ def test_the_docstring_examples_run(model):
 
 
 def test_help_shows_the_fields_as_keyword_arguments():
-    assert str(inspect.signature(ae.Project)) == (
+    # Python 3.14 writes typing.Any as Any.
+    assert str(inspect.signature(ae.Project)).replace("typing.Any", "Any") == (
         "(*, name: str | None = None, data_policy: agent_eda.project.DataPolicy | "
-        "None = None)"
+        "collections.abc.Mapping[str, Any] | None = None)"
     )
     assert str(inspect.signature(ae.DataPolicy)) == (
         "(*, sensitive_columns: collections.abc.Sequence[str] | None = (), "
@@ -126,9 +127,9 @@ def test_none_for_the_data_policy_means_the_default_one():
     ],
     ids=["one-name", "labels", "tuple", "set", "index", "array", "generator", "numpy"],
 )
-def test_sensitive_columns_take_names_as_the_analyses_columns_argument_does(
-    given, names
-):
+def test_sensitive_columns_take_one_name_or_any_collection_of_names(given, names):
+    # More lenient than the analyses' columns argument, which raises for a set
+    # since a set has no order to report the columns in; here the names are sorted.
     policy = ae.DataPolicy(sensitive_columns=given)
 
     assert policy.sensitive_columns == names
@@ -232,7 +233,7 @@ def test_a_project_saved_as_json_loads_again():
         (
             lambda: ae.Project.model_validate_strings({"name": 1}),
             "invalid_argument",
-            "Project got 1 for name, but name must be str | None.",
+            "Project got 1 for name, but name must be a string, or None.",
         ),
         (
             lambda: ae.Project.model_validate({1: "churn"}),
@@ -340,26 +341,24 @@ def test_a_data_policy_field_given_to_the_project_shows_where_it_belongs(field):
     [
         (
             lambda: ae.Project(name=3),  # ty: ignore[invalid-argument-type]  # the wrong type is the test
-            "Project got 3 for name, but name must be str | None. Input should be "
-            "a valid string. See help(ae.Project) for every field.",
+            "Project got 3 for name, but name must be a string, or None. See "
+            "help(ae.Project) for every field.",
         ),
         (
             lambda: ae.Project(data_policy=["email"]),  # ty: ignore[invalid-argument-type]  # the wrong type is the test
             "Project got a list of 1 item for data_policy, but data_policy must be "
-            "DataPolicy. Input should be a valid dictionary or instance of "
-            "DataPolicy. See help(ae.Project) for every field.",
+            "a DataPolicy, a dict or None. See help(ae.Project) for every field.",
         ),
         (
             lambda: ae.DataPolicy(mask_sensitive="yes"),  # ty: ignore[invalid-argument-type]  # the wrong type is the test
             "DataPolicy got 'yes' for mask_sensitive, but mask_sensitive must be "
-            "bool. Input should be a valid boolean. See help(ae.DataPolicy) for "
-            "every field.",
+            "a boolean. See help(ae.DataPolicy) for every field.",
         ),
         (
             lambda: ae.DataPolicy(sensitive_columns=["email", ["name"]]),  # ty: ignore[invalid-argument-type]  # the wrong type is the test
             "DataPolicy got a list of 1 item at sensitive_columns[1], but each "
-            "value in sensitive_columns must be str. Input should be a valid "
-            "string. See help(ae.DataPolicy) for every field.",
+            "value in sensitive_columns must be a string. See help(ae.DataPolicy) "
+            "for every field.",
         ),
     ],
     ids=["name", "data-policy", "mask-sensitive", "sensitive-column"],

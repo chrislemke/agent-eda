@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: the compute_association_ma
 
 **Blocked by:** 03-property-tests-and-benchmark, 04-discovery
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] The parameters, all recorded in the result, are:
   - `columns`
@@ -85,3 +85,5 @@ Checks:
 - The `thorough` Hypothesis profile passes on both version sets, and on the final code random runs of the same contract checks, with random seeds, passed 12,000 examples on the latest versions and 4,000 on the minimum ones.
 - An independent review fuzzed the batched path against exact `fractions.Fraction` references on 3,800 frames (offsets, 2^45 integers, 1e-200 and 1e250 values, values missing by value, constant stretches, chunks of 1, 5 and 7 rows): every value, pair count and null reason matched, worst error 1e-15, on both version sets. Its findings are fixed here: the trivially perfect correlation ratio of an ID-like column, the table cutoff tuned on Accelerate, the missing limitation for NaN read as missing in numbers read as categories, the table argument's data in `to_frame`'s error, the near-zero bias-corrected V, an untested subnormal guard and the recipe accepting periods and intervals.
 - Linux x86_64 and ARM64, and the 2-vCPU target, didn't run locally; ticket 05's CI runs the benchmark on ARM64 with 2 CPUs.
+
+Box 17 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

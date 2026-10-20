@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: Performance, and test grou
 
 **Blocked by:** 02-summarize-numeric-and-column-rules
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Hypothesis joins the development dependencies.
 - [x] A mixed-dtype DataFrame strategy generates floats with NaN and infinity, nullable integers, bool and boolean, object strings including empty and whitespace-only ones, pandas 3 strings, categoricals with unused categories, naive and time-zone-aware datetimes, and pyarrow-backed columns. It also generates zero rows, one row, zero columns, constant columns and all-missing columns. It works on pandas 2.2 and on 3.x.

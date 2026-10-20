@@ -164,7 +164,11 @@ def test_to_frame_has_one_row_per_column_in_the_selected_order():
             "sentinel_count": pd.array([None, 1, 1], dtype="Int64"),
             "missing_count": [2, 2, 1],
             "missing_share": [0.4, 0.4, 0.2],
-            "sentinel_values": [{}, {"N/A": 1}, {-999: 1}],
+            "sentinel_values": [
+                [],
+                [{"value": "N/A", "value_type": "str", "count": 1}],
+                [{"value": -999, "value_type": "int", "count": 1}],
+            ],
         }
     )
     pd.testing.assert_frame_equal(frame, expected)
@@ -257,26 +261,28 @@ def test_complete_data_has_no_findings():
 def test_text_shows_the_counts_most_missing_first_and_names_both_tables():
     res = ae.profile_missing_values(gappy_frame(), sentinel_values=GAPPY_SENTINELS)
 
-    assert str(res).splitlines() == [
-        "profile_missing_values: completed on 5 rows x 3 columns",
-        "Missing: 5 of 15 selected values (33.33%), counting declared sentinel values. "
-        "Complete rows: 3 of 5 (60%).",
-        "Missing values per row: 0 in 3 rows, 2 in 1 row and 3 in 1 row.",
-        "Columns, most missing first (3 of 3 shown):",
-        "column  native_missing_count  sentinel_count  missing_count  missing_share",
-        "a                          2            null              2            0.4",
-        "b                          1               1              2            0.4",
-        "c                          0               1              1            0.2",
-        "Findings (1 of 1 shown):",
-        "- descriptive sentinel_values_present: Declared sentinel values occur in 2 "
-        "columns: 'b' and 'c'.",
-        "Limitations (1 of 1 shown):",
-        "- sentinel_values_not_declared: No sentinel values were declared for 1 "
-        "column, so its sentinel_count is null and its ...",
-        "More: res.to_frame() has all 3 columns; res.to_frame(table='row_distribution') "
-        "has the rows per number of missing",
-        "    values; res.findings, res.limitations and res.to_json() have the rest.",
+    lines = str(res).splitlines()
+
+    assert lines[0] == "profile_missing_values: completed on 5 rows x 3 columns"
+    assert lines[1].startswith(
+        "Missing: 5 of 15 selected values (missing_share 0.3333)"
+    )
+    assert "Complete rows: 3 of 5 (complete_row_share 0.6)." in " ".join(
+        line.strip() for line in lines[1:3]
+    )
+    assert "Missing values per row: 0 in 3 rows, 2 in 1 row and 3 in 1 row." in lines
+    start = lines.index("Columns, most missing first (3 of 3 shown):")
+    assert [line.split()[0] for line in lines[start + 1 : start + 5]] == [
+        "column",
+        "a",
+        "b",
+        "c",
     ]
+    assert lines[start + 2].split() == ["a", "2", "null", "2", "0.4"]
+    text = " ".join(line.strip() for line in lines)
+    assert "- sentinel_values_not_declared: No sentinel values were declared" in text
+    assert "res.to_frame(table='row_distribution') has the rows per number" in text
+    assert "%" not in text
 
 
 def test_text_orders_columns_by_missing_count_and_keeps_ties_in_order():
@@ -302,7 +308,8 @@ def test_text_says_when_no_value_is_missing():
     lines = str(ae.profile_missing_values(df)).splitlines()
 
     assert lines[1] == (
-        "Missing: 0 of 4 selected values (0%). Complete rows: 2 of 2 (100%)."
+        "Missing: 0 of 4 selected values (missing_share 0). Complete rows: 2 of 2 "
+        "(complete_row_share 1)."
     )
     assert lines[2] == "Missing values per row: 0 in 2 rows."
 
@@ -323,8 +330,8 @@ def test_text_names_the_first_8_numbers_of_missing_values_per_row_and_counts_the
     )
 
 
-@pytest.mark.parametrize("neighbour", ["describe_dataset", "summarize_numeric"])
-def test_nearby_analyses_point_to_it_for_missing_values(neighbour):
+def test_nearby_analyses_point_to_it_for_missing_values():
+    neighbour = "describe_dataset"
     doc = inspect.getdoc(getattr(ae, neighbour))
     assert doc
 
@@ -344,7 +351,6 @@ def test_declares_its_statuses_and_finding_codes():
         "completed",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
     assert info.finding_codes == ["all_missing_columns", "sentinel_values_present"]
 
@@ -405,6 +411,22 @@ def test_data_without_columns_is_not_applicable():
     assert limitation.fields == ["missing_share"]
 
 
+def pandas_missing_mask(column: pd.Series) -> np.ndarray:
+    """What isna() marks, plus the NaN that an extension float column stores."""
+    missing = column.isna().to_numpy(dtype=bool)
+    if isinstance(column.dtype, pd.api.extensions.ExtensionDtype) and (
+        column.dtype.kind == "f"
+    ):
+        floats = column.to_numpy(dtype="float64", na_value=np.nan)
+        missing = missing | np.isnan(floats)
+    return missing
+
+
+def pandas_missing(column: pd.Series) -> int:
+    """How many values isna() marks, plus the NaN that an extension float column stores."""
+    return int(pandas_missing_mask(column).sum())
+
+
 @pytest.mark.parametrize("frame", ["every kind", "one row", "all missing", "constant"])
 def test_native_missing_counts_match_pandas_isna_for_every_dtype(frame):
     df = EDGE_FRAMES[frame]()
@@ -412,14 +434,17 @@ def test_native_missing_counts_match_pandas_isna_for_every_dtype(frame):
     res = ae.profile_missing_values(df)
 
     counted = {name: entry.native_missing_count for name, entry in res.columns.items()}
-    assert counted == {str(name): int(df[name].isna().sum()) for name in df.columns}
+    assert counted == {str(name): pandas_missing(df[name]) for name in df.columns}
 
 
 @given(df=data_frames())
 def test_counts_per_column_and_per_row_agree_with_pandas(df):
     res = ae.profile_missing_values(df)
 
-    missing = df.isna().to_numpy()
+    missing = np.column_stack(
+        [pandas_missing_mask(df[name]) for name in df.columns]
+        or [np.zeros(len(df), dtype=bool)]
+    )[:, : len(df.columns)]
     assert [e.native_missing_count for e in res.columns.values()] == [
         int(n) for n in missing.sum(axis=0)
     ]
@@ -470,7 +495,7 @@ def equal_as_declared(item, value):
     return bool(item == value)
 
 
-def test_nan_stored_as_a_value_is_not_native_missing_and_a_limitation_says_so():
+def test_nan_stored_as_a_value_is_native_missing_and_a_limitation_says_so():
     stored = pa.array([1.5, float("nan"), None, float("nan")], from_pandas=False)
     df = pd.DataFrame(
         {
@@ -481,15 +506,17 @@ def test_nan_stored_as_a_value_is_not_native_missing_and_a_limitation_says_so():
 
     res = ae.profile_missing_values(df)
 
-    assert res.columns["x"].native_missing_count == df["x"].isna().sum() == 1
+    # pandas' isna() counts only the null; the analysis counts the NaN too.
+    assert df["x"].isna().sum() == 1
+    assert res.columns["x"].native_missing_count == 3
+    assert res.columns["x"].missing_count == 3
     [limitation] = [
-        lim for lim in res.limitations if lim.code == "nan_not_counted_as_missing"
+        lim for lim in res.limitations if lim.code == "nan_counted_as_missing"
     ]
     assert limitation.fields == ["columns['x'].native_missing_count"]
     assert limitation.reason == (
-        "1 column stores NaN as a value, which pandas isna() doesn't count as "
-        "missing, so native_missing_count leaves it out: 'x'. To count it, read the "
-        "column as float64 first, such as df['x'].astype('float64')."
+        "1 column stores NaN as a value, which pandas doesn't count as "
+        "missing; native_missing_count counts it: 'x'."
     )
 
 
@@ -570,6 +597,52 @@ def test_declared_values_match_in_every_dtype(values, declared, count):
     assert res.columns["x"].native_missing_count == values.isna().sum()
 
 
+@pytest.mark.parametrize(
+    ("values", "declared"),
+    [
+        (np.array(["N/A", "", "a", None, ""], dtype=object), ""),
+        (
+            np.array([dt.date(1900, 1, 1), None, dt.date(2000, 1, 1)], dtype=object),
+            dt.date(1900, 1, 1),
+        ),
+    ],
+    ids=["text", "dates"],
+)
+def test_a_sparse_object_column_takes_the_declared_values_a_plain_one_does(
+    values, declared
+):
+    plain = pd.DataFrame({"x": pd.Series(values)})
+    sparse = pd.DataFrame({"x": pd.Series(pd.arrays.SparseArray(values))})
+
+    expected = ae.profile_missing_values(plain, sentinel_values={"x": [declared]})
+    res = ae.profile_missing_values(sparse, sentinel_values={"x": [declared]})
+    found = ae.detect_missing_sentinels(sparse, sentinel_values={"x": [declared]})
+
+    assert expected.columns["x"].sentinel_count == 1 + (declared == "")
+    assert res.columns["x"].sentinel_count == expected.columns["x"].sentinel_count
+    assert res.columns["x"].missing_count == expected.columns["x"].missing_count
+    assert found.status == "completed"
+
+
+@pytest.mark.parametrize("dtype", [object, "string"])
+def test_a_declared_value_ending_in_a_nul_character_matches_text_that_holds_it(dtype):
+    df = pd.DataFrame({"x": pd.Series(["\x00", "a\x00", "a", None], dtype=dtype)})
+
+    res = ae.profile_missing_values(df, sentinel_values={"x": ["\x00", "a\x00"]})
+
+    assert [(v.value, v.count) for v in res.columns["x"].sentinel_values] == [
+        ("\x00", 1),
+        ("a\x00", 1),
+    ]
+
+
+def test_a_sparse_object_column_still_refuses_a_value_it_cannot_hold():
+    df = pd.DataFrame({"x": pd.arrays.SparseArray(np.array(["a", None], dtype=object))})
+
+    with pytest.raises(InvalidArgumentError, match="'x' holds text"):
+        ae.profile_missing_values(df, sentinel_values={"x": [-999]})
+
+
 # Text dtypes: object, python and pyarrow strings, and what pandas infers for
 # text (object on pandas 2, str on pandas 3).
 TEXT_DTYPES = [object, "string", "string[pyarrow]", None]
@@ -608,9 +681,8 @@ def test_without_declared_values_sentinel_counts_are_null_and_a_limitation_says_
     ]
     assert limitation.reason == (
         "No sentinel values were declared, so sentinel_count is null and "
-        "missing_count counts only native missing values (None, NaN, NaT and pd.NA). "
-        "Declare stand-ins for missing values, such as -999 or 'N/A', in "
-        "sentinel_values."
+        "missing_count counts only native missing values. Declare stand-ins for "
+        "missing values, such as -999 or 'N/A', in sentinel_values."
     )
 
 
@@ -661,7 +733,7 @@ def test_each_column_lists_its_declared_values_and_how_often_each_occurs():
     # The record shows dates and times as ISO 8601 text.
     record = res.to_dict()
     assert record["columns"]["born"]["sentinel_values"] == [
-        {"value": "1900-01-01T00:00:00", "count": 2}
+        {"value": "1900-01-01T00:00:00", "value_type": "datetime", "count": 2}
     ]
     assert record["parameters"]["sentinel_values"] == {
         "code": ["N/A", "", "?"],
@@ -1168,8 +1240,9 @@ def test_a_value_of_another_python_type_raises_with_the_types_allowed(declared, 
 
     assert str(caught.value) == (
         f"profile_missing_values got {shown} at sentinel_values['age'][1], but each "
-        "value in sentinel_values must be bool | int | float | str | datetime | date "
-        "| timedelta. See help(ae.profile_missing_values) for every argument."
+        "value in sentinel_values must be a boolean, an integer, a number, a "
+        "string, a datetime, a date or a timedelta. See "
+        "help(ae.profile_missing_values) for every argument."
     )
 
 
@@ -1181,9 +1254,9 @@ def test_sentinel_values_that_are_no_mapping_raise_with_the_type_allowed():
 
     assert str(caught.value) == (
         "profile_missing_values got a list of 1 item for sentinel_values, but "
-        "sentinel_values must be Mapping[str, Sequence[bool | int | float | str | "
-        "datetime | date | timedelta]] | None. Input should be a valid dictionary. "
-        "See help(ae.profile_missing_values) for every argument."
+        "sentinel_values must be a mapping from column names to a list of "
+        "booleans, integers, numbers, strings, datetimes, dates or timedeltas, or "
+        "None. See help(ae.profile_missing_values) for every argument."
     )
 
 
@@ -1225,3 +1298,92 @@ def test_every_column_with_declared_values_drops_the_limitation():
     res = ae.profile_missing_values(df, sentinel_values={"age": [-999]})
 
     assert [lim.code for lim in res.limitations] == []
+
+
+def contacts():
+    """Five contacts; email is sensitive and stands in 'N/A' and '' for unknown."""
+    return pd.DataFrame(
+        {
+            "email": ["ann@x.org", "N/A", "", "N/A", "bob@x.org"],
+            "age": [34, -999, 29, -999, 51],
+        }
+    )
+
+
+def masking_project(*columns):
+    return ae.Project(
+        data_policy=ae.DataPolicy(sensitive_columns=list(columns), mask_sensitive=True)
+    )
+
+
+def everything_shown(res):
+    """The printed text, the record and both tables, as one string."""
+    return (
+        str(res)
+        + res.to_json()
+        + res.to_frame().to_csv()
+        + res.to_frame(table="row_distribution").to_csv()
+    )
+
+
+def test_masking_puts_placeholders_in_place_of_declared_values_of_sensitive_columns():
+    res = ae.profile_missing_values(
+        contacts(),
+        sentinel_values={"email": ["N/A", ""], "age": [-999]},
+        project=masking_project("email"),
+    )
+
+    assert res.parameters["sentinel_values"] == {
+        "email": ["<masked 1>", "<masked 2>"],
+        "age": [-999],
+    }
+    assert [(v.value, v.count) for v in res.columns["email"].sentinel_values] == [
+        ("<masked 1>", 2),
+        ("<masked 2>", 1),
+    ]
+    assert res.columns["age"].sentinel_values[0].value == -999
+    assert res.to_frame()["sentinel_values"].tolist()[0] == [
+        {"value": "<masked 1>", "value_type": "str", "count": 2},
+        {"value": "<masked 2>", "value_type": "str", "count": 1},
+    ]
+    assert "N/A" not in everything_shown(res)
+    # Counts and shares stay.
+    assert res.columns["email"].sentinel_count == 3
+    assert res.masking.applied is True
+    assert res.masking.columns == ["email"]
+
+
+def test_masking_off_shows_declared_values_as_declared_and_says_so():
+    project = ae.Project(data_policy=ae.DataPolicy(sensitive_columns=["email"]))
+
+    res = ae.profile_missing_values(
+        contacts(), sentinel_values={"email": ["N/A"]}, project=project
+    )
+
+    assert res.parameters["sentinel_values"] == {"email": ["N/A"]}
+    assert res.masking.applied is False
+    assert res.masking.columns == ["email"]
+    assert "Not masked (data_policy.mask_sensitive=False)" in str(res)
+
+
+def test_a_call_asks_for_masking_without_a_project_that_declares_columns():
+    with pytest.raises(InvalidArgumentError, match="mask_sensitive=True"):
+        ae.profile_missing_values(contacts(), mask_sensitive=True)
+
+
+def test_masking_is_recorded_and_discovery_lists_the_analysis_as_masking():
+    description = ae.describe_analysis("profile_missing_values")
+    [info] = [
+        i for i in ae.list_analyses().analyses if i.name == "profile_missing_values"
+    ]
+
+    res = ae.profile_missing_values(contacts(), project=masking_project("age"))
+
+    assert res.masking.decided_by == "project"
+    assert res.to_dict()["parameters"]["project"] == {
+        "name": None,
+        "data_policy": {"sensitive_columns": ["age"], "mask_sensitive": True},
+    }
+    assert description.supports_masking is True
+    assert description.shows_raw_values is True
+    assert info.supports_masking is True

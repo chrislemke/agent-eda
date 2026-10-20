@@ -10,7 +10,11 @@ import pytest
 
 pytest.importorskip(
     "mcp",
-    reason="the MCP server tests need the mcp extra: pip install 'agent-eda[mcp]'",
+    reason=(
+        "the MCP server tests need the mcp extra: run `uv sync` (uv 0.13 or later) or "
+        "uv run --extra mcp pytest in this repository, or "
+        "pip install 'agent-eda[mcp]' for an installed package"
+    ),
 )
 
 import json
@@ -18,12 +22,16 @@ import os
 import re
 import subprocess
 import sys
-import warnings
 from pathlib import Path
+from typing import Any
 
 import anyio
 import pandas as pd
-from mcp import Client, StdioServerParameters
+from mcp import Client, MCPError, StdioServerParameters
+from mcp.types import INTERNAL_ERROR
+from mcp_helpers import call, list_tools, read_table, reference_read, write
+from serving import serving
+from stdio import stdio_environment
 
 import agent_eda as ae
 from agent_eda.errors import AgentEDAError
@@ -71,41 +79,35 @@ def test_masking_mcp_tools_take_project_path_in_place_of_project():
     assert {tool.name for tool in tools} >= set(MASKING)
 
 
-def test_project_path_and_mask_sensitive_say_masking_is_only_a_guardrail():
-    tools = [tool for tool in anyio.run(list_tools) if tool.name in MASKING]
-
-    for tool in tools:
-        properties = tool.input_schema["properties"]
-        for name in ("project_path", "mask_sensitive"):
-            description = properties[name]["description"]
-            assert (
-                "Masking is a guardrail against accidental exposure, not "
-                "anonymization or access control" in description
-            ), (tool.name, name)
-        # mask_sensitive says where an MCP caller's project comes from.
-        assert "project_path" in properties["mask_sensitive"]["description"]
-        assert "--project" in properties["mask_sensitive"]["description"]
-
-
-def test_the_precedence_and_the_guardrail_read_the_same_wherever_they_appear():
+def test_the_project_rules_sit_once_in_the_instructions_not_in_each_mcp_tool():
     async def scenario():
         async with Client(create_server(), mode="legacy") as client:
             return client.instructions, (await client.list_tools()).tools
 
     instructions, tools = anyio.run(scenario)
-    properties = [
-        tool.input_schema["properties"][name]["description"]
-        for tool in tools
-        if tool.name in MASKING
-        for name in ("project_path", "mask_sensitive")
-    ]
+    unwrapped = " ".join(re.sub(r"(?<=\w)-\n\s*", "-", instructions).split())
     finished = run_agent_eda_mcp("--help")
 
-    for text in [*properties, instructions, finished.stdout]:
-        # argparse breaks lines after a hyphen, as in agent-eda-|mcp.
-        unwrapped = " ".join(re.sub(r"(?<=\w)-\n\s*", "-", text).split())
-        assert PRECEDENCE in unwrapped, text
-        assert GUARDRAIL in unwrapped, text
+    # The precedence and the guardrail read the same in the instructions and in
+    # agent-eda-mcp --help.
+    for text in [instructions, finished.stdout]:
+        text = " ".join(re.sub(r"(?<=\w)-\n\s*", "-", text).split())
+        assert PRECEDENCE in text, text
+        assert GUARDRAIL in text, text
+    # The file's format and the default are in the instructions, once.
+    assert 'sensitive_columns = ["email"]' in unwrapped
+    assert "[data_policy]" in unwrapped
+    assert (
+        "null, the default, uses no project unless agent-eda-mcp --project" in unwrapped
+    )
+    for tool in tools:
+        if tool.name not in MASKING:
+            continue
+        properties = tool.input_schema["properties"]
+        # A sentence, with the project_path the MCP caller passes.
+        assert "guardrail" not in properties["project_path"]["description"]
+        assert "guardrail" not in properties["mask_sensitive"]["description"]
+        assert "project_path" in properties["mask_sensitive"]["description"]
 
 
 def test_no_masking_mcp_tool_schema_keeps_the_project_definitions():
@@ -155,21 +157,9 @@ def test_a_relative_project_path_resolves_against_the_working_directory(
 
 # A file that isn't TOML or leaves out a key gets an MCP fix in place of the
 # Python one: tests/test_mcp_fixes.py.
-@pytest.mark.parametrize(
-    "content",
-    [
-        None,  # no file
-        "[data_policy]\nsensitive_columns = []\nmask_sensitve = true\n",  # typo
-    ],
-    ids=["missing", "unknown-key"],
-)
-def test_a_bad_project_file_is_a_tool_error_with_the_python_code_and_message(
-    tmp_path, content
-):
+def test_a_missing_project_file_says_how_to_write_one_and_names_project_path(tmp_path):
     data_path = write(tmp_path / "shop.csv", CSV)
     project_path = tmp_path / "project.toml"
-    if content is not None:
-        write(project_path, content)
     with pytest.raises(AgentEDAError) as raised:
         ae.Project.load(project_path)
 
@@ -180,11 +170,45 @@ def test_a_bad_project_file_is_a_tool_error_with_the_python_code_and_message(
     )
 
     assert response.is_error
-    assert response.structured_content == {
-        "code": raised.value.code,
-        "message": str(raised.value),
-    }
-    assert [block.text for block in response.content] == [str(raised.value)]
+    message = response.structured_content["message"]
+    assert response.structured_content["code"] == raised.value.code
+    assert message.startswith(f"project_path leads to '{project_path}', but no file")
+    assert 'a [data_policy] table that has sensitive_columns = ["email"]' in message
+    assert "mask_sensitive = true or false" in message
+    # The Python message tells to save a project, which no MCP tool can.
+    assert "project.save" in str(raised.value)
+    assert "save" not in message
+    assert "Project.load" not in message
+    assert [block.text for block in response.content] == [message]
+
+
+def test_a_project_file_with_a_misspelled_key_gets_the_python_code_and_names_project_path(
+    tmp_path,
+):
+    data_path = write(tmp_path / "shop.csv", CSV)
+    project_path = write(
+        tmp_path / "project.toml",
+        "[data_policy]\nsensitive_columns = []\nmask_sensitve = true\n",
+    )
+    with pytest.raises(AgentEDAError) as raised:
+        ae.Project.load(project_path)
+
+    response = anyio.run(
+        call,
+        "summarize_categorical",
+        {"data_path": str(data_path), "project_path": str(project_path)},
+    )
+
+    assert response.is_error
+    message = response.structured_content["message"]
+    assert response.structured_content["code"] == raised.value.code
+    assert message == str(raised.value).replace(
+        "Project.load found an unknown key 'mask_sensitve' in the [data_policy] "
+        f"table of '{project_path}'.",
+        "The MCP server found an unknown key 'mask_sensitve' in the [data_policy] "
+        f"table of the project_path file '{project_path}'.",
+    )
+    assert "Did you mean 'mask_sensitive'?" in message
 
 
 @pytest.mark.skipif(
@@ -200,8 +224,6 @@ def test_a_project_file_that_cannot_be_read_is_a_tool_error_not_a_bug(tmp_path, 
     else:
         write(project_path, MASKED).chmod(0)
     try:
-        with pytest.raises(AgentEDAError) as raised:
-            ae.Project.load(project_path)
         response = anyio.run(
             call,
             "summarize_categorical",
@@ -211,10 +233,11 @@ def test_a_project_file_that_cannot_be_read_is_a_tool_error_not_a_bug(tmp_path, 
         project_path.chmod(0o600)
 
     assert response.is_error
-    assert response.structured_content == {
-        "code": "invalid_project_file",
-        "message": str(raised.value),
-    }
+    assert response.structured_content["code"] == "invalid_project_file"
+    message = response.structured_content["message"]
+    assert message.startswith("The MCP server ")
+    assert f"the project_path file '{project_path}'" in message
+    assert "Project.load" not in message
 
 
 def test_a_project_path_that_is_not_a_string_is_a_tool_error(tmp_path):
@@ -229,35 +252,41 @@ def test_a_project_path_that_is_not_a_string_is_a_tool_error(tmp_path):
     assert "project_path" in response.structured_content["message"]
 
 
-def test_the_server_project_applies_to_every_call_that_takes_one(tmp_path):
+def test_the_mcp_server_project_applies_to_every_call_that_takes_one(tmp_path):
     data_path = write(tmp_path / "shop.csv", CSV)
     project = ae.Project.load(write(tmp_path / "project.toml", MASKED))
     expected = ae.summarize_categorical(read(data_path), project=project)
 
     response = anyio.run(
-        call, "summarize_categorical", {"data_path": str(data_path)}, project
+        call,
+        "summarize_categorical",
+        {"data_path": str(data_path)},
+        create_server(project=project),
     )
 
     assert response.structured_content == expected.to_dict()
     assert response.structured_content["masking"]["decided_by"] == "project"
 
 
-def test_the_server_project_leaves_analyses_without_one_alone(tmp_path):
+def test_the_mcp_server_project_leaves_analyses_without_one_alone(tmp_path):
     data_path = write(tmp_path / "shop.csv", CSV)
     project = ae.Project.load(write(tmp_path / "project.toml", MASKED))
     expected = ae.summarize_numeric(read(data_path))
 
     response = anyio.run(
-        call, "summarize_numeric", {"data_path": str(data_path)}, project
+        call,
+        "summarize_numeric",
+        {"data_path": str(data_path)},
+        create_server(project=project),
     )
 
     assert response.structured_content == expected.to_dict()
 
 
 @pytest.mark.parametrize(
-    ("server", "per_call", "mask_sensitive", "applied", "decided_by"),
+    ("mcp_server_project", "per_call", "mask_sensitive", "applied", "decided_by"),
     [
-        # A per-call project_path replaces the server's project.
+        # A per-call project_path replaces the MCP server's project.
         (MASKED, UNMASKED, None, False, "project"),
         (UNMASKED, MASKED, None, True, "project"),
         # A per-call mask_sensitive wins over either project.
@@ -271,20 +300,22 @@ def test_the_server_project_leaves_analyses_without_one_alone(tmp_path):
     ids=[
         "call-project-unmasks",
         "call-project-masks",
-        "call-false-over-server",
-        "call-true-over-server",
+        "call-false-over-mcp-server-project",
+        "call-true-over-mcp-server-project",
         "call-true-over-both",
         "call-false-over-both",
         "no-project",
     ],
 )
-def test_project_path_wins_over_the_server_project_and_mask_sensitive_over_both(
-    tmp_path, server, per_call, mask_sensitive, applied, decided_by
+def test_project_path_wins_over_the_mcp_server_project_and_mask_sensitive_over_both(
+    tmp_path, mcp_server_project, per_call, mask_sensitive, applied, decided_by
 ):
     data_path = write(tmp_path / "shop.csv", CSV)
     server_project = None
-    if server is not None:
-        server_project = ae.Project.load(write(tmp_path / "server.toml", server))
+    if mcp_server_project is not None:
+        server_project = ae.Project.load(
+            write(tmp_path / "mcp_server.toml", mcp_server_project)
+        )
     arguments = {"data_path": str(data_path), "mask_sensitive": mask_sensitive}
     call_project = server_project
     if per_call is not None:
@@ -294,7 +325,9 @@ def test_project_path_wins_over_the_server_project_and_mask_sensitive_over_both(
         read(data_path), project=call_project, mask_sensitive=mask_sensitive
     )
 
-    response = anyio.run(call, "summarize_categorical", arguments, server_project)
+    response = anyio.run(
+        call, "summarize_categorical", arguments, create_server(project=server_project)
+    )
 
     assert response.structured_content == expected.to_dict()
     masking = response.structured_content["masking"]
@@ -335,6 +368,9 @@ MASKING_CALLS = {
         "target_column": "segment",
         "task": "multiclass_classification",
         "id_column": "email",
+    },
+    "profile_missing_values": {
+        "sentinel_values": {"segment": ["no-tier"], "email": ["cy@example.org"]}
     },
     "summarize_categorical": {},
     "validate_column_types": {
@@ -454,25 +490,38 @@ def test_agent_eda_mcp_help_documents_the_project_option():
     assert "guardrail against accidental exposure, not anonymization or access" in text
 
 
-async def list_tools():
-    async with Client(create_server(), mode="legacy") as client:
-        return (await client.list_tools()).tools
-
-
-async def call(name, arguments, project=None):
-    """Call an MCP tool on a server started with this Project, as --project does."""
-    async with Client(create_server(project=project), mode="legacy") as client:
-        return await client.call_tool(name, arguments)
-
-
-def write(path, text):
-    path.write_text(text)
-    return path
-
-
 def read(path):
-    """The DataFrame the server reads from a CSV file."""
-    return pd.read_csv(path, keep_default_na=False, na_values=[""])
+    """The DataFrame the server reads from this file's CSV text, built by hand."""
+    frames = {
+        CSV: pd.DataFrame(
+            {
+                "customer": ["ann@example.org", "bo@example.org", "ann@example.org"],
+                "plan": ["pro", "pro", "team"],
+                "spend": [10, 20, 30],
+            }
+        ),
+        PEOPLE: pd.DataFrame(
+            {
+                "email": [
+                    "ann@example.org",
+                    "bo@example.org",
+                    "cy@example.org",
+                    "ann@example.org",
+                    "dee@example.org",
+                ],
+                "segment": [
+                    "gold-tier",
+                    "silver-tier",
+                    "no-tier",
+                    "gold-tier",
+                    "silver-tier",
+                ],
+                "plan": ["pro", "pro", "team", "pro", "team"],
+                "spend": [10, -999, 30, 10, -999],
+            }
+        ),
+    }
+    return reference_read(path, frames)
 
 
 # The console script installed next to this interpreter.
@@ -492,23 +541,11 @@ def run_agent_eda_mcp(*args):
 
 async def call_over_stdio(cwd, args, name, arguments):
     """Start agent-eda-mcp with these arguments, as an MCP client does."""
-    server = StdioServerParameters(command=AGENT_EDA_MCP, args=args, cwd=str(cwd))
+    server = StdioServerParameters(
+        command=AGENT_EDA_MCP, args=args, env=stdio_environment(), cwd=str(cwd)
+    )
     async with Client(server, mode="legacy") as client:
         return await client.call_tool(name, arguments)
-
-
-def read_table(path):
-    """A written table, read as CSV or Parquet by its extension."""
-    if path.suffix == ".csv":
-        return pd.read_csv(path, keep_default_na=False, na_values=[""])
-    with warnings.catch_warnings():
-        # pandas 2.2 deprecates the internals pyarrow 14 builds DataFrames from.
-        warnings.filterwarnings(
-            "ignore",
-            message="Passing a BlockManager to DataFrame is deprecated",
-            category=DeprecationWarning,
-        )
-        return pd.read_parquet(path)
 
 
 def table_text(path):
@@ -521,3 +558,122 @@ def shown(response):
     text = " ".join(block.text for block in response.content)
     record = json.dumps(response.structured_content, ensure_ascii=False)
     return [value for value in SENSITIVE if value in text or value in record]
+
+
+def failing_summarize_categorical():
+    """summarize_categorical as the server serves it, with a bug whose message
+    holds a value of the data."""
+
+    def failing(data, **options):
+        raise ZeroDivisionError(f"bug at {data['customer'].iloc[0]}")
+
+    # The registry knows it by its name and module, so it keeps its parameters
+    # and its masking.
+    failing.__name__ = "summarize_categorical"
+    failing.__module__ = ae.summarize_categorical.__module__
+    return failing
+
+
+async def call_failing(arguments, project=None):
+    served = serving(failing_summarize_categorical(), project=project)
+    async with Client(served, mode="legacy") as client:
+        with pytest.raises(MCPError) as raised:
+            await client.call_tool("summarize_categorical", arguments)
+        return raised.value
+
+
+@pytest.mark.parametrize(
+    ("how", "masks"),
+    [
+        ("project_path", True),
+        ("mask_sensitive", True),
+        ("server_project", True),
+        ("project_path_masking_off", False),
+        ("call_off", False),
+        ("no_project", False),
+    ],
+)
+def test_an_internal_error_with_masking_on_names_only_the_exception_type(
+    tmp_path, how, masks
+):
+    data_path = write(tmp_path / "data.csv", CSV)
+    on = write(tmp_path / "on.toml", MASKED)
+    off = write(tmp_path / "off.toml", UNMASKED)
+    arguments: dict[str, Any] = {"data_path": str(data_path)}
+    project = None
+    if how == "project_path":
+        arguments["project_path"] = str(on)
+    elif how == "mask_sensitive":
+        arguments |= {"project_path": str(off), "mask_sensitive": True}
+    elif how == "server_project":
+        project = ae.Project.load(on)
+    elif how == "project_path_masking_off":
+        arguments["project_path"] = str(off)
+    elif how == "call_off":
+        arguments |= {"project_path": str(on), "mask_sensitive": False}
+
+    error = anyio.run(call_failing, arguments, project)
+
+    assert error.code == INTERNAL_ERROR
+    assert "ZeroDivisionError" in error.message
+    assert ("ann@example.org" not in error.message) is masks
+    if masks:
+        assert error.message == (
+            "summarize_categorical failed with an unexpected error, which is a bug "
+            "in agent-eda, not in the call: ZeroDivisionError. The MCP server's log "
+            "on stderr has the traceback."
+        )
+
+
+def test_an_internal_error_of_an_analysis_without_masking_keeps_its_message(tmp_path):
+    def failing(data, **options):
+        raise ZeroDivisionError("bug at row 3")
+
+    failing.__name__ = "summarize_numeric"
+    failing.__module__ = ae.summarize_numeric.__module__
+    data_path = write(tmp_path / "data.csv", CSV)
+
+    async def scenario():
+        served = serving(failing)
+        async with Client(served, mode="legacy") as client:
+            with pytest.raises(MCPError) as raised:
+                await client.call_tool(
+                    "summarize_numeric", {"data_path": str(data_path)}
+                )
+            return raised.value
+
+    error = anyio.run(scenario)
+
+    assert "ZeroDivisionError: bug at row 3" in error.message
+
+
+def test_the_instructions_and_the_readme_say_what_masking_never_covers():
+    async def scenario():
+        async with Client(create_server(), mode="legacy") as client:
+            return client.instructions
+
+    instructions = " ".join(anyio.run(scenario).split())
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        encoding="utf-8"
+    )
+    section = readme.split("### Masking over MCP")[1].split("\n## ")[0]
+    masking = " ".join(section.split())
+
+    assert "Numeric statistics and index labels are never masked;" in instructions
+    assert "other tools ignore the project." in instructions
+    assert "never touches numeric statistics" in masking
+    assert "or index labels" in masking
+    assert "the MCP tools without masking don't read the project" in masking
+    assert "six MCP tools that support masking" in masking
+    assert len(MASKING) == 6
+
+
+def test_the_readme_counts_the_analyses_that_can_show_raw_values():
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        encoding="utf-8"
+    )
+    section = readme.split("## Projects and masking")[1].split("\n## ")[0]
+
+    [paragraph] = [p for p in section.split("\n\n") if p.startswith("Six analyses")]
+    for name in MASKING:
+        assert f"`{name}`" in paragraph

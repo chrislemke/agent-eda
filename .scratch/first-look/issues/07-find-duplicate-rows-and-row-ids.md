@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: the find_duplicate_rows en
 
 **Blocked by:** 03-property-tests-and-benchmark, 04-discovery
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `columns` defaults to every column except `id_column`. An unknown `id_column` raises `ColumnNotFoundError` with suggestions, like any other column argument.
 - [x] The result gives the duplicate groups, each with its size and row IDs, ordered by first occurrence; the group count; the rows in duplicate groups; the excess copies, which are the rows in groups minus the groups; the duplicate share, which is the excess copies over all rows; and the compared columns.
@@ -63,3 +63,5 @@ Checks:
 - A code review of the first version found three bugs, now fixed with tests. Hashable tuples could compare differently depending on the column order, an index of lists made the analysis crash, and `to_json()` failed for `np.timedelta64` row IDs. It also flagged four smaller points: set labels whose JSON followed hash order, describe_dataset and the row-ID check disagreeing on None and NaN labels, two misleading docstring sentences and the ID column in `left_out`. All are fixed. The strategy's column kind "object of lists and dicts" now also holds hashable tuples with missing values, and a property checks that the order of the compared columns doesn't change the groups.
 - The `thorough` Hypothesis profile passed for this analysis's properties and the pandas comparison on both version sets. Random runs outside the derandomized suite, with frames of up to 30 rows and 8 columns, passed 2,000 examples per seed and property: seeds 1 to 3 with the latest versions and 4 to 6 with the minimum ones, before and after the review's fixes, and seeds 7 to 9 and 10 to 12 before them.
 - Not checked locally: Linux x86_64 and ARM64, and the target 2-vCPU AgentCore machine; ticket 05's CI covers Linux.
+
+Box 15 is superseded: commit b430a0d deleted the catalogue (`docs/eda-python-implementation-catalogue.md`) and moved the planned analyses into the README, so no catalogue entry is marked implemented any more. The code and docstring of a shipped analysis are authoritative.

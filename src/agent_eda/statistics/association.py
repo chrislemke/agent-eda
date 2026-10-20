@@ -3,52 +3,67 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import combinations
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 import numpy as np
 import pandas as pd
 from annotated_types import Ge
 
-from agent_eda._association import Codes, Measure, measure_pairs
 from agent_eda._columns import (
+    TO_LABELS,
+    TO_NUMBERS,
     Column,
     ColumnKind,
     ColumnRule,
+    Selection,
     column_kind,
     select_columns,
 )
 from agent_eda._numeric import (
-    NumericColumn,
+    ReadEffects,
     read_limitations,
     read_numeric,
     stored_nan_count,
 )
 from agent_eda._registry import analysis
-from agent_eda._run import NO_ROWS, budget_exceeded_reason, data_shape, execution
+from agent_eda._result_base import (
+    ColumnSupport,
+    ExclusionReason,
+    Finding,
+    Limitation,
+    LimitationCode,
+    Status,
+    StatusReason,
+    Support,
+    entry_path,
+)
+from agent_eda._status import NO_ROWS, budget_exceeded_reason
 from agent_eda._text import join_items, join_labels, plural
+from agent_eda._values import value_codes
+from agent_eda._wording import PythonOnly
 from agent_eda.errors import InvalidArgumentError
-from agent_eda.results import (
+from agent_eda.statistics._association import (
+    Codes,
+    Measure,
+    NumericMethod,
+    measure_pairs,
+)
+from agent_eda.statistics._association_results import (
     AssociationColumn,
     AssociationMethod,
     AssociationPair,
     AssociationType,
-    ColumnSupport,
     ComputeAssociationMatrixResult,
-    Finding,
-    Limitation,
-    LimitationCode,
-    SkippedColumn,
-    SkipReason,
-    Status,
-    StatusReason,
-    Support,
+    LeftOutColumn,
+    LeftOutReason,
     UndefinedReason,
 )
 
-NumericMethod = Literal["pearson", "spearman", "kendall"]
 CategoricalMethod = Literal["cramers_v", "cramers_v_bias_corrected"]
+MixedMethod = Literal["correlation_ratio_bias_corrected", "correlation_ratio"]
 
 _ANALYSIS = "compute_association_matrix"
+_MIXED_METHODS = frozenset(get_args(MixedMethod))
 _PAIRED_KINDS: frozenset[ColumnKind] = frozenset(
     {"numeric", "boolean", "categorical", "text", "object"}
 )
@@ -58,14 +73,13 @@ _ASSOCIATION = ColumnRule(
     accepted=_PAIRED_KINDS,
     accepted_text=(
         "numeric, boolean, text, object and categorical columns, nullable and "
-        "pyarrow-backed ones included"
+        "pyarrow-backed ones of those kinds included"
     ),
     fixes={
-        "datetime": (
-            "convert datetimes to numbers with ({column} - {column}.min())"
-            ".dt.total_seconds() or to labels with {column}.dt.strftime('%Y-%m')"
+        "datetime": PythonOnly(
+            f"{TO_NUMBERS['datetime'].code}; {TO_LABELS['datetime'].code}"
         ),
-        "timedelta": "convert durations with {column}.dt.total_seconds()",
+        "timedelta": TO_NUMBERS["timedelta"],
     },
 )
 _CATEGORICAL = ColumnRule(
@@ -76,26 +90,27 @@ _CATEGORICAL = ColumnRule(
         "numeric columns to read as categorical; boolean, text, object and "
         "categorical columns are categorical anyway"
     ),
-    fixes={
-        "datetime": "convert datetimes to labels with {column}.dt.strftime('%Y-%m')",
-        "timedelta": "convert durations to labels with {column}.astype(str)",
-    },
+    fixes={kind: TO_LABELS[kind] for kind in ("datetime", "timedelta")},
 )
 # Why columns=None leaves out a column of each other kind.
-_KIND_SKIPS: dict[str, SkipReason] = {
+_KIND_SKIPS: dict[str, LeftOutReason] = {
     "datetime": "datetime",
     "timedelta": "timedelta",
     "other": "unsupported_dtype",
 }
-_SKIP_MESSAGES: dict[SkipReason, str] = {
+_SKIP_MESSAGES: dict[LeftOutReason, str] = {
     "datetime": (
         "Datetimes have no measure here; convert them to numbers or labels and "
         "name the column in columns."
     ),
     "timedelta": (
-        "Durations have no measure here; convert them with .dt.total_seconds() first."
+        "Durations have no measure here; convert them to numbers of seconds first."
     ),
-    "unsupported_dtype": "Its dtype holds neither numbers nor categories.",
+    "unsupported_dtype": (
+        "Its dtype holds neither numbers nor categories: Arrow times of day, "
+        "binary and nested types and sparse arrays of text or objects are none "
+        "of them."
+    ),
     "all_missing": "Every value is missing.",
     "no_finite_values": "Every value is missing, inf or -inf.",
     "unhashable_values": (
@@ -103,29 +118,43 @@ _SKIP_MESSAGES: dict[SkipReason, str] = {
         "compared as categories."
     ),
     "too_many_categories": (
-        "It has more distinct values than max_categories={max_categories}; "
-        "raise max_categories to pair it."
+        "It has more distinct values than the max_categories limit of "
+        "{max_categories}; raise max_categories to pair it."
     ),
 }
 # A column with more rows than this first counts the distinct values in this
-# many rows, so a column with far too many is skipped without reading it all.
+# many rows, so a column with far too many is left out without reading it all.
 PROBE_ROWS = 20_000
+# A rank method (spearman, kendall) spends about 0.3 seconds per million rows on
+# each numeric pair, and pearson a few milliseconds, so max_pairs counts such a
+# pair once per this many rows.
+RANK_PAIR_ROWS = 10_000
 
 _FEWER_THAN_TWO_COLUMNS = StatusReason(
-    code="fewer_than_two_columns",
+    code="no_columns",
     message=(
         "Fewer than two columns can be paired: numeric, boolean, text, object "
-        "and categorical columns can, and skipped_columns says why the others "
+        "and categorical columns can, and left_out_columns says why the others "
         "can't."
     ),
 )
 _NO_DEFINED_PAIRS = StatusReason(
-    code="no_defined_pairs",
+    code="no_values",
     message=(
         "No pair has a value: each pair's undefined_reason says why, such as "
         "too_few_rows."
     ),
 )
+
+
+def _rank_weight(numeric_method: NumericMethod, row_count: int) -> int:
+    """How many pairs a numeric pair counts toward max_pairs: 1 for pearson, which
+    a batch of matrix products computes for every pair at once, and for a rank
+    method one per RANK_PAIR_ROWS rows, rounded up, since it ranks or sorts
+    each pair's own complete rows."""
+    if numeric_method == "pearson":
+        return 1
+    return max(1, -(-row_count // RANK_PAIR_ROWS))
 
 
 @dataclass(frozen=True)
@@ -135,38 +164,21 @@ class _Paired:
     entry: AssociationColumn
     # A numeric column as read_numeric reads it, and its float64 values with
     # NaN where missing; both None for a categorical column.
-    numbers: NumericColumn | None
+    numbers: ReadEffects | None
     floats: np.ndarray | None
     # Codes from 0, -1 where missing, for a categorical column.
     codes: np.ndarray | None
 
     def support(self, row_count: int) -> ColumnSupport:
-        excluded = {
-            reason: count
-            for reason, count in (
-                ("missing", self.entry.missing_count),
-                ("infinite", self.entry.infinite_count),
-            )
-            if count
-        }
-        return ColumnSupport(
-            column=self.entry.column,
-            eligible_count=row_count,
-            evaluated_count=self.entry.value_count,
-            excluded_count=row_count - self.entry.value_count,
-            excluded_by_reason=excluded,
-        )
+        excluded: dict[ExclusionReason, int] = {}
+        if self.entry.missing_count:
+            excluded["missing"] = self.entry.missing_count
+        if self.entry.infinite_count:
+            excluded["infinite"] = self.entry.infinite_count
+        return ColumnSupport.of(self.entry.column, row_count, excluded)
 
 
 @analysis(
-    statuses=(
-        "completed",
-        "budget_exceeded",
-        "insufficient_data",
-        "not_applicable",
-        "failed",
-    ),
-    finding_codes=("perfect_associations",),
     tags=(
         "correlation",
         "association",
@@ -179,6 +191,8 @@ class _Paired:
         "relationships",
         "dependence",
         "redundant",
+        "multicollinearity",
+        "collinearity",
     ),
     work_limits=("max_pairs",),
 )
@@ -189,39 +203,36 @@ def compute_association_matrix(
     categorical_columns: Sequence[str] | None = None,
     numeric_method: NumericMethod = "pearson",
     categorical_method: CategoricalMethod = "cramers_v_bias_corrected",
+    mixed_method: MixedMethod = "correlation_ratio_bias_corrected",
     max_categories: Annotated[int, Ge(2)] = 50,
     max_pairs: Annotated[int, Ge(1)] = 5_000,
 ) -> ComputeAssociationMatrixResult:
     """How strongly are pairs of columns associated?
 
     When to use:
-        Call it after the per-column summaries to see which columns move
-        together: one call measures every pair of numeric and categorical
-        columns and lists the strongest first. Each pair gets the measure that
-        fits its types and uses its own complete rows, so gaps in one column
-        don't shrink every pair. Perfect associations are flagged, since one
-        column may duplicate or derive from the other. List numeric codes, such
-        as postal codes or class labels 1, 2 and 3, in categorical_columns so
-        they count as categories instead of numbers. It measures association,
-        not causation, without p-values. For how one numeric column is
-        distributed, call `summarize_numeric`; `describe_dataset` covers every
-        column's dtype and missing values, and `list_analyses` lists the other
-        analyses.
+        Call it after the per-column summaries to see which columns move together: one
+        call measures every pair of numeric and categorical columns and lists the
+        strongest first. Each pair gets the measure that fits its types and uses its own
+        complete rows, so gaps in one column don't shrink every pair. Perfect
+        associations are flagged, since one column may duplicate or derive from the
+        other. List numeric codes, such as postal codes or class labels 1, 2 and 3, in
+        categorical_columns so they count as categories: `infer_column_semantics` finds
+        them. It measures association, not causation, without p-values. For how one
+        numeric column is distributed, call `summarize_numeric`; for how the column a
+        model will predict goes with the others, `profile_target`.
 
     Args:
         data (pd.DataFrame): The data. Column labels must be unique, distinct as
             strings and a single level; describe_dataset reports labels that
             aren't. It is never modified.
         columns (Sequence[str] | None): Names of the columns to pair, in the
-            order to report them: a list, a tuple, a pandas Index such as
-            df.columns[:10], or a single name. A label that isn't a string can
-            be given as itself or as its string form. Numeric, boolean, text,
-            object and categorical columns are accepted; any other column
-            named here, such as a datetime, timedelta, period or list column,
-            raises errors.ColumnTypeError, which shows conversions where they
-            exist. None, the default, selects every numeric,
-            boolean, text, object and categorical column in DataFrame order and
-            lists the others in skipped_columns.
+            order to report them: a list or a single name. A label that isn't a string
+            can be given as itself or as its string form. Numeric, boolean, text, object
+            and categorical columns are accepted; any other column named here, such as a
+            datetime, timedelta, period or list column, is rejected with the code
+            `unsupported_column_type`. None, the default, selects every
+            numeric, boolean, text, object and categorical column in DataFrame order and
+            lists the others in left_out_columns.
         categorical_columns (Sequence[str] | None): Numeric columns to treat as
             categorical, so that codes such as 1, 2 and 3 are compared as
             categories instead of correlated as numbers. Each must be a column
@@ -235,46 +246,50 @@ def compute_association_matrix(
             for ties. The rank methods rank each pair's own complete rows, one
             pair at a time: up to about 0.3 seconds per numeric pair per
             million rows, against a few milliseconds for 'pearson', so narrow
-            columns before using them on large data. 'spearman' ranks a column
-            only once for the pairs whose complete rows hold all its values,
-            as in data without missing values.
+            columns before using them on large data.
         categorical_method (str): The measure for two categorical columns:
             'cramers_v_bias_corrected', the default, Cramér's V with Bergsma's
             (2013) correction, which removes most of the upward bias that few
             rows and many levels give V; or 'cramers_v', the uncorrected V of
             scipy.stats.contingency.association.
+        mixed_method (str): The measure for a categorical and a numeric
+            column, 'correlation_ratio_bias_corrected' or 'correlation_ratio'.
+            The default is the square root of epsilon
+            squared, Kelley's (1935) bias-adjusted share of the numeric column's
+            variance that the categories explain, clipped at 0. The plain ratio
+            eta rises with the number of levels even when the columns are
+            unrelated: 40 levels in 60 rows give about 0.8 for pure noise.
         max_categories (int): The most distinct values a categorical column may
-            have; a column with more is skipped with reason
+            have; a column with more is left out with reason
             too_many_categories. At least 2; defaults to 50.
         max_pairs (int): The most pairs the call computes, a work limit. With
-            more, it returns budget_exceeded without computing any. At least 1;
+            more, it returns budget_exceeded without computing any. A numeric
+            pair under 'spearman' or 'kendall' counts once per 10,000 rows,
+            rounded up, since each is ranked or sorted on its own: 100 columns
+            of 1,000,000 rows give 4,950 pairs that count 100 each. At least 1;
             defaults to 5,000.
 
     Returns:
         ComputeAssociationMatrixResult: `pairs` holds one entry per pair,
         strongest first by absolute value, with null values last. An entry
-        gives `x_column` and `y_column` with their `x_type` and `y_type`, the
-        `method`, the `value`, the `pair_count` of complete rows it uses, the
-        `direction` and, when the value is null, the `undefined_reason`.
-        pearson, spearman and kendall run from -1 to 1, Cramér's V and the
-        correlation ratio from 0, no association, to 1. Two numeric columns get
-        numeric_method and two categorical ones categorical_method. A
-        categorical and a numeric column get the correlation ratio, eta, with
-        direction x_to_y: it says how much the categorical x_column explains
-        the numeric y_column, not the reverse. Complete rows have both values
-        present, and finite in a numeric column.
+        gives the two columns and their types, the `method`, the `value`, the
+        `pair_count` of complete rows it uses, the `direction` and, when the
+        value is null, the `undefined_reason`. pearson, spearman and kendall
+        run from -1 to 1, Cramér's V and the correlation ratio from 0, no
+        association, to 1. Two numeric columns get numeric_method and two
+        categorical ones categorical_method. A categorical and a numeric column
+        get mixed_method, a correlation ratio, with direction x_to_y: it says
+        how much the categorical x_column explains the numeric y_column, not the
+        reverse. Complete rows have both values present, and finite in a numeric
+        column. A pair's value can differ in its last digits, about 1e-15
+        relative, with the other columns in the call; no pair differs by more
+        than 1e-12.
 
-        `columns` describes each paired column, keyed by name: its `type`,
-        `value_count`, `missing_count`, `infinite_count` and, for a categorical
-        one, `level_count`. `skipped_columns` lists the columns paired with no
-        other, each with its `reason`: datetime, timedelta, unsupported_dtype,
-        all_missing, no_finite_values, unhashable_values or
-        too_many_categories. The record keeps the 100 strongest pairs and adds
-        pairs_total. `to_frame` returns every pair, and with
-        table="matrix" the paired columns as rows and columns: the
-        cell in row x and column y holds the pair's value, and a correlation
-        ratio fills only the cell from its categorical row to its numeric
-        column.
+        `columns` describes each paired column, keyed by name. `left_out_columns`
+        lists the columns paired with no other, each with its `reason`: datetime,
+        timedelta, unsupported_dtype, all_missing, no_finite_values,
+        unhashable_values or too_many_categories. The record keeps the {entries_kept}
+        strongest pairs and adds pairs_total.
 
         A value that doesn't exist is null with its `undefined_reason`:
         too_few_rows, fewer than 3 complete rows; single_level or
@@ -282,27 +297,27 @@ def compute_association_matrix(
         column with one value in them; or one_row_per_level, a categorical
         column with a level for every complete row, such as an ID, which
         would explain the other column perfectly and trivially. The limitations
-        `too_few_values` and `zero_variance` name those pairs.
-        `float_precision` flags integers beyond ±2^53 read as float64, and
+        `too_few_values`, `zero_variance` and `one_row_per_level` name those
+        pairs, each with its own reason.
+        `float_precision` flags integers or decimals beyond ±2^53 read as float64, and
         `nan_counted_as_missing` NaN that a column stores as a value. There are
         no p-values or intervals.
 
         The finding is suspected:
 
-        - `perfect_associations`: a pair has an absolute value of 1, within
+        - `perfect_associations`: suspected; a pair has an absolute value of 1, within
           1e-9, so one column may duplicate or derive from the other.
 
     Statuses:
         completed: At least one pair has a value.
         budget_exceeded: The paired columns make more pairs than max_pairs, so
             none was computed; `status_reason` gives the count and the limit.
+            Reason code: `too_many_pairs`.
         insufficient_data: The data has no rows, or no pair has a value, such
-            as when every pair has fewer than 3 complete rows.
-        not_applicable: Fewer than two columns can be paired; skipped_columns
-            says why the others can't.
-        failed: An anticipated numerical failure stopped the analysis, and
-            `status_reason` gives its code and message. None is known today: a
-            value that can't be computed is null, with its reason, instead.
+            as when every pair has fewer than 3 complete rows. Reason codes:
+            `no_rows` and `no_values`.
+        not_applicable: Fewer than two columns can be paired; left_out_columns
+            says why the others can't. Reason code: `no_columns`.
 
     Examples:
         >>> import pandas as pd
@@ -329,16 +344,16 @@ def compute_association_matrix(
         >>> print(res)
         compute_association_matrix: completed on 8 rows x 5 columns
         Pairs, each on its own complete rows: 1 numeric (pearson), 1 categorical (cramers_v_bias_corrected),
-            4 mixed (correlation_ratio, from the categorical x_column to the numeric y_column).
-        Skipped 1 column, see res.skipped_columns: 'joined' (datetime).
+            4 mixed (correlation_ratio_bias_corrected, from the categorical x_column to the numeric y_column).
+        Left out 1 column, see res.left_out_columns: 'joined' (datetime).
         Pairs (6 of 6 shown):
-        x_column  y_column  method                     value  pair_count  direction
-        age       income    pearson                   0.9429           8  symmetric
-        region    age       correlation_ratio         0.8446           8  x_to_y
-        region    income    correlation_ratio         0.8288           8  x_to_y
-        member    income    correlation_ratio         0.3684           8  x_to_y
-        region    member    cramers_v_bias_corrected  0.2357           8  symmetric
-        member    age       correlation_ratio         0.1237           8  x_to_y
+        x_column  y_column  method                             value  pair_count  direction
+        age       income    pearson                           0.9429           8  symmetric
+        region    age       correlation_ratio_bias_corrected  0.7738           8  x_to_y
+        region    income    correlation_ratio_bias_corrected  0.7495           8  x_to_y
+        region    member    cramers_v_bias_corrected          0.2357           8  symmetric
+        member    age       correlation_ratio_bias_corrected       0           8  x_to_y
+        member    income    correlation_ratio_bias_corrected       0           8  x_to_y
         Findings: none
         Limitations: none
         More: res.to_frame() has all 6 pairs; res.to_frame(table='matrix') has the wide 4 x 4 matrix; res.findings,
@@ -348,19 +363,19 @@ def compute_association_matrix(
         ('age', 'income', 0.9429)
         >>> matrix = res.to_frame(table="matrix")
         >>> round(float(matrix.loc["region", "income"]), 4)
-        0.8288
+        0.7495
 
     See Also:
-        summarize_numeric: How the values of each numeric column are
-            distributed.
-        describe_dataset: Dtypes, missing and distinct counts and memory of every
-            column, whatever its dtype.
-        list_analyses: Every analysis, with the question each one answers.
+        profile_target: The classes and imbalance, or the statistics, of the column a
+            model will predict, checked against the task.
+        summarize_numeric: How the values of each numeric column are distributed.
+        infer_column_semantics: Which columns hold numeric codes, identifiers or numbers
+            stored as text.
     """
     selection = select_columns(_ANALYSIS, data, columns, _ASSOCIATION)
     categorical = _categorical_names(data, columns, categorical_columns, selection)
     row_count = len(data)
-    skipped: list[SkippedColumn] = []
+    left_out: list[LeftOutColumn] = []
     paired: list[_Paired] = []
     support: list[ColumnSupport] = []
     selected_names = {column.name for column in selection.columns}
@@ -368,27 +383,29 @@ def compute_association_matrix(
         name = str(label)
         if columns is None and name not in selected_names:
             reason = _KIND_SKIPS[column_kind(dtype)]
-            skipped.append(_skipped(name, str(dtype), reason, max_categories))
+            left_out.append(_left_out(name, str(dtype), reason, max_categories))
     for column in selection.columns:
-        outcome = _read(data, column, column.name in categorical, max_categories)
-        if isinstance(outcome, _Paired):
-            paired.append(outcome)
-            support.append(outcome.support(row_count))
+        read = _read(data, column, column.name in categorical, max_categories)
+        if isinstance(read, _Paired):
+            paired.append(read)
+            support.append(read.support(row_count))
         else:
-            skipped.append(_skipped(column.name, column.dtype, outcome, max_categories))
+            left_out.append(_left_out(column.name, column.dtype, read, max_categories))
             support.append(
-                ColumnSupport(
-                    column=column.name,
-                    eligible_count=row_count,
-                    evaluated_count=0,
-                    excluded_count=row_count,
-                    excluded_by_reason={outcome: row_count} if row_count else {},
+                ColumnSupport.of(
+                    column.name,
+                    row_count,
+                    _left_out_exclusions(data.iloc[:, column.position], read),
                 )
             )
     if columns is None:
         order = {str(label): i for i, label in enumerate(data.columns)}
-        skipped.sort(key=lambda s: order[s.column])
+        left_out.sort(key=lambda s: order[s.column])
     pair_count = len(paired) * (len(paired) - 1) // 2
+    weight = _rank_weight(numeric_method, row_count)
+    numeric_pairs = sum(p.floats is not None for p in paired)
+    numeric_pairs = numeric_pairs * (numeric_pairs - 1) // 2
+    work = pair_count + numeric_pairs * (weight - 1)
     pairs: list[AssociationPair] = []
     status: Status = "completed"
     reason: StatusReason | None = None
@@ -396,36 +413,50 @@ def compute_association_matrix(
         status, reason = "insufficient_data", NO_ROWS
     elif len(paired) < 2:
         status, reason = "not_applicable", _FEWER_THAN_TWO_COLUMNS
-    elif pair_count > max_pairs:
+    elif work > max_pairs:
         status = "budget_exceeded"
+        if weight == 1:
+            needs = f"The {len(paired):,} paired columns make"
+            narrow = "name fewer columns in columns"
+        else:
+            needs = (
+                f"The {len(paired):,} paired columns make {pair_count:,} pairs, and "
+                f"{numeric_method} ranks each of the {numeric_pairs:,} numeric "
+                f"ones on {row_count:,} rows, which counts as {weight:,} pairs, so "
+                "the call counts"
+            )
+            narrow = (
+                "name fewer columns in columns, or set numeric_method to pearson, "
+                "which counts each pair once"
+            )
         reason = budget_exceeded_reason(
             code="too_many_pairs",
-            needs=f"The {len(paired):,} paired columns make",
-            required=pair_count,
+            needs=needs,
+            required=work,
             unit=("pair", "pairs"),
             parameter="max_pairs",
             limit=max_pairs,
-            outcome="no pair was computed",
-            narrow="name fewer columns in columns",
+            consequence="no pair was computed",
+            narrow=narrow,
         )
     else:
-        pairs = _strongest_first(_pairs(paired, numeric_method, categorical_method))
+        pairs = _strongest_first(
+            _pairs(paired, numeric_method, categorical_method, mixed_method)
+        )
         if all(p.value is None for p in pairs):
             status, reason = "insufficient_data", _NO_DEFINED_PAIRS
-    return ComputeAssociationMatrixResult(
-        analysis=_ANALYSIS,
-        method=None,
-        status=status,
-        status_reason=reason,
+    return ComputeAssociationMatrixResult.for_call(
         parameters={
-            "data": data_shape(data),
             "columns": [column.name for column in selection.columns],
             "categorical_columns": list(categorical),
-            "numeric_method": numeric_method,
-            "categorical_method": categorical_method,
-            "max_categories": max_categories,
-            "max_pairs": max_pairs,
         },
+        libraries=(
+            ("scipy",)
+            if any(p.method == "kendall" and p.value is not None for p in pairs)
+            else ()
+        ),
+        status=status,
+        status_reason=reason,
         support=Support(
             row_count=row_count,
             column_count=len(selection.columns),
@@ -437,18 +468,13 @@ def compute_association_matrix(
         limitations=[
             *read_limitations(
                 {p.entry.column: p.numbers for p in paired if p.numbers is not None},
-                _entry_path,
+                entry_path,
             ),
             *_null_limitations(pairs),
         ],
-        execution=execution(
-            ("numpy", "pandas", "scipy")
-            if any(p.method == "kendall" and p.value is not None for p in pairs)
-            else ("numpy", "pandas")
-        ),
         pairs=pairs,
         columns={p.entry.column: p.entry for p in paired},
-        skipped_columns=skipped,
+        left_out_columns=left_out,
     )
 
 
@@ -456,7 +482,7 @@ def _categorical_names(
     data: pd.DataFrame,
     columns: Sequence[str] | None,
     categorical_columns: Sequence[str] | None,
-    selection,
+    selection: Selection,
 ) -> list[str]:
     """The checked names in categorical_columns, in the given order."""
     if categorical_columns is None:
@@ -482,7 +508,7 @@ def _categorical_names(
 
 def _read(
     data: pd.DataFrame, column: Column, as_category: bool, max_categories: int
-) -> "_Paired | SkipReason":
+) -> "_Paired | LeftOutReason":
     """The column's values or codes, or why the pairs can't use it."""
     series = data.iloc[:, column.position]
     rows = len(series)
@@ -502,7 +528,7 @@ def _read(
                 value_count=finite,
                 missing_count=missing,
                 infinite_count=rows - missing - finite,
-                level_count=None,
+                distinct_count=None,
             ),
             numbers=numbers,
             floats=numbers.values,
@@ -530,12 +556,11 @@ def _read(
             value_count=rows - missing,
             missing_count=missing,
             infinite_count=0,
-            level_count=found.levels,
+            distinct_count=found.levels,
         ),
         # Only the NaN stored as a value matters to the limitations here:
         # the values are compared as categories, not read as float64.
-        numbers=NumericColumn(
-            values=np.empty(0),
+        numbers=ReadEffects(
             boolean=False,
             beyond_exact_integers=False,
             stored_nan_count=stored_nan_count(series),
@@ -545,11 +570,6 @@ def _read(
         floats=None,
         codes=found.codes,
     )
-
-
-def _entry_path(name: str) -> str:
-    """The result path of a paired column's entry, such as "columns['age']"."""
-    return f"columns[{name!r}]"
 
 
 @dataclass(frozen=True)
@@ -565,13 +585,11 @@ def _codes(series: pd.Series, *, numbers: bool) -> _Levels | None:
     hashed. In a numeric column NaN is missing even where the dtype stores it
     as a value, as summarize_numeric counts it.
     """
-    try:
-        codes, uniques = pd.factorize(series)
-    # Lists and dicts raise TypeError; nested pyarrow types raise
-    # ArrowNotImplementedError, a NotImplementedError.
-    except (TypeError, NotImplementedError):
+    found = value_codes(series, unhashable="unsupported")
+    if found is None:
         return None
-    codes = np.asarray(codes, dtype=np.int64)
+    uniques = found.uniques
+    codes = np.asarray(found.codes, dtype=np.int64)
     if numbers and len(uniques):
         levels = pd.Index(uniques).to_numpy(dtype="float64", na_value=np.nan)
         is_nan = np.isnan(levels)
@@ -582,10 +600,35 @@ def _codes(series: pd.Series, *, numbers: bool) -> _Levels | None:
     return _Levels(codes, len(uniques))
 
 
-def _skipped(
-    name: str, dtype: str, reason: SkipReason, max_categories: int
-) -> SkippedColumn:
-    return SkippedColumn(
+def _left_out_exclusions(
+    series: pd.Series, reason: LeftOutReason
+) -> dict[ExclusionReason, int]:
+    """Why every value of a column left out of the pairs is excluded, and how many.
+
+    A column with no finite value holds only missing and infinite values; the
+    other reasons exclude every row for one reason.
+    """
+    rows = len(series)
+    if not rows:
+        return {}
+    if reason == "all_missing":
+        return {"missing": rows}
+    if reason == "no_finite_values":
+        missing = int(np.isnan(read_numeric(series).values).sum())
+        return {
+            key: count
+            for key, count in (("missing", missing), ("infinite", rows - missing))
+            if count
+        }
+    if reason == "unhashable_values":
+        return {"unhashable_values": rows}
+    return {"too_many_categories": rows}
+
+
+def _left_out(
+    name: str, dtype: str, reason: LeftOutReason, max_categories: int
+) -> LeftOutColumn:
+    return LeftOutColumn(
         column=name,
         dtype=dtype,
         reason=reason,
@@ -597,6 +640,7 @@ def _pairs(
     paired: list[_Paired],
     numeric_method: NumericMethod,
     categorical_method: CategoricalMethod,
+    mixed_method: MixedMethod,
 ) -> list[AssociationPair]:
     """Every pair of paired columns in the selected order, the categorical column
     first in a mixed pair."""
@@ -610,14 +654,15 @@ def _pairs(
             numeric.append(column.floats)
         else:
             assert column.codes is not None
-            assert column.entry.level_count is not None
+            assert column.entry.distinct_count is not None
             index.append(len(categorical))
-            categorical.append(Codes(column.codes, column.entry.level_count))
+            categorical.append(Codes(column.codes, column.entry.distinct_count))
     measures = measure_pairs(
         numeric,
         categorical,
         numeric_method=numeric_method,
         bias_corrected=categorical_method == "cramers_v_bias_corrected",
+        ratio_bias_corrected=mixed_method == "correlation_ratio_bias_corrected",
     )
     pairs = []
     for s, t in combinations(range(len(paired)), 2):
@@ -634,21 +679,37 @@ def _pairs(
             pairs.append(_association_pair(first, second, categorical_method, measure))
         elif kinds[0] == "categorical":
             measure = measures.mixed[index[s], index[t]]
-            pairs.append(_association_pair(first, second, "correlation_ratio", measure))
+            pairs.append(_association_pair(first, second, mixed_method, measure))
         else:
             measure = measures.mixed[index[t], index[s]]
-            pairs.append(_association_pair(second, first, "correlation_ratio", measure))
+            pairs.append(_association_pair(second, first, mixed_method, measure))
     return pairs
+
+
+# Decimal places at which two absolute values count as tied when pairs are
+# ordered. The sums behind a value run through the BLAS of the machine, whose
+# kernels add in different orders and so differ in the last bits: a relation
+# that holds exactly gives 1.0 on one machine and 0.9999999999999996 on another,
+# and ordering by those bits would order such pairs differently on each.
+TIE_DECIMALS = 12
 
 
 def _strongest_first(pairs: list[AssociationPair]) -> list[AssociationPair]:
     """By absolute value, descending, null values last; stable, so ties keep the
-    selected column order."""
-    return sorted(pairs, key=lambda p: (p.value is None, -abs(p.value or 0.0)))
+    selected column order. Values within rounding error of each other are ties."""
+    return sorted(
+        pairs,
+        key=lambda p: (p.value is None, -round(abs(p.value or 0.0), TIE_DECIMALS)),
+    )
 
 
 def _pair_label(pair: AssociationPair) -> str:
     return f"({pair.x_column!r}, {pair.y_column!r})"
+
+
+def _pair_path(pair: AssociationPair) -> str:
+    """The result path of a pair's value, which names the pair by its columns."""
+    return f"pairs[{pair.x_column!r}, {pair.y_column!r}].value"
 
 
 # How far from 1 an absolute value may lie and still count as a perfect
@@ -693,7 +754,7 @@ def _perfect_associations(
             ),
             assessment="suspected",
             columns=columns,
-            fields=[f"pairs[{i}].value" for i in positions],
+            fields=[_pair_path(pairs[i]) for i in positions],
         )
     ]
 
@@ -701,11 +762,15 @@ def _perfect_associations(
 # The limitation behind each reason a pair's value is null, and what it says.
 _NULL_LIMITATIONS: dict[LimitationCode, tuple[tuple[UndefinedReason, ...], str]] = {
     "too_few_values": (
-        ("too_few_rows", "one_row_per_level"),
+        ("too_few_rows",),
         "{pairs_have} too few complete rows for a value, so it is null: "
-        "{names}. Every measure needs at least 3, and more than the levels of "
-        "each categorical column, which with a level for every row would "
-        "explain the other column trivially.",
+        "{names}. Every measure needs at least 3.",
+    ),
+    "one_row_per_level": (
+        ("one_row_per_level",),
+        "{pairs_have} a categorical column with a level for every complete row, "
+        "such as an ID, which would explain the other column perfectly and "
+        "trivially, so the value is null: {names}.",
     ),
     "zero_variance": (
         ("single_level", "constant_column"),
@@ -730,7 +795,7 @@ def _null_limitations(pairs: list[AssociationPair]) -> list[Limitation]:
                     pairs_have=plural(len(positions), "pair has", "pairs have"),
                     names=join_items([_pair_label(pairs[i]) for i in positions]),
                 ),
-                fields=[f"pairs[{i}].value" for i in positions],
+                fields=[_pair_path(pairs[i]) for i in positions],
             )
         )
     return limitations
@@ -747,6 +812,6 @@ def _association_pair(
         method=method,
         value=measure.value,
         pair_count=measure.pair_count,
-        direction="x_to_y" if method == "correlation_ratio" else "symmetric",
+        direction="x_to_y" if method in _MIXED_METHODS else "symmetric",
         undefined_reason=measure.undefined,
     )

@@ -37,15 +37,19 @@ def test_errors_and_results_are_public_modules():
     assert ae.errors is errors
     assert ae.results is results
     assert errors.InvalidArgumentError.__module__ == "agent_eda.errors"
-    assert results.DescribeDatasetResult.__module__ == "agent_eda.results"
+    # A result class is defined in a private module next to its analysis;
+    # agent_eda.results only gives it by name.
+    package, _, module = results.DescribeDatasetResult.__module__.rpartition(".")
+    assert package == ae.describe_dataset.__module__.rpartition(".")[0]
+    assert module.startswith("_")
     assert ae.AnalysisResult is results.AnalysisResult
 
 
-def test_describe_dataset_lives_in_data_provenance():
-    provenance = importlib.import_module("agent_eda.data.provenance")
+def test_describe_dataset_lives_in_data_structure():
+    structure = importlib.import_module("agent_eda.data.structure")
 
-    assert ae.describe_dataset is provenance.describe_dataset
-    assert ae.describe_dataset.__module__ == "agent_eda.data.provenance"
+    assert ae.describe_dataset is structure.describe_dataset
+    assert ae.describe_dataset.__module__ == "agent_eda.data.structure"
 
 
 def test_a_misspelled_attribute_suggests_the_closest_export():
@@ -56,9 +60,9 @@ def test_a_misspelled_attribute_suggests_the_closest_export():
 def test_importing_the_package_loads_analyses_only_when_first_used():
     code = (
         "import sys, agent_eda as ae\n"
-        "print('agent_eda.data.provenance' in sys.modules)\n"
+        "print('agent_eda.data.structure' in sys.modules)\n"
         "ae.describe_dataset\n"
-        "print('agent_eda.data.provenance' in sys.modules)\n"
+        "print('agent_eda.data.structure' in sys.modules)\n"
     )
 
     out = run_python(code)
@@ -82,7 +86,8 @@ def test_type_checkers_see_every_export_and_flag_typos(tmp_path):
         "first: str = ae.search_analyses('nulls', limit=3).matches[0].name\n"
         "signature: str = ae.describe_analysis('describe_dataset').signature\n"
         "nothing: None = ae.guide()\n"
-        "ae.describe_datset\n"
+        "ae.describe_datset\n",
+        encoding="utf-8",
     )
     ty = Path(sys.executable).with_name("ty")
 

@@ -1,5 +1,6 @@
-"""The CI workflow runs the commands that the README documents for local runs."""
+"""The CI workflow runs the commands that AGENTS.md lists as finish checks."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,19 @@ def test_the_latest_versions_jobs_install_the_mcp_extra():
     assert "uv run --locked --extra mcp pytest" in commands("tests-latest")
 
 
+def test_the_latest_versions_job_also_runs_on_macos_and_windows_with_bash():
+    job = workflow()["jobs"]["tests-latest"]
+    cells = job["strategy"]["matrix"]["include"]
+
+    for runner_prefix in ("macos-", "windows-"):
+        pythons = {
+            cell["python"] for cell in cells if cell["runner"].startswith(runner_prefix)
+        }
+        assert {"3.12", "3.14"} <= pythons, runner_prefix
+    # The commands are bash, whichever the runner: Windows would run PowerShell.
+    assert job["defaults"]["run"]["shell"] == "bash"
+
+
 def test_the_stdio_smoke_test_runs_on_python_3_12_and_3_14():
     job = workflow()["jobs"]["mcp-smoke"]
     pythons = [entry["python"] for entry in job["strategy"]["matrix"]["include"]]
@@ -42,7 +56,7 @@ def test_the_offline_packaging_job_installs_no_extra():
 
 
 def workflow():
-    return yaml.safe_load(WORKFLOW.read_text())
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
 
 def commands(job):
@@ -55,9 +69,20 @@ def commands(job):
 
 
 def documented_command(task):
-    """The command that the README's Development table gives for a task."""
-    for line in (ROOT / "README.md").read_text().splitlines():
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if line.startswith("|") and cells[0] == task:
-            return cells[1].strip("`")
-    pytest.fail(f"The README's Development table has no row for {task!r}.")
+    """The minimum-versions command that AGENTS.md's Finish checks give for a task.
+
+    The task is "Test on the minimum versions" for the run without the mcp extra
+    and "Test on the minimum versions with the mcp extra" for the run with it.
+    """
+    text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    checks = text.split("\n### Finish checks\n")[1].split("\n## ")[0]
+    minimum = [
+        span
+        for span in re.findall(r"`([^`]+)`", checks)
+        if "--resolution lowest-direct" in span
+    ]
+    with_extra = task.endswith("with the mcp extra")
+    matching = [span for span in minimum if ("--extra mcp" in span) == with_extra]
+    if len(matching) != 1:
+        pytest.fail(f"AGENTS.md's Finish checks need one command for {task!r}.")
+    return matching[0]

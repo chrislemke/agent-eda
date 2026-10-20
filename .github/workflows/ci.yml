@@ -33,17 +33,26 @@ jobs:
       - run: uv run --locked ty check
 
   tests-latest:
-    name: tests, latest versions (Python ${{ matrix.python }}, ${{ matrix.arch }})
+    name: tests, latest versions (Python ${{ matrix.python }}, ${{ matrix.os }} ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
+    # The commands below are bash, also on Windows, where the default is PowerShell.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { python: "3.12", arch: x86_64, runner: ubuntu-24.04 }
-          - { python: "3.13", arch: x86_64, runner: ubuntu-24.04 }
-          - { python: "3.14", arch: x86_64, runner: ubuntu-24.04 }
-          - { python: "3.12", arch: ARM64, runner: ubuntu-24.04-arm }
+          - { python: "3.12", os: Linux, arch: x86_64, runner: ubuntu-24.04 }
+          - { python: "3.13", os: Linux, arch: x86_64, runner: ubuntu-24.04 }
+          - { python: "3.14", os: Linux, arch: x86_64, runner: ubuntu-24.04 }
+          - { python: "3.12", os: Linux, arch: ARM64, runner: ubuntu-24.04-arm }
+          # The MCP clients that the README names run on macOS and Windows too.
+          - { python: "3.12", os: macOS, arch: ARM64, runner: macos-26 }
+          - { python: "3.14", os: macOS, arch: ARM64, runner: macos-26 }
+          - { python: "3.12", os: Windows, arch: x86_64, runner: windows-2025 }
+          - { python: "3.14", os: Windows, arch: x86_64, runner: windows-2025 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,7 +78,7 @@ jobs:
         with:
           version: "0.13.1"
           enable-cache: false
-      # The README's command; tests/test_ci_workflow.py fails if the two differ.
+      # AGENTS.md's Finish checks give this command; tests/test_ci_workflow.py fails if the two differ.
       # Python 3.12, because numpy 1.26 has no wheels for 3.13.
       - name: Test on the minimum versions
         run: uv run --isolated --resolution lowest-direct --no-group mcp --group core --python 3.12 pytest
@@ -86,7 +95,7 @@ jobs:
         with:
           version: "0.13.1"
           enable-cache: false
-      # The README's command; tests/test_ci_workflow.py fails if the two differ.
+      # AGENTS.md's Finish checks give this command; tests/test_ci_workflow.py fails if the two differ.
       # The extra at its floors (mcp 2.3, pyarrow 14.0.1) and the pydantic 2.12
       # that mcp needs, so the whole suite runs, the MCP tests included.
       - name: Test on the minimum versions with the mcp extra

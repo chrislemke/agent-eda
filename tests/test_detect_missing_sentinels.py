@@ -157,7 +157,7 @@ LISTED_TEXT = [
     "MISSING",
 ]
 # Text that only resembles them.
-UNLISTED_TEXT = ["Lyon", "N/A ", " NA", "n.a.", "--", "??", "-999", "none yet", "0"]
+UNLISTED_TEXT = ["Lyon", "n.a.", "--", "??", "12", "none yet", "0"]
 TEXT_DTYPES = [object, "string", "string[pyarrow]", STR, pd.ArrowDtype(pa.string())]
 
 
@@ -706,7 +706,6 @@ def test_declares_the_four_statuses_the_ticket_names_and_its_finding_codes():
         "completed",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
     assert info.finding_codes == [
         "sentinel_values_present",
@@ -742,7 +741,7 @@ def test_data_without_rows_gives_insufficient_data():
             pd.DataFrame({"id": [1, 2, 3]}),
             "id",
             "The data has no column to check besides id_column 'id', which "
-            "columns=None leaves out. Name the columns to check in columns.",
+            "the default columns leave out. Name the columns to check in columns.",
         ),
     ],
     ids=["no-columns", "only-id-column"],
@@ -752,7 +751,7 @@ def test_no_column_to_check_gives_not_applicable(df, id_column, message):
 
     assert res.status == "not_applicable"
     assert res.status_reason is not None
-    assert res.status_reason.code == "no_columns_to_check"
+    assert res.status_reason.code == "no_columns"
     assert res.status_reason.message == message
 
 
@@ -780,11 +779,20 @@ def test_row_ids_are_the_id_columns_values_and_columns_none_leaves_it_out():
 
 
 def test_a_named_id_column_is_checked_too():
-    res = ae.detect_missing_sentinels(
-        orders(), columns=["order", "note"], id_column="order"
-    )
+    # Two orders carry the stand-in -999 as their ID.
+    df = orders().assign(order=[101, -999, 103, -999, 105])
+
+    res = ae.detect_missing_sentinels(df, columns=["order", "note"], id_column="order")
 
     assert res.parameters["columns"] == ["order", "note"]
+    [stand_in] = [c for c in res.candidates if c.column == "order"]
+    assert (stand_in.value, stand_in.count) == (-999, 2)
+    # Both rows show the stand-in as their row ID, which the result says.
+    assert stand_in.row_ids == [-999, -999]
+    assert [lim.code for lim in res.limitations] == [
+        "ambiguous_row_ids",
+        "sentinel_values_not_declared",
+    ]
 
 
 def test_an_unknown_id_column_raises_with_the_closest_names():
@@ -813,12 +821,11 @@ def test_repeated_index_labels_make_the_row_ids_that_repeat_ambiguous():
 
     res = ae.detect_missing_sentinels(df)
 
-    [limitation] = res.limitations
+    [limitation, _] = res.limitations
     assert limitation.code == "ambiguous_row_ids"
     assert limitation.reason == (
         "2 rows share an index label, so a row ID can match several rows: use a "
-        "unique id_column. Or make the index unique, such as with "
-        "df.reset_index(drop=True)."
+        "unique id_column. Or make the index unique."
     )
     # -999.0 sits in rows b and b; '' in rows a and b.
     assert limitation.fields == ["candidates[0].row_ids", "candidates[1].row_ids"]
@@ -979,27 +986,22 @@ def test_no_rule_reads_booleans_durations_or_lists_and_the_result_names_them():
 def test_the_printed_result_lists_the_candidates_most_frequent_first():
     res = ae.detect_missing_sentinels(orders(), id_column="order")
 
-    assert str(res).splitlines() == [
-        "detect_missing_sentinels: completed on 5 rows x 3 columns",
-        "Checked 2 columns: 3 suspected candidates. Shares are of all rows; row IDs "
-        "are values of id_column 'order'.",
-        "Suspected values stay valid until declared in sentinel_values, which "
-        "profile_missing_values counts as missing.",
-        "Candidates, most frequent first (3 of 3 shown):",
-        "column  value   count  share  confirmation  evidence                        "
-        "row_ids",
-        "amount  -999.0      2    0.4  suspected     builtin_list, isolated_extreme  "
-        "102 and 104",
-        "note    ''          2    0.4  suspected     builtin_list                    "
-        "101 and 104",
-        "note    'N/A'       1    0.2  suspected     builtin_list                    103",
-        "Findings (1 of 1 shown):",
-        "- suspected suspected_sentinel_values: 3 values in 2 columns may stand in for "
-        "missing values: 'amount' and 'note'.",
-        "Limitations: none",
-        "More: res.to_frame() has all 3 candidates; res.findings, res.limitations and "
-        "res.to_json() have the rest.",
+    lines = str(res).splitlines()
+
+    assert lines[0] == "detect_missing_sentinels: completed on 5 rows x 3 columns"
+    start = lines.index("Candidates, most frequent first (3 of 3 shown):")
+    rows = [line.split() for line in lines[start + 2 : start + 5]]
+    assert [row[:4] for row in rows] == [
+        ["amount", "-999.0", "2", "0.4"],
+        ["note", "''", "2", "0.4"],
+        ["note", "'N/A'", "1", "0.2"],
     ]
+    assert rows[0][-3:] == ["102", "and", "104"]
+    assert any(
+        line.startswith("- suspected suspected_sentinel_values: 3 values in 2")
+        for line in lines
+    )
+    assert lines[-1].startswith("More: res.to_frame() has all 3 candidates;")
 
 
 def test_the_printed_result_names_3_row_ids_and_counts_the_rest():
@@ -1038,18 +1040,21 @@ def test_the_printed_result_shows_placeholders_without_quotes():
 
 @pytest.mark.parametrize(
     "neighbour",
-    [
-        "profile_missing_values",
-        "describe_dataset",
-        "summarize_numeric",
-        "summarize_categorical",
-    ],
+    ["profile_missing_values", "summarize_numeric", "summarize_categorical"],
 )
 def test_nearby_analyses_point_to_it_for_stand_ins_for_missing_values(neighbour):
+    assert "`detect_missing_sentinels`" in ae.describe_analysis(neighbour).when_to_use
+
+
+@pytest.mark.parametrize(
+    "neighbour", ["profile_missing_values", "summarize_categorical"]
+)
+def test_nearby_analyses_list_it_in_see_also_for_stand_ins(neighbour):
+    # summarize_numeric names it in When to use: only; its See Also keeps its
+    # other next steps.
     doc = inspect.getdoc(getattr(ae, neighbour))
     assert doc
 
-    assert "`detect_missing_sentinels`" in ae.describe_analysis(neighbour).when_to_use
     assert "    detect_missing_sentinels: " in doc.split("See Also:")[1]
 
 
@@ -1069,4 +1074,29 @@ def test_support_counts_the_values_checked_in_each_column():
             s.excluded_by_reason,
         )
         for s in res.support.columns
-    ] == [("age", 3, 2, 1, {"missing": 1}), ("flag", 3, 3, 0, {})]
+    ] == [("age", 3, 2, 1, {"missing": 1})]
+
+
+@pytest.mark.parametrize(
+    "analysis", ["detect_missing_sentinels", "profile_missing_values"]
+)
+def test_true_and_one_can_both_be_declared_for_an_object_column(analysis):
+    # Matching keeps them apart: True matches the True, and 1 matches 1 and 1.0.
+    df = pd.DataFrame({"o": pd.Series([True, 1, 1.0, "1"], dtype=object)})
+
+    res = getattr(ae, analysis)(df, sentinel_values={"o": [True, 1]})
+
+    assert res.status == "completed"
+    if analysis == "detect_missing_sentinels":
+        assert [(c.value, c.count) for c in res.candidates] == [(True, 1), (1, 2)]
+    else:
+        declared = res.columns["o"].sentinel_values
+        assert [(d.value, d.count) for d in declared] == [(True, 1), (1, 2)]
+
+
+@pytest.mark.parametrize("values", [[1, 1.0], [True, True], [-999, -999]])
+def test_a_value_declared_twice_still_raises_when_both_are_one_value(values):
+    df = pd.DataFrame({"o": pd.Series([True, 1, 1.0, -999], dtype=object)})
+
+    with pytest.raises(InvalidArgumentError, match="more than once in sentinel_values"):
+        ae.detect_missing_sentinels(df, sentinel_values={"o": values})

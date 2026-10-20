@@ -6,7 +6,7 @@ Read these sections of `.scratch/mcp-server/spec.md`: Package and dependencies, 
 
 **Blocked by:** none
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `pyproject.toml` has the `mcp` extra (`mcp>=2.3`, `pyarrow>=14`) and the console script `agent-eda-mcp` pointing at `agent_eda.mcp:main`; `uv.lock` is updated, and `uv run pytest` installs the extra and runs the MCP tests.
 - [x] `agent_eda.errors.MissingDependencyError` exists with code `missing_dependency`. Without `mcp` importable, `agent-eda-mcp` exits with status 1 and prints the `pip install 'agent-eda[mcp]'` and uv commands to stderr, without a traceback.
@@ -32,3 +32,5 @@ What this ticket settled that the spec left open:
 - Tests are sync functions calling `anyio.run`, with `mcp.Client(create_server(), mode="legacy")` in memory; the stdio tests start the `agent-eda-mcp` script next to `sys.executable`, since the SDK passes the subprocess only a few environment variables.
 
 Checks: the four commands pass on the latest versions and in both minimum-versions runs; the MCP and packaging tests also pass on Python 3.14. CI itself wasn't run.
+
+Box 5 is superseded in part: commit ea01363 (code review follow-up, 2026-10-18) gave the MCP text MCP wording, so the text is no longer `str(res)`. The structured content still equals `res.to_dict()` unless the call has `table_path`.

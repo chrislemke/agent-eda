@@ -6,24 +6,33 @@ mask, and which first-look order to follow. The search_analyses and
 list_analyses MCP tools return what the Python calls return.
 """
 
+import importlib
 import inspect
 import re
+import typing
 
 import pytest
 
 pytest.importorskip(
     "mcp",
-    reason="the MCP server tests need the mcp extra: pip install 'agent-eda[mcp]'",
+    reason=(
+        "the MCP server tests need the mcp extra: run `uv sync` (uv 0.13 or later) or "
+        "uv run --extra mcp pytest in this repository, or "
+        "pip install 'agent-eda[mcp]' for an installed package"
+    ),
 )
 
 import anyio
 import jsonschema
 from mcp import Client
-from test_search_analyses import SEARCH_ACCEPTANCE
+from mcp_helpers import call, list_tools
+from serving import serving, with_stand_ins
+from test_search_analyses import SEARCH_ACCEPTANCE, accepted
 
 import agent_eda as ae
 from agent_eda.errors import InvalidArgumentError
 from agent_eda.mcp import create_server
+from agent_eda.results import Status
 
 ANALYSES = [info.name for info in ae.list_analyses().analyses]
 # Python call syntax, such as to_frame() or ae.guide(): a name and a bracket.
@@ -51,14 +60,14 @@ def instructions():
 
 
 def test_the_instructions_keep_within_one_page_of_the_guides_limits(instructions):
-    lines = instructions.split("\n")
+    lines = instructions.splitlines()
 
     assert 20 <= len(lines) <= 60
     assert max(len(line) for line in lines) <= 120
     assert lines == [line.rstrip() for line in lines]
 
 
-def test_the_instructions_call_the_server_mcp_server_as_the_glossary_does(
+def test_the_instructions_say_mcp_server_as_the_glossary_does(
     instructions,
 ):
     # GLOSSARY.md: "MCP server", never "server" alone.
@@ -73,21 +82,61 @@ def test_the_instructions_hold_no_python_call_syntax(instructions):
     assert "ae." not in instructions
 
 
-def test_the_instructions_name_every_registered_analysis_with_its_summary(
+def test_the_instructions_give_each_area_with_its_count_and_no_module_headings(
     instructions,
 ):
-    lines = instructions.split("\n")
+    text = unwrapped(instructions)
 
-    for info in ae.list_analyses().analyses:
-        masking = " [supports masking]" if info.supports_masking else ""
-        assert f"  {info.name}: {info.summary}{masking}" in lines
+    assert [line for line in instructions.splitlines() if "agent_eda" in line] == []
+    for area, count in {"data": 8, "statistics": 3}.items():
+        covers = inspect.getdoc(importlib.import_module(f"agent_eda.{area}"))
+        assert covers
+        noun = "analysis" if count == 1 else "analyses"
+        assert f" {area} ({count} {noun}): {covers.splitlines()[0]}" in text
+    # list_analyses lists each analysis with its summary.
+    lines = instructions.splitlines()
+    assert [name for name in ANALYSES if f"  {name}: " in lines] == []
+
+
+def test_the_instructions_stay_the_same_length_with_sixty_analyses():
+    def served_instructions():
+        async def scenario():
+            # The instructions cover every registered analysis, however few the
+            # MCP server serves.
+            async with Client(serving(ae.describe_dataset), mode="legacy") as client:
+                return client.instructions
+
+        return anyio.run(scenario)
+
+    before = served_instructions().splitlines()
+
+    with with_stand_ins(60 - len(ANALYSES)):
+        after = served_instructions().splitlines()
+
+    assert len(before) <= 60
+    assert len(after) == len(before)
+    assert max(len(line) for line in after) <= 120
+    changed = [line for line in after if line not in before]
+    assert changed[0] == "60 analyses in 2 areas:"
+    assert all(" analyses): " in line for line in changed[1:])
 
 
 def test_the_instructions_say_what_the_package_does(instructions):
-    first = instructions.split("\n")[0]
+    first = instructions.splitlines()[0]
 
     assert first.startswith(f"agent-eda {ae.__version__}: deterministic ")
     assert "exploratory data analysis" in first
+
+
+def test_the_instructions_do_not_say_that_every_mcp_tool_runs_an_analysis(instructions):
+    # list_analyses and search_analyses are MCP tools too: they find analyses.
+    text = unwrapped(instructions)
+
+    assert "Each MCP tool runs one analysis" not in text
+    assert "Every MCP tool runs" not in text
+    assert "Each analysis is an MCP tool" in text
+    assert "search_analyses finds analyses" in text
+    assert "list_analyses lists them" in text
 
 
 def test_the_instructions_explain_data_paths(instructions):
@@ -104,18 +153,20 @@ def test_the_instructions_explain_data_paths(instructions):
 
 def test_the_instructions_explain_results_and_statuses(instructions):
     text = unwrapped(instructions)
+    # "a failed write" is about table_path, not the status `failed`.
+    status_text = text.replace("a failed write", "a write that breaks")
 
-    for status in [
+    # Only the statuses some analysis can return, computed from the registry.
+    reachable = {s for info in ae.list_analyses().analyses for s in info.statuses}
+    assert reachable == {
         "completed",
         "partial",
         "insufficient_data",
         "not_applicable",
-        "missing_prerequisites",
         "budget_exceeded",
-        "blocked_by_policy",
-        "failed",
-    ]:
-        assert status in text
+    }
+    for status in typing.get_args(Status):
+        assert (status in status_text) == (status in reachable), status
     for assessment in ["descriptive", "suspected", "violation", "passed", "unknown"]:
         assert assessment in text
     # The text is the printed result, the structured content the record, and
@@ -126,6 +177,25 @@ def test_the_instructions_explain_results_and_statuses(instructions):
     assert "never overwrites" in text
     assert "table_file_exists" in text
     assert "isError" in text
+
+
+def test_the_instructions_hold_the_rules_the_path_descriptions_leave_out(instructions):
+    # data_path, table_path and project_path say one sentence each in the MCP
+    # tools' input schemas; their rules sit here, once.
+    text = unwrapped(instructions)
+
+    for rule in (
+        "a leading ~ is the home directory",
+        "in a directory that exists and is writable",
+        "the main table in full (not an analysis's other tables)",
+        "Full table written to <path> (<n> rows).",
+        "row_count",
+        "never overwrites or writes through a symbolic link",
+        "a failed write leaves no file",
+        "optional top-level name",
+        "[data_policy] table",
+    ):
+        assert rule in text, rule
 
 
 def test_the_instructions_promise_no_part_of_the_response_over_the_other(
@@ -151,7 +221,7 @@ def test_the_instructions_explain_masking_as_only_a_guardrail(instructions):
 
 
 def test_the_instructions_give_the_first_look_order(instructions):
-    lines = instructions.split("\n")
+    lines = instructions.splitlines()
     start = lines.index("A first look at a new dataset, in this order:") + 1
 
     steps = [line.split(": ")[0] for line in lines[start : start + len(FIRST_LOOK)]]
@@ -204,7 +274,7 @@ def test_search_analyses_points_to_mcp_tools_for_more_and_next():
 
     assert response.content[0].text.splitlines()[-2:] == [
         "More: search_analyses with limit 11 shows all 11 matches.",
-        "Next: the infer_column_semantics MCP tool's description and input schema "
+        "Next: the compute_association_matrix MCP tool's description and input schema "
         "say how to call it.",
     ]
 
@@ -234,7 +304,11 @@ def test_search_analyses_returns_five_matches_without_a_limit():
 def test_an_agents_wording_finds_the_right_mcp_tool_first(query, expected):
     response = anyio.run(call, "search_analyses", {"query": query})
 
-    assert response.structured_content["matches"][0]["name"] == expected
+    matches = response.structured_content["matches"]
+    if expected is None:
+        assert matches == []
+    else:
+        assert matches[0]["name"] in accepted(expected)
 
 
 def test_the_discovery_mcp_tools_declare_their_arguments_and_records():
@@ -273,34 +347,43 @@ def test_describe_analysis_and_guide_are_not_mcp_tools():
 
 
 @pytest.mark.parametrize(
-    ("arguments", "python_fix", "mcp_fix"),
+    ("arguments", "fixes"),
     [
         (
             {"query": 3},
-            "such as ae.search_analyses('missing values'),",
-            'such as {"query": "missing values"},',
+            {
+                "such as ae.search_analyses('missing values'),": (
+                    'such as {"query": "missing values"},'
+                ),
+                "a value of type int": "a number",
+            },
         ),
         (
             {"query": "nulls", "limit": 0},
-            "such as ae.search_analyses('missing values', limit=3).",
-            'such as {"query": "missing values", "limit": 3}.',
+            {
+                "such as ae.search_analyses('missing values', limit=3).": (
+                    'such as {"query": "missing values", "limit": 3}.'
+                ),
+                "an int of at least": "an integer of at least",
+            },
         ),
     ],
     ids=["query-not-text", "limit-below-one"],
 )
-def test_a_bad_search_value_is_the_python_error_with_an_mcp_fix(
-    arguments, python_fix, mcp_fix
-):
+def test_a_bad_search_value_is_the_python_error_with_an_mcp_fix(arguments, fixes):
     with pytest.raises(InvalidArgumentError) as raised:
         ae.search_analyses(**arguments)
 
     response = anyio.run(call, "search_analyses", arguments)
 
-    assert python_fix in str(raised.value)
+    expected = str(raised.value)
+    for python_fix, mcp_fix in fixes.items():
+        assert python_fix in expected
+        expected = expected.replace(python_fix, mcp_fix)
     assert response.is_error
     assert response.structured_content == {
         "code": raised.value.code,
-        "message": str(raised.value).replace(python_fix, mcp_fix),
+        "message": expected,
     }
     assert [block.text for block in response.content] == [
         response.structured_content["message"]
@@ -328,13 +411,3 @@ def test_an_unknown_or_missing_discovery_argument_is_an_invalid_call(
 def unwrapped(text):
     """The text with its line breaks and indents as single spaces."""
     return " ".join(text.split())
-
-
-async def list_tools():
-    async with Client(create_server(), mode="legacy") as client:
-        return (await client.list_tools()).tools
-
-
-async def call(name, arguments):
-    async with Client(create_server(), mode="legacy") as client:
-        return await client.call_tool(name, arguments)

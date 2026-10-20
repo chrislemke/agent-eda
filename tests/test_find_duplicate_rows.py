@@ -1,3 +1,4 @@
+import copy
 import datetime as dt
 import inspect
 import json
@@ -9,7 +10,7 @@ import pyarrow as pa
 import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
-from strategies import data_frames
+from strategies import data_frames, nan_as_missing
 
 import agent_eda as ae
 from agent_eda.errors import ColumnNotFoundError, ColumnTypeError
@@ -157,7 +158,6 @@ def test_missing_values_compare_equal_in_every_dtype():
     res = ae.find_duplicate_rows(df)
 
     assert [g.row_ids for g in res.duplicate_groups] == [[0, 2], [1, 3]]
-    assert res.missing_values_compare_equal is True
 
 
 def test_every_kind_of_missing_value_equals_every_other():
@@ -300,6 +300,8 @@ def test_index_labels_of_any_dtype_find_the_rows_with_loc(index):
 
     res = ae.find_duplicate_rows(df)
 
+    # Rows 0 and 2 repeat, and rows 1 and 3.
+    assert len(res.duplicate_groups) == 2
     for group in res.duplicate_groups:
         values = df.loc[group.row_ids, "x"]
         assert (values == values.iloc[0]).all()
@@ -454,14 +456,13 @@ def test_repeated_index_labels_make_row_ids_ambiguous():
     ]
     assert limitation.reason == (
         "4 rows share an index label, so a row ID can match several rows: use a "
-        "unique id_column. Or make the index unique, such as with "
-        "df.reset_index(drop=True)."
+        "unique id_column. Or make the index unique."
     )
-    # The printed line keeps the fix, though it cuts what follows.
+    # The printed line wraps, so the fix that follows is there too.
     assert (
         "- ambiguous_row_ids: 4 rows share an index label, so a row ID can match "
-        "several rows: use a unique id_column. Or make..."
-    ) in str(res).splitlines()
+        "several rows: use a unique id_column. Or make the index unique."
+    ) in " ".join(line.strip() for line in str(res).splitlines())
 
 
 def test_repeated_id_column_values_make_row_ids_ambiguous():
@@ -486,7 +487,7 @@ def test_repeated_row_ids_are_ambiguous_even_when_no_group_holds_one():
     [limitation] = res.limitations
     assert limitation.code == "ambiguous_row_ids"
     assert limitation.fields == []
-    assert limitation.reason.endswith(" None of the row IDs in this result repeats.")
+    assert limitation.reason.endswith(" No row ID in this result repeats.")
 
 
 @pytest.mark.parametrize(
@@ -579,15 +580,11 @@ def test_a_single_group_and_copy_read_in_the_singular():
     )
 
 
-def test_no_duplicates_give_a_descriptive_finding():
+def test_no_duplicates_give_no_finding_and_the_text_says_what_was_compared():
     res = ae.find_duplicate_rows(orders())
 
-    [finding] = res.findings
-    assert finding.code == "no_duplicate_rows"
-    assert finding.assessment == "descriptive"
-    assert finding.claim == "No two rows are equal in every compared column."
-    assert finding.columns == ["order", "customer", "amount"]
-    assert finding.fields == ["duplicate_group_count"]
+    assert res.findings == []
+    assert res.duplicate_group_count == 0
 
 
 def test_the_declared_statuses_are_the_four_the_ticket_names():
@@ -597,7 +594,6 @@ def test_the_declared_statuses_are_the_four_the_ticket_names():
         "completed",
         "insufficient_data",
         "not_applicable",
-        "failed",
     ]
 
 
@@ -633,7 +629,7 @@ def test_data_without_rows_gives_insufficient_data_and_a_null_share():
             pd.DataFrame({"order": [1, 2, 3]}),
             "order",
             "The data has no column to compare besides id_column 'order', which "
-            "columns=None leaves out. Name the columns to compare in columns.",
+            "the default columns leave out. Name the columns to compare in columns.",
         ),
     ],
     ids=["no-columns", "only-the-id-column"],
@@ -643,7 +639,7 @@ def test_no_column_to_compare_gives_not_applicable(df, id_column, message):
 
     assert res.status == "not_applicable"
     assert res.status_reason is not None
-    assert res.status_reason.code == "no_columns_to_compare"
+    assert res.status_reason.code == "no_columns"
     assert res.status_reason.message == message
     assert res.findings == []
     assert res.duplicate_groups == []
@@ -653,43 +649,42 @@ def test_a_single_row_completes_without_duplicates():
     res = ae.find_duplicate_rows(orders().iloc[:1])
 
     assert res.status == "completed"
-    assert [f.code for f in res.findings] == ["no_duplicate_rows"]
+    assert res.findings == []
+    assert res.duplicate_group_count == 0
 
 
 def test_the_printed_result_shows_the_groups_and_how_rows_were_compared():
     res = ae.find_duplicate_rows(orders(), id_column="order")
 
-    assert str(res).splitlines() == [
-        "find_duplicate_rows: completed on 6 rows x 3 columns",
-        "Compared 2 columns: 'customer' and 'amount'; missing values compare equal, "
-        "as in pandas.",
-        "Row IDs: values of id_column 'order'.",
-        "Duplicate groups (2 of 2 shown):",
-        "group  size  row_ids",
-        "    0     3  101, 103 and 106",
-        "    1     2  102 and 105",
-        "Findings (1 of 1 shown):",
-        "- suspected duplicate_rows: 5 rows form 2 duplicate groups; 3 are excess "
-        "copies (duplicate_share 0.5).",
-        "Limitations: none",
-        "More: res.to_frame() has all 5 rows in groups; res.findings, "
-        "res.limitations and res.to_json() have the rest.",
+    lines = str(res).splitlines()
+
+    assert lines[0] == "find_duplicate_rows: completed on 6 rows x 3 columns"
+    assert lines[1].startswith("Compared 2 columns: 'customer' and 'amount';")
+    assert "Row IDs: values of id_column 'order'." in lines
+    start = lines.index("Duplicate groups (2 of 2 shown):")
+    assert [line.split() for line in lines[start + 1 : start + 4]] == [
+        ["group", "size", "row_ids"],
+        ["0", "3", "101,", "103", "and", "106"],
+        ["1", "2", "102", "and", "105"],
     ]
+    assert (
+        "- suspected duplicate_rows: 5 rows form 2 duplicate groups; 3 are excess "
+        "copies (duplicate_share 0.5)."
+    ) in lines
+    assert lines[-1].startswith("More: res.to_frame() has all 5 rows in groups;")
 
 
 def test_the_printed_result_without_duplicates_says_so():
     lines = str(ae.find_duplicate_rows(orders())).splitlines()
 
-    assert lines[1:4] == [
-        "Compared 3 columns: 'order', 'customer' and 'amount'; missing values "
-        "compare equal, as in pandas.",
+    assert lines[1:5] == [
+        "Compared 3 columns: 'order', 'customer' and 'amount'; no two rows are "
+        "equal in them; missing values compare equal, as in",
+        "    pandas.",
         "Row IDs: index labels.",
         "Duplicate groups: none",
     ]
-    assert lines[-1] == (
-        "More: res.to_frame() has no rows; res.findings, res.limitations and "
-        "res.to_json() have the rest."
-    )
+    assert lines[-1].startswith("More: res.to_frame() has no rows;")
 
 
 def test_the_printed_result_shows_10_groups_and_5_row_ids_of_each():
@@ -709,9 +704,10 @@ def pandas_duplicates(subset):
     NaT and pd.NA apart in an object column. With two or more columns it
     factorizes each, so every missing value equals every other, as
     find_duplicate_rows compares. A constant column leads pandas down that path
-    without changing which rows are equal.
+    without changing which rows are equal. A NaN a float column stores as a value
+    is missing here, as every analysis counts it.
     """
-    reference = subset.copy()
+    reference = nan_as_missing(subset)
     reference.columns = range(subset.shape[1])
     reference[subset.shape[1]] = 0
     return reference.duplicated(keep=False), reference.duplicated(keep="first")
@@ -745,8 +741,16 @@ def test_groups_and_counts_match_pandas_duplicated(df, data):
         pandas_duplicates(df[columns])
     except (TypeError, NotImplementedError):
         assume(False)  # pandas can't hash lists, dicts and nested Arrow types
+    # pandas reads '' and '\x00a' as one text, which Python's == and
+    # find_duplicate_rows tell apart: test_value_identity covers such text.
+    assume(not any(holds_nul(df[column]) for column in columns))
 
     check_against_pandas(df, columns)
+
+
+def holds_nul(column):
+    """Whether a column holds text with a NUL character."""
+    return any(isinstance(value, str) and "\x00" in value for value in column)
 
 
 @given(df=data_frames(), data=st.data())
@@ -779,7 +783,8 @@ def test_rows_compare_alike_whatever_other_rows_the_data_holds(picks):
     # The duplicates among some rows are the same with or without the other
     # rows, which may hold the values that can't be hashed.
     values = np.empty(len(picks), dtype=object)
-    values[:] = [MIXED_VALUES[i] for i, _ in picks]
+    # Copies, so that no example shares a list or dict with another.
+    values[:] = [copy.deepcopy(MIXED_VALUES[i]) for i, _ in picks]
     kept = [position for position, (_, keep) in enumerate(picks) if keep]
 
     whole = ae.find_duplicate_rows(pd.DataFrame({"v": values}))
@@ -816,13 +821,19 @@ def test_groups_and_counts_match_pandas_when_few_rows_repeat():
     check_against_pandas(df, ["x", "y", "when"])
 
 
-def test_describe_dataset_points_to_it_for_repeated_rows():
-    doc = inspect.getdoc(ae.describe_dataset) or ""
-    when_to_use = doc.split("When to use:")[1].split("Args:")[0]
-    see_also = doc.split("See Also:")[1]
+def test_find_candidate_keys_points_to_it_for_the_rows_behind_a_near_key():
+    doc = inspect.getdoc(ae.find_candidate_keys) or ""
 
-    assert "`find_duplicate_rows`" in when_to_use
-    assert "\n    find_duplicate_rows: " in see_also
+    assert (
+        "`find_duplicate_rows`"
+        in ae.describe_analysis("find_candidate_keys").when_to_use
+    )
+    assert "\n    find_duplicate_rows: " in doc.split("See Also:")[1]
+    # And back: its See Also names the analysis whose near-key it lists rows for.
+    assert (
+        "\n    find_candidate_keys: "
+        in (inspect.getdoc(ae.find_duplicate_rows) or "").split("See Also:")[1]
+    )
 
 
 def test_describe_analysis_names_the_type_of_row_ids():

@@ -8,7 +8,7 @@ Read these sections of `.scratch/first-look/spec.md`: Project, data policy and m
 
 **Blocked by:** 06-summarize-categorical, 07-find-duplicate-rows-and-row-ids
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `ae.Project` is a frozen pydantic model that rejects unknown fields, with an optional `name` and a `data_policy`. `ae.DataPolicy` has `sensitive_columns`, default none, and `mask_sensitive`, default false. Setting `mask_sensitive` without sensitive columns raises `InvalidArgumentError`. Dataset roles stay out of this slice.
 - [x] Invalid Project or DataPolicy arguments raise `InvalidArgumentError` in the package's message format, never a raw pydantic error.

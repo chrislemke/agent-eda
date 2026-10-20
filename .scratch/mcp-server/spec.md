@@ -1,6 +1,6 @@
 # Spec: local MCP server
 
-Status: ready-for-agent
+Status: done
 
 ## Problem Statement
 
@@ -195,4 +195,4 @@ The rules of the main suite apply: small hand-built data with obvious answers, n
 
 - The design was settled in a grilling session on 2026-10-18; every recommendation was accepted.
 - `mcp` versions before 2.3 are untested, so the floor is the version the tests run against.
-- The catalogue plans hundreds of analyses. One MCP tool each is fine while MCP clients search tools on demand; if the list becomes a problem, a server option that exposes only a preset is the planned fix (ADR 0006).
+- The planned analyses (README, Planned analyses) number in the hundreds. One MCP tool each is fine while MCP clients search tools on demand; if the list becomes a problem, a server option that exposes only a preset is the planned fix (ADR 0006).

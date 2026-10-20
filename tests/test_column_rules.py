@@ -14,7 +14,7 @@ from agent_eda.errors import (
 
 ACCEPTED = (
     "It accepts integer, float and boolean columns, nullable and pyarrow-backed "
-    "ones included."
+    "ones of those kinds included."
 )
 
 
@@ -231,12 +231,14 @@ TEXT_FIX = (
         ),
         (
             pd.to_datetime(["2024-01-01", None, "2024-03-01"]),
-            "Leave 'x' out of columns.",
+            "Convert datetimes to numbers with "
+            "(df['x'] - df['x'].min()).dt.total_seconds(), or leave 'x' out of "
+            "columns.",
         ),
         (
             pd.to_timedelta(["1D", None, "3D"]),
-            "Convert durations with df['x'].dt.total_seconds(), or leave 'x' out "
-            "of columns.",
+            "Convert durations to numbers with df['x'].dt.total_seconds(), or leave "
+            "'x' out of columns.",
         ),
     ],
     ids=["default-text", "string", "object", "categorical", "datetime", "timedelta"],
@@ -280,7 +282,35 @@ def test_the_analysis_that_fits_is_named_only_for_the_columns_it_fits(df):
         ae.summarize_numeric(df, columns=["when", "city"])
 
     assert str(caught.value).endswith(
-        f"{ACCEPTED} Use summarize_categorical for 'city' instead; convert numbers "
-        "stored as text with pd.to_numeric(df['city'], errors='coerce'); or leave "
-        "them out of columns."
+        f"{ACCEPTED} Use summarize_categorical for 'city' instead; convert "
+        "datetimes to numbers with (df['when'] - df['when'].min())"
+        ".dt.total_seconds(); convert numbers stored as text with "
+        "pd.to_numeric(df['city'], errors='coerce'); or leave them out of columns."
     )
+
+
+def test_a_message_names_at_most_3_unknown_columns_and_counts_the_rest(df):
+    unknown = ["zzz1", "zzz2", "zzz3", "zzz4", "zzz5"]
+
+    with pytest.raises(ColumnNotFoundError) as caught:
+        ae.summarize_numeric(df, columns=unknown)
+
+    assert str(caught.value) == (
+        "summarize_numeric got 5 unknown columns in columns: 'zzz1', 'zzz2', 'zzz3' "
+        "and 2 more. The data has 3 columns: 'age', 'income' and 'city'."
+    )
+
+
+def test_a_message_cuts_an_unknown_name_to_40_characters(df):
+    long = "x" * 25 + "middle" + "y" * 25
+
+    with pytest.raises(ColumnNotFoundError) as caught:
+        ae.summarize_numeric(df, columns=[long])
+
+    message = str(caught.value)
+    assert long not in message
+    assert "middle" not in message
+    [shown] = [word for word in message.split() if word.startswith("'xxx")]
+    assert len(shown) <= 40 + len("'.")
+    assert shown.startswith("'xxxxx")
+    assert "..." in shown
