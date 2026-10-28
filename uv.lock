@@ -58,7 +58,7 @@ dev = [
     { name = "uv-build" },
 ]
 mcp = [
-    { name = "agent-eda", marker = "extra == 'extra-9-agent-eda-mcp' or extra != 'group-9-agent-eda-core' or (extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
+    { name = "agent-eda", marker = "extra == 'extra-9-agent-eda-mcp' or extra != 'group-9-agent-eda-core' or extra == 'group-9-agent-eda-mcp'" },
     { name = "agent-eda", extra = ["mcp"], marker = "extra == 'extra-9-agent-eda-mcp' or (extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
 ]
 
@@ -110,7 +110,7 @@ version = "4.15.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "idna" },
-    { name = "typing-extensions", marker = "python_full_version < '3.15' or (extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.15'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/d2/f4d173e22df740bc37b1db102b386ba719b66e95b0f0d751f556b387e6d2/anyio-4.15.1.tar.gz", hash = "sha256:9f28306018cbd6d329e64a36d58256edff76dd996fe423bc957326e578b82a94", size = 276966, upload-time = "2026-09-05T10:42:39.44Z" }
 wheels = [
@@ -592,13 +592,13 @@ name = "ipython"
 version = "9.17.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
     { name = "ipython-pygments-lexers" },
     { name = "jedi" },
     { name = "matplotlib-inline" },
-    { name = "pexpect", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (sys_platform == 'emscripten' and extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp') or (sys_platform == 'win32' and extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (sys_platform == 'win32' and extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
+    { name = "pexpect", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
     { name = "prompt-toolkit" },
-    { name = "psutil", marker = "(sys_platform != 'cygwin' and sys_platform != 'emscripten') or (sys_platform == 'cygwin' and extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (sys_platform == 'cygwin' and extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp') or (sys_platform == 'emscripten' and extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (sys_platform == 'emscripten' and extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
+    { name = "psutil", marker = "sys_platform != 'cygwin' and sys_platform != 'emscripten'" },
     { name = "pygments" },
     { name = "stack-data" },
     { name = "traitlets" },
@@ -840,7 +840,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "python-dateutil" },
-    { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32' or (extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
+    { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e2/17/d7b106e05bfa642e8694451e7d3d759c6a241c5386a5d962e4f66c047e06/pandas-3.0.6.tar.gz", hash = "sha256:66b07ef7315a31bfe1089cd3d71a7de781c9dca986762d0b4fe7c0ef17465d10", size = 4667686, upload-time = "2026-09-17T23:23:18.345Z" }
 wheels = [
@@ -909,7 +909,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "(sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'emscripten' and extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (sys_platform == 'emscripten' and extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp') or (sys_platform == 'win32' and extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (sys_platform == 'win32' and extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -1244,7 +1244,7 @@ name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
@@ -1374,7 +1374,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "rpds-py" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-9-agent-eda-mcp' and extra == 'group-9-agent-eda-core') or (extra == 'group-9-agent-eda-core' and extra == 'group-9-agent-eda-mcp')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/22/f5/df4e9027acead3ecc63e50fe1e36aca1523e1719559c499951bb4b53188f/referencing-0.37.0.tar.gz", hash = "sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8", size = 78036, upload-time = "2025-10-13T15:30:48.871Z" }
 wheels = [
@@ -1779,7 +1779,7 @@ wheels = [
 
 [[package]]
 name = "virtualenv"
-version = "21.14.9"
+version = "21.14.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "distlib" },
@@ -1788,9 +1788,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "python-discovery" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d0/04/2f69ba1207ce59630ecea8ebfdaf5c8f9a14726f2408ccd145a18d1ef619/virtualenv-21.14.9.tar.gz", hash = "sha256:4d1bee354cd81c820da3bee56e38be3426490f8d1fc54e10ea5b2072ebad8ef8", size = 5500672, upload-time = "2026-10-17T16:09:42.345Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/70/aa/bff50daee0488e16d611258a9b6c5a1d0c9e128f8ca424e9f4e1c0444ef2/virtualenv-21.14.13.tar.gz", hash = "sha256:de5307ba4b9a0001d9c8ea02832d38f63ca432880f416c1bface61c4323fd905", size = 5570301, upload-time = "2026-10-22T20:10:16.952Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/e5/9a3918219745e8bdd64fe0fd9a2d7ce4fffde9268fbc791634b7d4779de9/virtualenv-21.14.9-py3-none-any.whl", hash = "sha256:ac51744da66ae56ff814b087d65096c94de698ec520adc624b108b679655809b", size = 5494452, upload-time = "2026-10-17T16:09:40.584Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/a9/c10d8a44a29fb94a18b43fdf11f38caca53ae7c9406f11a72b1cb8f624f1/virtualenv-21.14.13-py3-none-any.whl", hash = "sha256:5fbb04138a4861580b78ba9110d529a26bc48fcc93c8ec36bc0202eeed96a788", size = 5557094, upload-time = "2026-10-22T20:10:15.096Z" },
 ]
 
 [[package]]
